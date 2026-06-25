@@ -1240,7 +1240,7 @@ private fun ArchiveTuneBrand(
         horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Image(
-            painter = painterResource(R.drawable.app_icon_small),
+            painter = painterResource(R.drawable.hush_app_icon),
             contentDescription = null,
             modifier = Modifier.size(20.dp),
         )

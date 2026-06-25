@@ -115,7 +115,7 @@ class BuildOnboardingUiStateUseCase
                         id = OnboardingPageId.WELCOME,
                         titleResId = R.string.onboarding_welcome_title,
                         subtitleResId = R.string.onboarding_welcome_subtitle,
-                        iconResId = R.drawable.app_icon_small,
+                        iconResId = R.drawable.hush_app_icon,
                     ),
                     OnboardingPageUiModel(
                         id = OnboardingPageId.PERMISSIONS,
