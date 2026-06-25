@@ -68,6 +68,12 @@ android {
                 ?: ""
         buildConfigField("String", "CANVAS_BEARER_TOKEN", "\"$canvasBearerToken\"")
 
+        val extractorBearer =
+            localProperties.getProperty("EXTRACTOR_BEARER")
+                ?: System.getenv("EXTRACTOR_BEARER")
+                ?: ""
+        buildConfigField("String", "EXTRACTOR_BEARER", "\"$extractorBearer\"")
+
         val nightlyBuildHash =
             (
                 localProperties.getProperty("NIGHTLY_BUILD_HASH")
@@ -312,6 +318,7 @@ dependencies {
     implementation(project(":canvas"))
     implementation(project(":shazamkit"))
     implementation(project(":spotifycore"))
+    implementation(project(":moriextractor"))
     implementation("com.materialkolor:material-kolor:5.0.0-alpha07")
 
     implementation(libs.ktor.client.core)
