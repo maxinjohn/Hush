@@ -218,7 +218,7 @@ fun PlayerSettings(
         } else {
             PlayerStreamClient.ANDROID_VR
         }
-    val audioQualityEnabled = selectedPlayerStreamClient != PlayerStreamClient.ARCHIVETUNE_EXTRACTOR
+    val audioQualityEnabled = true
 
     var showArtistSeparatorsDialog by remember { mutableStateOf(false) }
     var showTagsManagementDialog by remember { mutableStateOf(false) }
