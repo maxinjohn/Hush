@@ -98,7 +98,7 @@
     <string name="resume_autoscroll">Продолжить авто-прокрут</string>
     <string name="lyrics_romanize_japanese">Романизация японских слов</string>
     <string name="lyrics_romanize_korean">Романизация корейских слов</string>
-    <string name="discord">Discord</string>
+
     <string name="advanced_login">Войти с помощью токена</string>
     <string name="token_hidden">Нажмите, чтобы показать токен</string>
     <string name="token_shown">Нажмите ещё раз, чтобы скопировать или изменить</string>

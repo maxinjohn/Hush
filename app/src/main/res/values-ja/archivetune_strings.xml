@@ -282,7 +282,7 @@
     <string name="quick_picks_display_mode">クイックピック表示モード</string>
     <string name="quick_picks_display_mode_card">カード</string>
     <string name="quick_picks_display_mode_list">リスト</string>
-    <string name="discord">Discord</string>
+
     <string name="advanced_login">トークンでログイン</string>
     <string name="token_hidden">タップしてトークンを表示</string>
     <string name="token_shown">もう一度タップしてコピーまたは編集</string>
@@ -322,14 +322,14 @@
     <string name="storage_folder_selected_restart">保存フォルダーを保存しました。アプリは3秒後に再起動します。</string>
     <string name="storage_folder_invalid">有効なフォルダーを選択してください。</string>
     <string name="storage_folder_unsupported">このフォルダーはファイルベースのメディアキャッシュに使用できません。</string>
-    <string name="storage_folder_not_writable">ArchiveTuneはこのフォルダーにキャッシュファイルを書き込めません。</string>
+    <string name="storage_folder_not_writable">Hushはこのフォルダーにキャッシュファイルを書き込めません。</string>
     <string name="storage_cache_cleared">キャッシュを消去しました。</string>
     <string name="storage_cache_clear_failed">キャッシュを消去できませんでした。SDカードアクセスを確認してください。</string>
     <string name="storage_clear_song_cache_progress">曲キャッシュを消去中...%1$d%%</string>
     <string name="storage_clear_downloads_progress">ダウンロードを消去中...%1$d%%</string>
     <string name="storage_clear_image_cache_progress">画像キャッシュを消去中...%1$d%%</string>
     <string name="storage_clear_canvas_cache_progress">Canvasキャッシュを消去中...%1$d%%</string>
-    <string name="storage_cache_clear_warning">キャッシュファイルの削除中はArchiveTuneを開いたままにしてください。</string>
+    <string name="storage_cache_clear_warning">キャッシュファイルの削除中はHushを開いたままにしてください。</string>
     <string name="storage_size_ratio">%1$s / %2$s</string>
     <string name="sensitivity_percentage">%1$d%%</string>
     <string name="clear_song_cache_dialog">キャッシュ済みの曲をすべて消去しますか？</string>
@@ -405,7 +405,7 @@
     <string name="settings_playback_subtitle">音声動作、クロスフェード、バックグラウンド再生</string>
     <string name="settings_behavior_title">動作</string>
     <string name="settings_behavior_subtitle">履歴、既定値、プライバシー動作</string>
-    <string name="settings_integration_subtitle">Discord、Last.fm、Libre.fm、ListenBrainz</string>
+    <string name="settings_integration_subtitle">Last.fm、Libre.fm、ListenBrainz</string>
     <string name="settings_backup_restore_subtitle">個人用アプリデータをエクスポート・復元</string>
     <string name="settings_developer_options_title">開発者オプション</string>
     <string name="settings_developer_options_subtitle">実験的機能とデバッグ</string>
@@ -501,7 +501,7 @@
     <string name="backup_category_settings">アプリ設定</string>
     <string name="backup_category_settings_desc">外観、再生、環境設定</string>
     <string name="backup_category_account">アカウント詳細</string>
-    <string name="backup_category_account_desc">YouTube、Spotify、Last.fm、Libre.fm、Discord、プロキシ認証情報</string>
+    <string name="backup_category_account_desc">YouTube、Spotify、Last.fm、Libre.fm、プロキシ認証情報</string>
     <string name="internal_service">内部サービス</string>
     <string name="external_service">外部サービス</string>
     <string name="restore_invalid_file">選択したファイルは有効なバックアップアーカイブではありません。</string>
@@ -572,7 +572,6 @@
     <string name="about_position_zion_huang">InnerTuneの作成者 · Metrolist、ArchiveTune、その他のフォークの基盤</string>
     <string name="about_content_desc_github">GitHub</string>
     <string name="about_content_desc_website">ウェブサイト</string>
-    <string name="about_content_desc_discord">Discord</string>
-    <string name="about_content_desc_telegram">Telegram</string>
+
     <string name="about_content_desc_donate">寄付</string>
 </resources>

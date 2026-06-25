@@ -124,7 +124,7 @@
     <string name="resume_autoscroll">Поновити автоматичну прокрутку</string>
     <string name="lyrics_romanize_japanese">Транслітерація текстів пісень японською</string>
     <string name="lyrics_romanize_korean">Транслітерація текстів пісень корейською</string>
-    <string name="discord">Discord</string>
+
     <string name="advanced_login">Увійти за допомогою токена</string>
     <string name="token_hidden">Натисніть, щоб відобразити токен</string>
     <string name="token_shown">Натисніть ще раз, щоб скопіювати або редагувати</string>

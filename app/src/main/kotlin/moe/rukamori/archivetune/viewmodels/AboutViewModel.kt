@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import moe.rukamori.archivetune.HushLinks
 import moe.rukamori.archivetune.BuildConfig
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.about.AboutContributor
@@ -53,6 +54,7 @@ sealed interface AboutScreenState {
 @Immutable
 data class AboutUiModel(
     @StringRes val appNameResId: Int,
+    @StringRes val forkNoticeResId: Int,
     val versionName: String,
     val buildHash: String?,
     val buildVariant: String,
@@ -420,6 +422,7 @@ class AboutViewModel
         private fun buildUiModel(): AboutUiModel =
             AboutUiModel(
                 appNameResId = R.string.app_name,
+                forkNoticeResId = R.string.about_fork_notice,
                 versionName = BuildConfig.VERSION_NAME,
                 buildHash = currentBuildHash,
                 buildVariant = if (BuildConfig.DEBUG) DebugBuildBadge else BuildConfig.ARCHITECTURE.uppercase(),
@@ -429,37 +432,25 @@ class AboutViewModel
                             id = "github",
                             iconResId = R.drawable.github,
                             labelResId = R.string.about_content_desc_github,
-                            url = "https://github.com/ArchiveTuneApp/ArchiveTune",
+                            url = HushLinks.GITHUB_REPO_URL,
                         ),
                         AboutLinkUiModel(
-                            id = "website",
+                            id = "releases",
                             iconResId = R.drawable.website,
                             labelResId = R.string.about_content_desc_website,
-                            url = "https://archivetune.koiiverse.cloud",
+                            url = HushLinks.GITHUB_RELEASES_URL,
                         ),
                         AboutLinkUiModel(
-                            id = "telegram",
-                            iconResId = R.drawable.telegram,
-                            labelResId = R.string.about_content_desc_telegram,
-                            url = "https://t.me/ArchiveTuneGC",
-                        ),
-                        AboutLinkUiModel(
-                            id = "donate",
-                            iconResId = R.drawable.coffee,
-                            labelResId = R.string.about_content_desc_donate,
-                            url = "https://koiiverse.cloud/donate",
-                        ),
-                        AboutLinkUiModel(
-                            id = "discord",
-                            iconResId = R.drawable.discord,
-                            labelResId = R.string.discord,
-                            url = "https://discord.gg/XF2fpb9rTq",
+                            id = "upstream",
+                            iconResId = R.drawable.github,
+                            labelResId = R.string.about_upstream_project,
+                            url = HushLinks.UPSTREAM_GITHUB_REPO_URL,
                         ),
                         AboutLinkUiModel(
                             id = "privacy_policy",
                             iconResId = R.drawable.lock,
                             labelResId = R.string.privacy,
-                            url = "https://archivetune.koiiverse.cloud/privacy",
+                            url = HushLinks.PRIVACY_POLICY_URL,
                         ),
                     ),
                 leadDeveloper =
@@ -481,12 +472,6 @@ class AboutViewModel
                                     iconResId = R.drawable.website,
                                     labelResId = R.string.about_content_desc_website,
                                     url = "https://koiiverse.cloud",
-                                ),
-                                AboutLinkUiModel(
-                                    id = "discord",
-                                    iconResId = R.drawable.alternate_email,
-                                    labelResId = R.string.about_content_desc_discord,
-                                    url = "https://discord.com/users/886971572668219392",
                                 ),
                             ),
                     ),
@@ -519,12 +504,6 @@ class AboutViewModel
                                         iconResId = R.drawable.github,
                                         labelResId = R.string.about_content_desc_github,
                                         url = "https://github.com/Windowstechtips",
-                                    ),
-                                    AboutLinkUiModel(
-                                        id = "discord",
-                                        iconResId = R.drawable.alternate_email,
-                                        labelResId = R.string.about_content_desc_discord,
-                                        url = "https://discord.com/users/840839409640800258",
                                     ),
                                 ),
                         ),
@@ -647,6 +626,6 @@ class AboutViewModel
         private companion object {
             const val MaxDisplayedContributors = 20
             const val DebugBuildBadge = "DEBUG"
-            const val ContributorsReadMoreUrl = "https://github.com/ArchiveTuneApp/ArchiveTune/graphs/contributors"
+            const val ContributorsReadMoreUrl = HushLinks.CONTRIBUTORS_URL
         }
     }

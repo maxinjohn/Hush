@@ -82,7 +82,7 @@
     <string name="resume_autoscroll">Reprise du défilement automatique</string>
     <string name="lyrics_romanize_japanese">Romaniser les paroles japonaises</string>
     <string name="lyrics_romanize_korean">Romaniser les paroles coréennes</string>
-    <string name="discord">Discord</string>
+
     <string name="advanced_login">Connexion avec un jeton</string>
     <string name="token_hidden">Cliquer pour afficher le jeton</string>
     <string name="token_shown">Cliquer encore pour copier ou éditer</string>
@@ -308,7 +308,7 @@
     <string name="backup_category_settings">Paramètres de l\'application</string>
     <string name="backup_category_settings_desc">Apparence, lecture &amp; préférences</string>
     <string name="backup_category_account">Détails du compte</string>
-    <string name="backup_category_account_desc">YouTube, Spotify, Last.fm, Libre.fm, Discord et identifiants de proxy</string>
+    <string name="backup_category_account_desc">YouTube, Spotify, Last.fm, Libre.fm et identifiants de proxy</string>
     <string name="aod_customize_thumbnail_size">Taille des miniatures</string>
     <string name="aod_control_filled">Rempli</string>
     <string name="music_recognition_history">Historique de reconnaissance</string>
@@ -424,7 +424,6 @@
     <string name="aod_shape_heart">Cœur</string>
     <string name="year_in_music_plays_label">Nombre total de lectures</string>
     <string name="aod_position_top">En haut</string>
-    <string name="about_content_desc_telegram">Telegram</string>
     <string name="ai_provider_none">Aucun (désactivé)</string>
     <string name="news_error_title">Impossible de charger les actualités</string>
     <string name="android_auto_suggested_songs">Suggestions de titres</string>
@@ -481,7 +480,6 @@
     <string name="aod_customize_show_time_labels">Afficher les horaires</string>
     <string name="aod_customize_sample_title">Archives de Minuit</string>
     <string name="aod_shape_cookie_6">Cookie 6</string>
-    <string name="about_content_desc_discord">Discord</string>
     <string name="lyrics_share_style_frosted_light">Lumière tamisée</string>
     <string name="aod_shape_triangle">Triangle</string>
     <string name="settings_content_subtitle">Langue, pays et paramètres de recommandation par défaut</string>
@@ -515,13 +513,13 @@
     <string name="settings_updates_subtitle">Version, notes de version et canal de mise à jour</string>
     <string name="storage_migration_warning">Avertissement : Ne fermez pas l\'application et n\'éteignez pas votre appareil pendant cette opération. Cela pourrait entraîner une perte de données.</string>
     <string name="aod_customize_title_max_lines">Nombre maximal de lignes pour le titre</string>
-    <string name="settings_integration_subtitle">Discord, Last.fm, Libre.fm et ListenBrainz</string>
+    <string name="settings_integration_subtitle">Last.fm, Libre.fm et ListenBrainz</string>
     <string name="aod_alignment_start">Début</string>
     <string name="aod_shape_pixel_circle">Cercle de pixels</string>
     <string name="year_in_music_empty_subtitle">Écoutez davantage de musique pendant %d et votre récapitulatif s\'affichera ici.</string>
     <string name="storage_location_free">%s libre</string>
     <string name="aod_customize_show_artist">Afficher l\'artiste</string>
-    <string name="storage_folder_not_writable">ArchiveTune ne peut pas enregistrer de fichiers de cache dans ce dossier.</string>
+    <string name="storage_folder_not_writable">Hush ne peut pas enregistrer de fichiers de cache dans ce dossier.</string>
     <string name="ai_api_status_failed">L\'API a échoué. Veuillez réessayer après avoir mis à jour les paramètres.</string>
     <string name="storage_folder_unsupported">Ce dossier ne peut pas être utilisé par le cache multimédia basé sur des fichiers.</string>
     <string name="force_sync_on_switch_account">Forcer la synchronisation sur le compte Switch</string>

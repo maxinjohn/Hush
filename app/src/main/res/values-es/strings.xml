@@ -283,11 +283,9 @@
     <string name="contrast">Contraste</string>
     <string name="brightness">Brillo</string>
     <string name="custom_value">Valor personalizado</string>
-    <string name="archivetune_canvas">ArchiveTune Canvas</string>
+    <string name="archivetune_canvas">Hush Canvas</string>
     <string name="archivetune_canvas_desc">Animar la portada del álbum mientras se reproduce (Impulsado por BetterLyrics)</string>
-    <string name="show_button1_description">Alternar la visibilidad del botón 1 en Discord Rich Presence</string>
-    <string name="show_button2_description">Alternar la visibilidad del botón 2 en Discord Rich Presence</string>
-    <string name="discord_activity_type">Tipo de actividad</string>
+
     <string name="dark_theme_follow_system">Seguir sistema</string>
     <string name="pure_black">Negro puro</string>
     <string name="disable_blur">Desactivar efectos de desenfoque</string>
@@ -393,10 +391,10 @@
     <string name="backup_create_failed">No se pudo crear la copia de seguridad</string>
     <string name="restore_success">Copia de seguridad restaurada con éxito</string>
     <string name="restore_failed">No se pudo restaurar la copia de seguridad</string>
-    <string name="discord_integration">Integración con Discord</string>
+
     <string name="options">Opciones</string>
     <string name="preview">Vista previa</string>
-    <string name="enable_discord_rpc">Activa Rich Presence</string>
+
     <string name="scrobbling">Scrobbling (Last.fm)</string>
     <string name="lastfm_integration">Integración con Last.fm / Libre.fm</string>
     <string name="enable_scrobbling">Activa el Scrobbling</string>
@@ -412,15 +410,7 @@
     <string name="listenbrainz_scrobbling_description">Activar el envío de listas de reproducción actuales y terminadas a ListenBrainz</string>
     <string name="set_listenbrainz_token">Establecer token de ListenBrainz</string>
     <string name="edit_listenbrainz_token">Editar token de ListenBrainz</string>
-    <string name="discord_activity_name">Nombre de actividad</string>
-    <string name="discord_activity_details">Detalles de actividad</string>
-    <string name="discord_activity_state">Estado de actividad</string>
-    <string name="discord_activity_button_1_url">Fuente de URL del botón 1</string>
-    <string name="discord_activity_button_2_url">Fuente de URL del botón 2</string>
-    <string name="discord_activity_button1_label">Etiqueta del botón 1</string>
-    <string name="discord_activity_button1_url">URL personalizada del botón 1</string>
-    <string name="discord_activity_button2_label">Etiqueta del botón 2</string>
-    <string name="discord_activity_button2_url">URL personalizada del botón 2</string>
+
     <string name="large_image_custom_url">URL personalizada para imágenes grandes</string>
     <string name="large_image">Imagen grande</string>
     <string name="large_text">Texto grande</string>
@@ -430,8 +420,7 @@
     <string name="activity_status">Estado de actividad</string>
     <string name="platform_status">Plataforma</string>
     <string name="translator_options">Opciones de traducción</string>
-    <string name="enable_translator">Activar traductor</string>
-    <string name="enable_translator_desc">Traduce los campos seleccionados antes de enviarlos al RPC de Discord</string>
+
     <string name="context_info">Contextos (separación por comas)</string>
     <string name="target_language">Idioma de destino</string>
     <string name="close_dialog">Cerrar</string>
@@ -443,20 +432,15 @@
     <string name="lyrics">Letras</string>
     <string name="translation_success">Traducción guardada</string>
     <string name="translation_failed">Fallo al traducir</string>
-    <string name="discord_button_options">Opciones del botón</string>
-    <string name="discord_image_options">Opciones de imagen</string>
+
     <string name="refresh">Refrescar</string>
-    <string name="description_refresh">Refrescar manualmente el Rich Presence de Discord</string>
-    <string name="discord_show_when_paused">Mostrar el RPC cuando este en pausa</string>
-    <string name="discord_show_when_paused_desc">Si esta activo, el Rich Presence permanecerá visible mientras esté en pausa con un icono de pausa. Si esta desactivado, el RPC desaparecerá cuando este en pausa.</string>
-    <string name="discord_paused">Pausado</string>
+
     <string name="logout_confirm_title">Confirmar cierre de sesión</string>
-    <string name="logout_confirm_message">¿Estás seguro de que deseas cerrar tú sesión de Discord?.</string>
+
     <string name="logout_confirm_yes">Cerrar sesión</string>
     <string name="logout_confirm_no">Cancelar</string>
     <string name="experiment_settings">Ajustes Experimentales</string>
-    <string name="show_discord_debug_ui">Mostrar interfaz de usuario de depuración</string>
-    <string name="enable_discord_debug_lines">Activar líneas de configuración de depuración</string>
+
     <string name="presence_manager_running">Gestor de presencia: en ejecución</string>
     <string name="presence_manager_stopped">Gestor de presencia: detenido</string>
     <string name="filter_levels">Niveles de filtro</string>
@@ -493,7 +477,7 @@
     <string name="log_level_info">Información general</string>
     <string name="log_level_warning">Advertencia</string>
     <string name="log_level_error">Error</string>
-    <string name="filter_discord_only">Discord</string>
+
     <string name="filter_all_logs">Todo</string>
     <string name="clear">Limpiar</string>
     <string name="logs_empty_message">Los registros aparecerán aquí cuando estén disponibles</string>
@@ -523,9 +507,9 @@
     <string name="update_notification_channel_name">Actualizaciones de la aplicación</string>
     <string name="update_notification_channel_desc">Notificaciones para nuevas actualizaciones de la aplicación</string>
     <string name="update_notification_title">Actualización Disponible</string>
-    <string name="update_notification_text">ArchiveTune %s esta ahora disponible</string>
+    <string name="update_notification_text">Hush %s esta ahora disponible</string>
     <string name="download">Descargar</string>
-    <string name="permissions_title">Permite a ArchiveTune a trabajar mejor</string>
+    <string name="permissions_title">Permite a Hush a trabajar mejor</string>
     <string name="permissions_subtitle">Utilizamos un par de permisos para reproducir y administrar tu música de forma fiable. Puedes cambiar esto en los ajustes del sistema cuando quieras.</string>
     <string name="permission_storage_title">Acceso al almacenamiento</string>
     <string name="permission_storage_desc">Requerido para leer tus descargas y para reproducir tus audios locales.</string>
@@ -534,7 +518,7 @@
     <string name="allow">Permitir</string>
     <string name="you_might_like">Tal vez te guste</string>
     <string name="refresh_suggestions">Actualizar sugerencias</string>
-    <string name="music_together">Juntos con ArchiveTune Music</string>
+    <string name="music_together">Juntos con Hush Music</string>
     <string name="together_display_name">Mostrar nombre</string>
     <string name="together_display_name_placeholder">Tú nombre</string>
     <string name="together_port">Puerto de sesión</string>
@@ -581,10 +565,10 @@
     <string name="together_error_state">Error</string>
     <string name="got_it">Entendido</string>
     <string name="together_dont_show_again">No mostrar esto nuevamente</string>
-    <string name="together_welcome_title">Bienvenido a ArchiveTune Music Together</string>
+    <string name="together_welcome_title">Bienvenido a Hush Music Together</string>
     <string name="together_welcome_body">Music Together permite que múltiples dispositivos compartan una sesión en vivo con una cola y reproducción sincronizadas.</string>
     <string name="together_welcome_host_title">Organizar una sesión</string>
-    <string name="together_welcome_host_body">Pulsa \"comenzar sesión\", después comparte el enlace de sesión. Mantén ArchiveTune abierto en segundo plano mientras alojas.</string>
+    <string name="together_welcome_host_body">Pulsa \"comenzar sesión\", después comparte el enlace de sesión. Mantén Hush abierto en segundo plano mientras alojas.</string>
     <string name="stream_bypass_proxy">Proxy de derivación para transmisiones</string>
     <string name="stream_bypass_proxy_desc">Utiliza tu dirección IP directa para la reproducción de transmisiones y evita las incompatibilidades de IP</string>
     <string name="speed_dial">Marcación rápida</string>
@@ -602,9 +586,9 @@
     <string name="slider_style_circular">Circular</string>
     <string name="slider_style_simple">Sencillo</string>
     <string name="playback_confirmation_required">Se requiere confirmación de reproducción</string>
-    <string name="playback_requires_youtube_music_confirmation">Confirma la reproducción en YouTube Music y, a continuación, vuelve a ArchiveTune.</string>
+    <string name="playback_requires_youtube_music_confirmation">Confirma la reproducción en YouTube Music y, a continuación, vuelve a Hush.</string>
     <string name="playback_login_refresh_required">Actualizar el inicio de sesión en YouTube Music</string>
-    <string name="playback_requires_youtube_music_login_refresh">Actualiza tu sesión de YouTube Music y, a continuación, vuelve a ArchiveTune.</string>
+    <string name="playback_requires_youtube_music_login_refresh">Actualiza tu sesión de YouTube Music y, a continuación, vuelve a Hush.</string>
     <string name="pause_on_device_mute">Pausar cuando el dispositivo este en silencio</string>
     <string name="pause_on_device_mute_desc">Pausar con el volumen a cero, explicar los intentos de reproducción y reanudar cuando aumente el volumen</string>
     <string name="wakelock">Mantener la cpu activa durante la reproducción</string>
@@ -644,7 +628,7 @@
     <string name="token_copied">Token copiado en el portapapeles</string>
     <string name="extracting_from_url">Extrayendo tokens de la URL…</string>
     <string name="po_token_account_notice_title">Utiliza la misma cuenta</string>
-    <string name="po_token_account_notice_body">Inicia sesión aquí con la misma cuenta de Google que ya utilizas para YouTube Music dentro de ArchiveTune antes de generar un token PO.</string>
+    <string name="po_token_account_notice_body">Inicia sesión aquí con la misma cuenta de Google que ya utilizas para YouTube Music dentro de Hush antes de generar un token PO.</string>
     <string name="po_token_account_notice_same_account">Si esta WebView utiliza una cuenta diferente, el token generado no funcionará correctamente.</string>
     <string name="po_token_account_notice_mismatch">Utiliza la cuenta correspondiente, completa el proceso de inicio de sesión y, a continuación, abre youtube.com/account y genera el token desde esa página.</string>
     <string name="sort_order_ascending">Ascendente</string>
@@ -698,13 +682,13 @@
     <string name="aod_mode_exit">Desactivar pantalla siempre encendida</string>
     <string name="error_malformed_stream">Error en la fuente</string>
     <string name="support_development_title">Apoyar el desarrollo</string>
-    <string name="support_development_message">¡Hola! Soy Koiverse, el desarrollador de ArchiveTune. Si ArchiveTune se ha ganado un hueco en tu rutina diaria de música, puedes ayudar a que siga adelante haciendo una donación o marcando el proyecto como favorito en GitHub. Gracias por apoyar el trabajo que hay detrás de la aplicación.</string>
+    <string name="support_development_message">Hush es un fork personal de ArchiveTune. Si te gusta, dale una estrella a este fork en GitHub o apoya el proyecto ArchiveTune original. Gracias por escuchar.</string>
     <string name="support_development_donate">Haz una donación para apoyar el desarrollo</string>
     <string name="support_development_star">Marcar como favorito en GitHub</string>
     <string name="later">Más tarde</string>
     <string name="widget_pause">Pausar</string>
     <string name="widget_previous">Anterior</string>
-    <string name="widget_tap_to_open">Toca para abrir ArchiveTune</string>
+    <string name="widget_tap_to_open">Toca para abrir Hush</string>
     <string name="album_backdrop">Desenfoque de fondo</string>
     <string name="album_backdrop_desc">Mostrar la obra de arte como fondo borroso en el reproductor</string>
     <string name="backdrop_blur_amount">Cantidad de desenfoque de fondo</string>
@@ -809,42 +793,11 @@
     <string name="recent_requests">Peticiones recientes</string>
     <string name="display">Pantalla</string>
     <string name="romanization">Alfabeto latino</string>
-    <string name="account_integrations_summary">Discord, Last.fm, Libre.fm, ListenBrainz</string>
-    <string name="discord_login_description">Conecta tu cuenta de Discord mediante OAuth para que ArchiveTune pueda publicar información de presencia enriquecida.</string>
-    <string name="discord_open_authorization">Conéctate a Discord</string>
-    <string name="discord_waiting_for_authorization">Esperando la autorización de Discord...</string>
-    <string name="discord_authorization_success">Cuenta de Discord conectada</string>
-    <string name="discord_authorization_failed">Falló la autenticación en Discord.</string>
-    <string name="discord_account_ready">ArchiveTune está listo para publicar tu Rich Presence (estado) de tu sesión de escucha.</string>
-    <string name="discord_connection_settings">Conexión</string>
-    <string name="discord_activity_content">Actividad</string>
-    <string name="discord_refresh_success">Se ha actualizado la presencia en Discord.</string>
-    <string name="discord_refresh_failed">Error al actualizar la presencia en Discord</string>
-    <string name="discord_url_source_song">Enlace a la canción</string>
-    <string name="discord_url_source_artist">Enlace del artista</string>
-    <string name="discord_url_source_album">Enlace al álbum</string>
-    <string name="discord_url_source_custom">Enlace personalizado</string>
+    <string name="account_integrations_summary">Last.fm, Libre.fm, ListenBrainz</string>
+
     <string name="album_name">Título del álbum</string>
     <string name="app_icon">Icono de la aplicación</string>
-    <string name="discord_presence_online">En línea</string>
-    <string name="discord_presence_do_not_disturb">No molestar</string>
-    <string name="discord_presence_idle">Inactivo</string>
-    <string name="discord_presence_streaming">En directo</string>
-    <string name="discord_platform_desktop">Escritorio</string>
-    <string name="discord_platform_xbox">Xbox</string>
-    <string name="discord_platform_samsung">Samsung</string>
-    <string name="discord_platform_ios">iOS</string>
-    <string name="discord_platform_android">Android</string>
-    <string name="discord_platform_embedded">Incorporado</string>
-    <string name="discord_platform_ps4">PS4</string>
-    <string name="discord_platform_ps5">PS5</string>
-    <string name="discord_activity_type_playing_label">Reproduciendo</string>
-    <string name="discord_activity_type_streaming_label">En directo</string>
-    <string name="discord_activity_type_listening_label">Escuchando</string>
-    <string name="discord_activity_type_watching_label">Viendo</string>
-    <string name="discord_activity_type_competing_label">Compitiendo</string>
-    <string name="discord_image_album_artwork">Portada del álbum</string>
-    <string name="discord_image_artist_artwork">Foto del artista</string>
+
     <string name="channel_daily_nightly">A diario</string>
     <string name="updates_nightly_hosting_description">Las compilaciones de desarrollo generadas automáticamente están disponibles tras las ejecuciones exitosas de GitHub Actions.</string>
     <string name="check_for_update">Buscar actualizaciones</string>

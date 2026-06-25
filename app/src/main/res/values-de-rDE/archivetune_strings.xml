@@ -80,7 +80,7 @@
     <string name="lyrics_auto_scroll">Songtexte automatisch scrollen</string>
     <string name="lyrics_romanize_japanese">Japanische Texte romanisieren</string>
     <string name="lyrics_romanize_korean">Romanisieren Sie koreanische Texte</string>
-    <string name="discord">Zwietracht</string>
+
     <string name="advanced_login">Mit Token anmelden</string>
     <string name="token_hidden">Tippen Sie, um das Token anzuzeigen</string>
     <string name="token_shown">Tippen Sie erneut, um zu kopieren oder zu bearbeiten</string>

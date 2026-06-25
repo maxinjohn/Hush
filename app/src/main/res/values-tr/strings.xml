@@ -254,9 +254,7 @@
     <string name="contrast">Kontrast</string>
     <string name="brightness">Parlaklık</string>
     <string name="custom_value">Özel değer</string>
-    <string name="show_button1_description">Discord Rich Presence\'da düğme 1\'in görünürlüğünü değiştir</string>
-    <string name="show_button2_description">Discord Rich Presence\'da 2. düğmenin görünürlüğünü değiştir</string>
-    <string name="discord_activity_type">Etkinlik türü</string>
+
     <string name="dark_theme_follow_system">Sistemi takip et</string>
     <string name="pure_black">Saf siyah</string>
     <string name="disable_blur">Bulanıklaştırma efektlerini devre dışı bırak</string>
@@ -355,11 +353,11 @@
     <string name="backup_create_success">Yedekleme başarıyla oluşturuldu</string>
     <string name="backup_create_failed">Yedekleme oluşturulamadı</string>
     <string name="restore_failed">Yedekleme geri yüklenemedi</string>
-    <string name="discord_integration">Discord Entegrasyonu</string>
+
     <string name="dismiss">Reddet</string>
     <string name="options">Seçenekler</string>
     <string name="preview">Önizleme</string>
-    <string name="enable_discord_rpc">Zengin Durumu Etkinleştir</string>
+
     <string name="scrobbling">Skrobling</string>
     <string name="lastfm_integration">Last.fm / Libre.fm Entegrasyonu</string>
     <string name="enable_scrobbling">Scrobbling\'i Etkinleştir</string>
@@ -375,15 +373,7 @@
     <string name="listenbrainz_scrobbling_description">Şu anda çalınan ve biten dinlemelerin ListenBrainz\'e gönderilmesini etkinleştirin</string>
     <string name="set_listenbrainz_token">ListenBrainz jetonunu ayarla</string>
     <string name="edit_listenbrainz_token">ListenBrainz jetonunu düzenleyin</string>
-    <string name="discord_activity_name">Etkinlik adı</string>
-    <string name="discord_activity_details">Etkinlik ayrıntıları</string>
-    <string name="discord_activity_state">Etkinlik durumu</string>
-    <string name="discord_activity_button_1_url">Düğme 1 URL Kaynağı</string>
-    <string name="discord_activity_button_2_url">Düğme 2 URL Kaynağı</string>
-    <string name="discord_activity_button1_label">Düğme 1 etiketi</string>
-    <string name="discord_activity_button1_url">Düğme 1 Özel URL\'si</string>
-    <string name="discord_activity_button2_label">Düğme 2 etiketi</string>
-    <string name="discord_activity_button2_url">Düğme 2 Özel URL</string>
+
     <string name="large_image_custom_url">Büyük resim özel URL\'si</string>
     <string name="large_image">Büyük Resim</string>
     <string name="large_text">Büyük Metin</string>
@@ -393,8 +383,7 @@
     <string name="activity_status">Etkinlik Durumu</string>
     <string name="platform_status">platformu</string>
     <string name="translator_options">Çevirmen Seçenekleri</string>
-    <string name="enable_translator">Çevirmeni Etkinleştir</string>
-    <string name="enable_translator_desc">Seçilen alanları Discord RPC\'ye göndermeden önce çevirin</string>
+
     <string name="context_info">Bağlamlar (virgülle ayrılmış)</string>
     <string name="target_language">Hedef Dil</string>
     <string name="close_dialog">Kapat</string>
@@ -406,20 +395,15 @@
     <string name="lyrics">Şarkı sözleri</string>
     <string name="translation_success">Çeviri kaydedildi</string>
     <string name="translation_failed">Çeviri başarısız oldu</string>
-    <string name="discord_button_options">Düğme Seçenekleri</string>
-    <string name="discord_image_options">Görüntü Seçenekleri</string>
+
     <string name="refresh">Yenile</string>
-    <string name="description_refresh">Discord Rich Presence\'ı manuel olarak yenileyin</string>
-    <string name="discord_show_when_paused">Duraklatıldığında RPC\'yi göster</string>
-    <string name="discord_show_when_paused_desc">Etkinleştirilirse, Zengin Durum duraklatıldığında bir duraklatma simgesiyle görünür durumda kalacaktır. Devre dışı bırakılırsa, duraklatıldığında RPC kaybolacaktır.</string>
-    <string name="discord_paused">Duraklatıldı</string>
+
     <string name="logout_confirm_title">Oturumu kapatmayı onaylayın</string>
-    <string name="logout_confirm_message">Discord\'dan çıkış yapmak istediğinden emin misin?.</string>
+
     <string name="logout_confirm_yes">Oturumu kapat</string>
     <string name="logout_confirm_no">İptal</string>
     <string name="experiment_settings">Deneysel Ayarlar</string>
-    <string name="show_discord_debug_ui">Hata Ayıklama Kullanıcı Arayüzünü Göster</string>
-    <string name="enable_discord_debug_lines">Hata ayıklama ayarları satırlarını etkinleştir</string>
+
     <string name="presence_manager_running">Durum yöneticisi: koşuyor</string>
     <string name="presence_manager_stopped">Durum yöneticisi: durduruldu</string>
     <string name="filter_levels">Filtre seviyeleri</string>
@@ -460,9 +444,9 @@
     <string name="update_notification_channel_name">Uygulama Güncellemeleri</string>
     <string name="update_notification_channel_desc">Yeni uygulama güncellemeleri için bildirimler</string>
     <string name="update_notification_title">Güncelleme Mevcut</string>
-    <string name="update_notification_text">ArchiveTune %s artık mevcut</string>
+    <string name="update_notification_text">Hush %s artık mevcut</string>
     <string name="download">İndir</string>
-    <string name="permissions_title">ArchiveTune\'un en iyi şekilde çalışmasına izin verin</string>
+    <string name="permissions_title">Hush\'un en iyi şekilde çalışmasına izin verin</string>
     <string name="permissions_subtitle">Müziğinizi güvenilir bir şekilde oynatmak ve yönetmek için birkaç izin kullanıyoruz. Bunları istediğiniz zaman sistem ayarlarından değiştirebilirsiniz.</string>
     <string name="permission_storage_title">Depolama erişimi</string>
     <string name="permission_storage_desc">İndirdiğiniz ve yerel ses dosyalarınızı oynatmak üzere okumak için gereklidir.</string>
