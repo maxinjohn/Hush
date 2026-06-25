@@ -14,6 +14,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
+import moe.rukamori.archivetune.HushLinks
 import moe.rukamori.archivetune.constants.TogetherOnlineEndpointCacheKey
 import moe.rukamori.archivetune.constants.TogetherOnlineEndpointLastCheckedAtKey
 import moe.rukamori.archivetune.utils.getAsync
@@ -21,8 +22,7 @@ import java.net.URI
 import java.util.concurrent.TimeUnit
 
 object TogetherOnlineEndpoint {
-    private const val EndpointSourceUrl =
-        "https://raw.githubusercontent.com/ArchiveTuneApp/ArchiveTune/refs/heads/dev/ArchiveTuneKoiverseServer.txt"
+    private const val EndpointSourceUrl = HushLinks.TOGETHER_ENDPOINT_SOURCE_URL
 
     private const val CacheTtlMs: Long = 6 * 60 * 60 * 1000L
 

@@ -282,7 +282,7 @@
     <string name="quick_picks_display_mode">Modo de exibição das escolhas rápidas</string>
     <string name="quick_picks_display_mode_card">Cartão</string>
     <string name="quick_picks_display_mode_list">Lista</string>
-    <string name="discord">Discord</string>
+
     <string name="advanced_login">Login com token</string>
     <string name="token_hidden">Toque para mostrar o token</string>
     <string name="token_shown">Toque novamente para copiar ou editar</string>
@@ -322,14 +322,14 @@
     <string name="storage_folder_selected_restart">Pasta de armazenamento salva. O app será reiniciado em 3 segundos.</string>
     <string name="storage_folder_invalid">Selecione uma pasta válida.</string>
     <string name="storage_folder_unsupported">Esta pasta não pode ser usada pelo cache de mídia baseado em arquivos.</string>
-    <string name="storage_folder_not_writable">O ArchiveTune não pode gravar arquivos de cache nesta pasta.</string>
+    <string name="storage_folder_not_writable">O Hush não pode gravar arquivos de cache nesta pasta.</string>
     <string name="storage_cache_cleared">Cache limpo.</string>
     <string name="storage_cache_clear_failed">Não foi possível limpar o cache. Verifique o acesso ao cartão SD.</string>
     <string name="storage_clear_song_cache_progress">Limpando cache de músicas...%1$d%%</string>
     <string name="storage_clear_downloads_progress">Limpando downloads...%1$d%%</string>
     <string name="storage_clear_image_cache_progress">Limpando cache de imagens...%1$d%%</string>
     <string name="storage_clear_canvas_cache_progress">Limpando cache de canvas...%1$d%%</string>
-    <string name="storage_cache_clear_warning">Mantenha o ArchiveTune aberto enquanto os arquivos de cache são removidos.</string>
+    <string name="storage_cache_clear_warning">Mantenha o Hush aberto enquanto os arquivos de cache são removidos.</string>
     <string name="storage_size_ratio">%1$s / %2$s</string>
     <string name="sensitivity_percentage">%1$d%%</string>
     <string name="clear_song_cache_dialog">  Tem certeza de que deseja limpar todas as músicas em cache?</string>
@@ -405,7 +405,7 @@
     <string name="settings_playback_subtitle">Comportamento de áudio, crossfade e reprodução em segundo plano</string>
     <string name="settings_behavior_title">Comportamento</string>
     <string name="settings_behavior_subtitle">Histórico, padrões e comportamento de privacidade</string>
-    <string name="settings_integration_subtitle">Discord, Last.fm, Libre.fm e ListenBrainz</string>
+    <string name="settings_integration_subtitle">Last.fm, Libre.fm e ListenBrainz</string>
     <string name="settings_backup_restore_subtitle">Exporte e recupere seus dados pessoais do app</string>
     <string name="settings_developer_options_title">Opções de desenvolvedor</string>
     <string name="settings_developer_options_subtitle">Recursos experimentais e depuração</string>
@@ -501,7 +501,7 @@
     <string name="backup_category_settings">Configurações do app</string>
     <string name="backup_category_settings_desc">Aparência, reprodução e preferências</string>
     <string name="backup_category_account">Detalhes da conta</string>
-    <string name="backup_category_account_desc">Credenciais do YouTube, Spotify, Last.fm, Libre.fm, Discord e proxy</string>
+    <string name="backup_category_account_desc">Credenciais do YouTube, Spotify, Last.fm, Libre.fm e proxy</string>
     <string name="internal_service">Serviço interno</string>
     <string name="external_service">Serviço externo</string>
     <string name="restore_invalid_file">O arquivo selecionado não é um arquivo de backup válido.</string>
@@ -572,7 +572,6 @@
     <string name="about_position_zion_huang">Criador do InnerTune · Fundação do Metrolist, ArchiveTune e outros forks</string>
     <string name="about_content_desc_github">GitHub</string>
     <string name="about_content_desc_website">Site</string>
-    <string name="about_content_desc_discord">Discord</string>
-    <string name="about_content_desc_telegram">Telegram</string>
+
     <string name="about_content_desc_donate">Doar</string>
 </resources>

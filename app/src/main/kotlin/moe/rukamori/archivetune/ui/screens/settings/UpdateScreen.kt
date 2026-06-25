@@ -137,6 +137,7 @@ fun UpdateScreen(
     val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
     val nightlyInstallUrl = remember { Updater.getLatestNightlyDownloadUrl() }
+    val experimentalChannelsAvailable = remember { Updater.supportsExperimentalUpdateChannels() }
 
     val (enableUpdateNotification, onEnableUpdateNotificationChange) =
         rememberPreference(
@@ -148,6 +149,12 @@ fun UpdateScreen(
             UpdateChannelKey,
             defaultValue = defaultUpdateChannel,
         )
+
+    LaunchedEffect(experimentalChannelsAvailable, updateChannel) {
+        if (!experimentalChannelsAvailable && updateChannel != UpdateChannel.STABLE) {
+            onUpdateChannelChange(UpdateChannel.STABLE)
+        }
+    }
 
     var commits by remember { mutableStateOf<List<GitCommit>>(emptyList()) }
     var isLoadingCommits by remember { mutableStateOf(true) }
@@ -168,7 +175,7 @@ fun UpdateScreen(
             },
         )
     }
-    val isNightlyChannel = updateChannel == UpdateChannel.NIGHTLY
+    val isNightlyChannel = experimentalChannelsAvailable && updateChannel == UpdateChannel.NIGHTLY
     val isUpdateAvailable by remember(latestVersion) {
         derivedStateOf {
             BuildConfig.UPDATER_AVAILABLE &&
@@ -671,6 +678,7 @@ fun UpdateScreen(
                             showDailyNightlyChannelConfirmDialog = true
                         }
                     },
+                    experimentalChannelsAvailable = experimentalChannelsAvailable,
                 )
             }
 
@@ -1071,6 +1079,7 @@ private fun UpdateControlsPanel(
     onStableSelected: () -> Unit,
     onNightlySelected: () -> Unit,
     onDailyNightlySelected: () -> Unit,
+    experimentalChannelsAvailable: Boolean,
 ) {
     Card(
         modifier =
@@ -1141,36 +1150,48 @@ private fun UpdateControlsPanel(
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
             )
 
-            SingleChoiceSegmentedButtonRow(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, top = 2.dp, end = 16.dp, bottom = 16.dp),
-            ) {
-                SegmentedButton(
-                    selected = updateChannel == UpdateChannel.STABLE,
-                    onClick = onStableSelected,
-                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
-                    icon = {},
+            if (experimentalChannelsAvailable) {
+                SingleChoiceSegmentedButtonRow(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, top = 2.dp, end = 16.dp, bottom = 16.dp),
                 ) {
-                    Text(text = stringResource(R.string.channel_stable))
+                    SegmentedButton(
+                        selected = updateChannel == UpdateChannel.STABLE,
+                        onClick = onStableSelected,
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
+                        icon = {},
+                    ) {
+                        Text(text = stringResource(R.string.channel_stable))
+                    }
+                    SegmentedButton(
+                        selected = updateChannel == UpdateChannel.NIGHTLY,
+                        onClick = onNightlySelected,
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
+                        icon = {},
+                    ) {
+                        Text(text = stringResource(R.string.channel_nightly))
+                    }
+                    SegmentedButton(
+                        selected = updateChannel == UpdateChannel.DAILY_NIGHTLY,
+                        onClick = onDailyNightlySelected,
+                        shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
+                        icon = {},
+                    ) {
+                        Text(text = stringResource(R.string.channel_daily_nightly))
+                    }
                 }
-                SegmentedButton(
-                    selected = updateChannel == UpdateChannel.NIGHTLY,
-                    onClick = onNightlySelected,
-                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
-                    icon = {},
-                ) {
-                    Text(text = stringResource(R.string.channel_nightly))
-                }
-                SegmentedButton(
-                    selected = updateChannel == UpdateChannel.DAILY_NIGHTLY,
-                    onClick = onDailyNightlySelected,
-                    shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
-                    icon = {},
-                ) {
-                    Text(text = stringResource(R.string.channel_daily_nightly))
-                }
+            } else {
+                Text(
+                    text = stringResource(R.string.channel_stable),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, top = 2.dp, end = 16.dp, bottom = 16.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }

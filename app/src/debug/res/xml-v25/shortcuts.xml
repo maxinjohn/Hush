@@ -8,7 +8,7 @@
         <intent
             android:action="moe.rukamori.archivetune.action.SEARCH"
             android:targetClass="moe.rukamori.archivetune.MainActivity"
-            android:targetPackage="moe.rukamori.archivetune.debug" />
+            android:targetPackage="app.hush.music.debug" />
     </shortcut>
     <shortcut
         android:enabled="true"
@@ -18,6 +18,6 @@
         <intent
             android:action="moe.rukamori.archivetune.action.LIBRARY"
             android:targetClass="moe.rukamori.archivetune.MainActivity"
-            android:targetPackage="moe.rukamori.archivetune.debug" />
+            android:targetPackage="app.hush.music.debug" />
     </shortcut>
 </shortcuts>

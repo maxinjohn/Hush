@@ -321,12 +321,10 @@
     <string name="contrast">Độ tương phản</string>
     <string name="brightness">Độ sáng</string>
     <string name="custom_value">Giá trị tùy chỉnh</string>
-    <string name="show_button1_description">Bật/tắt hiển thị nút 1 trong Discord Rich Presence</string>
-    <string name="show_button2_description">Bật/tắt hiển thị nút 2 trong Discord Rich Presence</string>
-    <string name="discord_activity_type">Loại hoạt động</string>
+
     <string name="dark_theme_follow_system">Theo hệ thống</string>
     <string name="pure_black">Đen thuần</string>
-    <string name="archivetune_canvas">ArchiveTune Canvas</string>
+    <string name="archivetune_canvas">Hush Canvas</string>
     <string name="archivetune_canvas_desc">Tạo hiệu ứng động cho artwork album khi phát (Được hỗ trợ bởi BetterLyrics)</string>
     <string name="disable_blur">Tắt hiệu ứng làm mờ</string>
     <string name="disable_blur_desc">Tắt hiệu ứng làm mờ trong toàn bộ ứng dụng</string>
@@ -451,11 +449,11 @@
     <string name="backup_create_success">Đã tạo sao lưu thành công</string>
     <string name="backup_create_failed">Không thể tạo sao lưu</string>
     <string name="restore_failed">Khôi phục sao lưu thất bại</string>
-    <string name="discord_integration">Tích hợp Discord</string>
+
     <string name="dismiss">Bỏ qua</string>
     <string name="options">Tùy chọn</string>
     <string name="preview">Xem trước</string>
-    <string name="enable_discord_rpc">Bật Rich Presence</string>
+
     <string name="scrobbling">Scrobbling</string>
     <string name="lastfm_integration">Tích hợp Last.fm</string>
     <string name="enable_scrobbling">Bật Scrobbling</string>
@@ -471,15 +469,7 @@
     <string name="listenbrainz_scrobbling_description">Bật gửi trạng thái đang phát và đã phát xong cho ListenBrainz</string>
     <string name="set_listenbrainz_token">Đặt token ListenBrainz</string>
     <string name="edit_listenbrainz_token">Chỉnh sửa token ListenBrainz</string>
-    <string name="discord_activity_name">Tên hoạt động</string>
-    <string name="discord_activity_details">Chi tiết hoạt động</string>
-    <string name="discord_activity_state">Trạng thái hoạt động</string>
-    <string name="discord_activity_button_1_url">Nguồn URL Nút 1</string>
-    <string name="discord_activity_button_2_url">Nguồn URL Nút 2</string>
-    <string name="discord_activity_button1_label">Nhãn nút 1</string>
-    <string name="discord_activity_button1_url">URL tùy chỉnh nút 1</string>
-    <string name="discord_activity_button2_label">Nhãn nút 2</string>
-    <string name="discord_activity_button2_url">URL tùy chỉnh nút 2</string>
+
     <string name="large_image_custom_url">URL hình ảnh lớn tùy chỉnh</string>
     <string name="large_image">Hình ảnh lớn</string>
     <string name="large_text">Văn bản lớn</string>
@@ -489,8 +479,7 @@
     <string name="activity_status">Trạng thái hoạt động</string>
     <string name="platform_status">Nền tảng</string>
     <string name="translator_options">Tùy chọn Dịch thuật</string>
-    <string name="enable_translator">Bật Dịch thuật</string>
-    <string name="enable_translator_desc">Dịch các trường đã chọn trước khi gửi đến Discord RPC</string>
+
     <string name="context_info">Bối cảnh (phân cách bằng dấu phẩy)</string>
     <string name="target_language">Ngôn ngữ đích</string>
     <string name="close_dialog">Đóng</string>
@@ -506,20 +495,15 @@
     <string name="ai_translate_in_background_desc">Bản dịch sẽ tiếp tục trong nền. Bạn sẽ được thông báo khi hoàn tất.</string>
     <string name="ai_translation_notification_channel_name">Dịch AI</string>
     <string name="ai_translation_notification_title">Dịch AI</string>
-    <string name="discord_button_options">Tùy chọn nút</string>
-    <string name="discord_image_options">Tùy chọn hình ảnh</string>
+
     <string name="refresh">Làm mới</string>
-    <string name="description_refresh">Làm mới thủ công Discord Rich Presence</string>
-    <string name="discord_show_when_paused">Hiển thị RPC khi tạm dừng</string>
-    <string name="discord_show_when_paused_desc">Nếu được bật, Rich Presence sẽ vẫn hiển thị khi tạm dừng với biểu tượng tạm dừng. Nếu tắt, RPC sẽ biến mất khi tạm dừng.</string>
-    <string name="discord_paused">Đã tạm dừng</string>
+
     <string name="logout_confirm_title">Xác nhận đăng xuất</string>
-    <string name="logout_confirm_message">Bạn có chắc chắn muốn đăng xuất Discord không?</string>
+
     <string name="logout_confirm_yes">Đăng xuất</string>
     <string name="logout_confirm_no">Hủy</string>
     <string name="experiment_settings">Cài đặt Thử nghiệm</string>
-    <string name="show_discord_debug_ui">Hiển thị UI Debug</string>
-    <string name="enable_discord_debug_lines">Bật các dòng cài đặt debug</string>
+
     <string name="presence_manager_running">Quản lý presence: đang chạy</string>
     <string name="presence_manager_stopped">Quản lý presence: đã dừng</string>
     <string name="filter_levels">Mức độ lọc</string>
@@ -565,10 +549,10 @@
     <string name="update_notification_channel_name">Cập nhật Ứng dụng</string>
     <string name="update_notification_channel_desc">Thông báo cho các cập nhật ứng dụng mới</string>
     <string name="update_notification_title">Cập nhật Có sẵn</string>
-    <string name="update_notification_text">ArchiveTune %s hiện đã có sẵn</string>
+    <string name="update_notification_text">Hush %s hiện đã có sẵn</string>
     <string name="download">Tải xuống</string>
     <string name="download_complete">Tải xuống hoàn tất</string>
-    <string name="permissions_title">Cho phép ArchiveTune hoạt động tốt nhất</string>
+    <string name="permissions_title">Cho phép Hush hoạt động tốt nhất</string>
     <string name="permissions_subtitle">Chúng tôi sử dụng một số quyền để phát và quản lý nhạc của bạn một cách đáng tin cậy. Bạn có thể thay đổi những quyền này bất cứ lúc nào trong cài đặt hệ thống.</string>
     <string name="permission_storage_title">Truy cập lưu trữ</string>
     <string name="permission_storage_desc">Cần thiết để đọc các file âm thanh đã tải xuống và cục bộ của bạn để phát nhạc.</string>
@@ -592,7 +576,7 @@
     <string name="log_level_info">Info</string>
     <string name="log_level_warning">CẢNH BÁO</string>
     <string name="log_level_error">Error</string>
-    <string name="filter_discord_only">Discord</string>
+
     <string name="filter_all_logs">Tất cả</string>
     <string name="clear">Xóa</string>
     <string name="logs_empty_message">Nhật ký sẽ xuất hiện ở đây khi có sẵn</string>
@@ -606,7 +590,7 @@
     <string name="share_logs">Chia sẻ nhật ký</string>
     <string name="you_might_like">Có thể bạn sẽ thích</string>
     <string name="refresh_suggestions">Làm mới gợi ý</string>
-    <string name="music_together">ArchiveTune Music Together</string>
+    <string name="music_together">Hush Music Together</string>
     <string name="together_display_name">Tên hiển thị</string>
     <string name="together_display_name_placeholder">Tên của bạn</string>
     <string name="together_port">Cổng phiên</string>
@@ -651,10 +635,10 @@
     <string name="together_error_state">Lỗi</string>
     <string name="got_it">Hiểu rồi</string>
     <string name="together_dont_show_again">Không hiển thị lại nữa</string>
-    <string name="together_welcome_title">Chào mừng đến với ArchiveTune Music Together</string>
+    <string name="together_welcome_title">Chào mừng đến với Hush Music Together</string>
     <string name="together_welcome_body">Music Together cho phép nhiều thiết bị chia sẻ một phiên trực tiếp với Queue đồng bộ và phát nhạc.</string>
     <string name="together_welcome_host_title">Tổ chức một phiên</string>
-    <string name="together_welcome_host_body">Nhấn Bắt đầu phiên, sau đó chia sẻ liên kết phiên. Giữ ArchiveTune mở trong nền trong khi tổ chức.</string>
+    <string name="together_welcome_host_body">Nhấn Bắt đầu phiên, sau đó chia sẻ liên kết phiên. Giữ Hush mở trong nền trong khi tổ chức.</string>
     <string name="together_welcome_join_title">Tham gia từ thiết bị khác</string>
     <string name="together_welcome_join_body">Mở liên kết được chia sẻ, hoặc nhập mã và nhấn Tham gia. Hàng đợi và phát nhạc của bạn sẽ theo người tổ chức.</string>
     <string name="together_welcome_permissions_title">Quyền và an toàn</string>
@@ -679,9 +663,9 @@
     <string name="slider_style_circular">Circular</string>
     <string name="slider_style_simple">Đơn giản</string>
     <string name="playback_confirmation_required">Cần xác nhận phát lại</string>
-    <string name="playback_requires_youtube_music_confirmation">Xác nhận phát lại trong YouTube Music, sau đó quay lại ArchiveTune.</string>
+    <string name="playback_requires_youtube_music_confirmation">Xác nhận phát lại trong YouTube Music, sau đó quay lại Hush.</string>
     <string name="playback_login_refresh_required">Làm mới đăng nhập YouTube Music</string>
-    <string name="playback_requires_youtube_music_login_refresh">Làm mới trang đăng nhập YouTube Music của bạn, sau đó quay lại ArchiveTune.</string>
+    <string name="playback_requires_youtube_music_login_refresh">Làm mới trang đăng nhập YouTube Music của bạn, sau đó quay lại Hush.</string>
     <string name="pause_on_device_mute">Tạm dừng khi âm lượng thiết bị bằng 0</string>
     <string name="pause_on_device_mute_desc">Tự động tạm dừng nhạc khi tắt tiếng và tiếp tục phát khi bật tiếng trở lại</string>
     <string name="wakelock">Giữ cho CPU luôn hoạt động trong suốt quá trình phát lại</string>
@@ -719,7 +703,7 @@
     <string name="token_copied">Mã token đã được sao chép vào clipboard</string>
     <string name="extracting_from_url">Trích xuất token từ URL</string>
     <string name="po_token_account_notice_title">Sử dụng cùng tài khoản</string>
-    <string name="po_token_account_notice_body">Đăng nhập vào đây bằng chính tài khoản Google mà bạn đã sử dụng cho YouTube Music trong ArchiveTune trước khi tạo mã thông báo PO.</string>
+    <string name="po_token_account_notice_body">Đăng nhập vào đây bằng chính tài khoản Google mà bạn đã sử dụng cho YouTube Music trong Hush trước khi tạo mã thông báo PO.</string>
     <string name="po_token_account_notice_same_account">Nếu WebView này sử dụng một tài khoản khác, mã thông báo được tạo sẽ không hoạt động chính xác.</string>
     <string name="po_token_account_notice_mismatch">Sử dụng tài khoản phù hợp, hoàn tất quy trình đăng nhập, sau đó mở youtube.com/account và tạo mã thông báo từ trang đó.</string>
     <string name="sort_order_ascending">Tăng dần</string>
@@ -746,46 +730,14 @@
     <string name="aod_mode_exit">Thoát AOD</string>
     <string name="error_malformed_stream">Lỗi nguồn</string>
     <string name="support_development_title">Hỗ trợ phát triển</string>
-    <string name="support_development_message">Chào mọi người! Tôi là Koiverse, nhà phát triển của ArchiveTune. Nếu ArchiveTune đã trở thành một phần trong danh sách nghe nhạc hàng ngày của bạn, bạn có thể giúp dự án tiếp tục phát triển bằng cách quyên góp hoặc đánh dấu sao trên GitHub. Cảm ơn vì đã ủng hộ công sức của chúng tôi trong việc phát triển ứng dụng.</string>
+    <string name="support_development_message">Hush là bản fork cá nhân của ArchiveTune. Nếu bạn thích ứng dụng, hãy gắn sao cho fork này trên GitHub hoặc ủng hộ dự án ArchiveTune gốc. Cảm ơn bạn đã lắng nghe.</string>
     <string name="support_development_donate">Quyên góp để hỗ trợ phát triển</string>
     <string name="support_development_star">Sao trên GitHub</string>
     <string name="later">Để sau</string>
     <string name="album_name">Tên album</string>
     <string name="app_icon">Biểu tượng ứng dụng</string>
     <string name="could_not_open_youtube_music">Không thể mở YouTube Music</string>
-    <string name="discord_account_ready">ArchiveTune đã sẵn sàng để xuất bản Rich Presence cho phiên nghe nhạc của bạn.</string>
-    <string name="discord_activity_content">Nội dung Hoạt động</string>
-    <string name="discord_activity_type_competing_label">Đang cạnh tranh</string>
-    <string name="discord_activity_type_listening_label">Đang nghe</string>
-    <string name="discord_activity_type_playing_label">Đang chơi</string>
-    <string name="discord_activity_type_streaming_label">Đang phát trực tiếp</string>
-    <string name="discord_activity_type_watching_label">Đang xem</string>
-    <string name="discord_authorization_failed">Ủy quyền Discord thất bại</string>
-    <string name="discord_authorization_success">Đã kết nối tài khoản Discord</string>
-    <string name="discord_connection_settings">Kết nối</string>
-    <string name="discord_image_album_artwork">Ảnh bìa album</string>
-    <string name="discord_image_artist_artwork">Ảnh nghệ sĩ</string>
-    <string name="discord_login_description">Kết nối tài khoản Discord của bạn với OAuth để ArchiveTune có thể xuất bản Rich Presence.</string>
-    <string name="discord_open_authorization">Mở ủy quyền Discord</string>
-    <string name="discord_platform_android">Android</string>
-    <string name="discord_platform_desktop">Desktop</string>
-    <string name="discord_platform_embedded">Nhúng</string>
-    <string name="discord_platform_ios">iOS</string>
-    <string name="discord_platform_ps4">PS4</string>
-    <string name="discord_platform_ps5">PS5</string>
-    <string name="discord_platform_samsung">Samsung</string>
-    <string name="discord_platform_xbox">Xbox</string>
-    <string name="discord_presence_do_not_disturb">Không làm phiền</string>
-    <string name="discord_presence_idle">Rảnh rỗi</string>
-    <string name="discord_presence_online">Trực tuyến</string>
-    <string name="discord_presence_streaming">Đang phát trực tiếp</string>
-    <string name="discord_refresh_failed">Làm mới presence Discord thất bại</string>
-    <string name="discord_refresh_success">Đã làm mới presence Discord</string>
-    <string name="discord_url_source_album">URL Album</string>
-    <string name="discord_url_source_artist">URL Nghệ sĩ</string>
-    <string name="discord_url_source_custom">URL tùy chỉnh</string>
-    <string name="discord_url_source_song">URL Bài hát</string>
-    <string name="discord_waiting_for_authorization">Đang chờ ủy quyền Discord...</string>
+
     <string name="display">Màn hình</string>
     <string name="enable_unison_lyrics">Bật lời bài hát Unison</string>
     <string name="haptics">Rung</string>
@@ -823,7 +775,7 @@
     <string name="visit_website">Truy cập trang web</string>
     <string name="widget_pause">Tạm dừng</string>
     <string name="widget_previous">Bài trước</string>
-    <string name="widget_tap_to_open">Nhấn để mở ArchiveTune</string>
+    <string name="widget_tap_to_open">Nhấn để mở Hush</string>
     <string name="album_backdrop">Mờ nền</string>
     <string name="album_backdrop_desc">Hiển thị ảnh nghệ thuật dưới dạng nền mờ trên trình phát</string>
     <string name="backdrop_blur_amount">Mức độ mờ nền</string>
@@ -836,7 +788,7 @@
     <string name="custom_font">Phông chữ tùy chỉnh</string>
     <string name="custom_font_desc">Chọn tệp phông .ttf</string>
     <string name="custom_font_invalid">Chọn tệp phông .ttf</string>
-    <string name="account_integrations_summary">Discord, Last.fm, ListenBrainz</string>
+    <string name="account_integrations_summary">Last.fm, ListenBrainz</string>
     <string name="device_mute_recovery_volume">Tăng âm lượng từ 0</string>
     <string name="device_mute_recovery_volume_disabled">Đã tắt</string>
     <string name="device_volume_zero_playback_paused">Phát nhạc đã tạm dừng vì âm lượng thiết bị là 0. Tăng âm lượng để tiếp tục.</string>
@@ -869,7 +821,7 @@
     <string name="library_top_mixes_refresh">Làm mới mix</string>
     <string name="library_top_mixes_configure_ai">Cấu hình AI</string>
     <string name="library_top_mixes_ai_not_configured_title">Cấu hình AI để tạo mix</string>
-    <string name="library_top_mixes_ai_not_configured_desc">Cần tích hợp AI trước khi ArchiveTune có thể tạo mix cá nhân.</string>
+    <string name="library_top_mixes_ai_not_configured_desc">Cần tích hợp AI trước khi Hush có thể tạo mix cá nhân.</string>
     <string name="library_top_mixes_no_recent_history_title">Chưa có mix nghe gần đây</string>
     <string name="library_top_mixes_no_recent_history">Hãy nghe thêm bài hát, sau đó làm mới để tạo AI mix từ lịch sử gần đây của bạn.</string>
     <string name="library_top_mixes_no_valid_mixes">AI không trả về mix nào khả thi từ lịch sử gần đây của bạn.</string>
@@ -912,9 +864,7 @@
     <string name="together_activity_queue_updated">%1$s đã thay đổi hàng đợi</string>
     <string name="together_activity_playback_state_changed">%1$s đã thay đổi trạng thái phát</string>
     <string name="together_activity_error">Lỗi: %1$s</string>
-    <string name="discord_reauthorize_required_title">Phiên Discord đã hết hạn</string>
-    <string name="discord_reauthorize_required_description">Không thể hiển thị Rich Presence cho đến khi bạn ủy quyền Discord lại.</string>
-    <string name="discord_reauthorize_action">ủy quyền lại</string>
+
     <string name="lastfm_service">Dịch vụ Scrobbling</string>
     <string name="lastfm_service_provider">Nhà cung cấp dịch vụ</string>
     <string name="lastfm_provider_lastfm">Last.fm</string>
@@ -936,12 +886,12 @@
     <string name="lastfm_login_api_key_suspended">Khóa API đã bị đình chỉ.</string>
     <string name="lastfm_login_network_error">Lỗi mạng. Kiểm tra kết nối của bạn.</string>
     <string name="lastfm_login_failed">Đăng nhập thất bại. Thử lại.</string>
-    <string name="storage_cache_clear_warning">Giữ ArchiveTune mở trong khi các tệp cache đang được xóa.</string>
+    <string name="storage_cache_clear_warning">Giữ Hush mở trong khi các tệp cache đang được xóa.</string>
     <string name="storage_clear_song_cache_progress">Đang xóa cache bài hát...%1$d%%</string>
     <string name="storage_clear_downloads_progress">Đang xóa tải xuống...%1$d%%</string>
     <string name="storage_clear_image_cache_progress">Đang xóa cache hình ảnh...%1$d%%</string>
     <string name="storage_clear_canvas_cache_progress">Đang xóa cache canvas...%1$d%%</string>
-    <string name="updates_channel_warning_intro">ArchiveTune cung cấp hai kênh tải xuống cho các bản dựng:</string>
+    <string name="updates_channel_warning_intro">Hush cung cấp hai kênh tải xuống cho các bản dựng:</string>
     <string name="updates_channel_warning_stable_title">Bản dựng ổn định</string>
     <string name="updates_channel_warning_stable_source">Được phân phối qua GitHub Releases chính thức.</string>
     <string name="updates_channel_warning_stable_desc">Các phiên bản này đã được kiểm tra và khuyên dùng cho hầu hết người dùng.</string>

@@ -41,14 +41,14 @@ ArchiveTune follows a strict **Clean Architecture** approach. This separation of
 
 1. **Clone the Source:**
 ```bash
-git clone https://github.com/ArchiveTuneApp/ArchiveTune.git
-cd ArchiveTune
+git clone https://github.com/maxinjohn/Hush.git
+cd Hush
 
 ```
 
 
 2. **Secret Management:**
-ArchiveTune uses a modular properties system. If your build requires specific API keys (e.g., Discord Client IDs), define them in your `local.properties`:
+Hush uses a modular properties system. If your build requires specific API keys, define them in your `local.properties`:
 ```properties
 # Path to your Android SDK
 sdk.dir=/Users/yourname/Library/Android/sdk

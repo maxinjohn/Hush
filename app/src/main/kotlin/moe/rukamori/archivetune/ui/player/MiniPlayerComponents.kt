@@ -206,17 +206,6 @@ fun SwipeableMiniPlayerBox(
                                                 )
                                             }
                                             playerConnection.player.seekToPreviousMediaItem()
-                                            if (moe.rukamori.archivetune.ui.screens.settings.DiscordPresenceManager
-                                                    .isRunning()
-                                            ) {
-                                                try {
-                                                    moe.rukamori.archivetune.ui.screens.settings.DiscordPresenceManager
-                                                        .restart()
-                                                } catch (
-                                                    _: Exception,
-                                                ) {
-                                                }
-                                            }
                                         } else if (!isRightSwipe && canSkipNext) {
                                             if (enableHapticFeedback) {
                                                 view.performHapticFeedback(
@@ -225,17 +214,6 @@ fun SwipeableMiniPlayerBox(
                                                 )
                                             }
                                             playerConnection.player.seekToNext()
-                                            if (moe.rukamori.archivetune.ui.screens.settings.DiscordPresenceManager
-                                                    .isRunning()
-                                            ) {
-                                                try {
-                                                    moe.rukamori.archivetune.ui.screens.settings.DiscordPresenceManager
-                                                        .restart()
-                                                } catch (
-                                                    _: Exception,
-                                                ) {
-                                                }
-                                            }
                                         }
                                     }
 
@@ -374,7 +352,7 @@ private fun MiniPlayerArtwork(
                 )
             } else {
                 Image(
-                    painter = painterResource(R.drawable.about_splash),
+                    painter = painterResource(R.drawable.hush_logo_mark),
                     contentDescription = null,
                     modifier = Modifier.size(22.dp),
                 )

@@ -22,6 +22,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import moe.rukamori.archivetune.HushLinks
 import moe.rukamori.archivetune.constants.GitHubContributorsJsonKey
 import moe.rukamori.archivetune.utils.dataStore
 import org.json.JSONArray
@@ -142,7 +143,7 @@ class AboutContributorsRepository
                 client.get("https://api.github.com/repos/$owner/$repo/contributors?per_page=$perPage") {
                     headers {
                         append("Accept", "application/vnd.github+json")
-                        append("User-Agent", "ArchiveTune")
+                        append("User-Agent", "Hush")
                     }
                 }
             return ContributorsNetworkResult(
@@ -194,7 +195,7 @@ class AboutContributorsRepository
 
         private companion object {
             const val ContributorsLimit = 20
-            const val GitHubOwner = "ArchiveTuneApp"
-            const val GitHubRepo = "ArchiveTune"
+            const val GitHubOwner = HushLinks.GITHUB_OWNER
+            const val GitHubRepo = HushLinks.GITHUB_REPO
         }
     }

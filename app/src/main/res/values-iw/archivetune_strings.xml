@@ -284,7 +284,7 @@
     <string name="quick_picks_display_mode">מצב תצוגה של בחירות מהירות</string>
     <string name="quick_picks_display_mode_card">כרטיס</string>
     <string name="quick_picks_display_mode_list">רשימה</string>
-    <string name="discord">דיסקורד</string>
+
     <string name="advanced_login">התחבר עם טוקן</string>
     <string name="token_hidden">הקש כדי להציג טוקן</string>
     <string name="token_shown">הקש שוב כדי להעתיק או לערוך</string>

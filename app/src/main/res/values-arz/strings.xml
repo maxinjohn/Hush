@@ -70,7 +70,7 @@
     <string name="delete_playlist_confirm">هل انت بجد عايز تمسح قائمة التشغيل \"%s\"؟</string>
     <string name="change_playlist_cover">غير غلاف القايمة</string>
     <string name="reset">إعادة ضبط</string>
-    <string name="discord_paused">متوقفة</string>
+
     <string name="translate">ترجم</string>
     <string name="language_label">اللغة</string>
     <string name="lyrics">الكلمات</string>

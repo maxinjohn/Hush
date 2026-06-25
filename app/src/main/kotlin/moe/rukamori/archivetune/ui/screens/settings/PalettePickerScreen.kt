@@ -1112,6 +1112,8 @@ fun ThemeCreatorScreen(navController: NavController) {
     var activeRole by rememberSaveable { mutableStateOf(SeedRole.PRIMARY) }
     var showImportErrorDialog by rememberSaveable { mutableStateOf(false) }
     var importErrorText by rememberSaveable { mutableStateOf("") }
+    val defaultExportThemeName =
+        stringResource(R.string.default_export_theme_name, stringResource(R.string.app_name))
 
     fun applyThemeToPrefs() {
         setDynamicThemeEnabled(false)
@@ -1239,7 +1241,7 @@ fun ThemeCreatorScreen(navController: NavController) {
                         val safeName =
                             themeName
                                 .trim()
-                                .ifBlank { "ArchiveTune Theme" }
+                                .ifBlank { defaultExportThemeName }
                                 .replace(Regex("[^a-zA-Z0-9 _\\-]"), "_")
                                 .take(64)
                         exportLauncher.launch("$safeName.json")

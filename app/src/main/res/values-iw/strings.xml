@@ -192,7 +192,7 @@
     <string name="disable_animations">השבתת הנפשות</string>
     <string name="palette_cyberpunk">סייברפאנק</string>
     <string name="added_n_songs_to_n_playlists">נוספו %1$d שירים ל%2$d פלייליסטים</string>
-    <string name="playback_requires_youtube_music_confirmation">אשר את ההפעלה ב- YouTube Music, ולאחר מכן חזור אל ArchiveTune.</string>
+    <string name="playback_requires_youtube_music_confirmation">אשר את ההפעלה ב- YouTube Music, ולאחר מכן חזור אל Hush.</string>
     <string name="proxy_connection_failed">חיבור הפרוקסי נכשל: %s</string>
     <string name="font_preference_default">ברירת מחדל</string>
     <string name="unknown">לא ידוע</string>
@@ -233,7 +233,7 @@
     <string name="slider_style_simple">בסיסי</string>
     <string name="smart_trimmer">גוזם חכם</string>
     <string name="appearance">מראה</string>
-    <string name="show_button1_description">הפעלת כפתור 1 ב- Discord Rich Presence</string>
+
     <string name="ip_rotation_refresh">רענן כתובת IP</string>
     <string name="dns_provider">ספק DNS</string>
     <string name="auto_start_on_bluetooth">הפעלה אוטומטית בחיבור Bluetooth</string>
@@ -242,7 +242,7 @@
     <string name="together_kick_confirm">הסר %1$s?</string>
     <string name="codecs">קודקים</string>
     <string name="together_participants">משתתפים</string>
-    <string name="show_button2_description">הפעלת כפתור 2 ב- Discord Rich Presence</string>
+
     <string name="lyrics_animation_style_v2_only">זמין רק בגרסה ״2 מדור קודם״ במצב מילות השיר</string>
     <string name="auto_start_on_bluetooth_desc">חידוש ההפעלה אוטומטית כאשר מכשיר שמע Bluetooth מתחבר</string>
     <string name="duplicates_description_multiple">%d שירים כבר נמצאים בפלייליסט שלך</string>
@@ -345,7 +345,7 @@
     <string name="stream_bypass_proxy_desc">השתמש בכתובת ה-IP הישירה שלך להשמעת הזרם כדי למנוע אי-התאמה בכתובות ה-IP</string>
     <string name="external_downloader_not_installed">אפליקציית הורדה חיצונית לא מותקנת</string>
     <string name="sort_by_most_played">הכי מושמע</string>
-    <string name="archivetune_canvas">קנבס ArchiveTune</string>
+    <string name="archivetune_canvas">קנבס Hush</string>
     <string name="slider_style_wavy">גלי</string>
     <string name="more">עוד</string>
     <string name="pause_on_device_mute">השהה כאשר עוצמת הקול של המכשיר היא 0</string>
@@ -366,7 +366,7 @@
         <item quantity="other">%d שירים</item>
     </plurals>
     <string name="duplicates">כפילויות</string>
-    <string name="widget_tap_to_open">לחץ כדי לפתוח את ArchiveTune</string>
+    <string name="widget_tap_to_open">לחץ כדי לפתוח את Hush</string>
     <string name="queue_autoplaying_similar">הפעלה אוטומטית של מוזיקה דומה</string>
     <string name="eq_waiting_for_audio_session">ממתין לסשן שמע</string>
     <string name="shuffle">ערבוב</string>
@@ -448,7 +448,7 @@
     <string name="together_host_left_session">המארח עזב את המפגש</string>
     <string name="dns_over_https_desc">השתמש ב-DNS מעל HTTPS (DoH) כדי לפתור שמות מארחים</string>
     <string name="palette_cobalt_blue">כחול קובלט</string>
-    <string name="discord_activity_type">סוג פעילות</string>
+
     <string name="persistent_queue_desc">שחזר את התור האחרון שלך בעת הפעלת האפליקציה</string>
     <string name="aod_mode_exit">יציאה מ- AOD</string>
     <string name="loudness">עוצמה</string>
@@ -505,7 +505,7 @@
     <string name="palette_candy">סוכריה</string>
     <string name="eq_import_success">%1$d פרופילים מיובאים</string>
     <string name="error_unknown">שגיאה לא ידועה</string>
-    <string name="playback_requires_youtube_music_login_refresh">רענן את פרטי ההתחברות שלך ל- YouTube Music, ולאחר מכן חזור אל ArchiveTune.</string>
+    <string name="playback_requires_youtube_music_login_refresh">רענן את פרטי ההתחברות שלך ל- YouTube Music, ולאחר מכן חזור אל Hush.</string>
     <string name="removed_n_songs_from_queue">הוסרו \'\'%d\'\' שירים מהתור</string>
     <string name="remove_from_playlist">הסר מהפלייליסט</string>
     <string name="font_preference_system">מערכת</string>
@@ -526,7 +526,7 @@
     <string name="library_top_mixes_refresh">רענון מיקסים</string>
     <string name="library_top_mixes_configure_ai">הגדרת בינה מלאכותית</string>
     <string name="library_top_mixes_ai_not_configured_title">הגדרת בינה מלאכותית ליצירת מיקסים</string>
-    <string name="library_top_mixes_ai_not_configured_desc">נדרש שילוב של בינה מלאכותית לפני ש-ArchiveTune יוכל לבנות מיקסים מובילים אישיים.</string>
+    <string name="library_top_mixes_ai_not_configured_desc">נדרש שילוב של בינה מלאכותית לפני ש-Hush יוכל לבנות מיקסים מובילים אישיים.</string>
     <string name="library_top_mixes_no_recent_history_title">עדיין אין מיקס האזנה אחרון</string>
     <string name="library_top_mixes_no_recent_history">האזינו לשירים נוספים, ולאחר מכן רעננו כדי ליצור מיקסי AI מההיסטוריה האחרונה שלכם.</string>
     <string name="library_top_mixes_no_valid_mixes">הבינה המלאכותית לא החזירה מיקסים ניתנים להפעלה מההיסטוריה האחרונה שלך.</string>
@@ -582,21 +582,12 @@
     <string name="backup_create_failed">לא ניתן היה ליצור גיבוי</string>
     <string name="restore_success">הגיבוי שוחזר בהצלחה</string>
     <string name="restore_failed">שחזור הגיבוי נכשל</string>
-    <string name="discord_integration">חיבור עם דיסקורד</string>
-    <string name="account_integrations_summary">דיסקורד, Last.fm, Libre.fm, ListenBrainz</string>
-    <string name="discord_login_description">חבר את חשבון הדיסקורד שלך עם OAuth כדי ש-ArchiveTune יוכל לפרסם את Rich Presence.</string>
-    <string name="discord_open_authorization">הרשאת פתיחת דיסקורד</string>
-    <string name="discord_waiting_for_authorization">מחכה לאישור דיסקורד...</string>
-    <string name="discord_authorization_success">חשבון דיסקורד מחובר</string>
-    <string name="discord_authorization_failed">אישור דיסקורד נכשל</string>
-    <string name="discord_account_ready">ArchiveTune מוכן לפרסם את Rich Presence עבור סשן ההאזנה שלכם.</string>
-    <string name="discord_connection_settings">חיבור</string>
-    <string name="discord_activity_content">תוכן הפעילות</string>
-    <string name="discord_refresh_success">נוכחות בדיסקורד רועננה</string>
-    <string name="discord_refresh_failed">רענון נוכחות בדיסקורד נכשל</string>
+
+    <string name="account_integrations_summary">Last.fm, Libre.fm, ListenBrainz</string>
+
     <string name="options">אפשרויות</string>
     <string name="preview">תצוגה מקדימה</string>
-    <string name="enable_discord_rpc">הפעלת נוכחות עשירה</string>
+
     <string name="scrobbling">סקרובלינג</string>
     <string name="lastfm_integration">חיבור Last.fm / Libre.fm</string>
     <string name="enable_scrobbling">הפעלת סקרובלינג</string>
@@ -635,19 +626,7 @@
     <string name="listenbrainz_scrobbling_description">אפשר שליחת האזנות מושמעות והאזנות שהושלמו ל-ListenBrainz</string>
     <string name="set_listenbrainz_token">הגדר טוקן ListenBrainz</string>
     <string name="edit_listenbrainz_token">עריכת טוקן ListenBrainz</string>
-    <string name="discord_activity_name">שם הפעילות</string>
-    <string name="discord_activity_details">פרטי הפעילות</string>
-    <string name="discord_activity_state">מצב פעילות</string>
-    <string name="discord_activity_button_1_url">מקור כתובת URL של כפתור 1</string>
-    <string name="discord_activity_button_2_url">מקור כתובת URL של כפתור 2</string>
-    <string name="discord_activity_button1_label">תווית כפתור 1</string>
-    <string name="discord_activity_button1_url">כפתור 1 כתובת URL מותאמת אישית</string>
-    <string name="discord_activity_button2_label">תווית כפתור 2</string>
-    <string name="discord_activity_button2_url">כפתור 2 כתובת URL מותאמת אישית</string>
-    <string name="discord_url_source_song">כתובת אתר של השיר</string>
-    <string name="discord_url_source_artist">כתובת אתר של האמן</string>
-    <string name="discord_url_source_album">כתובת אתר של האלבום</string>
-    <string name="discord_url_source_custom">כתובת URL מותאמת אישית</string>
+
     <string name="album_name">שם האלבום</string>
     <string name="app_icon">סמל האפליקציה</string>
     <string name="large_image_custom_url">כתובת URL מותאמת אישית עם תמונה גדולה</string>
@@ -656,35 +635,16 @@
     <string name="custom_large_text">טקסט גדול מותאם אישית</string>
     <string name="small_image">תמונה קטנה</string>
     <string name="small_image_custom_url">כתובת URL מותאמת אישית לתמונה קטנה</string>
-    <string name="discord_presence_online">אונליין</string>
-    <string name="discord_presence_do_not_disturb">נא לא להפריע</string>
-    <string name="discord_presence_idle">ללא פעילות</string>
-    <string name="discord_presence_streaming">סטרימינג</string>
-    <string name="discord_platform_desktop">שולחן עבודה</string>
-    <string name="discord_platform_xbox">אקסבוקס</string>
-    <string name="discord_platform_samsung">סמסונג</string>
-    <string name="discord_platform_ios">iOS</string>
-    <string name="discord_platform_android">Android</string>
-    <string name="discord_platform_embedded">מוטמע</string>
-    <string name="discord_platform_ps4">PS4</string>
-    <string name="discord_platform_ps5">PS5</string>
-    <string name="discord_activity_type_playing_label">מנגן</string>
-    <string name="discord_activity_type_streaming_label">סטרימינג</string>
-    <string name="discord_activity_type_listening_label">האזנה</string>
-    <string name="discord_activity_type_watching_label">צפייה</string>
-    <string name="discord_activity_type_competing_label">מתחרה</string>
-    <string name="discord_image_album_artwork">יצירת האמנות של האלבום</string>
-    <string name="discord_image_artist_artwork">יצירות אמנות של אמן</string>
+
     <string name="activity_status">סטטוס פעילות</string>
     <string name="platform_status">פלטפורמה</string>
     <string name="translator_options">אפשרויות מתרגם</string>
-    <string name="enable_translator">הפעלת מתרגם</string>
-    <string name="enable_translator_desc">תרגם שדות נבחרים לפני שליחה ל-Discord RPC</string>
+
     <string name="context_info">הקשרים (מופרדים בפסיקים)</string>
     <string name="target_language">שפת היעד</string>
     <string name="close_dialog">סגירה</string>
     <string name="support_development_title">תמיכה בפיתוח</string>
-    <string name="support_development_message">אהלן! אני קויברס, המפתח של ArchiveTune. אם אתם מוצאים שימוש יום-יומי ב-ArchiveTune , אתם יכולים לעזור לנו להמשיך להתקדם על ידי תרומה או סימון הפרויקט ב-GitHub. תודה על התמיכה בעבודה שמאחורי האפליקציה.</string>
+    <string name="support_development_message">Hush הוא fork אישי של ArchiveTune. אם אתם נהנים מהאפליקציה, תנו כוכב ל-fork הזה ב-GitHub או תמכו בפרויקט ArchiveTune המקורי. תודה שהאזנתם.</string>
     <string name="support_development_donate">תרמו לתמיכה בפיתוח</string>
     <string name="support_development_star">דרגו ב-GitHub</string>
     <string name="later">מאוחר יותר</string>
@@ -696,20 +656,15 @@
     <string name="lyrics">מילות השיר</string>
     <string name="translation_success">התרגום נשמר</string>
     <string name="translation_failed">התרגום נכשל</string>
-    <string name="discord_button_options">אפשרויות כפתור</string>
-    <string name="discord_image_options">אפשרויות תמונה</string>
+
     <string name="refresh">רענון</string>
-    <string name="description_refresh">רענון ידני של Discord Rich Presence</string>
-    <string name="discord_show_when_paused">הצג RPC כאשר מושהה</string>
-    <string name="discord_show_when_paused_desc">אם מופעל, נוכחות עשירה תישאר גלויה בזמן השהייה עם סמל השהייה. אם מושבת, RPC ייעלם בזמן השהייה.</string>
-    <string name="discord_paused">מושהה</string>
+
     <string name="logout_confirm_title">אישור התנתקות</string>
-    <string name="logout_confirm_message">האם אתה בטוח שאתה רוצה להתנתק מדיסקורד?.</string>
+
     <string name="logout_confirm_yes">התנתקות</string>
     <string name="logout_confirm_no">ביטול</string>
     <string name="experiment_settings">הגדרות ניסיוניות</string>
-    <string name="show_discord_debug_ui">הצג ממשק משתמש של ניפוי שגיאות</string>
-    <string name="enable_discord_debug_lines">הפעל שורות הגדרות ניפוי שגיאות</string>
+
     <string name="presence_manager_running">מנהל נוכחות: פועל</string>
     <string name="presence_manager_stopped">מנהל נוכחות: הופסק</string>
     <string name="filter_levels">רמות סינון</string>
@@ -746,7 +701,7 @@
     <string name="log_level_info">מידע</string>
     <string name="log_level_warning">אזהרה</string>
     <string name="log_level_error">שגיאה</string>
-    <string name="filter_discord_only">דיסקורד</string>
+
     <string name="filter_all_logs">הכל</string>
     <string name="clear">נקה</string>
     <string name="logs_empty_message">יומנים יופיעו כאן כאשר יהיו זמינים</string>
@@ -791,9 +746,9 @@
     <string name="update_notification_channel_name">עדכוני אפליקציה</string>
     <string name="update_notification_channel_desc">התראות על עדכוני אפליקציה חדשים</string>
     <string name="update_notification_title">עדכון זמין</string>
-    <string name="update_notification_text">ArchiveTune %s זמין כעת</string>
+    <string name="update_notification_text">Hush %s זמין כעת</string>
     <string name="download">הורדה</string>
-    <string name="permissions_title">אפשר ל-ArchiveTune לפעול בצורה הטובה ביותר</string>
+    <string name="permissions_title">אפשר ל-Hush לפעול בצורה הטובה ביותר</string>
     <string name="permissions_subtitle">אנו משתמשים במספר הרשאות כדי להשמיע ולנהל את המוזיקה שלך בצורה אמינה. ניתן לשנות אותן בכל עת בהגדרות המערכת.</string>
     <string name="permission_storage_title">גישה לאחסון</string>
     <string name="permission_storage_desc">נדרש לקריאת קבצי אודיו שהורדת ומקומיים לצורך השמעה.</string>
@@ -806,7 +761,7 @@
     <string name="playlist_suggestion_source_title">כותרת הפלייליסט</string>
     <string name="playlist_suggestion_source_content">תוכן הפלייליסט</string>
     <string name="playlist_suggestion_source_both">שם ותוכן הפלייליסט</string>
-    <string name="music_together">ArchiveTune ביחד</string>
+    <string name="music_together">Hush ביחד</string>
     <string name="together_display_name">שם תצוגה</string>
     <string name="together_display_name_placeholder">השם שלך</string>
     <string name="together_port">פורט סשן</string>
@@ -853,10 +808,10 @@
     <string name="together_error_state">שגיאה</string>
     <string name="got_it">הבנתי</string>
     <string name="together_dont_show_again">אל תציג את זה שוב</string>
-    <string name="together_welcome_title">ברוכים הבאים ל-ArchiveTune ביחד</string>
+    <string name="together_welcome_title">ברוכים הבאים ל-Hush ביחד</string>
     <string name="together_welcome_body">Music Together מאפשר למספר מכשירים לשתף סשן חי עם תור מסונכרן והשמעה.</string>
     <string name="together_welcome_host_title">אירוח סשן</string>
-    <string name="together_welcome_host_body">הקישו על התחל סשן, לאחר מכן שתפו את קישור הסשן. השאירו את ArchiveTune פתוח ברקע בזמן האירוח.</string>
+    <string name="together_welcome_host_body">הקישו על התחל סשן, לאחר מכן שתפו את קישור הסשן. השאירו את Hush פתוח ברקע בזמן האירוח.</string>
     <string name="together_welcome_join_title">הצטרפות ממכשיר אחר</string>
     <string name="together_welcome_join_body">פתחו את הקישור המשותף, או הזינו את הקוד והקישו על הצטרף. התור וההשמעה שלכם יעקבו אחר המארח.</string>
     <string name="together_welcome_permissions_title">הרשאות ובטיחות</string>
@@ -884,7 +839,7 @@
     <string name="token_copied">הטוקן הועתק ללוח</string>
     <string name="extracting_from_url">חילוץ טוקנים מכתובת URL</string>
     <string name="po_token_account_notice_title">השתמש באותו חשבון</string>
-    <string name="po_token_account_notice_body">היכנס כאן עם אותו חשבון גוגל שבו אתה כבר משתמש עבור YouTube Music בתוך ArchiveTune לפני יצירת טוקן PO.</string>
+    <string name="po_token_account_notice_body">היכנס כאן עם אותו חשבון גוגל שבו אתה כבר משתמש עבור YouTube Music בתוך Hush לפני יצירת טוקן PO.</string>
     <string name="po_token_account_notice_same_account">אם תצוגת WebView זו משתמשת בחשבון אחר, הטוקן שנוצר לא יפעל כהלכה.</string>
     <string name="po_token_account_notice_mismatch">השתמש בחשבון התואם, סיימו את תהליך הכניסה, לאחר מכן פתחו את youtube.com/account וצרו את הטוקן מאותו דף.</string>
     <string name="saved_accounts">חשבונות שמורים</string>
