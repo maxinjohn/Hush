@@ -18,7 +18,6 @@ Features:
 - YouTube Music account integration
 - Last.fm scrobbling
 - ListenBrainz history sync
-- Discord rich presence support
 - Material 3 design language
 - Album-art powered dynamic colors
 - Responsive layouts for different screen sizes

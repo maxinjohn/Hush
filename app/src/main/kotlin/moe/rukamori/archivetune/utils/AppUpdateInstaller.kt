@@ -119,7 +119,7 @@ object AppUpdateInstaller {
             instanceFollowRedirects = true
             connectTimeout = NetworkTimeoutMs
             readTimeout = NetworkTimeoutMs
-            setRequestProperty("User-Agent", "ArchiveTune/${BuildConfig.VERSION_NAME}")
+            setRequestProperty("User-Agent", "Hush/${BuildConfig.VERSION_NAME}")
         }
 
     private suspend fun emitProgress(

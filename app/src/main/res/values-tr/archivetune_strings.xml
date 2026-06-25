@@ -96,7 +96,7 @@
     <string name="resume_autoscroll">Otomatik Kaydırmayı Devam Ettir</string>
     <string name="lyrics_romanize_japanese">Japonca şarkı sözlerini romanlaştır</string>
     <string name="lyrics_romanize_korean">Korece şarkı sözlerini romanlaştırın</string>
-    <string name="discord">Discord</string>
+
     <string name="advanced_login">Token ile giriş yap</string>
     <string name="token_hidden">Jeton göstermek için dokunun</string>
     <string name="token_shown">Kopyalamak veya düzenlemek için tekrar dokunun</string>

@@ -247,9 +247,7 @@
     <string name="blur">Unschärfe</string>
     <string name="contrast">Kontrast</string>
     <string name="brightness">Helligkeit</string>
-    <string name="show_button1_description">Schalten Sie die Sichtbarkeit von Schaltfläche 1 in Discord Rich Presence um</string>
-    <string name="show_button2_description">Schalten Sie die Sichtbarkeit von Schaltfläche 2 in Discord Rich Presence um</string>
-    <string name="discord_activity_type">Aktivitätstyp</string>
+
     <string name="dark_theme_follow_system">Folgen Sie dem System</string>
     <string name="pure_black">Reines Schwarz</string>
     <string name="disable_blur">Unschärfeeffekte deaktivieren</string>
@@ -320,11 +318,11 @@
     <string name="backup_create_success">Sicherung erfolgreich erstellt</string>
     <string name="backup_create_failed">Es konnte kein Backup erstellt werden</string>
     <string name="restore_failed">Sicherung konnte nicht wiederhergestellt werden</string>
-    <string name="discord_integration">Discord-Integration</string>
+
     <string name="dismiss">Zurückweisen</string>
     <string name="options">Optionen</string>
     <string name="preview">Vorschau</string>
-    <string name="enable_discord_rpc">Aktivieren Sie Rich Presence</string>
+
     <string name="scrobbling">Scrobbling</string>
     <string name="lastfm_integration">Last.fm-Integration</string>
     <string name="enable_scrobbling">Scrobbling aktivieren</string>
@@ -340,15 +338,7 @@
     <string name="listenbrainz_scrobbling_description">Übermitteln von „Jetzt läuft“ und abgeschlossenen Wiedergaben an ListenBrainz aktivieren</string>
     <string name="set_listenbrainz_token">ListenBrainz-Token festlegen</string>
     <string name="edit_listenbrainz_token">ListenBrainz-Token bearbeiten</string>
-    <string name="discord_activity_name">Aktivitätsname</string>
-    <string name="discord_activity_details">Aktivitätsdetails</string>
-    <string name="discord_activity_state">Aktivitätsstatus</string>
-    <string name="discord_activity_button_1_url">Schaltfläche 1 URL-Quelle</string>
-    <string name="discord_activity_button_2_url">Schaltfläche 2 URL-Quelle</string>
-    <string name="discord_activity_button1_label">Beschriftung der Schaltfläche 1</string>
-    <string name="discord_activity_button1_url">Schaltfläche 1 Benutzerdefinierte URL</string>
-    <string name="discord_activity_button2_label">Beschriftung der Schaltfläche 2</string>
-    <string name="discord_activity_button2_url">Schaltfläche 2 Benutzerdefinierte URL</string>
+
     <string name="large_image_custom_url">Benutzerdefinierte URL für großes Bild</string>
     <string name="large_image">Großes Bild</string>
     <string name="large_text">Großer Text</string>
@@ -358,8 +348,7 @@
     <string name="activity_status">Aktivitätsstatus</string>
     <string name="platform_status">Plattform</string>
     <string name="translator_options">Übersetzeroptionen</string>
-    <string name="enable_translator">Übersetzer aktivieren</string>
-    <string name="enable_translator_desc">Übersetzen Sie ausgewählte Felder, bevor Sie sie an Discord RPC senden</string>
+
     <string name="context_info">Kontexte (durch Kommas getrennt)</string>
     <string name="target_language">Zielsprache</string>
     <string name="close_dialog">Schließen</string>
@@ -371,20 +360,15 @@
     <string name="lyrics">Text</string>
     <string name="translation_success">Übersetzung gespeichert</string>
     <string name="translation_failed">Die Übersetzung ist fehlgeschlagen</string>
-    <string name="discord_button_options">Schaltflächenoptionen</string>
-    <string name="discord_image_options">Bildoptionen</string>
+
     <string name="refresh">Aktualisieren</string>
-    <string name="description_refresh">Aktualisieren Sie die Discord Rich-Präsenz manuell</string>
-    <string name="discord_show_when_paused">RPC anzeigen, wenn es angehalten ist</string>
-    <string name="discord_show_when_paused_desc">Wenn aktiviert, bleibt Rich Presence im angehaltenen Zustand mit einem Pausensymbol sichtbar. Wenn deaktiviert, verschwindet RPC, wenn es angehalten wird.</string>
-    <string name="discord_paused">Angehalten</string>
+
     <string name="logout_confirm_title">Bestätigen Sie die Abmeldung</string>
-    <string name="logout_confirm_message">Sind Sie sicher, dass Sie sich von Discord abmelden möchten?</string>
+
     <string name="logout_confirm_yes">Abmelden</string>
     <string name="logout_confirm_no">Stornieren</string>
     <string name="experiment_settings">Experimentelle Einstellungen</string>
-    <string name="show_discord_debug_ui">Debug-Benutzeroberfläche anzeigen</string>
-    <string name="enable_discord_debug_lines">Debug-Einstellungszeilen aktivieren</string>
+
     <string name="presence_manager_running">Präsenzmanager: läuft</string>
     <string name="presence_manager_stopped">Präsenzmanager: gestoppt</string>
     <string name="filter_levels">Filterstufen</string>

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <bitmap xmlns:android="http://schemas.android.com/apk/res/android"
-    android:src="@drawable/about_splash"
+    android:src="@drawable/hush_logo_mark"
+    android:gravity="center"
     android:antialias="true" />

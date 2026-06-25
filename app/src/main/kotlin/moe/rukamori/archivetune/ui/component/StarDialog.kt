@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import moe.rukamori.archivetune.HushLinks
 import moe.rukamori.archivetune.R
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,7 +70,7 @@ fun StarDialog(
 
             Button(
                 onClick = {
-                    uriHandler.openUri("https://koiiverse.cloud/donate")
+                    uriHandler.openUri(HushLinks.GITHUB_RELEASES_URL)
                     onSupport()
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -85,7 +86,7 @@ fun StarDialog(
 
             FilledTonalButton(
                 onClick = {
-                    uriHandler.openUri("https://github.com/ArchiveTuneApp/ArchiveTune")
+                    uriHandler.openUri(HushLinks.GITHUB_REPO_URL)
                     onSupport()
                 },
                 modifier = Modifier.fillMaxWidth(),
