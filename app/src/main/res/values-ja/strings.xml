@@ -61,7 +61,7 @@
     <string name="library_top_mixes_refresh">ミックスを更新</string>
     <string name="library_top_mixes_configure_ai">AIを設定</string>
     <string name="library_top_mixes_ai_not_configured_title">ミックス作成のためにAIを設定</string>
-    <string name="library_top_mixes_ai_not_configured_desc">ArchiveTuneで個人向けトップミックスを作成するにはAI連携が必要です。</string>
+    <string name="library_top_mixes_ai_not_configured_desc">Hushで個人向けトップミックスを作成するにはAI連携が必要です。</string>
     <string name="library_top_mixes_no_recent_history_title">最近のリスニングミックスはまだありません</string>
     <string name="library_top_mixes_no_recent_history">もっと曲を聴いてから更新すると、最近の履歴からAIミックスを作成できます。</string>
     <string name="library_top_mixes_no_valid_mixes">最近の履歴から再生可能なAIミックスは返されませんでした。</string>
@@ -121,7 +121,7 @@
     <string name="radio">ラジオ</string>
     <string name="cast">キャスト</string>
     <string name="cast_devices">キャストデバイス</string>
-    <string name="cast_sheet_subtitle">ArchiveTuneを再生する場所を選択</string>
+    <string name="cast_sheet_subtitle">Hushを再生する場所を選択</string>
     <string name="cast_available_devices">利用可能なデバイス</string>
     <string name="cast_searching_devices">デバイスを検索中</string>
     <string name="cast_no_devices">キャストデバイスが見つかりません</string>
@@ -140,7 +140,7 @@
     <string name="play">再生</string>
     <string name="widget_pause">一時停止</string>
     <string name="widget_previous">前へ</string>
-    <string name="widget_tap_to_open">タップしてArchiveTuneを開く</string>
+    <string name="widget_tap_to_open">タップしてHushを開く</string>
     <string name="widget_insights_title">リスニング分析</string>
     <string name="widget_recommendations">おすすめ</string>
     <string name="widget_listening_time_empty">リスニング時間はまだありません</string>
@@ -415,12 +415,10 @@
     <string name="contrast">コントラスト</string>
     <string name="brightness">明るさ</string>
     <string name="custom_value">カスタム値</string>
-    <string name="archivetune_canvas">ArchiveTune Canvas</string>
+    <string name="archivetune_canvas">Hush Canvas</string>
     <string name="archivetune_canvas_desc">再生中にアルバムアートワークをアニメーション表示します（BetterLyrics提供）</string>
     <string name="player_background_style_v8_v9_desc">V8およびV9プレイヤースタイルでは利用できません</string>
-    <string name="show_button1_description">Discord Rich Presenceのボタン1の表示を切り替えます</string>
-    <string name="show_button2_description">Discord Rich Presenceのボタン2の表示を切り替えます</string>
-    <string name="discord_activity_type">アクティビティタイプ</string>
+
     <string name="dark_theme_follow_system">システムに従う</string>
     <string name="pure_black">純黒</string>
     <string name="disable_blur">ぼかし効果を無効にする</string>
@@ -456,9 +454,9 @@
     <string name="login">ログイン</string>
     <string name="not_logged_in">ログインしていません</string>
     <string name="playback_confirmation_required">再生確認が必要です</string>
-    <string name="playback_requires_youtube_music_confirmation">YouTube Musicで再生を確認してからArchiveTuneに戻ってください。</string>
+    <string name="playback_requires_youtube_music_confirmation">YouTube Musicで再生を確認してからHushに戻ってください。</string>
     <string name="playback_login_refresh_required">YouTube Musicログインを更新</string>
-    <string name="playback_requires_youtube_music_login_refresh">YouTube Musicのログインを更新してからArchiveTuneに戻ってください。</string>
+    <string name="playback_requires_youtube_music_login_refresh">YouTube Musicのログインを更新してからHushに戻ってください。</string>
     <string name="could_not_open_youtube_music">YouTube Musicを開けませんでした</string>
     <string name="playback_error_code">コード</string>
     <string name="playback_error_http">HTTP</string>
@@ -614,24 +612,12 @@
     <string name="backup_create_failed">バックアップを作成できませんでした</string>
     <string name="restore_success">バックアップを復元しました</string>
     <string name="restore_failed">バックアップの復元に失敗しました</string>
-    <string name="discord_integration">Discord連携</string>
-    <string name="account_integrations_summary">Discord、Last.fm、Libre.fm、ListenBrainz</string>
-    <string name="discord_login_description">OAuthでDiscordアカウントを接続し、ArchiveTuneがRich Presenceを公開できるようにします。</string>
-    <string name="discord_open_authorization">Discord認証を開く</string>
-    <string name="discord_waiting_for_authorization">Discord認証を待機中...</string>
-    <string name="discord_authorization_success">Discordアカウントに接続しました</string>
-    <string name="discord_authorization_failed">Discord認証に失敗しました</string>
-    <string name="discord_account_ready">ArchiveTuneはリスニングセッションのRich Presenceを公開する準備ができています。</string>
-    <string name="discord_reauthorize_required_title">Discordセッションの期限が切れました</string>
-    <string name="discord_reauthorize_required_description">Discordを再認証するまでRich Presenceは表示できません。</string>
-    <string name="discord_reauthorize_action">再認証</string>
-    <string name="discord_connection_settings">接続</string>
-    <string name="discord_activity_content">アクティビティ内容</string>
-    <string name="discord_refresh_success">Discordプレゼンスを更新しました</string>
-    <string name="discord_refresh_failed">Discordプレゼンスの更新に失敗しました</string>
+
+    <string name="account_integrations_summary">Last.fm、Libre.fm、ListenBrainz</string>
+
     <string name="options">オプション</string>
     <string name="preview">プレビュー</string>
-    <string name="enable_discord_rpc">Rich Presenceを有効にする</string>
+
     <string name="scrobbling">Scrobbling</string>
     <string name="lastfm_integration">Last.fm / Libre.fm連携</string>
     <string name="enable_scrobbling">Scrobblingを有効にする</string>
@@ -670,19 +656,7 @@
     <string name="listenbrainz_scrobbling_description">ListenBrainzへの再生中情報と完了した再生履歴の送信を有効にする</string>
     <string name="set_listenbrainz_token">ListenBrainzトークンを設定</string>
     <string name="edit_listenbrainz_token">ListenBrainzトークンを編集</string>
-    <string name="discord_activity_name">アクティビティ名前</string>
-    <string name="discord_activity_details">アクティビティ詳細</string>
-    <string name="discord_activity_state">アクティビティ状態</string>
-    <string name="discord_activity_button_1_url">ボタン1URLソース</string>
-    <string name="discord_activity_button_2_url">ボタン2URLソース</string>
-    <string name="discord_activity_button1_label">ボタン1ラベル</string>
-    <string name="discord_activity_button1_url">ボタン1カスタムURL</string>
-    <string name="discord_activity_button2_label">ボタン2ラベル</string>
-    <string name="discord_activity_button2_url">ボタン2カスタムURL</string>
-    <string name="discord_url_source_song">曲URL</string>
-    <string name="discord_url_source_artist">アーティストURL</string>
-    <string name="discord_url_source_album">アルバムURL</string>
-    <string name="discord_url_source_custom">カスタムURL</string>
+
     <string name="album_name">アルバム名前</string>
     <string name="app_icon">アプリアイコン</string>
     <string name="large_image_custom_url">大画像のカスタムURL</string>
@@ -691,35 +665,16 @@
     <string name="custom_large_text">カスタム大テキスト</string>
     <string name="small_image">小画像</string>
     <string name="small_image_custom_url">小画像のカスタムURL</string>
-    <string name="discord_presence_online">オンライン</string>
-    <string name="discord_presence_do_not_disturb">取り込み中</string>
-    <string name="discord_presence_idle">退席中</string>
-    <string name="discord_presence_streaming">配信中</string>
-    <string name="discord_platform_desktop">デスクトップ</string>
-    <string name="discord_platform_xbox">Xbox</string>
-    <string name="discord_platform_samsung">Samsung</string>
-    <string name="discord_platform_ios">iOS</string>
-    <string name="discord_platform_android">Android</string>
-    <string name="discord_platform_embedded">埋め込み</string>
-    <string name="discord_platform_ps4">PS4</string>
-    <string name="discord_platform_ps5">PS5</string>
-    <string name="discord_activity_type_playing_label">再生中</string>
-    <string name="discord_activity_type_streaming_label">配信中</string>
-    <string name="discord_activity_type_listening_label">視聴中</string>
-    <string name="discord_activity_type_watching_label">視聴中</string>
-    <string name="discord_activity_type_competing_label">対戦中</string>
-    <string name="discord_image_album_artwork">アルバムアートワーク</string>
-    <string name="discord_image_artist_artwork">アーティストアートワーク</string>
+
     <string name="activity_status">アクティビティステータス</string>
     <string name="platform_status">プラットフォーム</string>
     <string name="translator_options">翻訳オプション</string>
-    <string name="enable_translator">翻訳を有効にする</string>
-    <string name="enable_translator_desc">Discord RPCに送信する前に選択した項目を翻訳します</string>
+
     <string name="context_info">コンテキスト（カンマ区切り）</string>
     <string name="target_language">対象言語</string>
     <string name="close_dialog">閉じる</string>
     <string name="support_development_title">サポート開発</string>
-    <string name="support_development_message">こんにちは。ArchiveTuneの開発者rukamoriです。ArchiveTuneがあなたの日々のリスニングに役立っているなら、寄付またはGitHubでスターを付けることで開発を支援できます。アプリを支えている作業へのサポートに感謝します。</string>
+    <string name="support_development_message">HushはArchiveTuneの個人フォークです。気に入ったらGitHubでこのフォークにスターを付けるか、上流のArchiveTuneプロジェクトをサポートしてください。ありがとうございます。</string>
     <string name="support_development_donate">寄付して開発を支援</string>
     <string name="support_development_star">GitHubでスター</string>
     <string name="later">後で</string>
@@ -735,20 +690,15 @@
     <string name="ai_translate_in_background_desc">翻訳はバックグラウンドで続行されます。完了すると通知されます。</string>
     <string name="ai_translation_notification_channel_name">AI翻訳</string>
     <string name="ai_translation_notification_title">AI翻訳</string>
-    <string name="discord_button_options">ボタンオプション</string>
-    <string name="discord_image_options">画像オプション</string>
+
     <string name="refresh">更新</string>
-    <string name="description_refresh">Discord Rich Presenceを手動で更新</string>
-    <string name="discord_show_when_paused">一時停止中もRPCを表示</string>
-    <string name="discord_show_when_paused_desc">有効にすると、一時停止中でも一時停止アイコン付きでRich Presenceを表示し続けます。無効にすると、一時停止中はRPCが消えます。</string>
-    <string name="discord_paused">一時停止中</string>
+
     <string name="logout_confirm_title">ログアウトを確認</string>
-    <string name="logout_confirm_message">Discordからログアウトしますか？</string>
+
     <string name="logout_confirm_yes">ログアウト</string>
     <string name="logout_confirm_no">キャンセル</string>
     <string name="experiment_settings">実験的設定</string>
-    <string name="show_discord_debug_ui">デバッグUIを表示</string>
-    <string name="enable_discord_debug_lines">デバッグ設定行を有効にする</string>
+
     <string name="presence_manager_running">Presenceマネージャー: 実行中</string>
     <string name="presence_manager_stopped">Presenceマネージャー: 停止中</string>
     <string name="filter_levels">フィルターレベル</string>
@@ -785,7 +735,7 @@
     <string name="log_level_info">情報</string>
     <string name="log_level_warning">警告</string>
     <string name="log_level_error">エラー</string>
-    <string name="filter_discord_only">Discord</string>
+
     <string name="filter_all_logs">すべて</string>
     <string name="clear">消去</string>
     <string name="logs_empty_message">利用可能になるとログがここに表示されます</string>
@@ -818,7 +768,7 @@
     <string name="updates_nightly_title">Nightly配信</string>
     <string name="updates_nightly_description">Nightlyビルドは最新の開発コミットを追跡し、未完成の変更を含む場合があります。</string>
     <string name="updates_nightly_hosting_description">自動生成された開発ビルドは、成功したGitHub Actions実行から利用できます。</string>
-    <string name="updates_channel_warning_intro">ArchiveTuneはビルド用に2つのダウンロードチャンネルを提供しています:</string>
+    <string name="updates_channel_warning_intro">Hushはビルド用に2つのダウンロードチャンネルを提供しています:</string>
     <string name="updates_channel_warning_stable_title">安定版ビルド</string>
     <string name="updates_channel_warning_stable_source">公式GitHub Releases経由で配布されます。</string>
     <string name="updates_channel_warning_stable_desc">これらのバージョンはテスト済みで、ほとんどのユーザーに推奨されます。</string>
@@ -844,28 +794,28 @@ Dailyビルドは最新の開発ブランチから毎日自動公開されます
     <string name="update_notification_channel_name">アプリアップデート</string>
     <string name="update_notification_channel_desc">新しいアプリアップデートの通知</string>
     <string name="update_notification_title">更新利用可能</string>
-    <string name="update_notification_text">ArchiveTune %s が利用可能になりました</string>
+    <string name="update_notification_text">Hush %s が利用可能になりました</string>
     <string name="download">ダウンロード</string>
     <string name="download_complete">ダウンロード完了</string>
-    <string name="permissions_title">ArchiveTuneを最適に動作させるために許可してください</string>
+    <string name="permissions_title">Hushを最適に動作させるために許可してください</string>
     <string name="permissions_subtitle">音楽を確実に再生・管理するために、いくつかの権限を使用します。これらはシステム設定でいつでも変更できます。</string>
     <string name="permission_storage_title">ストレージアクセス</string>
     <string name="permission_storage_desc">ダウンロード済みおよびローカル音声ファイルを再生のために読み取る必要があります。</string>
     <string name="permission_status_allowed">許可済み</string>
     <string name="next">次へ</string>
     <string name="allow">許可</string>
-    <string name="onboarding_welcome_title">ArchiveTuneへようこそ</string>
+    <string name="onboarding_welcome_title">Hushへようこそ</string>
     <string name="onboarding_welcome_subtitle">聴き始める前に、再生、ローカル音楽、アップデート権限を設定します。</string>
     <string name="onboarding_permissions_title">レビュー権限</string>
     <string name="onboarding_permissions_subtitle">今必要なものだけを許可してください。続行して権限は後で許可できます。</string>
     <string name="onboarding_community_title">つながりを保つ</string>
-    <string name="onboarding_community_subtitle">開発をフォローしたり、問題を報告したり、ArchiveTuneを支援したりできます。</string>
+    <string name="onboarding_community_subtitle">開発をフォローしたり、問題を報告したり、Hushを支援したりできます。</string>
     <string name="onboarding_finish">聴き始める</string>
     <string name="onboarding_gms_variant">GMS版</string>
     <string name="onboarding_foss_variant">FOSS版</string>
     <string name="onboarding_version_label">バージョン %1$s</string>
     <string name="onboarding_empty_title">セットアップを利用できません</string>
-    <string name="onboarding_empty_subtitle">ArchiveTuneへ進む。</string>
+    <string name="onboarding_empty_subtitle">Hushへ進む。</string>
     <string name="onboarding_error_generic">セットアップを読み込めませんでした</string>
     <string name="onboarding_permission_allowed_by_install">インストール時に許可済み</string>
     <string name="onboarding_permission_unavailable">利用不可</string>
@@ -876,17 +826,15 @@ Dailyビルドは最新の開発ブランチから毎日自動公開されます
     <string name="onboarding_permission_network_title">ネットワークアクセス</string>
     <string name="onboarding_permission_network_desc">音楽をストリーミングし、アートワークを読み込み、オンラインのアプリコンテンツを確認します。</string>
     <string name="onboarding_permission_playback_service_title">バックグラウンド再生</string>
-    <string name="onboarding_permission_playback_service_desc">ArchiveTuneがバックグラウンドにあるときも音楽を確実に再生し続けます。</string>
+    <string name="onboarding_permission_playback_service_desc">Hushがバックグラウンドにあるときも音楽を確実に再生し続けます。</string>
     <string name="onboarding_permission_audio_settings_title">オーディオ設定とバイブレーション</string>
     <string name="onboarding_permission_audio_settings_desc">再生オーディオの動作を調整し、軽い触覚フィードバックを提供します。</string>
     <string name="onboarding_permission_app_installation_title">アプリのインストール</string>
-    <string name="onboarding_permission_app_installation_desc">ArchiveTuneからダウンロードしたAPKアップデートをインストールします。</string>
+    <string name="onboarding_permission_app_installation_desc">HushからダウンロードしたAPKアップデートをインストールします。</string>
     <string name="onboarding_permission_bluetooth_scan_title">Bluetoothスキャン</string>
     <string name="onboarding_permission_bluetooth_scan_desc">Castと近くの再生デバイスを検出します。</string>
     <string name="onboarding_community_github_desc">リポジトリにスターを付け、リリースをフォローします。</string>
-    <string name="onboarding_community_discord_title">参加Discord</string>
-    <string name="onboarding_community_telegram_title">参加Telegram</string>
-    <string name="onboarding_community_telegram_desc">コミュニティでチャットし、アップデートを受け取ります。</string>
+
     <string name="onboarding_community_donate_desc">継続的な開発を支援します。</string>
     <string name="you_might_like">おすすめ</string>
     <string name="refresh_suggestions">更新候補</string>
@@ -894,7 +842,7 @@ Dailyビルドは最新の開発ブランチから毎日自動公開されます
     <string name="playlist_suggestion_source_title">プレイリストタイトル</string>
     <string name="playlist_suggestion_source_content">プレイリストコンテンツ</string>
     <string name="playlist_suggestion_source_both">プレイリストタイトルとコンテンツ</string>
-    <string name="music_together">ArchiveTune Music Together</string>
+    <string name="music_together">Hush Music Together</string>
     <string name="together_display_name">表示名</string>
     <string name="together_display_name_placeholder">あなたの名前</string>
     <string name="together_port">セッションポート</string>
@@ -967,10 +915,10 @@ Dailyビルドは最新の開発ブランチから毎日自動公開されます
     <string name="together_activity_error">エラー: %1$s</string>
     <string name="got_it">了解</string>
     <string name="together_dont_show_again">今後表示しない</string>
-    <string name="together_welcome_title">ArchiveTune Music Togetherへようこそ</string>
+    <string name="together_welcome_title">Hush Music Togetherへようこそ</string>
     <string name="together_welcome_body">Music Togetherでは、複数のデバイスで同期されたキューと再生を持つライブセッションを共有できます。</string>
     <string name="together_welcome_host_title">セッションをホスト</string>
-    <string name="together_welcome_host_body">「セッションを開始」をタップして、セッションリンクを共有してください。ホスト中はArchiveTuneをバックグラウンドで開いたままにします。</string>
+    <string name="together_welcome_host_body">「セッションを開始」をタップして、セッションリンクを共有してください。ホスト中はHushをバックグラウンドで開いたままにします。</string>
     <string name="together_welcome_join_title">別のデバイスから参加</string>
     <string name="together_welcome_join_body">共有リンクを開くか、コードを入力して「参加」をタップします。キューと再生はホストに従います。</string>
     <string name="together_welcome_permissions_title">権限と安全性</string>
@@ -998,7 +946,7 @@ Dailyビルドは最新の開発ブランチから毎日自動公開されます
     <string name="token_copied">トークンをクリップボードにコピーしました</string>
     <string name="extracting_from_url">URLからトークンを抽出中</string>
     <string name="po_token_account_notice_title">同じアカウントを使用</string>
-    <string name="po_token_account_notice_body">POトークンを生成する前に、ArchiveTune内のYouTube Musicで使用しているものと同じGoogleアカウントでここにログインしてください。</string>
+    <string name="po_token_account_notice_body">POトークンを生成する前に、Hush内のYouTube Musicで使用しているものと同じGoogleアカウントでここにログインしてください。</string>
     <string name="po_token_account_notice_same_account">このWebViewで別のアカウントを使用している場合、生成されたトークンは正しく動作しません。</string>
     <string name="po_token_account_notice_mismatch">一致するアカウントを使用し、ログインフローを完了してからyoutube.com/accountを開き、そのページからトークンを生成してください。</string>
     <string name="saved_accounts">保存済みアカウント</string>

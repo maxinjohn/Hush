@@ -65,13 +65,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -877,19 +878,26 @@ private fun AboutIdentityCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            SurfaceAppIcon()
+            Image(
+                painter = painterResource(R.drawable.hush_wordmark_tagline),
+                contentDescription = stringResource(model.appNameResId),
+                contentScale = ContentScale.Fit,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 88.dp)
+                        .padding(horizontal = 8.dp),
+            )
 
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = stringResource(model.appNameResId),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    text = stringResource(model.forkNoticeResId),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
                 )
 
                 FlowRow(
@@ -911,28 +919,6 @@ private fun AboutIdentityCard(
                 onOpenUri = onOpenUri,
             )
         }
-    }
-}
-
-@Composable
-private fun SurfaceAppIcon(modifier: Modifier = Modifier) {
-    androidx.compose.material3.Surface(
-        modifier = modifier,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-    ) {
-        val iconTint = MaterialTheme.colorScheme.onPrimaryContainer
-        val iconColorFilter = remember(iconTint) { ColorFilter.tint(iconTint) }
-        Image(
-            painter = painterResource(R.drawable.about_splash),
-            contentDescription = null,
-            colorFilter = iconColorFilter,
-            modifier =
-                Modifier
-                    .padding(16.dp)
-                    .size(64.dp),
-        )
     }
 }
 

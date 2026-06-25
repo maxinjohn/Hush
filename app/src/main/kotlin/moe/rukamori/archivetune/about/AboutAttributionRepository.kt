@@ -24,6 +24,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import moe.rukamori.archivetune.HushLinks
 import moe.rukamori.archivetune.constants.GitHubTranslationContributorsJsonKey
 import moe.rukamori.archivetune.constants.GitHubTranslationContributorsLastCheckedAtKey
 import moe.rukamori.archivetune.utils.dataStore
@@ -210,7 +211,7 @@ class AboutAttributionRepository
                 client.get(GitHubCommitsUrl) {
                     headers {
                         append("Accept", "application/vnd.github+json")
-                        append("User-Agent", "ArchiveTune")
+                        append("User-Agent", "Hush")
                     }
                     parameter("path", path)
                     parameter("per_page", GitHubCommitsPageSize)
@@ -227,7 +228,7 @@ class AboutAttributionRepository
                 client.get(GitHubTranslationResourceUrl) {
                     headers {
                         append("Accept", "application/vnd.github+json")
-                        append("User-Agent", "ArchiveTune")
+                        append("User-Agent", "Hush")
                     }
                 }
             if (response.status.value !in SuccessStatusCodes) {
@@ -473,9 +474,9 @@ class AboutAttributionRepository
         )
 
         private companion object {
-            const val GitHubCommitsUrl = "https://api.github.com/repos/ArchiveTuneApp/ArchiveTune/commits"
+            const val GitHubCommitsUrl = "https://api.github.com/repos/${HushLinks.GITHUB_OWNER}/${HushLinks.GITHUB_REPO}/commits"
             const val GitHubTranslationResourceUrl =
-                "https://api.github.com/repos/ArchiveTuneApp/ArchiveTune/contents/app/src/main/res"
+                "https://api.github.com/repos/${HushLinks.GITHUB_OWNER}/${HushLinks.GITHUB_REPO}/contents/app/src/main/res"
             const val TranslationResourceRoot = "app/src/main/res"
             const val TranslationResourcePrefix = "values-"
             const val TranslationCommitMessagePrefix = "Translated using Weblate"

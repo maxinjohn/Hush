@@ -19,6 +19,11 @@
     <string name="your_youtube_playlists">Your YouTube playlists</string>
     <string name="similar_to">Similar to</string>
     <string name="new_release_albums">New release albums</string>
+    <string name="new_release_unavailable_title">New releases are temporarily unavailable</string>
+    <string name="new_release_unavailable_desc">%1$s could not load this YouTube Music section. Try again later.</string>
+    <string name="default_export_theme_name">%1$s Theme</string>
+    <string name="crash_report_header">%1$s crash report</string>
+
     <string name="integration">Integration</string>
     <string name="today">Today</string>
     <string name="yesterday">Yesterday</string>
@@ -61,7 +66,7 @@
     <string name="library_top_mixes_refresh">Refresh mixes</string>
     <string name="library_top_mixes_configure_ai">Configure AI</string>
     <string name="library_top_mixes_ai_not_configured_title">Configure AI to build mixes</string>
-    <string name="library_top_mixes_ai_not_configured_desc">AI integration is required before ArchiveTune can build personal top mixes.</string>
+    <string name="library_top_mixes_ai_not_configured_desc">AI integration is required before Hush can build personal top mixes.</string>
     <string name="library_top_mixes_no_recent_history_title">No recent listening mix yet</string>
     <string name="library_top_mixes_no_recent_history">Listen to more songs, then refresh to build AI mixes from your recent history.</string>
     <string name="library_top_mixes_no_valid_mixes">AI did not return any playable mixes from your recent history.</string>
@@ -121,7 +126,7 @@
     <string name="radio">Radio</string>
     <string name="cast">Cast</string>
     <string name="cast_devices">Cast devices</string>
-    <string name="cast_sheet_subtitle">Choose where ArchiveTune plays</string>
+    <string name="cast_sheet_subtitle">Choose where Hush plays</string>
     <string name="cast_available_devices">Available devices</string>
     <string name="cast_searching_devices">Searching for devices</string>
     <string name="cast_no_devices">No Cast devices found</string>
@@ -140,7 +145,7 @@
     <string name="play">Play</string>
     <string name="widget_pause">Pause</string>
     <string name="widget_previous">Previous</string>
-    <string name="widget_tap_to_open">Tap to open ArchiveTune</string>
+    <string name="widget_tap_to_open">Tap to open Hush</string>
     <string name="widget_insights_title">Listening Insights</string>
     <string name="widget_recommendations">Recommendations</string>
     <string name="widget_listening_time_empty">No listening time yet</string>
@@ -415,12 +420,10 @@
     <string name="contrast">Contrast</string>
     <string name="brightness">Brightness</string>
     <string name="custom_value">Custom value</string>
-    <string name="archivetune_canvas">ArchiveTune Canvas</string>
+    <string name="archivetune_canvas">Hush Canvas</string>
     <string name="archivetune_canvas_desc">Animate album artwork while playing (Powered by BetterLyrics)</string>
     <string name="player_background_style_v8_v9_desc">Unavailable with V8 and V9 player styles</string>
-    <string name="show_button1_description">Toggle visibility of button 1 in Discord Rich Presence</string>
-    <string name="show_button2_description">Toggle visibility of button 2 in Discord Rich Presence</string>
-    <string name="discord_activity_type">Activity type</string>
+
     <string name="dark_theme_follow_system">Follow system</string>
     <string name="pure_black">Pure black</string>
     <string name="disable_blur">Disable blur effects</string>
@@ -456,9 +459,9 @@
     <string name="login">Login</string>
     <string name="not_logged_in">Not logged in</string>
     <string name="playback_confirmation_required">Playback confirmation required</string>
-    <string name="playback_requires_youtube_music_confirmation">Confirm playback in YouTube Music, then return to ArchiveTune.</string>
+    <string name="playback_requires_youtube_music_confirmation">Confirm playback in YouTube Music, then return to Hush.</string>
     <string name="playback_login_refresh_required">Refresh YouTube Music login</string>
-    <string name="playback_requires_youtube_music_login_refresh">Refresh your YouTube Music login, then return to ArchiveTune.</string>
+    <string name="playback_requires_youtube_music_login_refresh">Refresh your YouTube Music login, then return to Hush.</string>
     <string name="could_not_open_youtube_music">Could not open YouTube Music</string>
     <string name="playback_error_code">Code</string>
     <string name="playback_error_http">HTTP</string>
@@ -614,24 +617,12 @@
     <string name="backup_create_failed">Couldn\'t create backup</string>
     <string name="restore_success">Backup restored successfully</string>
     <string name="restore_failed">Failed to restore backup</string>
-    <string name="discord_integration">Discord Integration</string>
-    <string name="account_integrations_summary">Discord, Last.fm, Libre.fm, ListenBrainz</string>
-    <string name="discord_login_description">Connect your Discord account with OAuth so ArchiveTune can publish Rich Presence.</string>
-    <string name="discord_open_authorization">Open Discord authorization</string>
-    <string name="discord_waiting_for_authorization">Waiting for Discord authorization...</string>
-    <string name="discord_authorization_success">Discord account connected</string>
-    <string name="discord_authorization_failed">Discord authorization failed</string>
-    <string name="discord_account_ready">ArchiveTune is ready to publish Rich Presence for your listening session.</string>
-    <string name="discord_reauthorize_required_title">Discord session expired</string>
-    <string name="discord_reauthorize_required_description">Rich Presence cannot be shown until you authorize Discord again.</string>
-    <string name="discord_reauthorize_action">Reauthorize</string>
-    <string name="discord_connection_settings">Connection</string>
-    <string name="discord_activity_content">Activity Content</string>
-    <string name="discord_refresh_success">Discord presence refreshed</string>
-    <string name="discord_refresh_failed">Discord presence refresh failed</string>
+
+    <string name="account_integrations_summary">Last.fm, Libre.fm, ListenBrainz</string>
+
     <string name="options">Options</string>
     <string name="preview">Preview</string>
-    <string name="enable_discord_rpc">Enable Rich Presence</string>
+
     <string name="scrobbling">Scrobbling</string>
     <string name="lastfm_integration">Last.fm / Libre.fm Integration</string>
     <string name="enable_scrobbling">Enable Scrobbling</string>
@@ -670,19 +661,7 @@
     <string name="listenbrainz_scrobbling_description">Enable submitting now-playing and finished listens to ListenBrainz</string>
     <string name="set_listenbrainz_token">Set ListenBrainz token</string>
     <string name="edit_listenbrainz_token">Edit ListenBrainz token</string>
-    <string name="discord_activity_name">Activity name</string>
-    <string name="discord_activity_details">Activity details</string>
-    <string name="discord_activity_state">Activity state</string>
-    <string name="discord_activity_button_1_url">Button 1 URL Source</string>
-    <string name="discord_activity_button_2_url">Button 2 URL Source</string>
-    <string name="discord_activity_button1_label">Button 1 label</string>
-    <string name="discord_activity_button1_url">Button 1 Custom URL</string>
-    <string name="discord_activity_button2_label">Button 2 label</string>
-    <string name="discord_activity_button2_url">Button 2 Custom URL</string>
-    <string name="discord_url_source_song">Song URL</string>
-    <string name="discord_url_source_artist">Artist URL</string>
-    <string name="discord_url_source_album">Album URL</string>
-    <string name="discord_url_source_custom">Custom URL</string>
+
     <string name="album_name">Album name</string>
     <string name="app_icon">App icon</string>
     <string name="large_image_custom_url">Large image custom URL</string>
@@ -691,36 +670,17 @@
     <string name="custom_large_text">Custom Large Text</string>
     <string name="small_image">Small Image</string>
     <string name="small_image_custom_url">Small image custom URL</string>
-    <string name="discord_presence_online">Online</string>
-    <string name="discord_presence_do_not_disturb">Do Not Disturb</string>
-    <string name="discord_presence_idle">Idle</string>
-    <string name="discord_presence_streaming">Streaming</string>
-    <string name="discord_platform_desktop">Desktop</string>
-    <string name="discord_platform_xbox">Xbox</string>
-    <string name="discord_platform_samsung">Samsung</string>
-    <string name="discord_platform_ios">iOS</string>
-    <string name="discord_platform_android">Android</string>
-    <string name="discord_platform_embedded">Embedded</string>
-    <string name="discord_platform_ps4">PS4</string>
-    <string name="discord_platform_ps5">PS5</string>
-    <string name="discord_activity_type_playing_label">Playing</string>
-    <string name="discord_activity_type_streaming_label">Streaming</string>
-    <string name="discord_activity_type_listening_label">Listening</string>
-    <string name="discord_activity_type_watching_label">Watching</string>
-    <string name="discord_activity_type_competing_label">Competing</string>
-    <string name="discord_image_album_artwork">Album artwork</string>
-    <string name="discord_image_artist_artwork">Artist artwork</string>
+
     <string name="activity_status">Activity Status</string>
     <string name="platform_status">Platform</string>
     <string name="translator_options">Translator Options</string>
-    <string name="enable_translator">Enable Translator</string>
-    <string name="enable_translator_desc">Translate selected fields before sending to Discord RPC</string>
+
     <string name="context_info">Contexts (comma-separated)</string>
     <string name="target_language">Target Language</string>
     <string name="close_dialog">Close</string>
     <string name="support_development_title">Support development</string>
-    <string name="support_development_message">Hey there! I\'m rukamori, the developer of ArchiveTune. If ArchiveTune has earned a place in your daily listening, you can help keep it moving forward by donating or starring the project on GitHub. Thanks for supporting the work behind the app.</string>
-    <string name="support_development_donate">Donate to support development</string>
+    <string name="support_development_message">Hush is a personal fork of ArchiveTune. If you enjoy using it, you can star this fork on GitHub or support the upstream ArchiveTune project. Thanks for listening.</string>
+    <string name="support_development_donate">View releases on GitHub</string>
     <string name="support_development_star">Star on GitHub</string>
     <string name="later">Later</string>
     <string name="new_update_available">New update available</string>
@@ -735,20 +695,15 @@
     <string name="ai_translate_in_background_desc">The translation will continue in the background. You will be notified when it completes.</string>
     <string name="ai_translation_notification_channel_name">AI Translation</string>
     <string name="ai_translation_notification_title">AI Translation</string>
-    <string name="discord_button_options">Button Options</string>
-    <string name="discord_image_options">Image Options</string>
+
     <string name="refresh">Refresh</string>
-    <string name="description_refresh">Manually refresh Discord Rich Presence</string>
-    <string name="discord_show_when_paused">Show RPC when paused</string>
-    <string name="discord_show_when_paused_desc">If enabled, Rich Presence will remain visible while paused with a pause icon. If disabled, RPC will disappear when paused.</string>
-    <string name="discord_paused">Paused</string>
+
     <string name="logout_confirm_title">Confirm logout</string>
-    <string name="logout_confirm_message">Are you sure you want to log out of Discord?.</string>
+
     <string name="logout_confirm_yes">Log out</string>
     <string name="logout_confirm_no">Cancel</string>
     <string name="experiment_settings">Experimental Settings</string>
-    <string name="show_discord_debug_ui">Show Debug UI</string>
-    <string name="enable_discord_debug_lines">Enable debug settings lines</string>
+
     <string name="presence_manager_running">Presence manager: running</string>
     <string name="presence_manager_stopped">Presence manager: stopped</string>
     <string name="filter_levels">Filter levels</string>
@@ -785,7 +740,7 @@
     <string name="log_level_info">Info</string>
     <string name="log_level_warning">Warning</string>
     <string name="log_level_error">Error</string>
-    <string name="filter_discord_only">Discord</string>
+
     <string name="filter_all_logs">All</string>
     <string name="clear">Clear</string>
     <string name="logs_empty_message">Logs will appear here when available</string>
@@ -818,7 +773,7 @@
     <string name="updates_nightly_title">Nightly delivery</string>
     <string name="updates_nightly_description">Nightly builds track the newest development commits and may include unfinished changes.</string>
     <string name="updates_nightly_hosting_description">Automatically generated development builds are available from successful GitHub Actions runs.</string>
-    <string name="updates_channel_warning_intro">ArchiveTune provides two download channels for builds:</string>
+    <string name="updates_channel_warning_intro">Hush checks GitHub releases from this fork for updates:</string>
     <string name="updates_channel_warning_stable_title">Stable builds</string>
     <string name="updates_channel_warning_stable_source">Distributed via official GitHub Releases.</string>
     <string name="updates_channel_warning_stable_desc">These versions are tested and recommended for most users.</string>
@@ -826,7 +781,7 @@
     <string name="updates_channel_warning_nightly_risk">Nightly builds may include experimental features, unfinished changes, or temporary regressions.</string>
     <string name="updates_channel_warning_nightly_unstable">Nightly builds are provided for testing and early access only.\nStability, compatibility, and functionality are not guaranteed.</string>
     <string name="updates_channel_warning_acknowledgement">Note: that downloading from Github directly bypasses any additional screening performed by the store you might have originally installed the app from.\nBy continuing, you acknowledge that nightly builds may be unstable and use them at your own risk.</string>
-    <string name="updates_daily_channel_confirmation">Switch to the Daily channel to receive updates from the daily-nightly repository.\n\nDaily builds are published automatically every day from the latest development branch.\nNote: that downloading from Github directly bypasses any additional screening performed by the store you might have originally installed the app from.</string>
+    <string name="updates_daily_channel_confirmation">Experimental update channels are not available in this fork. Use the Stable channel and GitHub releases instead.</string>
     <string name="updates_latest_commit">Latest commit: %s</string>
     <string name="updates_loading_commits">Loading recent commits</string>
     <string name="updates_recent_commits_count">%1$d recent commits</string>
@@ -839,28 +794,28 @@
     <string name="update_notification_channel_name">App Updates</string>
     <string name="update_notification_channel_desc">Notifications for new app updates</string>
     <string name="update_notification_title">Update Available</string>
-    <string name="update_notification_text">ArchiveTune %s is now available</string>
+    <string name="update_notification_text">Hush %s is now available</string>
     <string name="download">Download</string>
     <string name="download_complete">Download complete</string>
-    <string name="permissions_title">Allow ArchiveTune to work best</string>
+    <string name="permissions_title">Allow Hush to work best</string>
     <string name="permissions_subtitle">We use a few permissions to play and manage your music reliably. You can change these anytime in system settings.</string>
     <string name="permission_storage_title">Storage access</string>
     <string name="permission_storage_desc">Required to read your downloaded and local audio files for playback.</string>
     <string name="permission_status_allowed">Allowed</string>
     <string name="next">Next</string>
     <string name="allow">Allow</string>
-    <string name="onboarding_welcome_title">Welcome to ArchiveTune</string>
+    <string name="onboarding_welcome_title">Welcome to Hush</string>
     <string name="onboarding_welcome_subtitle">Set up playback, local music, and update permissions before you start listening.</string>
     <string name="onboarding_permissions_title">Review permissions</string>
     <string name="onboarding_permissions_subtitle">Grant only what you want now. You can continue and allow permissions later.</string>
     <string name="onboarding_community_title">Stay connected</string>
-    <string name="onboarding_community_subtitle">Follow development, report issues, or support ArchiveTune.</string>
+    <string name="onboarding_community_subtitle">Follow development, report issues, or support Hush.</string>
     <string name="onboarding_finish">Start listening</string>
     <string name="onboarding_gms_variant">GMS edition</string>
     <string name="onboarding_foss_variant">FOSS edition</string>
     <string name="onboarding_version_label">Version %1$s</string>
     <string name="onboarding_empty_title">Setup unavailable</string>
-    <string name="onboarding_empty_subtitle">Continue to ArchiveTune.</string>
+    <string name="onboarding_empty_subtitle">Continue to Hush.</string>
     <string name="onboarding_error_generic">Couldn\'t load setup</string>
     <string name="onboarding_permission_allowed_by_install">Allowed by install</string>
     <string name="onboarding_permission_unavailable">Unavailable</string>
@@ -871,17 +826,17 @@
     <string name="onboarding_permission_network_title">Network access</string>
     <string name="onboarding_permission_network_desc">Stream music, load artwork, and check online app content.</string>
     <string name="onboarding_permission_playback_service_title">Background playback</string>
-    <string name="onboarding_permission_playback_service_desc">Keep music playing reliably when ArchiveTune is in the background.</string>
+    <string name="onboarding_permission_playback_service_desc">Keep music playing reliably when Hush is in the background.</string>
     <string name="onboarding_permission_audio_settings_title">Audio settings and vibration</string>
     <string name="onboarding_permission_audio_settings_desc">Adjust playback audio behavior and provide light touch feedback.</string>
     <string name="onboarding_permission_app_installation_title">App installation</string>
-    <string name="onboarding_permission_app_installation_desc">Install downloaded APK updates from ArchiveTune.</string>
+    <string name="onboarding_permission_app_installation_desc">Install downloaded APK updates from Hush.</string>
     <string name="onboarding_permission_bluetooth_scan_title">Bluetooth scan</string>
     <string name="onboarding_permission_bluetooth_scan_desc">Discover Cast and nearby playback devices.</string>
     <string name="onboarding_community_github_desc">Star the repository and follow releases.</string>
-    <string name="onboarding_community_discord_title">Join Discord</string>
-    <string name="onboarding_community_telegram_title">Join Telegram</string>
-    <string name="onboarding_community_telegram_desc">Chat with the community and get updates.</string>
+    <string name="onboarding_community_releases_title">Get releases</string>
+    <string name="onboarding_community_releases_desc">Download APK updates from this fork.</string>
+    <string name="onboarding_community_upstream_desc">View the original ArchiveTune project and its community.</string>
     <string name="onboarding_community_donate_desc">Support ongoing development.</string>
     <string name="you_might_like">You might like</string>
     <string name="refresh_suggestions">Refresh suggestions</string>
@@ -889,7 +844,7 @@
     <string name="playlist_suggestion_source_title">Playlist title</string>
     <string name="playlist_suggestion_source_content">Playlist content</string>
     <string name="playlist_suggestion_source_both">Playlist title and content</string>
-    <string name="music_together">ArchiveTune Music Together</string>
+    <string name="music_together">Hush Music Together</string>
     <string name="together_display_name">Display name</string>
     <string name="together_display_name_placeholder">Your name</string>
     <string name="together_port">Session port</string>
@@ -962,10 +917,10 @@
     <string name="together_activity_error">Error: %1$s</string>
     <string name="got_it">Got it</string>
     <string name="together_dont_show_again">Don\'t show this again</string>
-    <string name="together_welcome_title">Welcome to ArchiveTune Music Together</string>
+    <string name="together_welcome_title">Welcome to Hush Music Together</string>
     <string name="together_welcome_body">Music Together lets multiple devices share a live session with a synced queue and playback.</string>
     <string name="together_welcome_host_title">Host a session</string>
-    <string name="together_welcome_host_body">Tap Start session, then share the session link. Keep ArchiveTune open in the background while hosting.</string>
+    <string name="together_welcome_host_body">Tap Start session, then share the session link. Keep Hush open in the background while hosting.</string>
     <string name="together_welcome_join_title">Join from another device</string>
     <string name="together_welcome_join_body">Open the shared link, or enter code and tap Join. Your queue and playback will follow the host.</string>
     <string name="together_welcome_permissions_title">Permissions and safety</string>
@@ -993,7 +948,7 @@
     <string name="token_copied">Token copied to clipboard</string>
     <string name="extracting_from_url">Extracting tokens from URL</string>
     <string name="po_token_account_notice_title">Use the same account</string>
-    <string name="po_token_account_notice_body">Sign in here with the same Google account that you already use for YouTube Music inside ArchiveTune before generating a PO token.</string>
+    <string name="po_token_account_notice_body">Sign in here with the same Google account that you already use for YouTube Music inside Hush before generating a PO token.</string>
     <string name="po_token_account_notice_same_account">If this WebView uses a different account, the generated token will not work correctly.</string>
     <string name="po_token_account_notice_mismatch">Use the matching account, finish the sign-in flow, then open youtube.com/account and generate the token from that page.</string>
     <string name="saved_accounts">Saved accounts</string>

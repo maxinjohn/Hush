@@ -89,7 +89,7 @@
     <string name="lyrics_click_change">Vaheta laulusõnu klõpsimisega</string>
     <string name="lyrics_auto_scroll">Keri laulusõnu automaatselt</string>
     <string name="lyrics_text_size">Laulusõnade teksti suurus</string>
-    <string name="discord">Discord</string>
+
     <string name="player_design_style">Pleieri kujundus</string>
     <string name="player_design_v1">Klassikaline</string>
     <string name="player_design_v2">Moodne</string>

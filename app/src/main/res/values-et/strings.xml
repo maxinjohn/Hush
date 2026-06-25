@@ -235,11 +235,11 @@
     <string name="backup_create_success">Varukoopia tegemine õnnestus</string>
     <string name="backup_create_failed">Varukoopia tegemine ei õnnestunud</string>
     <string name="restore_failed">Varukoopiast taastamine ei õnnestunud</string>
-    <string name="discord_integration">Lõiming Discordiga</string>
+
     <string name="dismiss">Loobu</string>
     <string name="options">Valikud</string>
     <string name="preview">Eelvaade</string>
-    <string name="enable_discord_rpc">Näita oma tegevust ArchiveTune\'i rakenduses Discordi olekuteatena</string>
+
     <string name="scrobbling">Kraasimine</string>
     <string name="lastfm_integration">Last.fm-i lõiming</string>
     <string name="enable_scrobbling">Lülita kraasimine sisse</string>

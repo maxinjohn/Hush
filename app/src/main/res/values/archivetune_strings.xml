@@ -282,7 +282,7 @@
     <string name="quick_picks_display_mode">Quick Picks display mode</string>
     <string name="quick_picks_display_mode_card">Card</string>
     <string name="quick_picks_display_mode_list">List</string>
-    <string name="discord">Discord</string>
+
     <string name="advanced_login">Login with token</string>
     <string name="token_hidden">Tap to show token</string>
     <string name="token_shown">Tap again to copy or edit</string>
@@ -322,14 +322,14 @@
     <string name="storage_folder_selected_restart">Storage folder saved. App will restart in 3 seconds.</string>
     <string name="storage_folder_invalid">Select a valid folder.</string>
     <string name="storage_folder_unsupported">This folder cannot be used by the file-backed media cache.</string>
-    <string name="storage_folder_not_writable">ArchiveTune cannot write cache files in this folder.</string>
+    <string name="storage_folder_not_writable">Hush cannot write cache files in this folder.</string>
     <string name="storage_cache_cleared">Cache cleared.</string>
     <string name="storage_cache_clear_failed">Cache could not be cleared. Check SD card access.</string>
     <string name="storage_clear_song_cache_progress">Clearing song cache...%1$d%%</string>
     <string name="storage_clear_downloads_progress">Clearing downloads...%1$d%%</string>
     <string name="storage_clear_image_cache_progress">Clearing image cache...%1$d%%</string>
     <string name="storage_clear_canvas_cache_progress">Clearing canvas cache...%1$d%%</string>
-    <string name="storage_cache_clear_warning">Keep ArchiveTune open while cache files are being removed.</string>
+    <string name="storage_cache_clear_warning">Keep Hush open while cache files are being removed.</string>
     <string name="storage_size_ratio">%1$s / %2$s</string>
     <string name="sensitivity_percentage">%1$d%%</string>
     <string name="clear_song_cache_dialog">  Are you sure you want to clear all cached songs?</string>
@@ -405,7 +405,7 @@
     <string name="settings_playback_subtitle">Audio behavior, crossfade, and background playback</string>
     <string name="settings_behavior_title">Behavior</string>
     <string name="settings_behavior_subtitle">History, defaults, and privacy behavior</string>
-    <string name="settings_integration_subtitle">Discord, Last.fm, Libre.fm, and ListenBrainz</string>
+    <string name="settings_integration_subtitle">Last.fm, Libre.fm, and ListenBrainz</string>
     <string name="settings_backup_restore_subtitle">Export and recover your personal app data</string>
     <string name="settings_developer_options_title">Developer Options</string>
     <string name="settings_developer_options_subtitle">Experimental features and debugging</string>
@@ -501,7 +501,7 @@
     <string name="backup_category_settings">App Settings</string>
     <string name="backup_category_settings_desc">Appearance, playback &amp; preferences</string>
     <string name="backup_category_account">Account Details</string>
-    <string name="backup_category_account_desc">YouTube, Spotify, Last.fm, Libre.fm, Discord &amp; proxy credentials</string>
+    <string name="backup_category_account_desc">YouTube, Spotify, Last.fm, Libre.fm &amp; proxy credentials</string>
     <string name="internal_service">Internal Service</string>
     <string name="external_service">External Service</string>
     <string name="restore_invalid_file">The selected file is not a valid backup archive.</string>
@@ -558,6 +558,8 @@
     <string name="ai_api_test_failed">API test failed</string>
     <string name="ai_translation_menu">AI Translation</string>
     <string name="ai_translating_lyrics">Translating The Lyrics...</string>
+    <string name="about_fork_notice">A personal fork of ArchiveTune. Upstream credits and licenses are preserved below.</string>
+    <string name="about_upstream_project">ArchiveTune upstream</string>
     <string name="about_lead_developer">Lead Developer</string>
     <string name="about_archive_tune_team">Team</string>
     <string name="about_respecter">Respecter</string>
@@ -572,7 +574,5 @@
     <string name="about_position_zion_huang">Creator of InnerTune · Foundation for Metrolist, ArchiveTune, and other forks</string>
     <string name="about_content_desc_github">GitHub</string>
     <string name="about_content_desc_website">Website</string>
-    <string name="about_content_desc_discord">Discord</string>
-    <string name="about_content_desc_telegram">Telegram</string>
     <string name="about_content_desc_donate">Donate</string>
 </resources>

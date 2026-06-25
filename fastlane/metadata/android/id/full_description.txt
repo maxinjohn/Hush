@@ -18,7 +18,6 @@ Fitur:
 - Integrasi akun YouTube Music
 - Scrobbling Last.fm
 - Sinkronisasi riwayat ListenBrainz
-- Dukungan Discord rich presence
 - Bahasa desain Material 3
 - Warna dinamis berbasis artwork album
 - Tata letak responsif untuk berbagai ukuran layar

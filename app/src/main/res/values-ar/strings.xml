@@ -290,9 +290,7 @@
     <string name="contrast">التباين</string>
     <string name="brightness">السطوع</string>
     <string name="custom_value">القيمة المخصصة</string>
-    <string name="show_button1_description">تبديل رؤية الزر 1 في حالة حضور ديسكورد</string>
-    <string name="show_button2_description">تبديل رؤية الزر 2 في حالة حضور ديسكورد</string>
-    <string name="discord_activity_type">نوع النشاط</string>
+
     <string name="dark_theme_follow_system">اتبع النظام</string>
     <string name="pure_black">أسود نقي</string>
     <string name="disable_blur">تعطيل تأثيرات الضبابية</string>

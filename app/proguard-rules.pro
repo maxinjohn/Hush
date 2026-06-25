@@ -141,3 +141,10 @@
 # Keep GlanceAppWidget and its receiver
 -keep class * extends androidx.glance.appwidget.GlanceAppWidget { *; }
 -keep class * extends androidx.glance.appwidget.GlanceAppWidgetReceiver { *; }
+
+## Release logging
+-assumenosideeffects class timber.log.Timber* {
+    public static *** v(...);
+    public static *** d(...);
+    public static *** i(...);
+}
