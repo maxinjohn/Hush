@@ -56,6 +56,7 @@ import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.get
 import moe.rukamori.archivetune.utils.potoken.BotGuardTokenGenerator
 import moe.rukamori.archivetune.utils.reportException
+import moe.rukamori.archivetune.utils.refreshPlaybackLoginContext
 import moe.rukamori.archivetune.utils.toPlaybackAuthState
 import okhttp3.Dns
 import timber.log.Timber
@@ -143,6 +144,17 @@ class App :
         applicationScope.launch(Dispatchers.IO) {
             try {
                 val prefs = dataStore.data.first()
+                val currentVersionCode = BuildConfig.VERSION_CODE
+                val lastVersionCode = prefs[LastLaunchedVersionCodeKey] ?: 0
+                val shouldForceAuthRefresh = lastVersionCode != currentVersionCode
+
+                refreshPlaybackLoginContext(forceRefresh = shouldForceAuthRefresh)
+
+                if (shouldForceAuthRefresh) {
+                    dataStore.edit { settings ->
+                        settings[LastLaunchedVersionCodeKey] = currentVersionCode
+                    }
+                }
 
                 prefs[ContentCountryKey]?.takeIf { it != SYSTEM_DEFAULT }?.let { country ->
                     YouTube.locale = YouTube.locale.copy(gl = country)

@@ -213,6 +213,7 @@ import moe.rukamori.archivetune.lyrics.LyricsHelper
 import moe.rukamori.archivetune.lyrics.LyricsPreloadManager
 import moe.rukamori.archivetune.lyrics.LyricsUtils.displayLyricsText
 import moe.rukamori.archivetune.moriextractor.ArchiveTuneExtractorException
+import moe.rukamori.archivetune.moriextractor.ExtractorAudioQuality
 import moe.rukamori.archivetune.moriextractor.StreamingExtractionManager
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.models.PersistPlayerState
@@ -5998,10 +5999,16 @@ class MusicService :
         }
 
         val lowDataModeActive = isLowDataModeActive()
-        if (preferredStreamClient == PlayerStreamClient.ARCHIVETUNE_EXTRACTOR) {
+        val effectiveAudioQuality = if (lowDataModeActive) AudioQuality.LOW else audioQuality
+        val preferExternalExtractorOnly =
+            preferredStreamClient == PlayerStreamClient.ARCHIVETUNE_EXTRACTOR &&
+                (lowDataModeActive || effectiveAudioQuality == AudioQuality.LOW)
+
+        if (preferExternalExtractorOnly) {
             return resolveArchiveTuneExtractorDataSpec(
                 dataSpec = dataSpec,
                 mediaId = mediaId,
+                audioQuality = effectiveAudioQuality,
             )
         }
 
@@ -6034,7 +6041,7 @@ class MusicService :
                     retryWithoutPlaybackLoginContext {
                         YTPlayerUtils.playerResponseForPlayback(
                             mediaId,
-                            audioQuality = if (lowDataModeActive) AudioQuality.LOW else audioQuality,
+                            audioQuality = effectiveAudioQuality,
                             connectivityManager = connectivityManager,
                             preferredStreamClient = preferredStreamClient,
                             networkMetered = lowDataModeActive,
@@ -6050,6 +6057,13 @@ class MusicService :
                         throw youtubeFailure
                     }
             }.getOrElse { throwable ->
+                if (preferredStreamClient == PlayerStreamClient.ARCHIVETUNE_EXTRACTOR) {
+                    return resolveArchiveTuneExtractorDataSpec(
+                        dataSpec = dataSpec,
+                        mediaId = mediaId,
+                        audioQuality = effectiveAudioQuality,
+                    )
+                }
                 when {
                     throwable is YTPlayerUtils.InvalidPlaybackLoginContextException -> {
                         promptLoginRecovery(mediaId, throwable.targetUrl)
@@ -6199,6 +6213,7 @@ class MusicService :
     private fun resolveArchiveTuneExtractorDataSpec(
         dataSpec: DataSpec,
         mediaId: String,
+        audioQuality: AudioQuality,
     ): DataSpec {
         extractorPlaybackUrlCache[mediaId]
             ?.takeIf {
@@ -6214,7 +6229,10 @@ class MusicService :
         val streamUrl =
             runCatching {
                 runBlocking(Dispatchers.IO) {
-                    streamingExtractionManager.extractAudioUrl(mediaId.toYouTubeWatchUrl())
+                    streamingExtractionManager.extractAudioUrl(
+                        videoUrl = mediaId.toYouTubeWatchUrl(),
+                        audioQuality = audioQuality.toExtractorAudioQuality(),
+                    )
                 }
             }.getOrElse { throwable ->
                 when {
@@ -6267,6 +6285,14 @@ class MusicService :
     }
 
     private fun String.toYouTubeWatchUrl(): String = "https://music.youtube.com/watch?v=$this"
+
+    private fun AudioQuality.toExtractorAudioQuality(): ExtractorAudioQuality =
+        when (this) {
+            AudioQuality.HIGHEST -> ExtractorAudioQuality.HIGHEST
+            AudioQuality.HIGH -> ExtractorAudioQuality.HIGH
+            AudioQuality.AUTO -> ExtractorAudioQuality.AUTO
+            AudioQuality.LOW -> ExtractorAudioQuality.LOW
+        }
 
     private fun resolveCachedDataSpec(
         dataSpec: DataSpec,

@@ -14,12 +14,11 @@ APP_RES = ROOT / "app" / "src" / "main" / "res"
 
 BG_COLOR = (18, 14, 28, 255)
 # Adaptive-icon safe zone is the center 66dp circle inside a 108dp canvas (~61%).
-FOREGROUND_SCALE = 0.30
-LAUNCHER_ICON_SCALE = 0.48
-LOGO_MARK_SCALE = 0.54
-IN_APP_ICON_SCALE = 0.50
-ICON_MARK_PAD = 14
-ICON_MARK_TOP_BIAS = 6
+FOREGROUND_SCALE = 0.56
+LAUNCHER_ICON_SCALE = 0.56
+LOGO_MARK_SCALE = 0.72
+IN_APP_ICON_SCALE = 0.58
+ICON_MARK_PAD = 10
 
 
 def trim_alpha(im: Image.Image, pad: int = 8) -> Image.Image:
@@ -35,7 +34,7 @@ def trim_alpha(im: Image.Image, pad: int = 8) -> Image.Image:
 
 
 def extract_icon_mark(sheet: Image.Image) -> Image.Image:
-    icon = sheet.crop((34, 776, 138, 904)).convert("RGBA")
+    icon = sheet.crop((28, 752, 145, 920)).convert("RGBA")
     icon = trim_alpha(icon, 8)
     pixels = icon.load()
     for y in range(icon.height):
@@ -46,10 +45,10 @@ def extract_icon_mark(sheet: Image.Image) -> Image.Image:
     icon = trim_alpha(icon, 6)
     padded = Image.new(
         "RGBA",
-        (icon.width + ICON_MARK_PAD * 2, icon.height + ICON_MARK_PAD * 2 + ICON_MARK_TOP_BIAS),
+        (icon.width + ICON_MARK_PAD * 2, icon.height + ICON_MARK_PAD * 2),
         (0, 0, 0, 0),
     )
-    padded.paste(icon, (ICON_MARK_PAD, ICON_MARK_PAD + ICON_MARK_TOP_BIAS))
+    padded.paste(icon, (ICON_MARK_PAD, ICON_MARK_PAD))
     return padded
 
 

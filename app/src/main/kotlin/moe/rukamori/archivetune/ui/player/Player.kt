@@ -1408,39 +1408,35 @@ fun BottomSheetPlayer(
                         )
                     }
                 } else {
-                    Row(
+                    Column(
                         modifier =
                             Modifier
+                                .fillMaxSize()
                                 .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
                                 .padding(bottom = queueSheetState.collapsedBound + 48.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Box(
                             contentAlignment = Alignment.Center,
-                            modifier = Modifier.weight(1f),
+                            modifier =
+                                Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth(),
                         ) {
-                            val screenWidth = LocalConfiguration.current.screenWidthDp
-                            val thumbnailSize = (screenWidth * 0.4).dp
+                            val screenHeight = LocalConfiguration.current.screenHeightDp
+                            val thumbnailSize = (screenHeight * 0.42f).dp.coerceAtMost(320.dp)
                             Thumbnail(
                                 sliderPositionProvider = { sliderPosition },
                                 modifier = Modifier.size(thumbnailSize),
                                 isPlayerExpanded = state.isExpanded,
                             )
                         }
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier =
-                                Modifier
-                                    .weight(1f)
-                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
-                        ) {
-                            Spacer(Modifier.weight(1f))
 
-                            enrichedMetadata?.let {
-                                controlsContent(it)
-                            }
-
-                            Spacer(Modifier.weight(1f))
+                        enrichedMetadata?.let {
+                            controlsContent(it)
                         }
+
+                        Spacer(Modifier.height(16.dp))
                     }
                 }
             }

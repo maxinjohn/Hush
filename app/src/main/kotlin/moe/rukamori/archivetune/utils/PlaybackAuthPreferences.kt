@@ -79,6 +79,61 @@ suspend fun Context.resetPlaybackLoginContext(): PlaybackAuthState {
     return authState
 }
 
+suspend fun Context.refreshPlaybackLoginContext(forceRefresh: Boolean = false): PlaybackAuthState {
+    val storedAuthState = dataStore.data.first().toPlaybackAuthState()
+    if (!storedAuthState.hasLoginCookie) {
+        YouTube.authState = storedAuthState
+        return storedAuthState
+    }
+
+    YouTube.authState = storedAuthState
+    var repairedAuthState = storedAuthState
+
+    val refreshedDataSyncId =
+        YouTube
+            .accountDataSyncId()
+            .getOrNull()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+
+    if (
+        !refreshedDataSyncId.isNullOrBlank() &&
+        (forceRefresh || refreshedDataSyncId != storedAuthState.dataSyncId)
+    ) {
+        repairedAuthState = repairedAuthState.copy(dataSyncId = refreshedDataSyncId).normalized()
+    }
+
+    if (repairedAuthState.visitorData.isNullOrBlank()) {
+        val refreshedVisitorData =
+            YouTube
+                .visitorData()
+                .getOrNull()
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+        if (!refreshedVisitorData.isNullOrBlank()) {
+            repairedAuthState = repairedAuthState.copy(visitorData = refreshedVisitorData).normalized()
+        }
+    }
+
+    if (repairedAuthState.fingerprint != storedAuthState.fingerprint) {
+        YouTube.authState = repairedAuthState
+        YTPlayerUtils.clearPlaybackAuthCaches()
+        dataStore.edit { preferences ->
+            preferences[InnerTubeCookieKey] = repairedAuthState.cookie.orEmpty()
+            repairedAuthState.visitorData
+                ?.let { preferences[VisitorDataKey] = it }
+                ?: preferences.remove(VisitorDataKey)
+            if (repairedAuthState.dataSyncId.isNullOrBlank()) {
+                preferences.remove(DataSyncIdKey)
+            } else {
+                preferences[DataSyncIdKey] = repairedAuthState.dataSyncId!!
+            }
+        }
+    }
+
+    return repairedAuthState
+}
+
 suspend fun <T> Context.retryWithoutPlaybackLoginContext(block: suspend () -> Result<T>): Result<T> {
     val initialAuthState = YouTube.currentPlaybackAuthState()
     val initialResult = block()

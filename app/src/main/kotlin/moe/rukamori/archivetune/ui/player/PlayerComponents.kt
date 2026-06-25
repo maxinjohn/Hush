@@ -1489,17 +1489,11 @@ fun PlayerPlaybackControls(
                                 .fillMaxWidth()
                                 .padding(6.dp),
                     ) {
-                        val sideHeight = if (landscape) 88.dp else 56.dp
-                        val playWidth = if (landscape) 104.dp else 88.dp
-                        val playHeight = if (landscape) 96.dp else 80.dp
+                        val sideHeight = if (landscape) 110.dp else 56.dp
+                        val playWidth = if (landscape) 120.dp else 88.dp
+                        val playHeight = if (landscape) 110.dp else 80.dp
                         val sideIconSize = if (landscape) 34.dp else 28.dp
-                        val playIconSize = if (landscape) 48.dp else 44.dp
-                        val sideWidth =
-                            if (landscape) {
-                                ((maxWidth - playWidth - 12.dp) / 2f).coerceAtLeast(88.dp)
-                            } else {
-                                null
-                            }
+                        val playIconSize = if (landscape) 44.dp else 44.dp
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1521,15 +1515,9 @@ fun PlayerPlaybackControls(
                                     ),
                                 color = MaterialTheme.colorScheme.secondaryContainer,
                                 modifier =
-                                    if (sideWidth != null) {
-                                        Modifier
-                                            .width(sideWidth)
-                                            .height(sideHeight)
-                                    } else {
-                                        Modifier
-                                            .weight(1f)
-                                            .height(sideHeight)
-                                    },
+                                    Modifier
+                                        .weight(1f)
+                                        .height(sideHeight),
                             ) {
                                 Box(
                                     modifier = Modifier.fillMaxSize(),
@@ -1607,15 +1595,9 @@ fun PlayerPlaybackControls(
                                     ),
                                 color = MaterialTheme.colorScheme.secondaryContainer,
                                 modifier =
-                                    if (sideWidth != null) {
-                                        Modifier
-                                            .width(sideWidth)
-                                            .height(sideHeight)
-                                    } else {
-                                        Modifier
-                                            .weight(1f)
-                                            .height(sideHeight)
-                                    },
+                                    Modifier
+                                        .weight(1f)
+                                        .height(sideHeight),
                             ) {
                                 Box(
                                     modifier = Modifier.fillMaxSize(),
@@ -2380,93 +2362,101 @@ private fun V8LandscapeContent(
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val horizontalPadding = 36.dp
-        val contentGap = 36.dp
+        val horizontalPadding = if (maxWidth < 380.dp) 24.dp else 36.dp
+        val contentGap = if (maxWidth < 380.dp) 24.dp else 36.dp
         val artworkSize =
-            (maxHeight - 48.dp)
-                .coerceAtMost((maxWidth - horizontalPadding * 2 - contentGap) * 0.44f)
-                .coerceAtLeast(0.dp)
+            (maxHeight * 0.68f)
+                .coerceAtMost((maxWidth - horizontalPadding * 2) * 0.32f)
+                .coerceAtLeast(180.dp)
 
-        Row(
+        Column(
             modifier =
                 Modifier
                     .fillMaxSize()
                     .padding(horizontal = horizontalPadding, vertical = 24.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(contentGap),
         ) {
-            V8Artwork(
-                artworkUrl = artworkUrl,
-                canvasPrimaryUrl = canvasPrimaryUrl,
-                canvasFallbackUrl = canvasFallbackUrl,
-                isPlaying = isPlaying,
-                size = artworkSize,
-            )
-
-            Column(
+            Row(
                 modifier =
                     Modifier
                         .weight(1f)
-                        .fillMaxHeight()
-                        .heightIn(min = 320.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                        .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(contentGap),
             ) {
-                V8Header(
-                    title = stringResource(R.string.now_playing),
-                    subtitle = subtitle,
-                    foreground = foreground,
-                    secondaryForeground = secondaryForeground,
-                )
-
-                Spacer(Modifier.height(22.dp))
-
-                V8MetadataActions(
-                    title = mediaMetadata.title,
-                    artists = artists,
-                    liked = currentSongLiked,
-                    foreground = foreground,
-                    onMenuClick = onMenuClick,
-                    onToggleLike = onToggleLike,
-                    onTitleClick = onTitleClick,
-                    onArtistClick = onArtistClick,
-                )
-
-                Spacer(Modifier.height(18.dp))
-
-                V8PlaybackProgress(
-                    sliderPosition = sliderPosition,
-                    position = position,
-                    duration = duration,
-                    currentFormat = currentFormat,
-                    foreground = foreground,
-                    onSliderValueChange = onSliderValueChange,
-                    onSliderValueChangeFinished = onSliderValueChangeFinished,
-                )
-
-                Spacer(Modifier.height(18.dp))
-
-                V8TransportControls(
-                    playbackState = playbackState,
+                V8Artwork(
+                    artworkUrl = artworkUrl,
+                    canvasPrimaryUrl = canvasPrimaryUrl,
+                    canvasFallbackUrl = canvasFallbackUrl,
                     isPlaying = isPlaying,
-                    isLoading = isLoading,
-                    canSkipPrevious = canSkipPrevious,
-                    canSkipNext = canSkipNext,
-                    foreground = foreground,
-                    onPreviousClick = onPreviousClick,
-                    onPlayPauseClick = onPlayPauseClick,
-                    onNextClick = onNextClick,
-                    landscape = true,
+                    size = artworkSize,
                 )
 
-                Spacer(Modifier.height(18.dp))
+                Column(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    V8Header(
+                        title = stringResource(R.string.now_playing),
+                        subtitle = subtitle,
+                        foreground = foreground,
+                        secondaryForeground = secondaryForeground,
+                    )
 
-                V8VolumeControls(
-                    volume = volume,
-                    foreground = foreground,
-                    secondaryForeground = secondaryForeground,
-                    onVolumeChange = onVolumeChange,
-                )
+                    Spacer(Modifier.height(22.dp))
+
+                    V8MetadataActions(
+                        title = mediaMetadata.title,
+                        artists = artists,
+                        liked = currentSongLiked,
+                        foreground = foreground,
+                        onMenuClick = onMenuClick,
+                        onToggleLike = onToggleLike,
+                        onTitleClick = onTitleClick,
+                        onArtistClick = onArtistClick,
+                    )
+
+                    Spacer(Modifier.height(18.dp))
+
+                    V8PlaybackProgress(
+                        sliderPosition = sliderPosition,
+                        position = position,
+                        duration = duration,
+                        currentFormat = currentFormat,
+                        foreground = foreground,
+                        onSliderValueChange = onSliderValueChange,
+                        onSliderValueChangeFinished = onSliderValueChangeFinished,
+                    )
+                }
             }
+
+            Spacer(Modifier.height(18.dp))
+
+            V9TransportControls(
+                playbackState = playbackState,
+                isPlaying = isPlaying,
+                isLoading = isLoading,
+                canSkipPrevious = canSkipPrevious,
+                canSkipNext = canSkipNext,
+                containerColor = foreground.copy(alpha = 0.14f),
+                primaryContainerColor = foreground,
+                iconColor = Color.Black.copy(alpha = 0.72f),
+                primaryIconColor = Color.Black,
+                onPreviousClick = onPreviousClick,
+                onPlayPauseClick = onPlayPauseClick,
+                onNextClick = onNextClick,
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            V8VolumeControls(
+                volume = volume,
+                foreground = foreground,
+                secondaryForeground = secondaryForeground,
+                onVolumeChange = onVolumeChange,
+            )
         }
     }
 }
@@ -3191,7 +3181,6 @@ private fun V9PortraitContent(
                 onPreviousClick = onPreviousClick,
                 onPlayPauseClick = onPlayPauseClick,
                 onNextClick = onNextClick,
-                landscape = false,
             )
 
             Spacer(Modifier.weight(1f))
@@ -3230,86 +3219,95 @@ private fun V9LandscapeContent(
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val horizontalPadding = if (maxWidth < 380.dp) 20.dp else 28.dp
         val artworkSize =
-            (maxHeight * 0.74f)
-                .coerceAtMost(maxWidth * 0.4f)
-                .coerceAtLeast(236.dp)
+            (maxHeight * 0.72f)
+                .coerceAtMost(maxWidth * 0.34f)
+                .coerceAtLeast(200.dp)
 
-        Row(
+        Column(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 28.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(26.dp),
+                    .padding(horizontal = horizontalPadding, vertical = 16.dp),
         ) {
-            V9Artwork(
-                artworkUrl = artworkUrl,
-                canvasPrimaryUrl = canvasPrimaryUrl,
-                canvasFallbackUrl = canvasFallbackUrl,
-                isPlaying = isPlaying,
-                size = artworkSize,
-                placeholderColor = textButtonColor.copy(alpha = 0.12f),
-            )
-
-            Column(
+            Row(
                 modifier =
                     Modifier
                         .weight(1f)
-                        .fillMaxHeight(),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                        .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
             ) {
-                V9Header(
-                    textColor = textBackgroundColor,
-                    containerColor = textButtonColor.copy(alpha = 0.16f),
-                    iconColor = textBackgroundColor,
-                    onCollapseClick = onCollapseClick,
-                    onLyricsClick = onLyricsClick,
-                    onQueueClick = onQueueClick,
-                )
-
-                Spacer(Modifier.height(22.dp))
-
-                V9Metadata(
-                    title = title,
-                    artists = artists,
-                    textColor = textBackgroundColor,
-                    onTitleClick = onTitleClick,
-                    onArtistClick = onArtistClick,
-                )
-
-                Spacer(Modifier.height(20.dp))
-
-                V9PlaybackProgress(
-                    sliderPosition = sliderPosition,
-                    position = position,
-                    duration = duration,
+                V9Artwork(
+                    artworkUrl = artworkUrl,
+                    canvasPrimaryUrl = canvasPrimaryUrl,
+                    canvasFallbackUrl = canvasFallbackUrl,
                     isPlaying = isPlaying,
-                    activeColor = textButtonColor,
-                    inactiveColor = textButtonColor.copy(alpha = 0.24f),
-                    textColor = textBackgroundColor,
-                    onSliderValueChange = onSliderValueChange,
-                    onSliderValueChangeFinished = onSliderValueChangeFinished,
+                    size = artworkSize,
+                    placeholderColor = textButtonColor.copy(alpha = 0.12f),
                 )
 
-                Spacer(Modifier.height(24.dp))
+                Column(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    V9Header(
+                        textColor = textBackgroundColor,
+                        containerColor = textButtonColor.copy(alpha = 0.16f),
+                        iconColor = textBackgroundColor,
+                        onCollapseClick = onCollapseClick,
+                        onLyricsClick = onLyricsClick,
+                        onQueueClick = onQueueClick,
+                    )
 
-                V9TransportControls(
-                    playbackState = playbackState,
-                    isPlaying = isPlaying,
-                    isLoading = isLoading,
-                    canSkipPrevious = canSkipPrevious,
-                    canSkipNext = canSkipNext,
-                    containerColor = textButtonColor.copy(alpha = 0.14f),
-                    primaryContainerColor = textButtonColor,
-                    iconColor = textBackgroundColor,
-                    primaryIconColor = iconButtonColor,
-                    onPreviousClick = onPreviousClick,
-                    onPlayPauseClick = onPlayPauseClick,
-                    onNextClick = onNextClick,
-                    landscape = true,
-                )
+                    Spacer(Modifier.height(22.dp))
+
+                    V9Metadata(
+                        title = title,
+                        artists = artists,
+                        textColor = textBackgroundColor,
+                        onTitleClick = onTitleClick,
+                        onArtistClick = onArtistClick,
+                    )
+
+                    Spacer(Modifier.height(20.dp))
+
+                    V9PlaybackProgress(
+                        sliderPosition = sliderPosition,
+                        position = position,
+                        duration = duration,
+                        isPlaying = isPlaying,
+                        activeColor = textButtonColor,
+                        inactiveColor = textButtonColor.copy(alpha = 0.24f),
+                        textColor = textBackgroundColor,
+                        onSliderValueChange = onSliderValueChange,
+                        onSliderValueChangeFinished = onSliderValueChangeFinished,
+                    )
+                }
             }
+
+            Spacer(Modifier.height(20.dp))
+
+            V9TransportControls(
+                playbackState = playbackState,
+                isPlaying = isPlaying,
+                isLoading = isLoading,
+                canSkipPrevious = canSkipPrevious,
+                canSkipNext = canSkipNext,
+                containerColor = textButtonColor.copy(alpha = 0.14f),
+                primaryContainerColor = textButtonColor,
+                iconColor = textBackgroundColor,
+                primaryIconColor = iconButtonColor,
+                onPreviousClick = onPreviousClick,
+                onPlayPauseClick = onPlayPauseClick,
+                onNextClick = onNextClick,
+            )
+
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
@@ -3571,7 +3569,6 @@ private fun V9TransportControls(
     onPreviousClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
-    landscape: Boolean = false,
 ) {
     val haptic = LocalHapticFeedback.current
     val playPauseCorner by animateDpAsState(
@@ -3585,188 +3582,93 @@ private fun V9TransportControls(
     )
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val controlHeight = if (landscape) 100.dp else 110.dp
-        val buttonGap = if (landscape) 14.dp else 10.dp
-        val sideIconSize = if (landscape) 38.dp else 34.dp
-        val playIconSize = if (landscape) 46.dp else 42.dp
+        val controlHeight = 110.dp
+        val buttonGap = 10.dp
+        val sideIconSize = 34.dp
+        val playIconSize = 42.dp
 
-        if (landscape) {
-            val baseSideWidth = 108.dp
-            val baseCenterWidth = 128.dp
-            val requiredWidth = baseSideWidth * 2 + baseCenterWidth + buttonGap * 2
-            val layoutScale = (maxWidth / requiredWidth).coerceAtMost(1f).coerceAtLeast(0.78f)
-            val sideWidth = baseSideWidth * layoutScale
-            val centerWidth = baseCenterWidth * layoutScale
-            val height = controlHeight * layoutScale.coerceAtLeast(0.88f)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(buttonGap),
+        ) {
+            V9TransportButton(
+                iconRes = R.drawable.skip_previous,
+                contentDescription = stringResource(R.string.widget_previous),
+                enabled = canSkipPrevious,
+                containerColor = containerColor,
+                iconColor = iconColor,
+                iconSize = sideIconSize,
+                modifier = Modifier.weight(1f).height(controlHeight),
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onPreviousClick()
+                },
+            )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
+            Surface(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onPlayPauseClick()
+                },
+                shape = RoundedCornerShape(playPauseCorner),
+                color = primaryContainerColor,
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .height(controlHeight),
             ) {
-                V9TransportButton(
-                    iconRes = R.drawable.skip_previous,
-                    contentDescription = stringResource(R.string.widget_previous),
-                    enabled = canSkipPrevious,
-                    containerColor = containerColor,
-                    iconColor = iconColor,
-                    iconSize = sideIconSize,
-                    modifier = Modifier.width(sideWidth).height(height),
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onPreviousClick()
-                    },
-                )
-
-                Spacer(Modifier.width(buttonGap))
-
-                Surface(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onPlayPauseClick()
-                    },
-                    shape = RoundedCornerShape(playPauseCorner),
-                    color = primaryContainerColor,
-                    modifier = Modifier.width(centerWidth).height(height),
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (isLoading) {
-                            CircularWavyProgressIndicator(
-                                modifier = Modifier.size(playIconSize),
-                                color = primaryIconColor,
-                            )
-                        } else {
-                            AnimatedContent(
-                                targetState =
-                                    when {
-                                        playbackState == STATE_ENDED -> R.drawable.replay
-                                        isPlaying -> R.drawable.pause
-                                        else -> R.drawable.play
-                                    },
-                                transitionSpec = {
-                                    fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) togetherWith fadeOut(tween(90))
+                    if (isLoading) {
+                        CircularWavyProgressIndicator(
+                            modifier = Modifier.size(playIconSize),
+                            color = primaryIconColor,
+                        )
+                    } else {
+                        AnimatedContent(
+                            targetState =
+                                when {
+                                    playbackState == STATE_ENDED -> R.drawable.replay
+                                    isPlaying -> R.drawable.pause
+                                    else -> R.drawable.play
                                 },
-                                label = "v9PlayPauseIcon",
-                            ) { iconRes ->
-                                Icon(
-                                    painter = painterResource(iconRes),
-                                    contentDescription =
-                                        if (isPlaying) {
-                                            stringResource(R.string.widget_pause)
-                                        } else {
-                                            stringResource(R.string.play)
-                                        },
-                                    tint = primaryIconColor,
-                                    modifier = Modifier.size(playIconSize),
-                                )
-                            }
+                            transitionSpec = {
+                                fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) togetherWith fadeOut(tween(90))
+                            },
+                            label = "v9PlayPauseIcon",
+                        ) { iconRes ->
+                            Icon(
+                                painter = painterResource(iconRes),
+                                contentDescription =
+                                    if (isPlaying) {
+                                        stringResource(R.string.widget_pause)
+                                    } else {
+                                        stringResource(R.string.play)
+                                    },
+                                tint = primaryIconColor,
+                                modifier = Modifier.size(playIconSize),
+                            )
                         }
                     }
                 }
-
-                Spacer(Modifier.width(buttonGap))
-
-                V9TransportButton(
-                    iconRes = R.drawable.skip_next,
-                    contentDescription = stringResource(R.string.next),
-                    enabled = canSkipNext,
-                    containerColor = containerColor,
-                    iconColor = iconColor,
-                    iconSize = sideIconSize,
-                    modifier = Modifier.width(sideWidth).height(height),
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onNextClick()
-                    },
-                )
             }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(buttonGap),
-            ) {
-                V9TransportButton(
-                    iconRes = R.drawable.skip_previous,
-                    contentDescription = stringResource(R.string.widget_previous),
-                    enabled = canSkipPrevious,
-                    containerColor = containerColor,
-                    iconColor = iconColor,
-                    iconSize = sideIconSize,
-                    modifier = Modifier.weight(1f).height(controlHeight),
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onPreviousClick()
-                    },
-                )
 
-                Surface(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onPlayPauseClick()
-                    },
-                    shape = RoundedCornerShape(playPauseCorner),
-                    color = primaryContainerColor,
-                    modifier =
-                        Modifier
-                            .weight(1f)
-                            .height(controlHeight),
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (isLoading) {
-                            CircularWavyProgressIndicator(
-                                modifier = Modifier.size(playIconSize),
-                                color = primaryIconColor,
-                            )
-                        } else {
-                            AnimatedContent(
-                                targetState =
-                                    when {
-                                        playbackState == STATE_ENDED -> R.drawable.replay
-                                        isPlaying -> R.drawable.pause
-                                        else -> R.drawable.play
-                                    },
-                                transitionSpec = {
-                                    fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) togetherWith fadeOut(tween(90))
-                                },
-                                label = "v9PlayPauseIcon",
-                            ) { iconRes ->
-                                Icon(
-                                    painter = painterResource(iconRes),
-                                    contentDescription =
-                                        if (isPlaying) {
-                                            stringResource(R.string.widget_pause)
-                                        } else {
-                                            stringResource(R.string.play)
-                                        },
-                                    tint = primaryIconColor,
-                                    modifier = Modifier.size(playIconSize),
-                                )
-                            }
-                        }
-                    }
-                }
-
-                V9TransportButton(
-                    iconRes = R.drawable.skip_next,
-                    contentDescription = stringResource(R.string.next),
-                    enabled = canSkipNext,
-                    containerColor = containerColor,
-                    iconColor = iconColor,
-                    iconSize = sideIconSize,
-                    modifier = Modifier.weight(1f).height(controlHeight),
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onNextClick()
-                    },
-                )
-            }
+            V9TransportButton(
+                iconRes = R.drawable.skip_next,
+                contentDescription = stringResource(R.string.next),
+                enabled = canSkipNext,
+                containerColor = containerColor,
+                iconColor = iconColor,
+                iconSize = sideIconSize,
+                modifier = Modifier.weight(1f).height(controlHeight),
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onNextClick()
+                },
+            )
         }
     }
 }
