@@ -1,9 +1,7 @@
 name: Build Pull Request
 
 on:
-  pull_request:
-    branches:
-      - "**"
+  workflow_dispatch:
 
 jobs:
   build:
