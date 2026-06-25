@@ -59,7 +59,7 @@
     <string name="play">Mainkan</string>
     <string name="widget_pause">Jeda</string>
     <string name="widget_previous">Sebelumnya</string>
-    <string name="widget_tap_to_open">Ketuk untuk membuka ArchiveTune</string>
+    <string name="widget_tap_to_open">Ketuk untuk membuka Hush</string>
     <string name="play_next">Mainkan berikutnya</string>
     <string name="add_to_queue">Tambahkan ke antrean</string>
     <string name="add_to_library">Tambahkan ke pustaka</string>
@@ -283,11 +283,9 @@
     <string name="contrast">Kontras</string>
     <string name="brightness">Kecerahan</string>
     <string name="custom_value">Nilai khusus</string>
-    <string name="archivetune_canvas">Kanvas ArchiveTune</string>
+    <string name="archivetune_canvas">Kanvas Hush</string>
     <string name="archivetune_canvas_desc">Menganimasikan sampul album saat diputar (Didukung oleh BetterLyrics)</string>
-    <string name="show_button1_description">Alihkan visibilitas tombol 1 di Discord Rich Presence</string>
-    <string name="show_button2_description">Alihkan visibilitas tombol 2 di Discord Rich Presence</string>
-    <string name="discord_activity_type">Jenis aktivitas</string>
+
     <string name="dark_theme_follow_system">Ikuti sistem</string>
     <string name="pure_black">Hitam murni</string>
     <string name="disable_blur">Nonaktifkan efek blur</string>
@@ -319,9 +317,9 @@
     <string name="login">Masuk</string>
     <string name="not_logged_in">Belum Masuk</string>
     <string name="playback_confirmation_required">Konfirmasi pemutaran diperlukan</string>
-    <string name="playback_requires_youtube_music_confirmation">Konfirmasikan pemutaran di YouTube Music, lalu kembali ke ArchiveTune.</string>
+    <string name="playback_requires_youtube_music_confirmation">Konfirmasikan pemutaran di YouTube Music, lalu kembali ke Hush.</string>
     <string name="playback_login_refresh_required">Segarkan login YouTube Music</string>
-    <string name="playback_requires_youtube_music_login_refresh">Segarkan login YouTube Music Anda, lalu kembali ke ArchiveTune.</string>
+    <string name="playback_requires_youtube_music_login_refresh">Segarkan login YouTube Music Anda, lalu kembali ke Hush.</string>
     <string name="could_not_open_youtube_music">Tidak dapat membuka YouTube Music</string>
     <string name="content_language">Bahasa konten default</string>
     <string name="content_country">Negara konten default</string>
@@ -469,20 +467,10 @@
     <string name="backup_create_failed">Tidak dapat membuat cadangan</string>
     <string name="restore_success">Cadangan berhasil dipulihkan</string>
     <string name="restore_failed">Gagal memulihkan cadangan</string>
-    <string name="discord_integration">Integrasi Discord</string>
-    <string name="discord_login_description">Hubungkan akun Discord Anda dengan OAuth agar ArchiveTune dapat mempublikasikan Rich Presence melalui Social SDK resmi Discord.</string>
-    <string name="discord_open_authorization">Sambungkan ke Discord</string>
-    <string name="discord_waiting_for_authorization">Menunggu otorisasi Discord...</string>
-    <string name="discord_authorization_success">Akun Discord terhubung</string>
-    <string name="discord_authorization_failed">Otorisasi Discord gagal</string>
-    <string name="discord_account_ready">ArchiveTune siap mempublikasikan Rich Presence untuk sesi mendengarkan Anda.</string>
-    <string name="discord_connection_settings">Koneksi</string>
-    <string name="discord_activity_content">Isi Aktivitas</string>
-    <string name="discord_refresh_success">Presence Discord diperbarui</string>
-    <string name="discord_refresh_failed">Pembaruan status presence Discord gagal</string>
+
     <string name="options">Pilihan</string>
     <string name="preview">Pratinjau</string>
-    <string name="enable_discord_rpc">Aktifkan Rich Presence</string>
+
     <string name="scrobbling">Scrobbling</string>
     <string name="lastfm_integration">Integrasi Last.fm</string>
     <string name="enable_scrobbling">Aktifkan Scrobbling</string>
@@ -498,19 +486,7 @@
     <string name="listenbrainz_scrobbling_description">Aktifkan pengiriman lagu yang sedang diputar dan yang sudah selesai ke ListenBrainz</string>
     <string name="set_listenbrainz_token">Atur token ListenBrainz</string>
     <string name="edit_listenbrainz_token">Sunting token ListenBrainz</string>
-    <string name="discord_activity_name">Nama aktivitas</string>
-    <string name="discord_activity_details">Detail aktivitas</string>
-    <string name="discord_activity_state">Status aktivitas</string>
-    <string name="discord_activity_button_1_url">Sumber URL tombol 1</string>
-    <string name="discord_activity_button_2_url">Sumber URL tombol 2</string>
-    <string name="discord_activity_button1_label">Label tombol 1</string>
-    <string name="discord_activity_button1_url">URL Khusus tombol 1</string>
-    <string name="discord_activity_button2_label">Label tombol 2</string>
-    <string name="discord_activity_button2_url">URL Khusus tombol 2</string>
-    <string name="discord_url_source_song">URL Lagu</string>
-    <string name="discord_url_source_artist">URL Artis</string>
-    <string name="discord_url_source_album">URL Album</string>
-    <string name="discord_url_source_custom">URL Kustom</string>
+
     <string name="album_name">Nama Album</string>
     <string name="app_icon">Ikon Aplikasi</string>
     <string name="large_image_custom_url">URL khusus gambar besar</string>
@@ -519,35 +495,16 @@
     <string name="custom_large_text">Teks Besar Kustom</string>
     <string name="small_image">Gambar Kecil</string>
     <string name="small_image_custom_url">URL khusus gambar kecil</string>
-    <string name="discord_presence_online">Online</string>
-    <string name="discord_presence_do_not_disturb">Jangan Ganggu</string>
-    <string name="discord_presence_idle">Idle</string>
-    <string name="discord_presence_streaming">Streaming</string>
-    <string name="discord_platform_desktop">Desktop</string>
-    <string name="discord_platform_xbox">Xbox</string>
-    <string name="discord_platform_samsung">Samsung</string>
-    <string name="discord_platform_ios">iOS</string>
-    <string name="discord_platform_android">Android</string>
-    <string name="discord_platform_embedded">Embedded</string>
-    <string name="discord_platform_ps4">PS4</string>
-    <string name="discord_platform_ps5">PS5</string>
-    <string name="discord_activity_type_playing_label">Playing</string>
-    <string name="discord_activity_type_streaming_label">Streaming</string>
-    <string name="discord_activity_type_listening_label">Listening</string>
-    <string name="discord_activity_type_watching_label">Watching</string>
-    <string name="discord_activity_type_competing_label">Competing</string>
-    <string name="discord_image_album_artwork">Sampul Album</string>
-    <string name="discord_image_artist_artwork">Sampul Artis</string>
+
     <string name="activity_status">Status Aktivitas</string>
     <string name="platform_status">Platform</string>
     <string name="translator_options">Opsi Penerjemah</string>
-    <string name="enable_translator">Aktifkan Penerjemah</string>
-    <string name="enable_translator_desc">Terjemahkan bidang yang dipilih sebelum mengirim ke Discord RPC</string>
+
     <string name="context_info">Konteks (dipisahkan koma)</string>
     <string name="target_language">Bahasa Sasaran</string>
     <string name="close_dialog">Tutup</string>
     <string name="support_development_title">Dukung pengembangan</string>
-    <string name="support_development_message">Halo! Saya Koiverse, pengembang ArchiveTune. Jika ArchiveTune telah menemani aktivitas mendengarkan musikmu sehari-hari, kamu bisa membantu agar proyek ini terus berkembang dengan cara berdonasi atau memberikan bintang (star) pada proyek ini di GitHub. Terima kasih telah mendukung proses pengembangan di balik aplikasi ini.</string>
+    <string name="support_development_message">Hush adalah fork pribadi dari ArchiveTune. Jika Anda menikmatinya, beri bintang pada fork ini di GitHub atau dukung proyek ArchiveTune upstream. Terima kasih telah mendengarkan.</string>
     <string name="support_development_donate">Donasi untuk mendukung pembangunan</string>
     <string name="support_development_star">Bintangi di GitHub</string>
     <string name="later">Nanti</string>
@@ -559,20 +516,15 @@
     <string name="lyrics">Lirik</string>
     <string name="translation_success">Terjemahan disimpan</string>
     <string name="translation_failed">Terjemahan gagal</string>
-    <string name="discord_button_options">Opsi Tombol</string>
-    <string name="discord_image_options">Opsi Gambar</string>
+
     <string name="refresh">Segarkan</string>
-    <string name="description_refresh">Segarkan Discord Rich Presence secara manual</string>
-    <string name="discord_show_when_paused">Tampilkan RPC saat dijeda</string>
-    <string name="discord_show_when_paused_desc">Jika diaktifkan, Rich Presence akan tetap terlihat saat dijeda dengan ikon jeda. Jika dinonaktifkan, RPC akan hilang saat dijeda.</string>
-    <string name="discord_paused">Dijeda</string>
+
     <string name="logout_confirm_title">Konfirmasikan logout</string>
-    <string name="logout_confirm_message">Apakah Anda yakin ingin keluar dari Discord?</string>
+
     <string name="logout_confirm_yes">Keluar</string>
     <string name="logout_confirm_no">Batal</string>
     <string name="experiment_settings">Pengaturan Eksperimental</string>
-    <string name="show_discord_debug_ui">Tampilkan UI Debug</string>
-    <string name="enable_discord_debug_lines">Aktifkan baris pengaturan debug</string>
+
     <string name="presence_manager_running">Manajer Presence: berjalan</string>
     <string name="presence_manager_stopped">Manajer Presence: dihentikan</string>
     <string name="filter_levels">Tingkat filter</string>
@@ -609,7 +561,7 @@
     <string name="log_level_info">Informasi</string>
     <string name="log_level_warning">Peringatan</string>
     <string name="log_level_error">Kesalahan</string>
-    <string name="filter_discord_only">Discord</string>
+
     <string name="filter_all_logs">Semua</string>
     <string name="clear">Bersihkan</string>
     <string name="logs_empty_message">Log akan muncul di sini bila tersedia</string>
@@ -651,9 +603,9 @@
     <string name="update_notification_channel_name">Pembaruan Aplikasi</string>
     <string name="update_notification_channel_desc">Pemberitahuan untuk pembaruan aplikasi baru</string>
     <string name="update_notification_title">Pembaruan Tersedia</string>
-    <string name="update_notification_text">ArchiveTune %s kini tersedia</string>
+    <string name="update_notification_text">Hush %s kini tersedia</string>
     <string name="download">Unduh</string>
-    <string name="permissions_title">Izinkan ArchiveTune bekerja dengan optimal</string>
+    <string name="permissions_title">Izinkan Hush bekerja dengan optimal</string>
     <string name="permissions_subtitle">Kami menggunakan beberapa izin untuk memutar dan mengelola musik Anda dengan andal. Anda dapat mengubahnya kapan saja di pengaturan sistem.</string>
     <string name="permission_storage_title">Akses penyimpanan</string>
     <string name="permission_storage_desc">Diperlukan untuk membaca file audio lokal dan unduhan Anda untuk diputar.</string>
@@ -666,7 +618,7 @@
     <string name="playlist_suggestion_source_title">Judul playlist</string>
     <string name="playlist_suggestion_source_content">Konten playlist</string>
     <string name="playlist_suggestion_source_both">Judul dan konten playlist</string>
-    <string name="music_together">ArchiveTune Musik Bersama</string>
+    <string name="music_together">Hush Musik Bersama</string>
     <string name="together_display_name">Nama tampilan</string>
     <string name="together_display_name_placeholder">Nama Anda</string>
     <string name="together_port">Port sesi</string>
@@ -713,10 +665,10 @@
     <string name="together_error_state">Kesalahan</string>
     <string name="got_it">Mengerti</string>
     <string name="together_dont_show_again">Jangan tampilkan ini lagi</string>
-    <string name="together_welcome_title">Selamat datang di ArchiveTune Musik Bersama</string>
+    <string name="together_welcome_title">Selamat datang di Hush Musik Bersama</string>
     <string name="together_welcome_body">Music Together memungkinkan beberapa perangkat berbagi sesi langsung dengan antrean dan pemutaran yang disinkronkan.</string>
     <string name="together_welcome_host_title">Selenggarakan sesi</string>
-    <string name="together_welcome_host_body">Ketuk Mulai sesi, lalu bagikan tautan sesi. Biarkan ArchiveTune tetap terbuka di latar belakang saat menghosting.</string>
+    <string name="together_welcome_host_body">Ketuk Mulai sesi, lalu bagikan tautan sesi. Biarkan Hush tetap terbuka di latar belakang saat menghosting.</string>
     <string name="together_welcome_join_title">Bergabunglah dari perangkat lain</string>
     <string name="together_welcome_join_body">Buka tautan yang dibagikan, atau masukkan kode dan ketuk Gabung. Antrian dan pemutaran Anda akan mengikuti host.</string>
     <string name="together_welcome_permissions_title">Izin dan keamanan</string>
@@ -744,7 +696,7 @@
     <string name="token_copied">Token disalin ke papan klip</string>
     <string name="extracting_from_url">Mengekstrak token dari URL…</string>
     <string name="po_token_account_notice_title">Gunakan akun yang sama</string>
-    <string name="po_token_account_notice_body">Masuk di sini dengan akun Google yang sama yang sudah Anda gunakan untuk YouTube Music di dalam ArchiveTune sebelum membuat token PO.</string>
+    <string name="po_token_account_notice_body">Masuk di sini dengan akun Google yang sama yang sudah Anda gunakan untuk YouTube Music di dalam Hush sebelum membuat token PO.</string>
     <string name="po_token_account_notice_same_account">Jika WebView ini menggunakan akun lain, token yang dihasilkan tidak akan berfungsi dengan benar.</string>
     <string name="po_token_account_notice_mismatch">Gunakan akun yang cocok, selesaikan alur masuk, lalu buka youtube.com/account dan buat token dari halaman tersebut.</string>
     <string name="saved_accounts">Akun yang disimpan</string>
@@ -792,7 +744,7 @@
     <string name="duration_sort">Durasi</string>
     <string name="offline_shortcut">Luring</string>
     <string name="cached">Disimpan</string>
-    <string name="account_integrations_summary">Discord, Last.fm. Libre.fm, ListenBrainz</string>
+    <string name="account_integrations_summary">Last.fm, Libre.fm, ListenBrainz</string>
     <string name="instant_playback">Pemutaran Instan</string>
     <string name="on_device">Di perangkat ini</string>
     <string name="recently_played">Baru saja Diputar</string>
@@ -801,7 +753,7 @@
     <string name="library_top_mixes_refresh">Segarkan mix</string>
     <string name="library_top_mixes_configure_ai">Konfigurasikan AI</string>
     <string name="library_top_mixes_ai_not_configured_title">Konfigurasikan AI untuk membuat mix</string>
-    <string name="library_top_mixes_ai_not_configured_desc">Integrasi AI diperlukan sebelum ArchiveTune dapat membuat mix teratas pribadi.</string>
+    <string name="library_top_mixes_ai_not_configured_desc">Integrasi AI diperlukan sebelum Hush dapat membuat mix teratas pribadi.</string>
     <string name="library_top_mixes_no_recent_history_title">Tidak ada riwayat mix mendengarkan saat ini</string>
     <string name="library_top_mixes_no_recent_history">Dengarkan lagu lainnya, kemudian segarkan untuk membuat mix AI dari riwayat mendengarkan anda.</string>
 </resources>

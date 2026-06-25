@@ -184,7 +184,7 @@
     <string name="quick_picks_display_mode">빠른 선택 표시 모드</string>
     <string name="quick_picks_display_mode_card">카드</string>
     <string name="quick_picks_display_mode_list">목록</string>
-    <string name="discord">Discord</string>
+
     <string name="advanced_login">고급 로그인 (토큰)</string>
     <string name="token_hidden">탭하여 토큰 보기</string>
     <string name="token_shown">다시 탭하여 복사/편집</string>
@@ -275,7 +275,7 @@
     <string name="settings_playback_subtitle">오디오 동작, 크로스페이드 및 백그라운드 재생 설정</string>
     <string name="settings_behavior_title">동작</string>
     <string name="settings_behavior_subtitle">감상 기록, 기본값 및 개인정보 동작 설정</string>
-    <string name="settings_integration_subtitle">Discord, Last.fm 및 ListenBrainz 연동 설정</string>
+    <string name="settings_integration_subtitle">Last.fm 및 ListenBrainz 연동 설정</string>
     <string name="settings_backup_restore_subtitle">앱 개인 데이터 백업 및 복구</string>
     <string name="settings_developer_options_title">개발자 옵션</string>
     <string name="settings_developer_options_subtitle">실험적인 기능 활성화 및 디버깅 툴 제공</string>
@@ -347,7 +347,7 @@
     <string name="backup_category_settings">앱 설정</string>
     <string name="backup_category_settings_desc">테마, 재생 옵션 및 기본 설정</string>
     <string name="backup_category_account">계정 정보</string>
-    <string name="backup_category_account_desc">YouTube, Spotify, Last.fm, Discord 및 프록시 자격 증명</string>
+    <string name="backup_category_account_desc">YouTube, Spotify, Last.fm 및 프록시 자격 증명</string>
     <string name="login_success">로그인에 성공했습니다.</string>
     <string name="ai_integration">AI 연동</string>
     <string name="ai_integration_desc">AI 가사 번역 및 사용자 지정을 구성합니다.</string>
@@ -417,7 +417,7 @@
     <string name="aod_accent_theme">테마 색상</string>
     <string name="lyrics_share_style_deep_blur">딥 블러</string>
     <string name="aod_shape_pentagon">오각형</string>
-    <string name="about_archive_tune_team">ArchiveTune 팀</string>
+    <string name="about_archive_tune_team">Hush 팀</string>
     <string name="storage_migration_cache_progress">캐시 이동 중… %1$d%%</string>
     <string name="aod_customize_horizontal_padding">가로 여백</string>
     <string name="local_songs_scan_included_folders_empty">모든 폴더가 포함됩니다.</string>
@@ -458,7 +458,6 @@
     <string name="aod_shape_heart">하트</string>
     <string name="year_in_music_plays_label">총 재생 횟수</string>
     <string name="aod_position_top">상단</string>
-    <string name="about_content_desc_telegram">Telegram</string>
     <string name="android_auto_suggested_songs">추천 곡 목록</string>
     <string name="music_recognition_history_no_results_title">일치하는 인식 기록이 없습니다.</string>
     <string name="year_in_music_totals_title">당신이 채워온 음악 속 일상</string>
@@ -497,7 +496,6 @@
     <string name="aod_customize_show_time_labels">시간 정보 표시</string>
     <string name="aod_customize_sample_title">Midnight Archive</string>
     <string name="aod_shape_cookie_6">쿠키 6</string>
-    <string name="about_content_desc_discord">Discord</string>
     <string name="lyrics_share_style_frosted_light">프로스테드 라이트</string>
     <string name="aod_shape_triangle">삼각형</string>
     <string name="aod_customize_entry_desc">Always On Display 재생 화면을 취향에 맞게 설정합니다.</string>
@@ -522,7 +520,7 @@
     <string name="year_in_music_empty_subtitle">%d년에 음악을 더 많이 감상하시면 연말 요약이 여기에 나타납니다.</string>
     <string name="storage_location_free">%s 여유 공간 있음</string>
     <string name="aod_customize_show_artist">아티스트 표시</string>
-    <string name="storage_folder_not_writable">ArchiveTune이 이 폴더에 캐시 파일을 저장할 수 없습니다. 쓰기 권한을 확인해 주세요.</string>
+    <string name="storage_folder_not_writable">Hush이 이 폴더에 캐시 파일을 저장할 수 없습니다. 쓰기 권한을 확인해 주세요.</string>
     <string name="storage_folder_unsupported">이 폴더는 파일 기반 음악 캐시에 사용할 수 없습니다.</string>
     <string name="aod_customize_sample_elapsed">1:24</string>
     <string name="mini_player_background_style">미니 플레이어 배경 스타일</string>

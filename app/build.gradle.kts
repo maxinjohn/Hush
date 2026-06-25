@@ -16,14 +16,6 @@ if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
 
-val discordApplicationId =
-    (
-        localProperties.getProperty("DISCORD_APPLICATION_ID")
-            ?: System.getenv("DISCORD_APPLICATION_ID")
-            ?: "1165706613961789445"
-        ).trim()
-val discordApplicationIdLong = discordApplicationId.toLongOrNull() ?: 1165706613961789445L
-val discordRedirectScheme = "discord-$discordApplicationId"
 val releaseKeystoreFile = file("keystore/release.keystore")
 val releaseStorePassword =
     System.getenv("STORE_PASSWORD")?.takeIf { it.isNotBlank() }
@@ -36,12 +28,15 @@ val hasReleaseSigningConfig =
         releaseKeyAlias != null &&
         releaseKeyPassword != null
 
+val hushGithubOwner = "maxinjohn"
+val hushGithubRepo = "Hush"
+
 android {
     namespace = "moe.rukamori.archivetune"
     compileSdk = 37
 
     defaultConfig {
-    applicationId = "moe.rukamori.archivetune"
+    applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
         versionCode = 137
@@ -82,6 +77,8 @@ android {
         buildConfigField("String", "NIGHTLY_BUILD_HASH", "\"$nightlyBuildHash\"")
         buildConfigField("String", "DISTRIBUTION", "\"gms\"")
         buildConfigField("boolean", "UPDATER_AVAILABLE", "true")
+        buildConfigField("String", "HUSH_GITHUB_OWNER", "\"$hushGithubOwner\"")
+        buildConfigField("String", "HUSH_GITHUB_REPO", "\"$hushGithubRepo\"")
     }
 
     flavorDimensions += listOf("distribution", "device", "abi")
@@ -91,19 +88,11 @@ android {
             isDefault = true
             buildConfigField("String", "DISTRIBUTION", "\"gms\"")
             buildConfigField("boolean", "UPDATER_AVAILABLE", "true")
-            buildConfigField("String", "DISCORD_APPLICATION_ID", "\"$discordApplicationId\"")
-            buildConfigField("long", "DISCORD_APPLICATION_ID_LONG", "${discordApplicationIdLong}L")
-            buildConfigField("String", "DISCORD_REDIRECT_SCHEME", "\"$discordRedirectScheme\"")
-            manifestPlaceholders["discordRedirectScheme"] = discordRedirectScheme
         }
         create("foss") {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION", "\"foss\"")
             buildConfigField("boolean", "UPDATER_AVAILABLE", "true")
-            buildConfigField("String", "DISCORD_APPLICATION_ID", "\"$discordApplicationId\"")
-            buildConfigField("long", "DISCORD_APPLICATION_ID_LONG", "${discordApplicationIdLong}L")
-            buildConfigField("String", "DISCORD_REDIRECT_SCHEME", "\"$discordRedirectScheme\"")
-            manifestPlaceholders["discordRedirectScheme"] = discordRedirectScheme
         }
         create("mobile") {
             dimension = "device"
@@ -215,6 +204,19 @@ android {
         }
     }
 
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val flavorSegment =
+                variant.productFlavors.joinToString("-") { it.second }.let { segment ->
+                    if (segment.isEmpty()) "" else "$segment-"
+                }
+            val buildType = variant.buildType ?: "debug"
+            output.outputFileName.set("hush-$flavorSegment$buildType.apk")
+        }
+    }
 }
 
 kotlin {

@@ -1,0 +1,21 @@
+# Copy to local.properties and fill in optional API keys.
+# local.properties is gitignored.
+
+# Optional: Last.fm / Libre.fm scrobbling
+# LASTFM_API_KEY=
+# LASTFM_SECRET=
+
+# Optional: ArchiveTune Canvas bearer token (canvas animated artwork)
+# CANVAS_BEARER_TOKEN=
+
+# Optional: Music Together bearer token
+# TOGETHER_BEARER_TOKEN=
+
+# Optional: nightly build metadata
+# NIGHTLY_BUILD_HASH=
+
+# Release signing (use environment variables in CI instead when possible)
+# STORE_PASSWORD=
+# KEYSTORE_PASSWORD=
+# KEY_ALIAS=
+# KEY_PASSWORD=

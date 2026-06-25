@@ -7,6 +7,7 @@
 
 package moe.rukamori.archivetune.ai
 
+import moe.rukamori.archivetune.HushLinks
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.get
@@ -35,8 +36,8 @@ object AiTextService {
     private const val ClaudeModelsEndpoint = "https://api.anthropic.com/v1/models"
     private const val OpenRouterEndpoint = "https://openrouter.ai/api/v1/chat/completions"
     private const val OpenRouterModelsEndpoint = "https://openrouter.ai/api/v1/models?output_modalities=text"
-    private const val OpenRouterReferer = "https://github.com/ArchiveTuneApp/ArchiveTune"
-    private const val OpenRouterTitle = "ArchiveTune"
+    private const val OpenRouterReferer = HushLinks.GITHUB_REPO_URL
+    private const val OpenRouterTitle = "Hush"
 
     private val client =
         HttpClient(OkHttp) {
