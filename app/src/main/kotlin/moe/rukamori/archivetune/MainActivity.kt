@@ -39,6 +39,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -85,20 +86,15 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.RichTooltip
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.contentColorFor
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -118,6 +114,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -295,7 +292,6 @@ import moe.rukamori.archivetune.viewmodels.BackupCategory
 import moe.rukamori.archivetune.viewmodels.BackupRestoreViewModel
 import moe.rukamori.archivetune.viewmodels.HomeViewModel
 import moe.rukamori.archivetune.viewmodels.NetworkBannerViewModel
-import moe.rukamori.archivetune.viewmodels.NewsViewModel
 import moe.rukamori.archivetune.viewmodels.OnlineSearchSort
 import moe.rukamori.archivetune.viewmodels.OnlineSearchViewModel
 import java.util.Locale
@@ -840,11 +836,9 @@ class MainActivity : ComponentActivity() {
                     val coroutineScope = rememberCoroutineScope()
                     val homeViewModel: HomeViewModel = hiltViewModel()
                     val networkBannerViewModel: NetworkBannerViewModel = hiltViewModel()
-                    val newsViewModel: NewsViewModel = hiltViewModel()
                     val allLocalItems by homeViewModel.allLocalItems.collectAsState()
                     val allYtItems by homeViewModel.allYtItems.collectAsState()
                     val networkBannerState by networkBannerViewModel.bannerState.collectAsStateWithLifecycle()
-                    val hasUnreadNews by newsViewModel.hasUnreadNews.collectAsStateWithLifecycle()
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
                     val (previousTab) = rememberSaveable { mutableStateOf("home") }
                     val currentRoute = navBackStackEntry?.destination?.route
@@ -1610,14 +1604,14 @@ class MainActivity : ComponentActivity() {
                                                     ),
                                                 title = {
                                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        // app icon
-                                                        Icon(
-                                                            painter = painterResource(R.drawable.about_appbar),
+                                                        Image(
+                                                            painter = painterResource(R.drawable.hush_logo_mark),
                                                             contentDescription = null,
+                                                            contentScale = ContentScale.Fit,
                                                             modifier =
                                                                 Modifier
-                                                                    .size(35.dp)
-                                                                    .padding(end = 3.dp),
+                                                                    .size(36.dp)
+                                                                    .padding(end = 4.dp),
                                                         )
                                                         Text(
                                                             text = stringResource(R.string.app_name),
@@ -1635,43 +1629,6 @@ class MainActivity : ComponentActivity() {
                                                             painter = painterResource(R.drawable.history),
                                                             contentDescription = stringResource(R.string.history),
                                                         )
-                                                    }
-                                                    TooltipBox(
-                                                        positionProvider =
-                                                            if (hasUnreadNews) {
-                                                                TooltipDefaults.rememberRichTooltipPositionProvider()
-                                                            } else {
-                                                                TooltipDefaults.rememberPlainTooltipPositionProvider()
-                                                            },
-                                                        tooltip = {
-                                                            if (hasUnreadNews) {
-                                                                RichTooltip(
-                                                                    title = { Text(stringResource(R.string.news_tooltip_title)) },
-                                                                ) {
-                                                                    Text(stringResource(R.string.news_tooltip_body))
-                                                                }
-                                                            } else {
-                                                                PlainTooltip {
-                                                                    Text(stringResource(R.string.news))
-                                                                }
-                                                            }
-                                                        },
-                                                        state = rememberTooltipState(),
-                                                    ) {
-                                                        TranslucentTopAppBarIconButton(
-                                                            onClick = { navController.navigate("news") },
-                                                        ) {
-                                                            BadgedBox(badge = {
-                                                                if (hasUnreadNews) {
-                                                                    Badge()
-                                                                }
-                                                            }) {
-                                                                Icon(
-                                                                    painter = painterResource(R.drawable.newspaper),
-                                                                    contentDescription = stringResource(R.string.news),
-                                                                )
-                                                            }
-                                                        }
                                                     }
                                                     TranslucentTopAppBarIconButton(
                                                         onClick = { navController.navigate("new_release") },

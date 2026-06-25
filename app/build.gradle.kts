@@ -17,11 +17,16 @@ if (localPropertiesFile.exists()) {
 }
 
 val releaseKeystoreFile = file("keystore/release.keystore")
-val releaseStorePassword =
-    System.getenv("STORE_PASSWORD")?.takeIf { it.isNotBlank() }
-        ?: System.getenv("KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
-val releaseKeyAlias = System.getenv("KEY_ALIAS")?.takeIf { it.isNotBlank() }
-val releaseKeyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+
+fun signingProperty(vararg names: String): String? =
+    names.firstNotNullOfOrNull { name ->
+        System.getenv(name)?.takeIf { it.isNotBlank() }
+            ?: localProperties.getProperty(name)?.takeIf { it.isNotBlank() }
+    }
+
+val releaseStorePassword = signingProperty("STORE_PASSWORD", "KEYSTORE_PASSWORD")
+val releaseKeyAlias = signingProperty("KEY_ALIAS")
+val releaseKeyPassword = signingProperty("KEY_PASSWORD")
 val hasReleaseSigningConfig =
     releaseKeystoreFile.isFile &&
         releaseStorePassword != null &&
@@ -354,6 +359,30 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
         )
         // Suppress warnings
         suppressWarnings.set(true)
+    }
+}
+
+gradle.taskGraph.whenReady {
+    val assemblesRelease =
+        allTasks.any { task ->
+            task.name.startsWith("assemble") &&
+                task.name.endsWith("Release") &&
+                !task.name.contains("Test")
+        }
+    if (assemblesRelease && !hasReleaseSigningConfig) {
+        error(
+            """
+            Release APK signing is not configured.
+
+            Add app/keystore/release.keystore and set these in local.properties or env:
+              STORE_PASSWORD (or KEYSTORE_PASSWORD)
+              KEY_ALIAS
+              KEY_PASSWORD
+
+            Unsigned release APKs cannot be installed on Android ("package appears to be invalid").
+            For quick sideloading, use: ./gradlew :app:assembleFossMobileArm64Debug
+            """.trimIndent(),
+        )
     }
 }
 

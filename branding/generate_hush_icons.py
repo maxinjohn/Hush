@@ -13,6 +13,12 @@ OUT_BRAND = ROOT / "branding" / "hush_correct_logo_assets"
 APP_RES = ROOT / "app" / "src" / "main" / "res"
 
 BG_COLOR = (18, 14, 28, 255)
+# Adaptive-icon safe zone is the center 66dp circle inside a 108dp canvas (~61%).
+FOREGROUND_SCALE = 0.56
+LAUNCHER_ICON_SCALE = 0.56
+LOGO_MARK_SCALE = 0.72
+IN_APP_ICON_SCALE = 0.58
+ICON_MARK_PAD = 10
 
 
 def trim_alpha(im: Image.Image, pad: int = 8) -> Image.Image:
@@ -28,15 +34,22 @@ def trim_alpha(im: Image.Image, pad: int = 8) -> Image.Image:
 
 
 def extract_icon_mark(sheet: Image.Image) -> Image.Image:
-    icon = sheet.crop((34, 776, 138, 904)).convert("RGBA")
-    icon = trim_alpha(icon, 6)
+    icon = sheet.crop((28, 752, 145, 920)).convert("RGBA")
+    icon = trim_alpha(icon, 8)
     pixels = icon.load()
     for y in range(icon.height):
         for x in range(icon.width):
             red, green, blue, alpha = pixels[x, y]
             if red < 28 and green < 28 and blue < 40:
                 pixels[x, y] = (red, green, blue, 0)
-    return trim_alpha(icon, 4)
+    icon = trim_alpha(icon, 6)
+    padded = Image.new(
+        "RGBA",
+        (icon.width + ICON_MARK_PAD * 2, icon.height + ICON_MARK_PAD * 2),
+        (0, 0, 0, 0),
+    )
+    padded.paste(icon, (ICON_MARK_PAD, ICON_MARK_PAD))
+    return padded
 
 
 def rounded_mask(size: int, radius_ratio: float = 0.22) -> Image.Image:
@@ -59,7 +72,7 @@ def paste_centered(canvas: Image.Image, icon: Image.Image, scale: float) -> None
 
 def compose_launcher(size: int, icon: Image.Image) -> Image.Image:
     canvas = Image.new("RGBA", (size, size), BG_COLOR)
-    paste_centered(canvas, icon, 0.64)
+    paste_centered(canvas, icon, LAUNCHER_ICON_SCALE)
     mask = rounded_mask(size)
     output = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     output.paste(canvas, (0, 0), mask)
@@ -68,7 +81,7 @@ def compose_launcher(size: int, icon: Image.Image) -> Image.Image:
 
 def compose_foreground(size: int, icon: Image.Image) -> Image.Image:
     canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    paste_centered(canvas, icon, 0.52)
+    paste_centered(canvas, icon, FOREGROUND_SCALE)
     return canvas
 
 
@@ -85,16 +98,22 @@ def make_transparent_background(im: Image.Image, pad: int = 10) -> Image.Image:
 
 def export_logo_mark(icon: Image.Image, size: int) -> Image.Image:
     canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    paste_centered(canvas, icon, 0.72)
+    paste_centered(canvas, icon, LOGO_MARK_SCALE)
     return canvas
 
 
-def compose_background(size: int) -> Image.Image:
+def compose_in_app_icon(size: int, icon: Image.Image) -> Image.Image:
     canvas = Image.new("RGBA", (size, size), BG_COLOR)
+    paste_centered(canvas, icon, IN_APP_ICON_SCALE)
     mask = rounded_mask(size)
     output = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     output.paste(canvas, (0, 0), mask)
     return output
+
+
+def compose_background(size: int) -> Image.Image:
+    # Adaptive-icon backgrounds must be full-bleed; the launcher applies the mask.
+    return Image.new("RGBA", (size, size), BG_COLOR)
 
 
 def main() -> None:
@@ -136,7 +155,7 @@ def main() -> None:
         launcher.save(out_dir / "ic_launcher.png")
         launcher.save(out_dir / "ic_launcher_round.png")
 
-    compose_launcher(256, icon).save(APP_RES / "drawable-nodpi" / "hush_app_icon.png")
+    compose_in_app_icon(256, icon).save(APP_RES / "drawable-nodpi" / "hush_app_icon.png")
     logo_mark.save(APP_RES / "drawable-nodpi" / "hush_logo_mark.png")
     wordmark.save(APP_RES / "drawable-nodpi" / "hush_wordmark_tagline.png")
 

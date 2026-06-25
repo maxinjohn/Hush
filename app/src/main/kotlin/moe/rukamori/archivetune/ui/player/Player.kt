@@ -1283,45 +1283,118 @@ fun BottomSheetPlayer(
                             label = "v7BackdropLandscape",
                         )
 
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
+                        Row(
                             modifier =
                                 Modifier
-                                    .align(Alignment.BottomCenter)
+                                    .fillMaxSize()
                                     .padding(bottom = queueSheetState.collapsedBound)
                                     .windowInsetsPadding(
-                                        WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
+                                        WindowInsets.systemBars.only(
+                                            WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
+                                        ),
                                     ).nestedScroll(state.preUpPostDownNestedScrollConnection),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            enrichedMetadata?.let { metadata ->
-                                V8PlayerControlsContent(
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.weight(0.42f),
+                            ) {
+                                val screenHeight = LocalConfiguration.current.screenHeightDp
+                                val thumbnailSize = (screenHeight * 0.72f).dp.coerceAtMost(320.dp)
+                                Thumbnail(
+                                    sliderPositionProvider = { sliderPosition },
+                                    modifier = Modifier.size(thumbnailSize),
+                                    isPlayerExpanded = state.isExpanded,
+                                )
+                            }
+
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier =
+                                    Modifier
+                                        .weight(0.58f)
+                                        .fillMaxHeight()
+                                        .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
+                            ) {
+                                enrichedMetadata?.let { metadata ->
+                                    V8PlayerControlsContent(
+                                        mediaMetadata = metadata,
+                                        queueTitle = "",
+                                        playbackState = playbackState,
+                                        isPlaying = isPlaying,
+                                        isLoading = isLoading,
+                                        canSkipPrevious = canSkipPrevious,
+                                        canSkipNext = canSkipNext,
+                                        currentSongLiked = currentSongLiked,
+                                        sliderPosition = sliderPosition,
+                                        position = position,
+                                        duration = duration,
+                                        volume = deviceMusicVolumeController.volumeFraction,
+                                        currentFormat = currentFormat,
+                                        playerConnection = playerConnection,
+                                        navController = navController,
+                                        state = state,
+                                        menuState = menuState,
+                                        bottomSheetPageState = bottomSheetPageState,
+                                        onSliderValueChange = onSliderValueChange,
+                                        onSliderValueChangeFinished = onSliderValueChangeFinished,
+                                        onVolumeChange = onPlayerVolumeChange,
+                                        landscape = true,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else if (playerDesignStyle == PlayerDesignStyle.V6) {
+                    enrichedMetadata?.let { metadata ->
+                        V6LandscapePlayerContent(
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .padding(bottom = queueSheetState.collapsedBound + 48.dp)
+                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                            artworkContent = {
+                                val screenHeight = LocalConfiguration.current.screenHeightDp
+                                val thumbnailSize = (screenHeight * 0.78f).dp.coerceAtMost(320.dp)
+                                Thumbnail(
+                                    sliderPositionProvider = { sliderPosition },
+                                    modifier = Modifier.size(thumbnailSize),
+                                    isPlayerExpanded = state.isExpanded,
+                                )
+                            },
+                            controlsContent = {
+                                PlayerControlsContent(
                                     mediaMetadata = metadata,
-                                    queueTitle = "",
+                                    playerDesignStyle = playerDesignStyle,
+                                    sliderStyle = sliderStyle,
                                     playbackState = playbackState,
                                     isPlaying = isPlaying,
                                     isLoading = isLoading,
+                                    repeatMode = repeatMode,
                                     canSkipPrevious = canSkipPrevious,
                                     canSkipNext = canSkipNext,
-                                    currentSongLiked = currentSongLiked,
+                                    textButtonColor = textButtonColor,
+                                    iconButtonColor = iconButtonColor,
+                                    textBackgroundColor = TextBackgroundColor,
+                                    icBackgroundColor = icBackgroundColor,
                                     sliderPosition = sliderPosition,
                                     position = position,
                                     duration = duration,
-                                    volume = deviceMusicVolumeController.volumeFraction,
-                                    currentFormat = currentFormat,
                                     playerConnection = playerConnection,
                                     navController = navController,
                                     state = state,
                                     menuState = menuState,
                                     bottomSheetPageState = bottomSheetPageState,
+                                    context = context,
                                     onSliderValueChange = onSliderValueChange,
                                     onSliderValueChangeFinished = onSliderValueChangeFinished,
-                                    onVolumeChange = onPlayerVolumeChange,
                                     landscape = true,
+                                    landscapeCompact = true,
                                 )
-                            }
-
-                            Spacer(Modifier.height(16.dp))
-                        }
+                            },
+                        )
                     }
                 } else if (playerDesignStyle == PlayerDesignStyle.V8) {
                     Box(
@@ -1428,18 +1501,16 @@ fun BottomSheetPlayer(
                         }
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
                             modifier =
                                 Modifier
                                     .weight(1f)
+                                    .fillMaxHeight()
                                     .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
                         ) {
-                            Spacer(Modifier.weight(1f))
-
                             enrichedMetadata?.let {
                                 controlsContent(it)
                             }
-
-                            Spacer(Modifier.weight(1f))
                         }
                     }
                 }
