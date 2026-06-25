@@ -1,9 +1,7 @@
 name: Build Pull Request
 
 on:
-  pull_request:
-    branches:
-      - "**"
+  workflow_dispatch:
 
 jobs:
   build:
@@ -55,6 +53,7 @@ jobs:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
           CANVAS_BEARER_TOKEN: ${{ secrets.CANVAS_BEARER_TOKEN }}
+          EXTRACTOR_BEARER: ${{ secrets.EXTRACTOR_BEARER }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
