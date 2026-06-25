@@ -2,14 +2,6 @@ name: Comment when commit references issue
 
 on:
   workflow_call:
-  workflow_run:
-    workflows:
-      - Build APKs
-    types:
-      - completed
-    branches:
-      - main
-      - dev
 
 jobs:
   notify-issue:

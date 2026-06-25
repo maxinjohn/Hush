@@ -1,10 +1,5 @@
 name: Bump to new version
 on:
-  push:
-    branches:
-      - 'main'
-    paths:
-      - 'app/build.gradle.kts'
   workflow_dispatch:
 
 jobs:
@@ -83,6 +78,7 @@ jobs:
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
           TOGETHER_BEARER_TOKEN: ${{ secrets.TOGETHER_BEARER_TOKEN }}
           CANVAS_BEARER_TOKEN: ${{ secrets.CANVAS_BEARER_TOKEN }}
+          EXTRACTOR_BEARER: ${{ secrets.EXTRACTOR_BEARER }}
         run: |
           set -euo pipefail
           DEVICE="mobile"
@@ -320,6 +316,7 @@ jobs:
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
           TOGETHER_BEARER_TOKEN: ${{ secrets.TOGETHER_BEARER_TOKEN }}
           CANVAS_BEARER_TOKEN: ${{ secrets.CANVAS_BEARER_TOKEN }}
+          EXTRACTOR_BEARER: ${{ secrets.EXTRACTOR_BEARER }}
 
       - name: Resolve release output directory
         id: release_dir
