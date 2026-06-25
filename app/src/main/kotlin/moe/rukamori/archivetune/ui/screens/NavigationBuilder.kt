@@ -85,7 +85,6 @@ import moe.rukamori.archivetune.ui.screens.settings.ContentSettings
 import moe.rukamori.archivetune.ui.screens.settings.CustomizeBackground
 import moe.rukamori.archivetune.ui.screens.settings.DarkMode
 import moe.rukamori.archivetune.ui.screens.settings.DebugSettings
-import moe.rukamori.archivetune.ui.screens.settings.DiscordSettings
 import moe.rukamori.archivetune.ui.screens.settings.HiddenPlaylistsScreen
 import moe.rukamori.archivetune.ui.screens.settings.IntegrationScreen
 import moe.rukamori.archivetune.ui.screens.settings.InternetSettings
@@ -431,9 +430,6 @@ fun NavGraphBuilder.navigationBuilder(
     composable("settings/backup_restore") {
         BackupAndRestore(navController, scrollBehavior)
     }
-    composable("settings/discord") {
-        DiscordSettings(navController, scrollBehavior)
-    }
     composable("settings/integration") {
         IntegrationScreen(navController, scrollBehavior)
     }
@@ -445,10 +441,6 @@ fun NavGraphBuilder.navigationBuilder(
     }
     composable("settings/lastfm") {
         LastFMSettings(navController, scrollBehavior)
-    }
-    composable("settings/discord/experimental") {
-        moe.rukamori.archivetune.ui.screens.settings
-            .DiscordExperimental(navController)
     }
     composable("settings/misc") {
         DebugSettings(navController)

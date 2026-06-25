@@ -91,7 +91,7 @@
     <string name="update_notification_channel_desc">新应用更新通知</string>
     <string name="update_notification_title">更新可用</string>
     <string name="download">下载</string>
-    <string name="permissions_title">让ArchiveTune发挥最佳作用</string>
+    <string name="permissions_title">让Hush发挥最佳作用</string>
     <string name="permissions_subtitle">我们使用一些权限来可靠地播放和管理您的音乐，你可以随时在系统设置中更改这些</string>
     <string name="permission_storage_title">存储访问</string>
     <string name="permission_storage_desc">播放时必须读取下载的和本地音频文件</string>
@@ -189,7 +189,7 @@
     <string name="palette_forest">森林绿</string>
     <string name="palette_autumn">深秋红</string>
     <string name="palette_winter">凝霜白</string>
-    <string name="enable_translator_desc">发送至 Discord 前翻译选定字段</string>
+
     <string name="context_info">语境（逗号分隔）</string>
     <string name="target_language">目标语言</string>
     <string name="close_dialog">最近</string>
@@ -201,27 +201,15 @@
     <string name="lyrics">歌词</string>
     <string name="translation_success">翻译已保存</string>
     <string name="translation_failed">翻译失败</string>
-    <string name="discord_button_options">按键选项</string>
-    <string name="discord_image_options">图片选项</string>
+
     <string name="refresh">刷新</string>
-    <string name="description_refresh">手动更新 Discord 播放信息</string>
-    <string name="discord_show_when_paused">暂停时显示RPC</string>
-    <string name="discord_show_when_paused_desc">若启用，暂停时将显示暂停图标并保留状态；若禁用，暂停时将自动移除 Discord 状态</string>
-    <string name="discord_paused">暂停</string>
+
     <string name="dark_theme_off">关</string>
     <string name="show_button">显示按钮</string>
     <string name="clear_song_cache">清除歌曲缓存</string>
     <string name="set_listenbrainz_token">设置 ListenBrainz 令牌</string>
     <string name="edit_listenbrainz_token">编辑 ListenBrainz 令牌</string>
-    <string name="discord_activity_name">活动名称</string>
-    <string name="discord_activity_details">活动详情</string>
-    <string name="discord_activity_state">详情状态</string>
-    <string name="discord_activity_button_1_url">按钮1 网址来源</string>
-    <string name="discord_activity_button_2_url">按钮2 网址来源</string>
-    <string name="discord_activity_button1_label">按钮1标签</string>
-    <string name="discord_activity_button1_url">按钮1 自定义网址</string>
-    <string name="discord_activity_button2_label">按钮2标签</string>
-    <string name="discord_activity_button2_url">按钮2 自定义网址</string>
+
     <string name="large_image_custom_url">大尺寸图片自定义URL</string>
     <string name="large_image">大尺寸图片</string>
     <string name="large_text">大尺寸文字</string>
@@ -229,13 +217,11 @@
     <string name="small_image">小尺寸图片</string>
     <string name="small_image_custom_url">小尺寸图片自定义网址</string>
     <string name="activity_status">活动状态</string>
-    <string name="enable_translator">启用翻译器</string>
-    <string name="logout_confirm_message">你确定要退出Discord吗？</string>
+
     <string name="logout_confirm_yes">登出</string>
     <string name="logout_confirm_no">取消</string>
     <string name="experiment_settings">实验性环境</string>
-    <string name="show_discord_debug_ui">显示调试界面</string>
-    <string name="enable_discord_debug_lines">启用调试设置行</string>
+
     <string name="presence_manager_running">在线状态管理器：运行中</string>
     <string name="presence_manager_stopped">在线状态管理器：已停止</string>
     <string name="filter_levels">过滤等级</string>
@@ -283,7 +269,7 @@
     <string name="latest_version_format">最新消息：%s</string>
     <string name="enable_update_notification">启用更新通知</string>
     <string name="recent_commits">近期提交</string>
-    <string name="update_notification_text">ArchiveTune%s现已发布</string>
+    <string name="update_notification_text">Hush%s现已发布</string>
     <string name="permission_status_allowed">允许</string>
     <string name="next">下一个</string>
     <string name="delete_playlist_confirm">你真的想删除播放列表”%s\"吗?</string>
@@ -356,7 +342,7 @@
     <string name="backup_create_failed">无法创建备份</string>
     <string name="restore_success">备份成功恢复</string>
     <string name="restore_failed">备份恢复失败</string>
-    <string name="discord_integration">Discord 集成</string>
+
     <string name="options">选项</string>
     <string name="preview">预览</string>
     <string name="scrobbling">Last.fm</string>
@@ -371,7 +357,7 @@
     <string name="listenbrainz_scrobbling_description">启用提交正在播放和已完成的聆听记录到 ListenBrainz</string>
     <string name="translator_options">翻译器选项</string>
     <string name="logout_confirm_title">确认登出</string>
-    <string name="filter_discord_only">Discord</string>
+
     <string name="real_time_playback_stats">实时回放统计</string>
     <string name="playback_state_idle">空闲</string>
     <string name="dark_theme">黑暗主题</string>
@@ -387,11 +373,9 @@
     <string name="blur">模糊</string>
     <string name="contrast">对比</string>
     <string name="brightness">亮度</string>
-    <string name="archivetune_canvas">ArchiveTune画布</string>
+    <string name="archivetune_canvas">Hush画布</string>
     <string name="archivetune_canvas_desc">播放时动画化专辑封面（由BetterLyrics提供）</string>
-    <string name="show_button1_description">在Discord Rich Presence中切换按钮1的可见性</string>
-    <string name="show_button2_description">在Discord Rich Presence中切换按钮2的可见性</string>
-    <string name="discord_activity_type">活动类型</string>
+
     <string name="dark_theme_follow_system">跟随系统</string>
     <string name="pure_black">纯黑色</string>
     <string name="disable_blur">禁用模糊效果</string>
@@ -415,7 +399,7 @@
     <string name="clear">清除</string>
     <string name="song_cache">歌曲缓存</string>
     <string name="dismiss">忽略</string>
-    <string name="enable_discord_rpc">启用 Rich Presence</string>
+
     <string name="enable_scrobbling">启用 Scrobbling</string>
     <string name="lastfm_now_playing">更新「正在播放」状态</string>
     <string name="platform_status">平台</string>
@@ -527,7 +511,7 @@
     <string name="no_releases">未发现任何发布</string>
     <string name="you_might_like">猜你喜欢</string>
     <string name="refresh_suggestions">刷新建议</string>
-    <string name="music_together">ArchiveTune 音乐共赏</string>
+    <string name="music_together">Hush 音乐共赏</string>
     <string name="together_display_name">昵称</string>
     <string name="together_display_name_placeholder">你的名字</string>
     <string name="together_port">会话端口</string>
@@ -573,10 +557,10 @@
     <string name="together_error_state">错误</string>
     <string name="got_it">我知道了</string>
     <string name="together_dont_show_again">不再显示</string>
-    <string name="together_welcome_title">欢迎来到 ArchiveTune 一起听</string>
+    <string name="together_welcome_title">欢迎来到 Hush 一起听</string>
     <string name="together_welcome_body">通过一起听，多台设备可以一起同步听歌。由一人发起房间并分享链接，其他人连接同一个 Wi‑Fi 即可加入，实时同步播放列表和进度</string>
     <string name="together_welcome_host_title">创建房间</string>
-    <string name="together_welcome_host_body">点击“开启会话”，随后分享会话链接。主持期间，请保持 ArchiveTune 在后台运行</string>
+    <string name="together_welcome_host_body">点击“开启会话”，随后分享会话链接。主持期间，请保持 Hush 在后台运行</string>
     <string name="together_welcome_join_title">从另一台设备加入</string>
     <string name="together_welcome_join_body">打开分享链接，或将其粘贴至此处并点击“加入”。您的播放队列与进度将随主持人同步</string>
     <string name="together_welcome_permissions_title">权限与隐私安全</string>

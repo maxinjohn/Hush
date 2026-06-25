@@ -14,6 +14,7 @@ import io.ktor.client.request.headers
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
+import moe.rukamori.archivetune.HushLinks
 import moe.rukamori.archivetune.App
 import moe.rukamori.archivetune.BuildConfig
 import moe.rukamori.archivetune.constants.DailyNightlyReleasesEtagKey
@@ -52,9 +53,8 @@ private data class ReleasesNetworkResult(
 object Updater {
     private val client = HttpClient()
     private const val ReleaseCacheCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
-    private const val StableReleaseBaseUrl = "https://github.com/ArchiveTuneApp/ArchiveTune/releases"
-    private const val DailyNightlyReleaseBaseUrl =
-        "https://github.com/ArchiveTuneApp/daily-nightly/releases"
+    private val stableReleaseBaseUrl = HushLinks.GITHUB_RELEASES_URL
+    private val stableReleaseApiUrl = HushLinks.GITHUB_API_RELEASES_URL
     var lastCheckTime = -1L
         private set
     private var latestReleaseTag: String? = null
@@ -79,19 +79,8 @@ object Updater {
                 else -> ""
             }
 
-    private val workflowArtifactPrefix: String
-        get() =
-            when (BuildConfig.DISTRIBUTION) {
-                "gms" -> "gms-"
-                "foss" -> "foss-"
-                else -> ""
-            }
-
     private fun stableReleaseArtifactName(): String =
-        "app-$releaseArtifactPrefix${BuildConfig.DEVICE}-${BuildConfig.ARCHITECTURE}-release.apk"
-
-    private fun dailyNightlyReleaseArtifactName(): String =
-        "app-$releaseArtifactPrefix${BuildConfig.DEVICE}-${BuildConfig.ARCHITECTURE}-nightly.apk"
+        "${HushLinks.APK_ARTIFACT_BASE_NAME}-$releaseArtifactPrefix${BuildConfig.DEVICE}-${BuildConfig.ARCHITECTURE}-release.apk"
 
     private data class SemVer(
         val major: Int,
@@ -272,10 +261,10 @@ object Updater {
         cachedEtag: String?,
     ): ReleasesNetworkResult {
         val response: HttpResponse =
-            client.get("https://api.github.com/repos/ArchiveTuneApp/ArchiveTune/releases?per_page=$perPage") {
+            client.get("$stableReleaseApiUrl?per_page=$perPage") {
                 headers {
                     append("Accept", "application/vnd.github+json")
-                    append("User-Agent", "ArchiveTune")
+                    append("User-Agent", "Hush")
                     if (!cachedEtag.isNullOrBlank()) {
                         append("If-None-Match", cachedEtag)
                     }
@@ -346,7 +335,7 @@ object Updater {
 
             val response =
                 client
-                    .get("https://api.github.com/repos/ArchiveTuneApp/ArchiveTune/commits?sha=$branch&per_page=$count")
+                    .get("https://api.github.com/repos/${HushLinks.GITHUB_OWNER}/${HushLinks.GITHUB_REPO}/commits?sha=$branch&per_page=$count")
                     .bodyAsText()
             val jsonArray = JSONArray(response)
             val commits = mutableListOf<GitCommit>()
@@ -375,29 +364,26 @@ object Updater {
         }
 
         if (!canDownloadUpdatesDirectly) {
-            return "$StableReleaseBaseUrl/latest"
+            return "$stableReleaseBaseUrl/latest"
         }
 
         val artifactName = stableReleaseArtifactName()
         val tag = latestReleaseTag
         if (tag != null) {
-            return "$StableReleaseBaseUrl/download/$tag/$artifactName"
+            return "$stableReleaseBaseUrl/download/$tag/$artifactName"
         }
-        return "$StableReleaseBaseUrl/latest/download/$artifactName"
+        return "$stableReleaseBaseUrl/latest/download/$artifactName"
     }
+
+    fun supportsExperimentalUpdateChannels(): Boolean = false
 
     fun getLatestNightlyDownloadUrl(): String {
         if (!isUpdaterDistribution) {
             return ""
         }
 
-        val artifactName = "app-$workflowArtifactPrefix${BuildConfig.DEVICE}-${BuildConfig.ARCHITECTURE}-release"
-        val artifactUrl = "https://nightly.link/ArchiveTuneApp/ArchiveTune/workflows/build/dev/$artifactName"
-        return if (canDownloadUpdatesDirectly) {
-            "$artifactUrl.zip"
-        } else {
-            artifactUrl
-        }
+        // Hush fork: nightly builds are not published from a separate channel.
+        return ""
     }
 
     suspend fun getLatestDailyNightlyVersionName(): Result<String> =
@@ -437,150 +423,9 @@ object Updater {
     suspend fun getAllDailyNightlyReleases(
         perPage: Int = 10,
         forceRefresh: Boolean = false,
-    ): Result<List<ReleaseInfo>> {
-        if (!isUpdaterDistribution) {
-            return Result.success(emptyList())
-        }
+    ): Result<List<ReleaseInfo>> = Result.success(emptyList())
 
-        return runCatching {
-            val now = System.currentTimeMillis()
-            val cachedJson = App.instance.dataStore.getAsync(DailyNightlyReleasesJsonKey)
-            val cachedEtag = App.instance.dataStore.getAsync(DailyNightlyReleasesEtagKey)
-            val lastCheckedAt = App.instance.dataStore.getAsync(DailyNightlyReleasesLastCheckedAtKey, 0L)
-            val cachedFingerprint = App.instance.dataStore.getAsync(DailyNightlyReleasesFingerprintKey)
-
-            val cachedReleases =
-                cachedJson
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { runCatching { parseReleasesJson(it) }.getOrNull() }
-
-            val shouldCheckNetwork =
-                forceRefresh || cachedJson.isNullOrBlank() || (now - lastCheckedAt) >= ReleaseCacheCheckIntervalMs
-
-            if (!shouldCheckNetwork) {
-                return@runCatching cachedReleases ?: emptyList()
-            }
-
-            val networkResult =
-                runCatching {
-                    fetchDailyNightlyReleasesNetwork(
-                        perPage = perPage,
-                        cachedEtag = cachedEtag,
-                    )
-                }.getOrNull()
-
-            if (networkResult == null) {
-                val fallback = cachedReleases
-                if (fallback != null) {
-                    return@runCatching fallback
-                }
-                throw IllegalStateException("Failed to fetch daily-nightly releases")
-            }
-
-            when {
-                networkResult.status == HttpStatusCode.NotModified -> {
-                    App.instance.dataStore.edit { settings ->
-                        settings[DailyNightlyReleasesLastCheckedAtKey] = now
-                        networkResult.etag?.let { settings[DailyNightlyReleasesEtagKey] = it }
-                    }
-                    val fallback = cachedReleases
-                    if (fallback != null) {
-                        return@runCatching fallback
-                    }
-                    throw IllegalStateException("Daily-nightly release cache is empty")
-                }
-
-                networkResult.status.value in 200..299 && !networkResult.body.isNullOrBlank() -> {
-                    val networkBody = networkResult.body
-                    val releases = parseReleasesJson(networkBody)
-                    val newFingerprint = getDailyNightlyTopReleaseFingerprint(releases)
-                    val hasPayloadChanged = cachedJson != networkBody
-                    val hasTopReleaseChanged = cachedFingerprint != newFingerprint
-
-                    App.instance.dataStore.edit { settings ->
-                        settings[DailyNightlyReleasesLastCheckedAtKey] = now
-                        networkResult.etag?.let { settings[DailyNightlyReleasesEtagKey] = it }
-                        if (hasPayloadChanged || hasTopReleaseChanged || cachedJson.isNullOrBlank()) {
-                            settings[DailyNightlyReleasesJsonKey] = networkBody
-                            settings[DailyNightlyReleasesFingerprintKey] = newFingerprint
-                        }
-                    }
-                    releases
-                }
-
-                else -> {
-                    val fallback = cachedReleases
-                    if (fallback != null) {
-                        fallback
-                    } else {
-                        throw IllegalStateException("Failed to fetch daily-nightly releases: HTTP ${networkResult.status.value}")
-                    }
-                }
-            }
-        }
-    }
-
-    private suspend fun fetchDailyNightlyReleasesNetwork(
-        perPage: Int,
-        cachedEtag: String?,
-    ): ReleasesNetworkResult {
-        val response: HttpResponse =
-            client.get("https://api.github.com/repos/ArchiveTuneApp/daily-nightly/releases?per_page=$perPage") {
-                headers {
-                    append("Accept", "application/vnd.github+json")
-                    append("User-Agent", "ArchiveTune")
-                    if (!cachedEtag.isNullOrBlank()) {
-                        append("If-None-Match", cachedEtag)
-                    }
-                }
-            }
-        val etag = response.headers["ETag"]
-        return when (response.status) {
-            HttpStatusCode.NotModified -> {
-                ReleasesNetworkResult(
-                    status = response.status,
-                    body = null,
-                    etag = cachedEtag ?: etag,
-                )
-            }
-
-            else -> {
-                ReleasesNetworkResult(
-                    status = response.status,
-                    body = response.bodyAsText(),
-                    etag = etag,
-                )
-            }
-        }
-    }
-
-    private fun getDailyNightlyTopReleaseFingerprint(releases: List<ReleaseInfo>): String {
-        val latest = findLatestDailyNightlyRelease(releases) ?: return ""
-        return listOf(
-            latest.tagName,
-            latest.name,
-            latest.publishedAt,
-            latest.body.orEmpty(),
-            latest.htmlUrl,
-        ).joinToString("||")
-    }
-
-    fun getLatestDailyNightlyDownloadUrl(): String {
-        if (!isUpdaterDistribution) {
-            return ""
-        }
-
-        if (!canDownloadUpdatesDirectly) {
-            return "$DailyNightlyReleaseBaseUrl/latest"
-        }
-
-        val artifactName = dailyNightlyReleaseArtifactName()
-        val tag = latestDailyNightlyReleaseTag
-        if (tag != null) {
-            return "$DailyNightlyReleaseBaseUrl/download/$tag/$artifactName"
-        }
-        return "$DailyNightlyReleaseBaseUrl/latest/download/$artifactName"
-    }
+    fun getLatestDailyNightlyDownloadUrl(): String = ""
 
     suspend fun getAllReleases(
         perPage: Int = 30,

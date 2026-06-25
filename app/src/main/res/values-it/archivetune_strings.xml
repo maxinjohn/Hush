@@ -98,7 +98,7 @@
     <string name="resume_autoscroll">Riprendi lo scorrimento automatico</string>
     <string name="lyrics_romanize_japanese">Converti in alfabeto latino i testi giapponesi</string>
     <string name="lyrics_romanize_korean">Converti in alfabeto latino i testi coreani</string>
-    <string name="discord">Discord</string>
+
     <string name="advanced_login">Accedi tramite token</string>
     <string name="token_hidden">Tocca per mostrare il token</string>
     <string name="token_shown">Tocca di nuovo per copiare o modificare</string>

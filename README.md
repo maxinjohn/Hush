@@ -2,30 +2,20 @@
 
   <img src="https://github.com/ArchiveTuneApp/ArchiveTune/blob/main/fastlane/metadata/android/en-US/images/icon.png" width="160" height="160" alt="ArchiveTune Logo" style="border-radius: 22%">
 
-  <h1>ArchiveTune</h1>
+  <h1>Hush</h1>
 
   <p align="center">
-    <a href="README.md">
-      <img src="https://img.shields.io/badge/🇺🇸%20English-6366f1?style=for-the-badge&labelColor=1e1e2e" />
-    </a>
-    <a href="README_JA.md">
-      <img src="https://img.shields.io/badge/🇯🇵%20日本語-6366f1?style=for-the-badge&labelColor=1e1e2e" />
-    </a>
-  </p>
-
-  <p align="center">
-    <strong>Redefining the YouTube Music Experience on Android.</strong>
+    <strong>A personal fork of ArchiveTune for Android.</strong>
     <br />
-    <em>It’s high-performance, privacy-focused, and packed with features for people who really care about their experience.</em>
+    <em>Installs separately as <code>app.hush.music</code>. Upstream credits and GPL license notices are preserved.</em>
   </p>
 
   <p align="center">
-    <a href="https://archivetune.koiiverse.cloud"><b>Official Website</b></a> •
+    <a href="https://github.com/maxinjohn/Hush"><b>GitHub</b></a> •
     <a href="#features"><b>Features</b></a> •
-    <a href="https://archivetune.koiiverse.cloud/privacy"><b>Privacy</b></a> •
-    <a href="#download-now"><b>Download</b></a> •
-    <a href="#screenshots"><b>Screenshots</b></a> •
-    <a href="https://github.com/ArchiveTuneApp/ArchiveTune/issues/new/choose"><b>Support</b></a>
+    <a href="PRIVACY.md"><b>Privacy</b></a> •
+    <a href="#build"><b>Build</b></a> •
+    <a href="https://github.com/ArchiveTuneApp/ArchiveTune"><b>Upstream</b></a>
   </p>
 
   <div align="center">
@@ -38,8 +28,6 @@
     <img src="https://img.shields.io/badge/Toolkit-Jetpack_Compose-4285f4?style=for-the-badge&logo=jetpack-compose&color=6366f1&labelColor=1e1e2e" alt="Jetpack Compose Toolkit" />
     <img src="https://img.shields.io/badge/Design-Material_3-000000?style=for-the-badge&logo=material-design&color=6366f1&labelColor=1e1e2e" alt="Material Design 3" />
     <a href="https://www.virustotal.com/gui/file/176bea37aff02a606d04ff0a61478fabdb0bd079f9e97319645452af420e5d84/detection/f-176bea37aff02a606d04ff0a61478fabdb0bd079f9e97319645452af420e5d84-1778840479" target="_blank"><img src="https://img.shields.io/badge/VirusTotal-SAFE-green?style=for-the-badge&logo=virustotal&logoColor=white&labelColor=1e1e2e&color=5865F2" alt="VirusTotal" /></a>
-    <a href="https://t.me/ArchiveTuneGC"><img src="https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram" /></a>
-    <a href="https://discord.gg/XF2fpb9rTq"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" /></a>
   </div>
   
   <br />
@@ -51,7 +39,21 @@
 
 <hr />
 
-**ArchiveTune** isn’t just another generic YouTube Music wrapper. It’s a fully custom-built player made from the ground up, because we think your music should stay private, look clean, and work exactly the way you expect. If you care about sound quality and want something that actually feels good to use, this is it.
+**Hush** is a personal fork of [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune). Most documentation below still describes upstream features. See [PRIVACY.md](PRIVACY.md) for this fork.
+
+## Build
+
+```bash
+./gradlew :app:assembleFossMobileArm64Debug --no-daemon --max-workers=2
+```
+
+APK output:
+
+```text
+app/build/outputs/apk/fossMobileArm64/debug/hush-foss-mobile-arm64-debug.apk
+```
+
+Copy `local.properties.example` to `local.properties` for optional API keys. Release builds require `app/keystore/release.keystore` and signing env vars (`STORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`).
 
 ---
 
@@ -91,7 +93,7 @@
           <li>Multiple account support with quick switching</li>
           <li>Ad-free playback with background listening</li>
           <li>Your playlists, liked songs, and subscriptions appear after sign-in</li>
-          <li>Support local file and local song playback
+          <li>Support local file and local song playback</li>
           <li>Fast startup and lightweight performance</li>
           <li>Built for a private, uninterrupted listening experience</li>
         </ul>
@@ -129,7 +131,6 @@
           <li>YouTube Music account integration</li>
           <li>Last.fm scrobbling</li>
           <li>ListenBrainz history sync</li>
-          <li>Discord rich presence support</li>
         </ul>
       </div>
     </td>
@@ -167,111 +168,34 @@
 
 ---
 
-## 📥 Download Now
+## 📥 Download
 
 <div align="center">
 
-<h2>Stable Release</h2>
+Installs separately as **`app.hush.music`** (debug: `app.hush.music.debug`).
 
-<table>
-  <thead>
-    <tr>
-      <th align="center">Obtainium</th>
-      <th align="center">IzzyOnDroid</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center">
-        <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/ArchiveTuneApp/ArchiveTune/">
-          <img src="https://github.com/ImranR98/Obtainium/blob/main/assets/graphics/badge_obtainium.png" height="50" alt="Get ArchiveTune on Obtainium">
-        </a>
-      </td>
-      <td align="center">
-        <a href="https://apt.izzysoft.de/fdroid/index/apk/moe.rukamori.archivetune">
-          <img src="https://raw.githubusercontent.com/ArchiveTuneApp/ArchiveTune/757d5932832e1da27ced56de98c5ad1275cf0db1/assets/IzzyOnDroidButtonBorder.svg" height="50" alt="Get ArchiveTune on IzzyOnDroid">
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <th align="center" colspan="2">GitHub</th>
-    </tr>
-    <tr>
-      <td align="center" colspan="2">
-        <a href="https://github.com/ArchiveTuneApp/ArchiveTune/releases/latest">
-          <img src="https://raw.githubusercontent.com/ArchiveTuneApp/ArchiveTune/refs/heads/main/assets/badge_github.png" height="50" alt="Get ArchiveTune on GitHub">
-        </a>
-      </td>
-    </tr>
-    <tr>
-      <th align="center">OpenAPK</th>
-      <th align="center">Unclouded</th>
-    </tr>
-    <tr>
-      <td align="center">
-        <a href="https://www.openapk.net/archivetune/moe.rukamori.archivetune/">
-          <img src="https://www.openapk.net/images/openapk-badge.png" height="75" alt="Get ArchiveTune on OpenAPK">
-        </a>
-      </td>
-      <td align="center">
-        <a href="https://unclouded.app/apps/archivetune/">
-          <img src="https://raw.githubusercontent.com/ArchiveTuneApp/ArchiveTune/refs/heads/dev/assets/badge_unclouded.png" height="50" alt="Get ArchiveTune on Unclouded">
-        </a>
-      </td>
-    </tr>
-  </tbody>
-</table>
+| Source | Link |
+| --- | --- |
+| GitHub Releases | [maxinjohn/Hush releases](https://github.com/maxinjohn/Hush/releases/latest) |
+| Obtainium | [Add Hush to Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/maxinjohn/Hush/) |
 
-<h2>Nightly Build</h2>
+Recommended APK for most phones: `hush-foss-mobile-arm64-release.apk` (or `hush-gms-mobile-arm64-release.apk` for direct in-app updates).
 
-<table>
-  <thead>
-    <tr>
-      <th align="center">GitHub Actions</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center">
-        <a href="https://nightly.link/ArchiveTuneApp/ArchiveTune/workflows/build/dev/app-mobile-universal-release">
-          <img src="https://raw.githubusercontent.com/ArchiveTuneApp/ArchiveTune/refs/heads/main/assets/badge_github.png" height="50" alt="Download the latest ArchiveTune nightly build">
-        </a>
-      </td>
-    </tr>
-  </tbody>
-</table>
 </div>
 
 > [!WARNING]  
-> **Notes:** The trusted download source is listed above; we are not responsible for any risks you may encounter from downloading from other sources.
-
-## ❓ Need Help or Have Questions?
-Join Our Telegram Channels or Discord Servers for Support and Discussion.
-
-[![Telegram](https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/ArchiveTuneGC)
-[![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/XF2fpb9rTq)
+> Only install builds from this repository unless you trust another source. Upstream ArchiveTune store listings use a different package ID.
 
 ---
 
-## 🌍 Globalization
-
-ArchiveTune belongs to everyone. Help us localize the experience for your region.
-
-[![Static Badge](https://img.shields.io/badge/translate-help?style=for-the-badge&logo=weblate&labelColor=grey)](https://translate.codeberg.org/engage/archivetune/)
-
-<div align="center">
-  <a href="https://translate.codeberg.org/engage/archivetune/">
-    <img src="https://translate.codeberg.org/widget/archivetune/horizontal-blue.svg" alt="Translation status" />
-  </a>
-</div>
-
 ### ✨ Project Contributors
-<a href="https://github.com/ArchiveTuneApp/ArchiveTune/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=ArchiveTuneApp/ArchiveTune&columns=6" />
+
+<a href="https://github.com/maxinjohn/Hush/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=maxinjohn/Hush&columns=6" />
 </a>
 
 ### 🛠️ Development & Engineering
-Interested in building the project or contributing? ArchiveTune is built on a high-performance Kotlin stack.
+Interested in building the project? Hush is built on a high-performance Kotlin stack.
 <a href="CONTRIBUTING.md"><b>Read the Build & Contribution Guide →</b></a>
 
 ---
@@ -285,7 +209,7 @@ ArchiveTune is made possible by the work of many open-source projects and commun
 - [BetterLyrics](https://better-lyrics.boidu.dev/) for word-by-word lyrics, unison and artwork provider support.
 - [Material Color Utilities](https://github.com/material-foundation/material-color-utilities)
 - [Read You](https://github.com/Ashinch/ReadYou) and [Seal](https://github.com/JunkFood02/Seal) for UI component inspiration.
-- Translators, beta testers, contributors, and community members who continue to support the project.
+- Beta testers, contributors, and community members who continue to support the project.
 
 ---
 

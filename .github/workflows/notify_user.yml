@@ -9,6 +9,7 @@ on:
       - completed
     branches:
       - main
+      - dev
 
 jobs:
   notify-issue:
@@ -30,21 +31,21 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const nightlyLinks = [
+            const releaseLinks = [
               {
-                label: "GMS",
-                url: "https://nightly.link/ArchiveTuneApp/ArchiveTune/workflows/build/dev/app-gms-mobile-universal-release"
+                label: "GitHub Releases",
+                url: "https://github.com/maxinjohn/Hush/releases/latest"
               },
               {
-                label: "FOSS",
-                url: "https://nightly.link/ArchiveTuneApp/ArchiveTune/workflows/build/dev/app-foss-mobile-universal-release"
+                label: "CI Artifacts",
+                url: "https://github.com/maxinjohn/Hush/actions/workflows/build.yml"
               }
             ];
-            const nightlyUrls = nightlyLinks.map((link) => link.url);
+            const releaseUrls = releaseLinks.map((link) => link.url);
             const labelName = process.env.ISSUE_LABEL;
             const labelColor = process.env.ISSUE_LABEL_COLOR;
             const labelDescription = process.env.ISSUE_LABEL_DESCRIPTION;
-            const commentMarker = "<!-- archivetune-notify-user:nightly-reference -->";
+            const commentMarker = "<!-- hush-notify-user:release-reference -->";
             const referencedIssuePattern = /#([1-9]\d*)\b/g;
             const issueClosedReason = "completed";
             const workflowRun = context.payload.workflow_run;
@@ -146,12 +147,12 @@ jobs:
                     (
                       comment.user?.type === "Bot" &&
                       body.includes("This issue was referenced on commit") &&
-                      nightlyUrls.some((nightlyUrl) => body.includes(nightlyUrl))
+                      releaseUrls.some((releaseUrl) => body.includes(releaseUrl))
                     );
                 });
 
                 if (hasExistingNotification) {
-                  core.info(`Issue #${issueNumber} already has a nightly reference notification comment.`);
+                  core.info(`Issue #${issueNumber} already has a release reference notification comment.`);
                   if (!issue.data.pull_request && issue.data.state !== "closed") {
                     await github.rest.issues.update({
                       owner: context.repo.owner,
@@ -173,9 +174,9 @@ jobs:
                   commentMarker,
                   `Hey @${author}, This issue was referenced on commit [\`${commitSha}\`](${commitUrl}).`,
                   "",
-                  "Make sure to try the latest nightly version:",
+                  "Make sure to try the latest build:",
                   "",
-                  ...nightlyLinks.map((link) => `${link.label}: ${link.url}`),
+                  ...releaseLinks.map((link) => `${link.label}: ${link.url}`),
                   "",
                   "This issue is being closed automatically after the referenced fix commit."
                 ].join("\n");
