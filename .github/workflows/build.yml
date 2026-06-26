@@ -225,6 +225,14 @@ jobs:
             exit 1
           fi
           mv "$SIGNED_APK" "$RELEASE_DIR/out/${{ steps.variant.outputs.apk_name }}"
+
+      - name: Verify release APK signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="${{ steps.release_dir.outputs.release_dir }}/out/${{ steps.variant.outputs.apk_name }}"
+          APKSIGNER="${ANDROID_HOME}/build-tools/${{ steps.android_signing.outputs.build_tools_version }}/apksigner"
+          "$APKSIGNER" verify --verbose "$APK"
   
       - name: Upload Signed APK
         uses: actions/upload-artifact@v7

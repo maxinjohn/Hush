@@ -26,6 +26,9 @@ val NavigationBarHeight = FloatingToolbarHeight
 val MiniPlayerHeight = 64.dp
 val MiniPlayerBottomSpacing = 8.dp // Space between MiniPlayer and NavigationBar
 val QueuePeekHeight = 64.dp
+val LandscapeQueuePeekHeight = 44.dp
+val LandscapeQueuePeekHeightV9 = 52.dp
+val LandscapePlayerBottomSpacing = 10.dp
 val AppBarHeight = 64.dp
 
 val ListItemHeight = 72.dp

@@ -10,7 +10,7 @@
 package moe.rukamori.archivetune.ui.player
 
 import android.annotation.SuppressLint
-import android.content.Context
+import android.content.res.Configuration
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -80,6 +80,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -410,6 +411,9 @@ fun Queue(
             }
         }
 
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val queueShowCodecOnPlayer = showCodecOnPlayer && !isLandscape
+
     BottomSheet(
         state = state,
         backgroundColor = Color.Unspecified,
@@ -418,7 +422,7 @@ fun Queue(
             when (playerDesignStyle) {
                 PlayerDesignStyle.V2 -> {
                     QueueCollapsedContentV2(
-                        showCodecOnPlayer = showCodecOnPlayer,
+                        showCodecOnPlayer = queueShowCodecOnPlayer,
                         currentFormat = currentFormat,
                         textBackgroundColor = TextBackgroundColor,
                         textButtonColor = textButtonColor,
@@ -459,7 +463,7 @@ fun Queue(
 
                 PlayerDesignStyle.V3 -> {
                     QueueCollapsedContentV3(
-                        showCodecOnPlayer = showCodecOnPlayer,
+                        showCodecOnPlayer = queueShowCodecOnPlayer,
                         currentFormat = currentFormat,
                         textBackgroundColor = TextBackgroundColor,
                         sleepTimerEnabled = sleepTimerEnabled,
@@ -495,7 +499,7 @@ fun Queue(
 
                 PlayerDesignStyle.V5 -> {
                     QueueCollapsedContentV3(
-                        showCodecOnPlayer = showCodecOnPlayer,
+                        showCodecOnPlayer = queueShowCodecOnPlayer,
                         currentFormat = currentFormat,
                         textBackgroundColor = TextBackgroundColor,
                         sleepTimerEnabled = sleepTimerEnabled,
@@ -531,7 +535,7 @@ fun Queue(
 
                 PlayerDesignStyle.V4 -> {
                     QueueCollapsedContentV4(
-                        showCodecOnPlayer = showCodecOnPlayer,
+                        showCodecOnPlayer = queueShowCodecOnPlayer,
                         currentFormat = currentFormat,
                         textBackgroundColor = TextBackgroundColor,
                         textButtonColor = textButtonColor,
@@ -553,7 +557,7 @@ fun Queue(
 
                 PlayerDesignStyle.V1 -> {
                     QueueCollapsedContentV1(
-                        showCodecOnPlayer = showCodecOnPlayer,
+                        showCodecOnPlayer = queueShowCodecOnPlayer,
                         currentFormat = currentFormat,
                         textBackgroundColor = TextBackgroundColor,
                         sleepTimerEnabled = sleepTimerEnabled,
@@ -572,7 +576,7 @@ fun Queue(
 
                 PlayerDesignStyle.V6 -> {
                     QueueCollapsedContentV4(
-                        showCodecOnPlayer = showCodecOnPlayer,
+                        showCodecOnPlayer = queueShowCodecOnPlayer,
                         currentFormat = currentFormat,
                         textBackgroundColor = TextBackgroundColor,
                         textButtonColor = textButtonColor,
@@ -595,7 +599,7 @@ fun Queue(
                 PlayerDesignStyle.V9 -> {
                     val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
                     QueueCollapsedContentV9(
-                        showCodecOnPlayer = showCodecOnPlayer,
+                        showCodecOnPlayer = queueShowCodecOnPlayer,
                         currentFormat = currentFormat,
                         textBackgroundColor = TextBackgroundColor,
                         sleepTimerEnabled = sleepTimerEnabled,
@@ -630,6 +634,7 @@ fun Queue(
                                 showSleepTimerDialog = true
                             }
                         },
+                        compactLandscape = isLandscape,
                     )
                 }
 
@@ -647,7 +652,7 @@ fun Queue(
                                 ?.toString() ?: "Speaker"
                         }
                     QueueCollapsedContentV7(
-                        showCodecOnPlayer = showCodecOnPlayer,
+                        showCodecOnPlayer = queueShowCodecOnPlayer,
                         currentFormat = currentFormat,
                         textBackgroundColor = TextBackgroundColor,
                         sleepTimerEnabled = sleepTimerEnabled,

@@ -1392,6 +1392,7 @@ fun QueueCollapsedContentV9(
     onRepeatModeClick: () -> Unit,
     onMenuClick: () -> Unit,
     onSleepTimerClick: () -> Unit,
+    compactLandscape: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
@@ -1412,6 +1413,12 @@ fun QueueCollapsedContentV9(
             contentColor = textBackgroundColor.copy(alpha = 0.76f),
         )
 
+    val railHeight = if (compactLandscape) 56.dp else 72.dp
+    val toggleHeight = if (compactLandscape) 44.dp else 56.dp
+    val toggleIconSize = if (compactLandscape) 22.dp else 26.dp
+    val horizontalRailPadding = if (compactLandscape) 28.dp else 52.dp
+    val bottomPadding = if (compactLandscape) 4.dp else 8.dp
+
     Column(
         modifier =
             modifier
@@ -1420,10 +1427,10 @@ fun QueueCollapsedContentV9(
                     WindowInsets.systemBars.only(
                         WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
                     ),
-                ).padding(bottom = 8.dp),
+                ).padding(bottom = bottomPadding),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (showCodecOnPlayer && currentFormat != null) {
+        if (showCodecOnPlayer && !compactLandscape && currentFormat != null) {
             val container = currentFormat.containerLabel()
             val bitrate = currentFormat.formattedBitrate()
             val fileSize = currentFormat.formattedFileSize()
@@ -1443,8 +1450,8 @@ fun QueueCollapsedContentV9(
                 color = textBackgroundColor.copy(alpha = 0.08f),
                 modifier =
                     Modifier
-                        .padding(bottom = 8.dp)
-                        .height(34.dp),
+                        .padding(bottom = if (compactLandscape) 4.dp else 8.dp)
+                        .height(if (compactLandscape) 30.dp else 34.dp),
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp),
@@ -1475,14 +1482,14 @@ fun QueueCollapsedContentV9(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 52.dp)
-                    .height(72.dp),
+                    .padding(horizontal = horizontalRailPadding)
+                    .height(railHeight),
         ) {
             Row(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .padding(8.dp),
+                        .padding(if (compactLandscape) 6.dp else 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
             ) {
@@ -1500,7 +1507,7 @@ fun QueueCollapsedContentV9(
                     modifier =
                         Modifier
                             .weight(1f)
-                            .height(56.dp),
+                            .height(toggleHeight),
                     shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
                     colors = if (shuffleModeEnabled) checkedColors else uncheckedColors,
                 ) {
@@ -1510,7 +1517,7 @@ fun QueueCollapsedContentV9(
                             stringResource(
                                 if (shuffleModeEnabled) R.string.action_shuffle_on else R.string.action_shuffle_off,
                             ),
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(toggleIconSize),
                     )
                 }
 
@@ -1528,7 +1535,7 @@ fun QueueCollapsedContentV9(
                     modifier =
                         Modifier
                             .weight(1f)
-                            .height(56.dp),
+                            .height(toggleHeight),
                     shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
                     colors = if (repeatMode != Player.REPEAT_MODE_OFF) checkedColors else uncheckedColors,
                 ) {
@@ -1548,7 +1555,7 @@ fun QueueCollapsedContentV9(
                                     else -> R.string.repeat_mode_off
                                 },
                             ),
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(toggleIconSize),
                     )
                 }
 
@@ -1573,7 +1580,7 @@ fun QueueCollapsedContentV9(
                     modifier =
                         Modifier
                             .weight(1f)
-                            .height(56.dp),
+                            .height(toggleHeight),
                 ) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
