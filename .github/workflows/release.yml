@@ -431,7 +431,7 @@ jobs:
     if: needs.check-version.outputs.version_changed == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -487,13 +487,24 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Write release notes
+        env:
+          CHANGELOG: ${{ steps.build_changelog.outputs.changelog }}
+        run: |
+          python3 -c 'import os, pathlib; pathlib.Path("release_notes.md").write_text(os.environ.get("CHANGELOG", ""))'
+
       - name: Create Release
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
+          RELEASE_VERSION: ${{ needs.check-version.outputs.new_version }}
+          RELEASE_TARGET: ${{ github.sha }}
         run: |
           set -euo pipefail
-          MOBILE_UNIVERSAL_APK=$(find downloaded_artifacts/hush-gms-mobile-universal-release -name "*.apk" | head -n 1)
-          OTHER_APKS=$(find downloaded_artifacts -path "*/hush-*-release/*.apk" ! -path "*/hush-gms-mobile-universal-release/*")
+          MOBILE_UNIVERSAL_APK="$(find downloaded_artifacts/hush-gms-mobile-universal-release -name "*.apk" | head -n 1)"
+
+          mapfile -t OTHER_APKS < <(
+            find downloaded_artifacts -path "*/hush-*-release/*.apk" ! -path "*/hush-gms-mobile-universal-release/*"
+          )
 
           if [ -z "${MOBILE_UNIVERSAL_APK:-}" ] || [ ! -f "$MOBILE_UNIVERSAL_APK" ]; then
             echo "Could not find hush-gms-mobile-universal-release APK artifact."
@@ -501,13 +512,14 @@ jobs:
             exit 1
           fi
 
-          cat > release_notes.md <<EOF
-          ${{ steps.build_changelog.outputs.changelog }}
-          EOF
+          if [ ! -s release_notes.md ]; then
+            echo "release_notes.md is missing or empty."
+            exit 1
+          fi
 
-          gh release create "v${{ needs.check-version.outputs.new_version }}" \
-            --target "${{ github.sha }}" \
-            --title "${{ needs.check-version.outputs.new_version }}" \
+          gh release create "v${RELEASE_VERSION}" \
+            --target "${RELEASE_TARGET}" \
+            --title "${RELEASE_VERSION}" \
             --notes-file release_notes.md \
             "$MOBILE_UNIVERSAL_APK" \
-            $OTHER_APKS
+            "${OTHER_APKS[@]}"
