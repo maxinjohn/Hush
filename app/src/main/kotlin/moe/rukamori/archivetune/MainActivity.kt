@@ -74,6 +74,7 @@ import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -176,6 +177,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import moe.rukamori.archivetune.aod.ACTION_AOD_MODE
 import moe.rukamori.archivetune.constants.AppBarHeight
 import moe.rukamori.archivetune.constants.AppFontPreference
@@ -809,6 +811,32 @@ class MainActivity : ComponentActivity() {
                     return@ArchiveTuneTheme
                 }
 
+                var mainShellReady by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    withTimeoutOrNull(5_000) {
+                        while (playerConnection == null) {
+                            delay(50)
+                        }
+                        playerConnection?.queueRestoreCompleted?.first { it }
+                    }
+                    mainShellReady = true
+                }
+
+                if (!mainShellReady) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    if (pureBlack) Color.Black else MaterialTheme.colorScheme.surface,
+                                ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                    return@ArchiveTuneTheme
+                }
+
                 BoxWithConstraints(
                     modifier =
                         Modifier
@@ -843,8 +871,8 @@ class MainActivity : ComponentActivity() {
                     val allYtItems by homeViewModel.allYtItems.collectAsState()
                     val networkBannerState by networkBannerViewModel.bannerState.collectAsStateWithLifecycle()
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
-                    var previousTab by rememberSaveable { mutableStateOf(Screens.Home.route) }
-                    var currentTab by rememberSaveable { mutableStateOf(Screens.Home.route) }
+                    var previousTab by rememberSaveable { mutableStateOf(Screens.ROUTE_HOME) }
+                    var currentTab by rememberSaveable { mutableStateOf(Screens.ROUTE_HOME) }
                     val currentRoute = navBackStackEntry?.destination?.route
                     val onlineSearchViewModel: OnlineSearchViewModel? =
                         if (currentRoute?.startsWith(OnlineSearchResultRoutePrefix) == true && navBackStackEntry != null) {
@@ -895,7 +923,12 @@ class MainActivity : ComponentActivity() {
 
                     val topLevelScreens =
                         remember(navigationItems) {
-                            navigationItems.map(Screens::route) + "settings"
+                            buildList {
+                                navigationItems.forEach { screen ->
+                                    add(screen.route)
+                                }
+                                add(Screens.ROUTE_SETTINGS)
+                            }
                         }
 
                     val (query, onQueryChange) =
@@ -959,7 +992,7 @@ class MainActivity : ComponentActivity() {
                         }
 
                     val shouldShowHomeShuffleButton =
-                        currentRoute == Screens.Home.route &&
+                        currentRoute == Screens.ROUTE_HOME &&
                             (allLocalItems.isNotEmpty() || allYtItems.isNotEmpty())
 
                     fun bottomNavHeight(compact: Boolean): Dp =
@@ -1167,7 +1200,7 @@ class MainActivity : ComponentActivity() {
                         appBarScrollBehavior(
                             canScroll = {
                                 navBackStackEntry?.destination?.route?.startsWith(OnlineSearchResultRoutePrefix) == false &&
-                                    navBackStackEntry?.destination?.route != Screens.Library.route &&
+                                    navBackStackEntry?.destination?.route != Screens.ROUTE_LIBRARY &&
                                     (playerBottomSheetState.isCollapsed || playerBottomSheetState.isDismissed)
                             },
                         )
@@ -1175,7 +1208,7 @@ class MainActivity : ComponentActivity() {
                         appBarScrollBehavior(
                             canScroll = {
                                 navBackStackEntry?.destination?.route?.startsWith(OnlineSearchResultRoutePrefix) == false &&
-                                    navBackStackEntry?.destination?.route != Screens.Library.route &&
+                                    navBackStackEntry?.destination?.route != Screens.ROUTE_LIBRARY &&
                                     (playerBottomSheetState.isCollapsed || playerBottomSheetState.isDismissed)
                             },
                         )
@@ -1206,8 +1239,8 @@ class MainActivity : ComponentActivity() {
                                 previousRoute !in topLevelScreens &&
                                 previousRoute?.startsWith(OnlineSearchResultRoutePrefix) != true
                         val isReturningToHomeOrLibrary =
-                            currentRoute == Screens.Home.route ||
-                                currentRoute == Screens.Library.route
+                            currentRoute == Screens.ROUTE_HOME ||
+                                currentRoute == Screens.ROUTE_LIBRARY
 
                         if (wasOnNonTopLevelScreen && isReturningToHomeOrLibrary) {
                             searchBarScrollBehavior.state.resetHeightOffset()
@@ -1251,7 +1284,7 @@ class MainActivity : ComponentActivity() {
                             navBackStackEntry?.destination?.route in topLevelScreens
                         ) {
                             onQueryChange(TextFieldValue())
-                            if (navBackStackEntry?.destination?.route != Screens.Home.route) {
+                            if (navBackStackEntry?.destination?.route != Screens.ROUTE_HOME) {
                                 searchBarScrollBehavior.state.resetHeightOffset()
                                 topAppBarScrollBehavior.state.resetHeightOffset()
                             }
@@ -1360,7 +1393,7 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(navBackStackEntry) {
                         shouldShowTopBar =
                             !active && navBackStackEntry?.destination?.route in topLevelScreens &&
-                            navBackStackEntry?.destination?.route != "settings"
+                            navBackStackEntry?.destination?.route != Screens.ROUTE_SETTINGS
                     }
 
                     var sharedSong: SongItem? by remember {
@@ -1449,9 +1482,9 @@ class MainActivity : ComponentActivity() {
                     val currentTitleRes =
                         remember(navBackStackEntry) {
                             when (navBackStackEntry?.destination?.route) {
-                                Screens.Home.route -> R.string.home
-                                Screens.Search.route -> R.string.search
-                                Screens.Library.route -> R.string.filter_library
+                                Screens.ROUTE_HOME -> R.string.home
+                                Screens.ROUTE_SEARCH -> R.string.search
+                                Screens.ROUTE_LIBRARY -> R.string.filter_library
                                 else -> null
                             }
                         }
@@ -1492,7 +1525,7 @@ class MainActivity : ComponentActivity() {
                                         items = navigationItems,
                                         selectedItemRoute =
                                             if (active) {
-                                                Screens.Search.route
+                                                Screens.ROUTE_SEARCH
                                             } else {
                                                 currentRoute
                                             },
@@ -1568,9 +1601,9 @@ class MainActivity : ComponentActivity() {
                                     if (shouldShowTopBar) {
                                         val shouldUseFloatingTopBar =
                                             remember(navBackStackEntry) {
-                                                navBackStackEntry?.destination?.route == Screens.Home.route ||
-                                                    navBackStackEntry?.destination?.route == Screens.Search.route ||
-                                                    navBackStackEntry?.destination?.route == Screens.Library.route
+                                                navBackStackEntry?.destination?.route == Screens.ROUTE_HOME ||
+                                                    navBackStackEntry?.destination?.route == Screens.ROUTE_SEARCH ||
+                                                    navBackStackEntry?.destination?.route == Screens.ROUTE_LIBRARY
                                             }
                                         val shouldShowBlurBackground =
                                             remember(navBackStackEntry) {
@@ -1579,7 +1612,7 @@ class MainActivity : ComponentActivity() {
 
                                         val surfaceColor = MaterialTheme.colorScheme.surface
                                         val currentScrollBehavior = if (shouldUseFloatingTopBar) searchBarScrollBehavior else topAppBarScrollBehavior
-                                        val isLibraryRoute = navBackStackEntry?.destination?.route == Screens.Library.route
+                                        val isLibraryRoute = navBackStackEntry?.destination?.route == Screens.ROUTE_LIBRARY
 
                                         Box(
                                             modifier =
@@ -1663,7 +1696,7 @@ class MainActivity : ComponentActivity() {
                                                         )
                                                     }
                                                     TranslucentTopAppBarIconButton(
-                                                        onClick = { navController.navigate("settings") },
+                                                        onClick = { navController.navigate(Screens.ROUTE_SETTINGS) },
                                                     ) {
                                                         BadgedBox(badge = {
                                                             if (
@@ -1684,7 +1717,7 @@ class MainActivity : ComponentActivity() {
                                                 },
                                                 scrollBehavior =
                                                     if (navBackStackEntry?.destination?.route ==
-                                                        Screens.Library.route
+                                                        Screens.ROUTE_LIBRARY
                                                     ) {
                                                         null
                                                     } else if (shouldUseFloatingTopBar) {
@@ -2135,9 +2168,9 @@ class MainActivity : ComponentActivity() {
                                             MusicRecognitionRoute
                                         } else {
                                             when (tabOpenedFromShortcut ?: defaultOpenTab) {
-                                                NavigationTab.HOME -> Screens.Home.route
-                                                NavigationTab.LIBRARY -> Screens.Library.route
-                                                else -> Screens.Home.route
+                                                NavigationTab.HOME -> Screens.ROUTE_HOME
+                                                NavigationTab.LIBRARY -> Screens.ROUTE_LIBRARY
+                                                else -> Screens.ROUTE_HOME
                                             }
                                         },
                                     enterTransition = {

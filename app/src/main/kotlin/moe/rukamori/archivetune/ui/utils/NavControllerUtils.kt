@@ -11,7 +11,12 @@ import androidx.navigation.NavController
 import moe.rukamori.archivetune.ui.screens.Screens
 
 fun NavController.backToMain() {
-    val mainRoutes = Screens.MainScreens.map { it.route }
+    val mainRoutes =
+        listOf(
+            Screens.ROUTE_HOME,
+            Screens.ROUTE_SEARCH,
+            Screens.ROUTE_LIBRARY,
+        )
 
     while (previousBackStackEntry != null &&
         currentBackStackEntry?.destination?.route !in mainRoutes

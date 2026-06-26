@@ -9,6 +9,7 @@ package moe.rukamori.archivetune.utils
 
 import androidx.datastore.preferences.core.edit
 import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
 import io.ktor.client.statement.HttpResponse
@@ -42,7 +43,7 @@ private data class ReleasesNetworkResult(
 )
 
 object Updater {
-    private val client by lazy { HttpClient() }
+    private val client by lazy { HttpClient(OkHttp) }
     private const val ReleaseCacheCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
     private val stableReleaseBaseUrl = HushLinks.GITHUB_RELEASES_URL
     private val stableReleaseApiUrl = HushLinks.GITHUB_API_RELEASES_URL
