@@ -32,6 +32,9 @@ val hasReleaseSigningConfig =
         releaseStorePassword != null &&
         releaseKeyAlias != null &&
         releaseKeyPassword != null
+val ciUnsignedReleaseAllowed =
+    System.getenv("GITHUB_ACTIONS") == "true" ||
+        System.getenv("ALLOW_UNSIGNED_RELEASE") == "true"
 
 val hushGithubOwner = "maxinjohn"
 val hushGithubRepo = "Hush"
@@ -369,7 +372,7 @@ gradle.taskGraph.whenReady {
                 task.name.endsWith("Release") &&
                 !task.name.contains("Test")
         }
-    if (assemblesRelease && !hasReleaseSigningConfig) {
+    if (assemblesRelease && !hasReleaseSigningConfig && !ciUnsignedReleaseAllowed) {
         error(
             """
             Release APK signing is not configured.
