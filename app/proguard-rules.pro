@@ -14,11 +14,11 @@
 
 # Uncomment this to preserve the line number information for
 # debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+-keepattributes SourceFile,LineNumberTable
 
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
-#-renamesourcefileattribute SourceFile
+-renamesourcefileattribute SourceFile
 
 ## Kotlin Serialization
 # Keep `Companion` object fields of serializable classes.
@@ -154,8 +154,11 @@
 -dontwarn io.ktor.**
 -keep class moe.rukamori.archivetune.moriextractor.BackendExtractorResponse { *; }
 
-# engine HTTP Android/OkHttp Ktor
+# engine HTTP Android/OkHttp Ktor + Coil
 -dontwarn kotlinx.coroutines.**
 -keep class okhttp3.** { *; }
 -keep interface okhttp3.** { *; }
+-keepclassmembers class okhttp3.internal.http.RealInterceptorChain { *; }
+-keep class coil3.network.okhttp.** { *; }
+-keep class io.ktor.client.engine.okhttp.** { *; }
 -dontwarn okhttp3.internal.**

@@ -42,7 +42,7 @@ private data class ReleasesNetworkResult(
 )
 
 object Updater {
-    private val client = HttpClient()
+    private val client by lazy { HttpClient() }
     private const val ReleaseCacheCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
     private val stableReleaseBaseUrl = HushLinks.GITHUB_RELEASES_URL
     private val stableReleaseApiUrl = HushLinks.GITHUB_API_RELEASES_URL
