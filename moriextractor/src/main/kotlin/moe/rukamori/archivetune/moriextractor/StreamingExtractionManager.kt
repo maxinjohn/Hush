@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import java.net.URI
 import java.util.concurrent.TimeUnit
@@ -38,7 +39,7 @@ class StreamingExtractionManager(
             engine {
                 config {
                     connectTimeout(15, TimeUnit.SECONDS)
-                    readTimeout(20, TimeUnit.SECONDS)
+                    readTimeout(45, TimeUnit.SECONDS)
                     writeTimeout(15, TimeUnit.SECONDS)
                     retryOnConnectionFailure(true)
                 }
@@ -51,12 +52,14 @@ class StreamingExtractionManager(
     suspend fun extractAudioUrl(
         videoUrl: String,
         audioQuality: ExtractorAudioQuality = ExtractorAudioQuality.AUTO,
+        userPoToken: String? = null,
     ): String =
         withContext(Dispatchers.IO) {
             val normalizedVideoUrl = videoUrl.trim()
             if (normalizedVideoUrl.isBlank()) {
                 throw ArchiveTuneExtractorException("Video URL is missing")
             }
+            val normalizedUserPoToken = userPoToken?.trim()?.takeIf { it.isNotBlank() }
 
             val token = bearerToken.trim()
             if (token.isBlank()) {
@@ -72,23 +75,38 @@ class StreamingExtractionManager(
                             parameter("url", normalizedVideoUrl)
                             parameter("quality", audioQuality.apiValue)
                             parameter("format", "bestaudio")
+                            normalizedUserPoToken?.let { parameter("po_token", it) }
                         }.bodyAsText()
-                val response = json.decodeFromString(BackendExtractorResponse.serializer(), raw)
-                val audioUrl = response.playableUrl.orEmpty()
-                if (response.success && audioUrl.isNotBlank() && audioUrl.isHttpUrl()) {
+
+                val response =
+                    try {
+                        json.decodeFromString(BackendExtractorResponse.serializer(), raw)
+                    } catch (serialization: SerializationException) {
+                        throw ArchiveTuneExtractorException(
+                            "ArchiveTune Extractor returned invalid JSON",
+                            serialization,
+                        )
+                    }
+
+                val streamUrl = response.proxyPlayableUrl.orEmpty()
+                if (response.success && streamUrl.isNotBlank() && streamUrl.isHttpUrl()) {
                     _extractorState.value =
                         ExtractorState.Success(
-                            audioUrl = audioUrl,
+                            audioUrl = streamUrl,
                             title = response.title,
                             thumbnail = response.thumbnail,
                         )
-                    audioUrl
+                    streamUrl
                 } else {
                     val message =
                         response.error
                             ?.trim()
                             ?.takeIf { it.isNotBlank() }
-                            ?: "ArchiveTune Extractor returned no playable audio stream"
+                            ?: if (response.success && !response.audioUrl.isNullOrBlank()) {
+                                "ArchiveTune Extractor returned raw audio_url but no stream_url. Upload/run the stream proxy main.py on the backend."
+                            } else {
+                                "ArchiveTune Extractor returned no playable proxy stream"
+                            }
                     _extractorState.value = ExtractorState.Error(message)
                     throw ArchiveTuneExtractorException(message)
                 }

@@ -257,6 +257,7 @@ import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
 import java.io.Serializable
 import java.net.ConnectException
+import java.net.Proxy
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.time.LocalDateTime
@@ -383,6 +384,25 @@ class MusicService :
                             requestProfile,
                         ).build(),
                 )
+            }.build()
+    }
+    private val extractorMediaOkHttpClient: OkHttpClient by lazy {
+        OkHttpClient
+            .Builder()
+            .proxy(Proxy.NO_PROXY)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .addInterceptor { chain ->
+                val request =
+                    chain
+                        .request()
+                        .newBuilder()
+                        .header(
+                            "User-Agent",
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                        ).header("Accept", "*/*")
+                        .build()
+                chain.proceed(request)
             }.build()
     }
 
@@ -2569,6 +2589,7 @@ class MusicService :
         val failedUrl = responseException.dataSpec.uri.toString()
         val requestProfile = StreamClientUtils.resolveRequestProfile(failedUrl)
         val authFingerprint = YouTube.currentPlaybackAuthState().fingerprint
+        val extractorAuthFingerprint = ArchiveTuneExtractorCacheFingerprintPrefix + authFingerprint
         val cachedFailedUrl = playbackUrlCache[mediaId]?.takeIf { it.url == failedUrl }
         val cachedExtractorFailedUrl = extractorPlaybackUrlCache[mediaId]?.takeIf { it.url == failedUrl }
         val failedExpiredUrl =
@@ -2584,7 +2605,7 @@ class MusicService :
                 (
                     cachedExtractorFailedUrl?.let {
                         !it.isValidFor(
-                            authFingerprint = ArchiveTuneExtractorCacheFingerprint,
+                            authFingerprint = extractorAuthFingerprint,
                             minimumRemainingMs = 0L,
                         )
                     } == true
@@ -2593,7 +2614,7 @@ class MusicService :
         playbackUrlCache.remove(mediaId)
         extractorPlaybackUrlCache.remove(mediaId)
         YTPlayerUtils.invalidateCachedStreamUrls(mediaId)
-        if (!failedExpiredUrl && requestProfile.clientKey.isNotEmpty()) {
+        if (!failedExpiredUrl && cachedExtractorFailedUrl == null && requestProfile.clientKey.isNotEmpty()) {
             YTPlayerUtils.markStreamClientFailed(mediaId, requestProfile.clientKey, responseException.responseCode)
         }
 
@@ -5896,20 +5917,33 @@ class MusicService :
         }
     }
 
-    private fun createResolvedUpstreamDataSourceFactory(): DataSource.Factory =
-        ResolvingDataSource.Factory(
+    private fun createResolvedUpstreamDataSourceFactory(): DataSource.Factory {
+        val youtubeMediaFactory =
             DefaultDataSource.Factory(
                 this,
-                OkHttpDataSource.Factory(
-                    mediaOkHttpClient,
-                ),
-            ),
-        ) { dataSpec ->
+                OkHttpDataSource.Factory(mediaOkHttpClient),
+            )
+        val extractorMediaFactory =
+            DefaultDataSource.Factory(
+                this,
+                OkHttpDataSource.Factory(extractorMediaOkHttpClient),
+            )
+        val routingFactory =
+            DataSource.Factory {
+                ResolvedUrlRoutingDataSource(
+                    defaultFactory = youtubeMediaFactory,
+                    extractorFactory = extractorMediaFactory,
+                    shouldUseExtractorFactory = ::isExtractorPlaybackUri,
+                )
+            }
+
+        return ResolvingDataSource.Factory(routingFactory) { dataSpec ->
             resolvePlaybackDataSpec(
                 dataSpec = dataSpec,
                 allowCacheShortCircuit = false,
             )
         }
+    }
 
     private fun resolveMediaItemForCast(mediaItem: MediaItem): MediaItem {
         val uri = mediaItem.localConfiguration?.uri ?: return mediaItem
@@ -6215,10 +6249,14 @@ class MusicService :
         mediaId: String,
         audioQuality: AudioQuality,
     ): DataSpec {
+        val authState = YouTube.currentPlaybackAuthState()
+        val authFingerprint = ArchiveTuneExtractorCacheFingerprintPrefix + authState.fingerprint
+        val userPoToken = authState.resolveExtractorPoToken()
+
         extractorPlaybackUrlCache[mediaId]
             ?.takeIf {
                 it.isValidFor(
-                    authFingerprint = ArchiveTuneExtractorCacheFingerprint,
+                    authFingerprint = authFingerprint,
                     minimumRemainingMs = 0L,
                 )
             }?.let { cached ->
@@ -6232,6 +6270,7 @@ class MusicService :
                     streamingExtractionManager.extractAudioUrl(
                         videoUrl = mediaId.toYouTubeWatchUrl(),
                         audioQuality = audioQuality.toExtractorAudioQuality(),
+                        userPoToken = userPoToken,
                     )
                 }
             }.getOrElse { throwable ->
@@ -6278,13 +6317,30 @@ class MusicService :
             AuthScopedCacheValue(
                 url = streamUrl,
                 expiresAtMs = System.currentTimeMillis() + ArchiveTuneExtractorCacheTtlMs,
-                authFingerprint = ArchiveTuneExtractorCacheFingerprint,
+                authFingerprint = authFingerprint,
             )
         scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
         return dataSpec.withUri(streamUrl.toUri())
     }
 
+    private fun PlaybackAuthState.resolveExtractorPoToken(): String? =
+        resolveGvsPoToken().normalizeExtractorPoToken()
+            ?: poTokenGvs.normalizeExtractorPoToken()
+            ?: poToken.normalizeExtractorPoToken()
+            ?: poTokenPlayer.normalizeExtractorPoToken()
+
+    private fun String?.normalizeExtractorPoToken(): String? {
+        val trimmed = this?.trim()
+        return trimmed?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+    }
+
     private fun String.toYouTubeWatchUrl(): String = "https://music.youtube.com/watch?v=$this"
+
+    private fun isExtractorPlaybackUri(uri: Uri): Boolean {
+        val url = uri.toString()
+        return extractorPlaybackUrlCache.values.any { it.url == url } ||
+            uri.path?.startsWith("/api/play/") == true
+    }
 
     private fun AudioQuality.toExtractorAudioQuality(): ExtractorAudioQuality =
         when (this) {
@@ -6389,6 +6445,48 @@ class MusicService :
             createDataSourceFactory(),
             DefaultExtractorsFactory(),
         )
+
+    private class ResolvedUrlRoutingDataSource(
+        private val defaultFactory: DataSource.Factory,
+        private val extractorFactory: DataSource.Factory,
+        private val shouldUseExtractorFactory: (Uri) -> Boolean,
+    ) : DataSource {
+        private val transferListeners = mutableListOf<TransferListener>()
+        private var delegate: DataSource? = null
+
+        override fun addTransferListener(transferListener: TransferListener) {
+            transferListeners += transferListener
+            delegate?.addTransferListener(transferListener)
+        }
+
+        override fun open(dataSpec: DataSpec): Long {
+            val selectedFactory =
+                if (shouldUseExtractorFactory(dataSpec.uri)) {
+                    extractorFactory
+                } else {
+                    defaultFactory
+                }
+            val selectedDataSource = selectedFactory.createDataSource()
+            transferListeners.forEach(selectedDataSource::addTransferListener)
+            delegate = selectedDataSource
+            return selectedDataSource.open(dataSpec)
+        }
+
+        override fun read(
+            buffer: ByteArray,
+            offset: Int,
+            length: Int,
+        ): Int = checkNotNull(delegate).read(buffer, offset, length)
+
+        override fun getUri(): Uri? = delegate?.uri
+
+        override fun getResponseHeaders(): Map<String, List<String>> = delegate?.responseHeaders ?: emptyMap()
+
+        override fun close() {
+            delegate?.close()
+            delegate = null
+        }
+    }
 
     private class SchemeRoutingDataSource(
         private val cachedFactory: DataSource.Factory,
@@ -7085,7 +7183,7 @@ class MusicService :
         const val MIN_AUDIBLE_EFFECTIVE_VOLUME = 0.01f
         const val STUCK_MUTED_VOLUME_EPSILON = 0.001f
         const val AUDIBLE_PLAYBACK_VOLUME_CHECK_MS = 2_000L
-        private const val ArchiveTuneExtractorCacheFingerprint = "archivetune_extractor"
+        private const val ArchiveTuneExtractorCacheFingerprintPrefix = "archivetune_extractor:"
         private const val ArchiveTuneExtractorCacheTtlMs = 5 * 60 * 1000L
     }
 }

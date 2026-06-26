@@ -15,17 +15,32 @@ data class BackendExtractorResponse(
     val success: Boolean,
     val title: String? = null,
     val thumbnail: String? = null,
+    @SerialName("stream_url")
+    val streamUrl: String? = null,
+    @SerialName("stream_path")
+    val streamPath: String? = null,
     @SerialName("audio_url")
     val audioUrl: String? = null,
     @SerialName("direct_url")
     val directUrl: String? = null,
+    @SerialName("server_version")
+    val serverVersion: String? = null,
+    @SerialName("audio_headers")
+    val audioHeaders: Map<String, String>? = null,
     val error: String? = null,
 ) {
-    val playableUrl: String?
+    val proxyPlayableUrl: String?
         get() =
-            directUrl
+            streamUrl
                 ?.trim()
                 ?.takeIf { it.isNotBlank() }
+                ?: directUrl
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+
+    val playableUrl: String?
+        get() =
+            proxyPlayableUrl
                 ?: audioUrl
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
