@@ -148,7 +148,20 @@ class App :
                 val lastVersionCode = prefs[LastLaunchedVersionCodeKey] ?: 0
                 val shouldForceAuthRefresh = lastVersionCode != currentVersionCode
 
-                refreshPlaybackLoginContext(forceRefresh = shouldForceAuthRefresh)
+                if (shouldForceAuthRefresh) {
+                    runCatching {
+                        refreshPlaybackLoginContext(forceRefresh = true)
+                    }.onFailure { throwable ->
+                        Timber.e(throwable, "Failed to refresh playback login context on upgrade")
+                        reportException(throwable)
+                    }
+                } else {
+                    runCatching {
+                        refreshPlaybackLoginContext(forceRefresh = false)
+                    }.onFailure { throwable ->
+                        Timber.w(throwable, "Failed to refresh playback login context")
+                    }
+                }
 
                 if (shouldForceAuthRefresh) {
                     dataStore.edit { settings ->

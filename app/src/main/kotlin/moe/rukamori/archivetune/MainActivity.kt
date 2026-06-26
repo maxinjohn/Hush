@@ -92,8 +92,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.FloatingToolbarDefaults
-import androidx.compose.material3.FloatingToolbarExitDirection
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.contentColorFor
@@ -963,11 +961,6 @@ class MainActivity : ComponentActivity() {
                     val shouldShowHomeShuffleButton =
                         currentRoute == Screens.Home.route &&
                             (allLocalItems.isNotEmpty() || allYtItems.isNotEmpty())
-
-                    val navigationToolbarScrollBehavior =
-                        FloatingToolbarDefaults.exitAlwaysScrollBehavior(
-                            exitDirection = FloatingToolbarExitDirection.Bottom,
-                        )
 
                     fun bottomNavHeight(compact: Boolean): Dp =
                         if (shouldShowNavigationBar && !useRail) {
@@ -1972,12 +1965,6 @@ class MainActivity : ComponentActivity() {
                                                 items = navigationItems,
                                                 pureBlack = pureBlack,
                                                 compact = isMiniPlayerVisible,
-                                                scrollBehavior =
-                                                    if (shouldShowNavigationBar) {
-                                                        navigationToolbarScrollBehavior
-                                                    } else {
-                                                        null
-                                                    },
                                                 modifier =
                                                     Modifier
                                                         .align(Alignment.BottomCenter)
@@ -2112,14 +2099,7 @@ class MainActivity : ComponentActivity() {
                                 modifier =
                                     Modifier
                                         .fillMaxSize()
-                                        .nestedScroll(searchBarScrollBehavior.nestedScrollConnection)
-                                        .then(
-                                            if (shouldShowNavigationBar && !useRail) {
-                                                Modifier.nestedScroll(navigationToolbarScrollBehavior)
-                                            } else {
-                                                Modifier
-                                            },
-                                        ),
+                                        .nestedScroll(searchBarScrollBehavior.nestedScrollConnection),
                             ) {
                                 var transitionDirection =
                                     AnimatedContentTransitionScope.SlideDirection.Left

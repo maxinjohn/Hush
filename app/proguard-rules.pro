@@ -156,3 +156,6 @@
 
 # engine HTTP Android/OkHttp Ktor
 -dontwarn kotlinx.coroutines.**
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+-dontwarn okhttp3.internal.**

@@ -47,8 +47,8 @@ android {
     applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 144
-        versionName = "13.7.6"
+        versionCode = 145
+        versionName = "13.7.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
