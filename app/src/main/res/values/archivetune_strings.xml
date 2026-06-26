@@ -558,7 +558,9 @@
     <string name="ai_api_test_failed">API test failed</string>
     <string name="ai_translation_menu">AI Translation</string>
     <string name="ai_translating_lyrics">Translating The Lyrics...</string>
-    <string name="about_fork_notice">A personal fork of ArchiveTune. Upstream credits and licenses are preserved below.</string>
+    <string name="about_fork_notice">Personal Android fork of ArchiveTune for my own phones and car head unit. Upstream credits and licenses are preserved below.</string>
+    <string name="about_maintainer_note">Maintained by maxinjohn for personal use only.</string>
+    <string name="about_contributors_upstream_note">People who contributed to upstream ArchiveTune.</string>
     <string name="about_upstream_project">ArchiveTune upstream</string>
     <string name="about_lead_developer">Lead Developer</string>
     <string name="about_archive_tune_team">Team</string>

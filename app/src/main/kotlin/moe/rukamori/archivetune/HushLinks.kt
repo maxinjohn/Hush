@@ -23,5 +23,5 @@ object HushLinks {
     const val APK_ARTIFACT_BASE_NAME = "hush"
 
     const val PRIVACY_POLICY_URL = "$GITHUB_REPO_URL/blob/dev/PRIVACY.md"
-    const val CONTRIBUTORS_URL = "$GITHUB_REPO_URL/graphs/contributors"
+    const val CONTRIBUTORS_URL = UPSTREAM_CONTRIBUTORS_URL
 }

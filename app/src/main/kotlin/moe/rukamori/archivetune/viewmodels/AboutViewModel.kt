@@ -55,13 +55,11 @@ sealed interface AboutScreenState {
 data class AboutUiModel(
     @StringRes val appNameResId: Int,
     @StringRes val forkNoticeResId: Int,
+    @StringRes val maintainerNoteResId: Int,
     val versionName: String,
     val buildHash: String?,
     val buildVariant: String,
     val primaryLinks: AboutLinkCollection,
-    val leadDeveloper: TeamMember,
-    val collaborators: TeamMemberCollection,
-    val respecters: TeamMemberCollection,
     val contributorsState: AboutContributorsUiState,
     val contributorsReadMoreUrl: String,
     val isOverflowMenuExpanded: Boolean,
@@ -69,28 +67,6 @@ data class AboutUiModel(
     val translationContributorsState: AboutTranslationContributorsUiState,
     val dependencyLicensesState: AboutDependencyLicensesUiState,
 )
-
-@Immutable
-data class TeamMember(
-    val avatarUrl: String,
-    val name: String,
-    @StringRes val positionResId: Int,
-    val profileUrl: String?,
-    val links: AboutLinkCollection,
-)
-
-@Immutable
-data class TeamMemberCollection private constructor(
-    private val values: List<TeamMember>,
-) {
-    val size: Int get() = values.size
-
-    operator fun get(index: Int): TeamMember = values[index]
-
-    companion object {
-        fun of(vararg values: TeamMember): TeamMemberCollection = TeamMemberCollection(values.toList())
-    }
-}
 
 @Immutable
 data class AboutLinkUiModel(
@@ -423,6 +399,7 @@ class AboutViewModel
             AboutUiModel(
                 appNameResId = R.string.app_name,
                 forkNoticeResId = R.string.about_fork_notice,
+                maintainerNoteResId = R.string.about_maintainer_note,
                 versionName = BuildConfig.VERSION_NAME,
                 buildHash = currentBuildHash,
                 buildVariant = if (BuildConfig.DEBUG) DebugBuildBadge else BuildConfig.ARCHITECTURE.uppercase(),
@@ -451,124 +428,6 @@ class AboutViewModel
                             iconResId = R.drawable.lock,
                             labelResId = R.string.privacy,
                             url = HushLinks.PRIVACY_POLICY_URL,
-                        ),
-                    ),
-                leadDeveloper =
-                    TeamMember(
-                        avatarUrl = "https://avatars.githubusercontent.com/u/107134739?v=4",
-                        name = "morie",
-                        positionResId = R.string.about_position_lead_dev,
-                        profileUrl = "https://github.com/rukamori",
-                        links =
-                            AboutLinkCollection.of(
-                                AboutLinkUiModel(
-                                    id = "github",
-                                    iconResId = R.drawable.github,
-                                    labelResId = R.string.about_content_desc_github,
-                                    url = "https://github.com/rukamori",
-                                ),
-                                AboutLinkUiModel(
-                                    id = "website",
-                                    iconResId = R.drawable.website,
-                                    labelResId = R.string.about_content_desc_website,
-                                    url = "https://koiiverse.cloud",
-                                ),
-                            ),
-                    ),
-                collaborators =
-                    TeamMemberCollection.of(
-                        TeamMember(
-                            avatarUrl = "https://avatars.githubusercontent.com/u/89002922?v=4",
-                            name = "Miko",
-                            positionResId = R.string.about_position_developers,
-                            profileUrl = "https://github.com/mikooochi",
-                            links =
-                                AboutLinkCollection.of(
-                                    AboutLinkUiModel(
-                                        id = "github",
-                                        iconResId = R.drawable.github,
-                                        labelResId = R.string.about_content_desc_github,
-                                        url = "https://github.com/mikooochi",
-                                    ),
-                                ),
-                        ),
-                        TeamMember(
-                            avatarUrl = "https://avatars.githubusercontent.com/u/93458424?v=4",
-                            name = "WTTexe",
-                            positionResId = R.string.about_position_developers,
-                            profileUrl = "https://github.com/Windowstechtips",
-                            links =
-                                AboutLinkCollection.of(
-                                    AboutLinkUiModel(
-                                        id = "github",
-                                        iconResId = R.drawable.github,
-                                        labelResId = R.string.about_content_desc_github,
-                                        url = "https://github.com/Windowstechtips",
-                                    ),
-                                ),
-                        ),
-                        TeamMember(
-                            avatarUrl = "https://avatars.githubusercontent.com/u/80249864?v=4",
-                            name = "sang765",
-                            positionResId = R.string.about_position_developers,
-                            profileUrl = "https://github.com/sang765",
-                            links =
-                                AboutLinkCollection.of(
-                                    AboutLinkUiModel(
-                                        id = "github",
-                                        iconResId = R.drawable.github,
-                                        labelResId = R.string.about_content_desc_github,
-                                        url = "https://github.com/sang765",
-                                    ),
-                                ),
-                        ),
-                        TeamMember(
-                            avatarUrl = "https://avatars.githubusercontent.com/u/203143605?v=4",
-                            name = "Yuki/Reze",
-                            positionResId = R.string.about_position_yuki,
-                            profileUrl = "https://github.com/4nx3b",
-                            links =
-                                AboutLinkCollection.of(
-                                    AboutLinkUiModel(
-                                        id = "github",
-                                        iconResId = R.drawable.github,
-                                        labelResId = R.string.about_content_desc_github,
-                                        url = "https://github.com/4nx3b",
-                                    ),
-                                ),
-                        ),
-                    ),
-                respecters =
-                    TeamMemberCollection.of(
-                        TeamMember(
-                            avatarUrl = "https://avatars.githubusercontent.com/u/80542861?v=4",
-                            name = "MO AGAMY",
-                            positionResId = R.string.about_position_mo_agamy,
-                            profileUrl = "https://github.com/mostafaalagamy",
-                            links =
-                                AboutLinkCollection.of(
-                                    AboutLinkUiModel(
-                                        id = "github",
-                                        iconResId = R.drawable.github,
-                                        labelResId = R.string.about_content_desc_github,
-                                        url = "https://github.com/mostafaalagamy",
-                                    ),
-                                ),
-                        ),
-                        TeamMember(
-                            avatarUrl = "https://avatars.githubusercontent.com/u/110614797?v=4",
-                            name = "Zion Huang",
-                            positionResId = R.string.about_position_zion_huang,
-                            profileUrl = "https://github.com/z-huang",
-                            links =
-                                AboutLinkCollection.of(
-                                    AboutLinkUiModel(
-                                        id = "github",
-                                        iconResId = R.drawable.github,
-                                        labelResId = R.string.about_content_desc_github,
-                                        url = "https://github.com/z-huang",
-                                    ),
-                                ),
                         ),
                     ),
                 contributorsState = contributorsState,
@@ -626,6 +485,6 @@ class AboutViewModel
         private companion object {
             const val MaxDisplayedContributors = 20
             const val DebugBuildBadge = "DEBUG"
-            const val ContributorsReadMoreUrl = HushLinks.CONTRIBUTORS_URL
+            const val ContributorsReadMoreUrl = HushLinks.UPSTREAM_CONTRIBUTORS_URL
         }
     }

@@ -1936,7 +1936,9 @@ fun PlayerControlsContent(
         )
 
         Spacer(Modifier.height(playbackControlsGap))
+    }
 
+    val playbackControls: @Composable ColumnScope.() -> Unit = {
         PlayerPlaybackControls(
             playerDesignStyle = playerDesignStyle,
             playbackState = playbackState,
@@ -1960,16 +1962,21 @@ fun PlayerControlsContent(
     if (landscape) {
         LandscapePlayerControlsColumn(
             modifier = Modifier.fillMaxWidth(),
+            footerContent = playbackControls,
             content = controlsBody,
         )
     } else {
-        Column(content = controlsBody)
+        Column {
+            controlsBody()
+            playbackControls()
+        }
     }
 }
 
 @Composable
 private fun LandscapePlayerControlsColumn(
     modifier: Modifier = Modifier,
+    footerContent: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxHeight()) {
@@ -1994,14 +2001,27 @@ private fun LandscapePlayerControlsColumn(
                     .fillMaxSize()
                     .padding(top = topInset, bottom = bottomInset),
         ) {
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                content = content,
-            )
+            if (footerContent != null) {
+                Column(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    content = content,
+                )
+                footerContent()
+            } else {
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    content = content,
+                )
+            }
         }
     }
 }
@@ -2187,7 +2207,9 @@ fun V8PlayerControlsContent(
             )
 
             Spacer(Modifier.height(progressToTransportGap))
+        }
 
+        val transportFooter: @Composable ColumnScope.() -> Unit = {
             V8TransportControls(
                 playbackState = playbackState,
                 isPlaying = isPlaying,
@@ -2219,6 +2241,7 @@ fun V8PlayerControlsContent(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = horizontalPadding),
+                footerContent = transportFooter,
                 content = controlsBody,
             )
         } else {
@@ -2228,8 +2251,10 @@ fun V8PlayerControlsContent(
                         .fillMaxWidth()
                         .padding(horizontal = horizontalPadding),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                content = controlsBody,
-            )
+            ) {
+                controlsBody()
+                transportFooter()
+            }
         }
     }
 }
@@ -2584,6 +2609,33 @@ private fun V8LandscapeContent(
 
             LandscapePlayerControlsColumn(
                 modifier = Modifier.weight(1f),
+                footerContent = {
+                    Spacer(Modifier.height(if (compactHeight) 10.dp else 16.dp))
+
+                    V8TransportControls(
+                        playbackState = playbackState,
+                        isPlaying = isPlaying,
+                        isLoading = isLoading,
+                        canSkipPrevious = canSkipPrevious,
+                        canSkipNext = canSkipNext,
+                        foreground = foreground,
+                        onPreviousClick = onPreviousClick,
+                        onPlayPauseClick = onPlayPauseClick,
+                        onNextClick = onNextClick,
+                        landscape = true,
+                    )
+
+                    if (!compactHeight) {
+                        Spacer(Modifier.height(16.dp))
+
+                        V8VolumeControls(
+                            volume = volume,
+                            foreground = foreground,
+                            secondaryForeground = secondaryForeground,
+                            onVolumeChange = onVolumeChange,
+                        )
+                    }
+                },
             ) {
                 V8Header(
                     title = stringResource(R.string.now_playing),
@@ -2616,32 +2668,6 @@ private fun V8LandscapeContent(
                     onSliderValueChange = onSliderValueChange,
                     onSliderValueChangeFinished = onSliderValueChangeFinished,
                 )
-
-                Spacer(Modifier.height(if (compactHeight) 10.dp else 16.dp))
-
-                V8TransportControls(
-                    playbackState = playbackState,
-                    isPlaying = isPlaying,
-                    isLoading = isLoading,
-                    canSkipPrevious = canSkipPrevious,
-                    canSkipNext = canSkipNext,
-                    foreground = foreground,
-                    onPreviousClick = onPreviousClick,
-                    onPlayPauseClick = onPlayPauseClick,
-                    onNextClick = onNextClick,
-                    landscape = true,
-                )
-
-                if (!compactHeight) {
-                    Spacer(Modifier.height(16.dp))
-
-                    V8VolumeControls(
-                        volume = volume,
-                        foreground = foreground,
-                        secondaryForeground = secondaryForeground,
-                        onVolumeChange = onVolumeChange,
-                    )
-                }
             }
         }
     }
@@ -3516,6 +3542,26 @@ private fun V9LandscapeContent(
 
             LandscapePlayerControlsColumn(
                 modifier = Modifier.weight(1f),
+                footerContent = {
+                    Spacer(Modifier.height(if (compactHeight) 8.dp else 12.dp))
+
+                    V9TransportControls(
+                        playbackState = playbackState,
+                        isPlaying = isPlaying,
+                        isLoading = isLoading,
+                        canSkipPrevious = canSkipPrevious,
+                        canSkipNext = canSkipNext,
+                        containerColor = textButtonColor.copy(alpha = 0.14f),
+                        primaryContainerColor = textButtonColor,
+                        iconColor = textBackgroundColor,
+                        primaryIconColor = iconButtonColor,
+                        onPreviousClick = onPreviousClick,
+                        onPlayPauseClick = onPlayPauseClick,
+                        onNextClick = onNextClick,
+                        landscape = true,
+                        landscapeCompact = compactHeight,
+                    )
+                },
             ) {
                 V9Header(
                     textColor = textBackgroundColor,
@@ -3548,25 +3594,6 @@ private fun V9LandscapeContent(
                     textColor = textBackgroundColor,
                     onSliderValueChange = onSliderValueChange,
                     onSliderValueChangeFinished = onSliderValueChangeFinished,
-                )
-
-                Spacer(Modifier.height(if (compactHeight) 12.dp else 20.dp))
-
-                V9TransportControls(
-                    playbackState = playbackState,
-                    isPlaying = isPlaying,
-                    isLoading = isLoading,
-                    canSkipPrevious = canSkipPrevious,
-                    canSkipNext = canSkipNext,
-                    containerColor = textButtonColor.copy(alpha = 0.14f),
-                    primaryContainerColor = textButtonColor,
-                    iconColor = textBackgroundColor,
-                    primaryIconColor = iconButtonColor,
-                    onPreviousClick = onPreviousClick,
-                    onPlayPauseClick = onPlayPauseClick,
-                    onNextClick = onNextClick,
-                    landscape = true,
-                    landscapeCompact = compactHeight,
                 )
             }
         }
