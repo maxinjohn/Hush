@@ -440,7 +440,6 @@
     <string name="update_channel">Kanalı Güncelle</string>
     <string name="channel_stable">Kararlı</string>
     <string name="channel_nightly">Gecelik</string>
-    <string name="recent_commits">Son Taahhütler</string>
     <string name="update_notification_channel_name">Uygulama Güncellemeleri</string>
     <string name="update_notification_channel_desc">Yeni uygulama güncellemeleri için bildirimler</string>
     <string name="update_notification_title">Güncelleme Mevcut</string>

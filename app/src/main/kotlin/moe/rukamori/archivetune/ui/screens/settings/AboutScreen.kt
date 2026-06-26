@@ -9,11 +9,11 @@
 
 package moe.rukamori.archivetune.ui.screens.settings
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -42,7 +42,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
@@ -67,7 +66,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -84,6 +82,7 @@ import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.ui.component.HushBrandHeader
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.utils.backToMain
 import moe.rukamori.archivetune.viewmodels.AboutContributorUiCollection
@@ -233,17 +232,10 @@ private fun AboutScreenContent(
                     model = state.model,
                     onOpenUri = onOpenUri,
                     onRetryContributors = onRetryContributors,
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .windowInsetsPadding(
-                                LocalPlayerAwareWindowInsets.current.only(
-                                    WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
-                                ),
-                            ),
+                    modifier = stateModifier,
                     contentPadding =
                         PaddingValues(
-                            top = innerPadding.calculateTopPadding() + 8.dp,
+                            top = 8.dp,
                             bottom = SettingsDimensions.ScreenBottomPadding,
                         ),
                     listState = listState,
@@ -836,24 +828,33 @@ private fun AboutIdentityCard(
             ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Image(
-                painter = painterResource(R.drawable.hush_wordmark_tagline),
-                contentDescription = stringResource(model.appNameResId),
-                contentScale = ContentScale.Fit,
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val compactBrand = maxWidth < 600.dp
+
+            Column(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 88.dp)
-                        .padding(horizontal = 8.dp),
-            )
+                        .padding(horizontal = 20.dp, vertical = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                HushBrandHeader(
+                    modifier = Modifier.fillMaxWidth(),
+                    compact = compactBrand,
+                    horizontalPadding = 0.dp,
+                )
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AboutMetadataBadge(text = model.versionName)
+                model.buildHash?.let { buildHash ->
+                    AboutMetadataBadge(text = buildHash)
+                }
+                AboutMetadataBadge(text = model.buildVariant)
+            }
 
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -872,17 +873,6 @@ private fun AboutIdentityCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
-
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    AboutMetadataBadge(text = model.versionName)
-                    model.buildHash?.let { buildHash ->
-                        AboutMetadataBadge(text = buildHash)
-                    }
-                    AboutMetadataBadge(text = model.buildVariant)
-                }
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -891,6 +881,7 @@ private fun AboutIdentityCard(
                 links = model.primaryLinks,
                 onOpenUri = onOpenUri,
             )
+            }
         }
     }
 }

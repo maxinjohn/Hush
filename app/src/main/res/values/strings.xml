@@ -769,7 +769,6 @@
     <string name="channel_stable">Stable</string>
     <string name="channel_nightly">Nightly</string>
     <string name="channel_daily_nightly">Daily</string>
-    <string name="recent_commits">Recent Commits</string>
     <string name="updates_nightly_title">Nightly delivery</string>
     <string name="updates_nightly_description">Nightly builds track the newest development commits and may include unfinished changes.</string>
     <string name="updates_nightly_hosting_description">Automatically generated development builds are available from successful GitHub Actions runs.</string>
@@ -782,10 +781,6 @@
     <string name="updates_channel_warning_nightly_unstable">Nightly builds are provided for testing and early access only.\nStability, compatibility, and functionality are not guaranteed.</string>
     <string name="updates_channel_warning_acknowledgement">Note: that downloading from Github directly bypasses any additional screening performed by the store you might have originally installed the app from.\nBy continuing, you acknowledge that nightly builds may be unstable and use them at your own risk.</string>
     <string name="updates_daily_channel_confirmation">Experimental update channels are not available in this fork. Use the Stable channel and GitHub releases instead.</string>
-    <string name="updates_latest_commit">Latest commit: %s</string>
-    <string name="updates_loading_commits">Loading recent commits</string>
-    <string name="updates_recent_commits_count">%1$d recent commits</string>
-    <string name="updates_no_commits">No recent commits found</string>
     <string name="changelog">Changelog</string>
     <string name="view_changelog">View Changelog</string>
     <string name="check_for_update">Check for Update</string>

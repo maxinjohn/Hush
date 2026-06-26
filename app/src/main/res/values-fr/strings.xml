@@ -418,7 +418,6 @@
     <string name="update_channel">Chaîne de mise à jour</string>
     <string name="channel_stable">Stable</string>
     <string name="channel_nightly">Nocturne</string>
-    <string name="recent_commits">Engagements récents</string>
     <string name="update_notification_channel_name">Mises à jour de l\'application</string>
     <string name="update_notification_channel_desc">Notifications pour les nouvelles mises à jour de l\'application</string>
     <string name="update_notification_title">Mise à jour disponible</string>
@@ -642,10 +641,6 @@
     <string name="update_channel_desc">Choisissez entre les versions testées et les versions de développement.</string>
     <string name="updates_nightly_title">Livraison nocturne</string>
     <string name="updates_nightly_description">Les versions quotidiennes intègrent les dernières modifications apportées au code et peuvent contenir des changements non finalisés.</string>
-    <string name="updates_latest_commit">Dernière modification : %s</string>
-    <string name="updates_loading_commits">Chargement des modifications récentes</string>
-    <string name="updates_recent_commits_count">%1$d modifications récentes</string>
-    <string name="updates_no_commits">Aucune modification récente n\'a été trouvée</string>
     <string name="you_might_like_source">Cela pourrait vous intéresser</string>
     <string name="playlist_suggestion_source_title">Titre de la playlist</string>
     <string name="playlist_suggestion_source_content">Contenu de la playlist</string>

@@ -457,7 +457,11 @@ object LyricsUtils {
                 unwrapped
             }
 
-        return normalized.trim { it.isWhitespace() || it == NBSP }
+        val trimmed = normalized.trim { it.isWhitespace() || it == NBSP }
+        if (trimmed.startsWith("{") && trimmed.contains("\"provider\"")) {
+            return ""
+        }
+        return trimmed
     }
 
     fun displayLyricsText(lyrics: String): String {

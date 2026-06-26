@@ -92,6 +92,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.FloatingToolbarDefaults
+import androidx.compose.material3.FloatingToolbarExitDirection
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.contentColorFor
@@ -188,6 +190,9 @@ import moe.rukamori.archivetune.constants.DisableAnimationsKey
 import moe.rukamori.archivetune.constants.DisableScreenshotKey
 import moe.rukamori.archivetune.constants.DynamicThemeKey
 import moe.rukamori.archivetune.constants.EnableHapticFeedbackKey
+import moe.rukamori.archivetune.constants.CompactFloatingToolbarBottomPadding
+import moe.rukamori.archivetune.constants.CompactFloatingToolbarHeight
+import moe.rukamori.archivetune.constants.CompactMiniPlayerBottomSpacing
 import moe.rukamori.archivetune.constants.FloatingToolbarBottomPadding
 import moe.rukamori.archivetune.constants.FloatingToolbarHeight
 import moe.rukamori.archivetune.constants.FloatingToolbarHorizontalPadding
@@ -840,7 +845,8 @@ class MainActivity : ComponentActivity() {
                     val allYtItems by homeViewModel.allYtItems.collectAsState()
                     val networkBannerState by networkBannerViewModel.bannerState.collectAsStateWithLifecycle()
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
-                    val (previousTab) = rememberSaveable { mutableStateOf("home") }
+                    var previousTab by rememberSaveable { mutableStateOf(Screens.Home.route) }
+                    var currentTab by rememberSaveable { mutableStateOf(Screens.Home.route) }
                     val currentRoute = navBackStackEntry?.destination?.route
                     val onlineSearchViewModel: OnlineSearchViewModel? =
                         if (currentRoute?.startsWith(OnlineSearchResultRoutePrefix) == true && navBackStackEntry != null) {
@@ -860,6 +866,15 @@ class MainActivity : ComponentActivity() {
                         remember(isTvDevice) {
                             if (isTvDevice) Screens.TvMainScreens else Screens.MainScreens
                         }
+
+                    LaunchedEffect(currentRoute, navigationItems) {
+                        val route = currentRoute ?: return@LaunchedEffect
+                        if (navigationItems.fastAny { it.route == route } && route != currentTab) {
+                            previousTab = currentTab
+                            currentTab = route
+                        }
+                    }
+
                     val (savedMiniPlayerAnchor, setSavedMiniPlayerAnchor) =
                         rememberPreference(
                             MiniPlayerLastAnchorKey,
@@ -949,33 +964,53 @@ class MainActivity : ComponentActivity() {
                         currentRoute == Screens.Home.route &&
                             (allLocalItems.isNotEmpty() || allYtItems.isNotEmpty())
 
-                    fun getBottomNavPadding(): Dp =
+                    val navigationToolbarScrollBehavior =
+                        FloatingToolbarDefaults.exitAlwaysScrollBehavior(
+                            exitDirection = FloatingToolbarExitDirection.Bottom,
+                        )
+
+                    fun bottomNavHeight(compact: Boolean): Dp =
                         if (shouldShowNavigationBar && !useRail) {
-                            FloatingToolbarHeight
+                            if (compact) CompactFloatingToolbarHeight else FloatingToolbarHeight
                         } else {
                             0.dp
                         }
-
-                    val floatingBarsBottomPadding = FloatingToolbarBottomPadding
-                    val navVisibleHeight = FloatingToolbarHeight
-
-                    val bottomNavigationBarHeight by animateDpAsState(
-                        targetValue = if (shouldShowNavigationBar && !useRail) navVisibleHeight else 0.dp,
-                        animationSpec = if (disableAnimations) snap() else NavigationBarAnimationSpec,
-                        label = "",
-                    )
 
                     val playerBottomSheetState =
                         rememberBottomSheetState(
                             dismissedBound = 0.dp,
                             collapsedBound =
                                 bottomInset +
-                                    (if (shouldShowNavigationBar && !useRail) floatingBarsBottomPadding else 0.dp) +
-                                    getBottomNavPadding() +
-                                    MiniPlayerBottomSpacing +
+                                    (if (shouldShowNavigationBar && !useRail) {
+                                        CompactFloatingToolbarBottomPadding + CompactFloatingToolbarHeight
+                                    } else {
+                                        0.dp
+                                    }) +
+                                    CompactMiniPlayerBottomSpacing +
                                     MiniPlayerHeight,
                             expandedBound = maxHeight,
                         )
+
+                    val isMiniPlayerVisible = !playerBottomSheetState.isDismissed
+                    val navVisibleHeight = bottomNavHeight(compact = isMiniPlayerVisible)
+                    val floatingBarsBottomPadding =
+                        if (isMiniPlayerVisible) {
+                            CompactFloatingToolbarBottomPadding
+                        } else {
+                            FloatingToolbarBottomPadding
+                        }
+                    val miniPlayerNavSpacing =
+                        if (isMiniPlayerVisible) {
+                            CompactMiniPlayerBottomSpacing
+                        } else {
+                            MiniPlayerBottomSpacing
+                        }
+
+                    val bottomNavigationBarHeight by animateDpAsState(
+                        targetValue = if (shouldShowNavigationBar && !useRail) navVisibleHeight else 0.dp,
+                        animationSpec = if (disableAnimations) snap() else NavigationBarAnimationSpec,
+                        label = "bottomNavigationBarHeight",
+                    )
 
                     val playerBackground by rememberEnumPreference(
                         key = PlayerBackgroundStyleKey,
@@ -1111,13 +1146,16 @@ class MainActivity : ComponentActivity() {
                             bottomInset,
                             shouldShowNavigationBar,
                             playerBottomSheetState.isDismissed,
+                            bottomNavigationBarHeight,
+                            miniPlayerNavSpacing,
+                            floatingBarsBottomPadding,
                         ) {
                             var bottom = bottomInset
                             if (shouldShowNavigationBar && !useRail) {
-                                bottom += getBottomNavPadding() + floatingBarsBottomPadding
+                                bottom += bottomNavigationBarHeight + floatingBarsBottomPadding
                             }
                             if (!playerBottomSheetState.isDismissed) {
-                                bottom += MiniPlayerHeight + MiniPlayerBottomSpacing
+                                bottom += MiniPlayerHeight + miniPlayerNavSpacing
                             }
                             windowsInsets
                                 .only(
@@ -1131,13 +1169,6 @@ class MainActivity : ComponentActivity() {
                                 ).add(WindowInsets(top = AppBarHeight, bottom = bottom))
                         }
 
-                    appBarScrollBehavior(
-                        canScroll = {
-                            navBackStackEntry?.destination?.route?.startsWith(OnlineSearchResultRoutePrefix) == false &&
-                                navBackStackEntry?.destination?.route != Screens.Library.route &&
-                                (playerBottomSheetState.isCollapsed || playerBottomSheetState.isDismissed)
-                        },
-                    )
 
                     val searchBarScrollBehavior =
                         appBarScrollBehavior(
@@ -1852,7 +1883,12 @@ class MainActivity : ComponentActivity() {
                                                     Modifier
                                                         .fillMaxSize()
                                                         .padding(
-                                                            bottom = if (!playerBottomSheetState.isDismissed) MiniPlayerHeight else 0.dp,
+                                                            bottom =
+                                                                if (!playerBottomSheetState.isDismissed) {
+                                                                    MiniPlayerHeight + miniPlayerNavSpacing
+                                                                } else {
+                                                                    0.dp
+                                                                },
                                                         ).navigationBarsPadding(),
                                             ) { searchSource ->
                                                 when (searchSource) {
@@ -1935,6 +1971,13 @@ class MainActivity : ComponentActivity() {
                                             FloatingNavigationToolbar(
                                                 items = navigationItems,
                                                 pureBlack = pureBlack,
+                                                compact = isMiniPlayerVisible,
+                                                scrollBehavior =
+                                                    if (shouldShowNavigationBar) {
+                                                        navigationToolbarScrollBehavior
+                                                    } else {
+                                                        null
+                                                    },
                                                 modifier =
                                                     Modifier
                                                         .align(Alignment.BottomCenter)
@@ -2036,13 +2079,13 @@ class MainActivity : ComponentActivity() {
                                                         ""
                                                     },
                                                 onMusicRecognitionClick =
-                                                    if (shouldShowHomeShuffleButton) {
+                                                    if (shouldShowNavigationBar && !useRail) {
                                                         { navController.navigate(MusicRecognitionRoute) }
                                                     } else {
                                                         null
                                                     },
                                                 musicRecognitionContentDescription =
-                                                    if (shouldShowHomeShuffleButton) {
+                                                    if (shouldShowNavigationBar && !useRail) {
                                                         stringResource(
                                                             R.string.music_recognition,
                                                         )
@@ -2050,7 +2093,7 @@ class MainActivity : ComponentActivity() {
                                                         ""
                                                     },
                                                 onMusicTogetherClick =
-                                                    if (shouldShowHomeShuffleButton) {
+                                                    if (shouldShowNavigationBar && !useRail) {
                                                         { navController.navigate("settings/music_together") }
                                                     } else {
                                                         null
@@ -2069,7 +2112,14 @@ class MainActivity : ComponentActivity() {
                                 modifier =
                                     Modifier
                                         .fillMaxSize()
-                                        .nestedScroll(searchBarScrollBehavior.nestedScrollConnection),
+                                        .nestedScroll(searchBarScrollBehavior.nestedScrollConnection)
+                                        .then(
+                                            if (shouldShowNavigationBar && !useRail) {
+                                                Modifier.nestedScroll(navigationToolbarScrollBehavior)
+                                            } else {
+                                                Modifier
+                                            },
+                                        ),
                             ) {
                                 var transitionDirection =
                                     AnimatedContentTransitionScope.SlideDirection.Left

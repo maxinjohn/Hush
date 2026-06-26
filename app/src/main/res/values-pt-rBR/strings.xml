@@ -764,7 +764,6 @@
     <string name="channel_stable">Estável</string>
     <string name="channel_nightly">Nightly</string>
     <string name="channel_daily_nightly">Diário</string>
-    <string name="recent_commits">Commits recentes</string>
     <string name="updates_nightly_title">Entrega nightly</string>
     <string name="updates_nightly_description">Builds nightly acompanham os commits de desenvolvimento mais recentes e podem incluir alterações inacabadas.</string>
     <string name="updates_nightly_hosting_description">Builds de desenvolvimento gerados automaticamente estão disponíveis a partir de execuções bem-sucedidas do GitHub Actions.</string>
@@ -777,10 +776,6 @@
     <string name="updates_channel_warning_nightly_unstable">Builds nightly são fornecidas apenas para testes e acesso antecipado.\nEstabilidade, compatibilidade e funcionalidade não são garantidas.</string>
     <string name="updates_channel_warning_acknowledgement">Observação: baixar diretamente do GitHub ignora qualquer verificação adicional feita pela loja de onde você pode ter instalado o app originalmente.\nAo continuar, você reconhece que builds nightly podem ser instáveis e as usa por sua conta e risco.</string>
     <string name="updates_daily_channel_confirmation">Mude para o canal Diário para receber atualizações do repositório daily-nightly.\n\nBuilds diárias são publicadas automaticamente todos os dias a partir do branch de desenvolvimento mais recente.\nObservação: baixar diretamente do GitHub ignora qualquer verificação adicional feita pela loja de onde você pode ter instalado o app originalmente.</string>
-    <string name="updates_latest_commit">Commit mais recente: %s</string>
-    <string name="updates_loading_commits">Carregando commits recentes</string>
-    <string name="updates_recent_commits_count">%1$d commits recentes</string>
-    <string name="updates_no_commits">Nenhum commit recente encontrado</string>
     <string name="changelog">Registro de alterações</string>
     <string name="view_changelog">Ver registro de alterações</string>
     <string name="check_for_update">Verificar atualização</string>

@@ -764,7 +764,6 @@
     <string name="channel_stable">安定版</string>
     <string name="channel_nightly">Nightly</string>
     <string name="channel_daily_nightly">Daily</string>
-    <string name="recent_commits">最近コミット</string>
     <string name="updates_nightly_title">Nightly配信</string>
     <string name="updates_nightly_description">Nightlyビルドは最新の開発コミットを追跡し、未完成の変更を含む場合があります。</string>
     <string name="updates_nightly_hosting_description">自動生成された開発ビルドは、成功したGitHub Actions実行から利用できます。</string>
@@ -782,10 +781,6 @@
 
 Dailyビルドは最新の開発ブランチから毎日自動公開されます。
 注: GitHubから直接ダウンロードすると、最初にアプリをインストールしたストアで行われる追加審査を回避することになります。</string>
-    <string name="updates_latest_commit">最新コミット: %s</string>
-    <string name="updates_loading_commits">読み込み中最近コミット</string>
-    <string name="updates_recent_commits_count">%1$d最近コミット</string>
-    <string name="updates_no_commits">最近コミットが見つかりません</string>
     <string name="changelog">変更履歴</string>
     <string name="view_changelog">表示変更履歴</string>
     <string name="check_for_update">アップデートを確認</string>

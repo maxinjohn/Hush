@@ -438,7 +438,6 @@
     <string name="update_channel">Aggiorna canale</string>
     <string name="channel_stable">Stabile</string>
     <string name="channel_nightly">Notturno</string>
-    <string name="recent_commits">Impegni recenti</string>
     <string name="update_notification_channel_name">Aggiornamenti dell\'app</string>
     <string name="update_notification_channel_desc">Notifiche per nuovi aggiornamenti dell\'app</string>
     <string name="update_notification_title">Aggiornamento disponibile</string>
