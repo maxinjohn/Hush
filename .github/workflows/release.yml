@@ -389,8 +389,12 @@ jobs:
           exit 1
 
       - name: Prepare Android SDK for signing
+        id: android_signing
         shell: bash
-        run: bash .github/scripts/setup-android-signing-env.sh
+        run: |
+          set -euo pipefail
+          bash .github/scripts/setup-android-signing-env.sh | tee /tmp/android-signing-env.log
+          echo "build_tools_version=$(grep '^build_tools_version=' /tmp/android-signing-env.log | cut -d= -f2)" >> "$GITHUB_OUTPUT"
 
       - name: Sign APK
         uses: ilharp/sign-android-release@v2.0.0
@@ -400,7 +404,7 @@ jobs:
           keyAlias: ${{ secrets.KEY_ALIAS }}
           keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
-          buildToolsVersion: 35.0.0
+          buildToolsVersion: ${{ steps.android_signing.outputs.build_tools_version }}
       
       - name: Move signed APK
         shell: bash
