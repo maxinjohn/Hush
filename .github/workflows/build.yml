@@ -70,13 +70,6 @@ jobs:
           cache-cleanup: on-success
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev' }}
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platforms;android-37
-            build-tools;35.0.0
-
       - name: Validate release signing secrets
         shell: bash
         env:
@@ -200,6 +193,10 @@ jobs:
           echo "Could not resolve APK release output directory for DISTRIBUTION=$DISTRIBUTION DEVICE=$DEVICE ABI=$ABI"
           find app/build/outputs/apk -maxdepth 8 -type d -print || true
           exit 1
+
+      - name: Prepare Android SDK for signing
+        shell: bash
+        run: bash .github/scripts/setup-android-signing-env.sh
 
       - name: Sign APK
         uses: ilharp/sign-android-release@v2.0.0
