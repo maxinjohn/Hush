@@ -1161,6 +1161,9 @@ fun BottomSheetPlayer(
                 onSliderValueChange = onSliderValueChange,
                 onSliderValueChangeFinished = onSliderValueChangeFinished,
                 currentFormat = if (playerDesignStyle == PlayerDesignStyle.V7) currentFormat else null,
+                landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE,
+                landscapeCompact = playerDesignStyle == PlayerDesignStyle.V6 &&
+                    LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE,
             )
         }
 
@@ -1308,9 +1311,7 @@ fun BottomSheetPlayer(
                                 )
                             }
 
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
+                            Box(
                                 modifier =
                                     Modifier
                                         .weight(0.58f)
@@ -1499,9 +1500,7 @@ fun BottomSheetPlayer(
                                 isPlayerExpanded = state.isExpanded,
                             )
                         }
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
+                        Box(
                             modifier =
                                 Modifier
                                     .weight(1f)
@@ -1509,7 +1508,9 @@ fun BottomSheetPlayer(
                                     .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
                         ) {
                             enrichedMetadata?.let {
-                                controlsContent(it)
+                                Column {
+                                    controlsContent(it)
+                                }
                             }
                         }
                     }

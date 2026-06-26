@@ -545,7 +545,7 @@ fun AlbumScreen(
                                 Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 24.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             val isBookmarked = albumWithSongs.album.bookmarkedAt != null
@@ -584,10 +584,7 @@ fun AlbumScreen(
                                         LocalAlbumRadio(albumWithSongs),
                                     )
                                 },
-                                modifier =
-                                    Modifier
-                                        .weight(1f)
-                                        .height(56.dp),
+                                modifier = Modifier.height(56.dp),
                                 shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
                                 colors =
                                     ToggleButtonDefaults.toggleButtonColors(
@@ -597,11 +594,23 @@ fun AlbumScreen(
                                         checkedContentColor = MaterialTheme.colorScheme.onPrimary,
                                     ),
                             ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.play),
-                                    contentDescription = stringResource(R.string.play),
-                                    modifier = Modifier.size(28.dp),
-                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.play),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.play),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
 
                             ToggleButton(
@@ -611,10 +620,7 @@ fun AlbumScreen(
                                         LocalAlbumRadio(albumWithSongs.copy(songs = albumWithSongs.songs.shuffled())),
                                     )
                                 },
-                                modifier =
-                                    Modifier
-                                        .weight(1f)
-                                        .height(56.dp),
+                                modifier = Modifier.height(56.dp),
                                 shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
                                 colors =
                                     ToggleButtonDefaults.toggleButtonColors(
@@ -624,11 +630,23 @@ fun AlbumScreen(
                                         checkedContentColor = MaterialTheme.colorScheme.onPrimary,
                                     ),
                             ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.shuffle),
-                                    contentDescription = stringResource(R.string.shuffle),
-                                    modifier = Modifier.size(28.dp),
-                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.shuffle),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.shuffle),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
 
                             ToggleButton(

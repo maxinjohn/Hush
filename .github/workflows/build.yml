@@ -210,69 +210,11 @@ jobs:
           name: ${{ steps.variant.outputs.artifact_name }}
           path: ${{ steps.release_dir.outputs.release_dir }}/out/${{ steps.variant.outputs.apk_name }}
 
-  build_debug:
-    if: github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: true
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          
-      - name: Set Up Gradle
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-cleanup: on-success
-          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev' }}
-          
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      - name: Resolve build hash
-        id: build_hash
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${GITHUB_REF}" = "refs/heads/dev" ]; then
-            echo "value=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build Debug APK
-        run: ./gradlew assembleGmsMobileUniversalDebug
-        env:
-          PULL_REQUEST: 'false'
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
-          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
-          TOGETHER_BEARER_TOKEN: ${{ secrets.TOGETHER_BEARER_TOKEN }}
-          CANVAS_BEARER_TOKEN: ${{ secrets.CANVAS_BEARER_TOKEN }}
-          EXTRACTOR_BEARER: ${{ secrets.EXTRACTOR_BEARER }}
-          NIGHTLY_BUILD_HASH: ${{ steps.build_hash.outputs.value }}
-
-      - name: Upload Debug APK
-        uses: actions/upload-artifact@v7
-        with:
-          name: hush-gms-mobile-universal-debug
-          path: |
-            app/build/outputs/apk/mobile/universal/debug/*.apk
-            app/build/outputs/apk/gmsMobileUniversal/debug/*.apk
-            app/build/outputs/apk/gms/mobile/universal/debug/*.apk
-            app/build/outputs/apk/mobileUniversal/debug/*.apk
-
   notifyUser:
     name: Notify referenced issues
     if: github.ref == 'refs/heads/dev' && github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
     needs:
       - build
-      - build_debug
     uses: ./.github/workflows/notify_user.yml
     permissions:
       issues: write
