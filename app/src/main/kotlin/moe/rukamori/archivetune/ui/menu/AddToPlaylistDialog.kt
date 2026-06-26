@@ -318,7 +318,12 @@ fun AddToPlaylistDialog(
                     color = AlertDialogDefaults.containerColor,
                     tonalElevation = AlertDialogDefaults.TonalElevation,
                 ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = maxHeight),
+                    ) {
                         Column(
                             modifier = Modifier.padding(start = 24.dp, end = 16.dp, top = 24.dp, bottom = 16.dp),
                         ) {

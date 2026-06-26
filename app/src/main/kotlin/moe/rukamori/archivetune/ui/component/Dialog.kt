@@ -32,7 +32,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
@@ -113,22 +113,26 @@ fun DefaultDialog(
             contentAlignment = Alignment.Center,
         ) {
             Surface(
-                modifier = Modifier.heightIn(max = maxHeight),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 560.dp)
+                        .heightIn(max = maxHeight),
                 shape = AlertDialogDefaults.shape,
                 color = AlertDialogDefaults.containerColor,
                 tonalElevation = AlertDialogDefaults.TonalElevation,
             ) {
                 Column(
-                    modifier = modifier.padding(24.dp),
+                    modifier =
+                        modifier
+                            .heightIn(max = maxHeight)
+                            .padding(24.dp),
                 ) {
                     val bodyModifier =
-                        if (contentScrollable) {
-                            Modifier
-                                .weight(1f, fill = false)
-                                .verticalScroll(rememberScrollState())
-                        } else {
-                            Modifier
-                        }
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState())
 
                     Column(
                         horizontalAlignment = horizontalAlignment,
@@ -209,15 +213,29 @@ fun ActionPromptDialog(
             contentAlignment = Alignment.Center,
         ) {
             Surface(
-                modifier = Modifier.heightIn(max = maxHeight),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 560.dp)
+                        .heightIn(max = maxHeight),
                 shape = AlertDialogDefaults.shape,
                 color = AlertDialogDefaults.containerColor,
                 tonalElevation = AlertDialogDefaults.TonalElevation,
             ) {
                 Column(
-                    modifier = Modifier.padding(24.dp),
+                    modifier =
+                        Modifier
+                            .heightIn(max = maxHeight)
+                            .padding(24.dp),
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .weight(1f, fill = false)
+                                .verticalScroll(rememberScrollState())
+                                .padding(12.dp),
+                    ) {
                         // title
                         if (titleBar != null) {
                             Row {
@@ -293,16 +311,29 @@ fun ListDialog(
             contentAlignment = Alignment.Center,
         ) {
             Surface(
-                modifier = Modifier.heightIn(max = maxHeight),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 560.dp)
+                        .heightIn(max = maxHeight),
                 shape = AlertDialogDefaults.shape,
                 color = AlertDialogDefaults.containerColor,
                 tonalElevation = AlertDialogDefaults.TonalElevation,
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = modifier.padding(vertical = 24.dp),
+                    modifier =
+                        modifier
+                            .heightIn(max = maxHeight)
+                            .padding(vertical = 24.dp),
                 ) {
-                    LazyColumn(content = content)
+                    LazyColumn(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .weight(1f, fill = false),
+                        content = content,
+                    )
                 }
             }
         }
