@@ -560,21 +560,13 @@
     <string name="ai_translating_lyrics">Translating The Lyrics...</string>
     <string name="about_fork_notice">Personal Android fork of ArchiveTune for my own phones and car head unit. Upstream credits and licenses are preserved below.</string>
     <string name="about_maintainer_note">Maintained by maxinjohn for personal use only.</string>
+    <string name="app_tagline">Music for your mood</string>
     <string name="about_contributors_upstream_note">People who contributed to upstream ArchiveTune.</string>
     <string name="about_upstream_project">ArchiveTune upstream</string>
-    <string name="about_lead_developer">Lead Developer</string>
-    <string name="about_archive_tune_team">Team</string>
-    <string name="about_respecter">Respecter</string>
     <string name="about_contributors">Contributors</string>
     <string name="about_contributor_translation">Contributor Translation</string>
     <string name="about_license">LICENSE</string>
     <string name="about_license_unknown">Unknown license</string>
-    <string name="about_position_lead_dev">Eh?</string>
-    <string name="about_position_developers">Developer | Team</string>
-    <string name="about_position_yuki">Just for Show &#x1F602; | Admin</string>
-    <string name="about_position_mo_agamy">Base Framework | Metrolist</string>
-    <string name="about_position_zion_huang">Creator of InnerTune · Foundation for Metrolist, ArchiveTune, and other forks</string>
     <string name="about_content_desc_github">GitHub</string>
     <string name="about_content_desc_website">Website</string>
-    <string name="about_content_desc_donate">Donate</string>
 </resources>

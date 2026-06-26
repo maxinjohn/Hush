@@ -332,7 +332,6 @@
     <string name="year_in_music_recap_word">RÉSUMÉ</string>
     <string name="ai_api_key">Clé API</string>
     <string name="music_recognition_history_no_results_body">Essayez un autre morceau, un autre artiste, un autre album ou un autre code.</string>
-    <string name="about_lead_developer">Développeur principal</string>
     <string name="aod_customize_text_alignment">Alignement du texte</string>
     <string name="settings_lyrics_subtitle">Fournisseurs de paroles, préchargement et traduction</string>
     <string name="aod_customize_sample_artist">Koiverse Ensemble</string>
@@ -347,14 +346,11 @@
     <string name="local_songs_scan_included_folders_desc">Analyser uniquement les morceaux stockés dans des dossiers dont le chemin d\'accès correspond à l\'un de ces chemins.</string>
     <string name="android_auto_sort_option_format">%1$s - %2$s</string>
     <string name="monthly_listeners">Auditeurs mensuels</string>
-    <string name="about_position_zion_huang">Créateur d\'InnerTune · À l\'origine de Metrolist, d\'ArchiveTune et d\'autres dérivés</string>
     <string name="aod_customize_subtitle">Forme, mise en page, commandes et style général</string>
     <string name="ai_provider">Fournisseur d\'IA</string>
     <string name="aod_shape_circle">Cercle</string>
     <string name="aod_customize_visibility">Visibilité</string>
-    <string name="about_position_mo_agamy">Cadre de base | Metrolist</string>
     <string name="aod_background_tonal_edge">Contraste de tons</string>
-    <string name="about_content_desc_donate">Faire un don</string>
     <string name="aod_customize_sample_duration">3:48</string>
     <string name="aod_customize_accent_style">Style d\'accent</string>
     <string name="ai_api_key_configured">Configuré</string>
@@ -368,7 +364,6 @@
     <string name="lyrics_share_style_deep_blur">Flou profond</string>
     <string name="aod_shape_pentagon">Pentagone</string>
     <string name="news_no_results_title">Aucun article correspondant</string>
-    <string name="about_archive_tune_team">L\'équipe</string>
     <string name="storage_migration_cache_progress">Transfert du cache... %1$d%%</string>
     <string name="ai_api_testing">Test de connexion…</string>
     <string name="aod_customize_horizontal_padding">Remplissage horizontal</string>
@@ -435,7 +430,6 @@
     <string name="news_error_desc">Vérifiez votre connexion Internet et réessayez.</string>
     <string name="spotify_not_connected">Spotify n\'est pas connecté</string>
     <string name="settings_developer_options_subtitle">Fonctionnalités expérimentales et débogage</string>
-    <string name="about_position_lead_dev">Hein ?</string>
     <string name="aod_customize_controls">Commandes</string>
     <string name="storage_cache_cleared">Le cache a été vidé.</string>
     <string name="no_releases_found">Aucune publication trouvée</string>
@@ -458,7 +452,6 @@
     <string name="about_contributors">Contributeurs</string>
     <string name="aod_customize_dp_value">%1$d jour</string>
     <string name="settings_about_subtitle">Informations sur l\'application, licences et contributeurs</string>
-    <string name="about_respecter">Respecter</string>
     <string name="ai_integration_desc">Configurer la traduction par IA et les automatisations personnalisées pour les utilisateurs.</string>
     <string name="singles">Singles</string>
     <string name="aod_customize_layout">Mise en page</string>

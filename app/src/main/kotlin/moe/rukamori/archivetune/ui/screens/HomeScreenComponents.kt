@@ -1374,7 +1374,7 @@ fun HomePageSectionTitle(
             section.endpoint?.browseId?.let { browseId ->
                 {
                     if (browseId == "FEmusic_moods_and_genres") {
-                        navController.navigate(Screens.MoodAndGenres.route)
+                        navController.navigate(Screens.ROUTE_MOOD_AND_GENRES)
                     } else {
                         navController.navigate("browse/$browseId")
                     }

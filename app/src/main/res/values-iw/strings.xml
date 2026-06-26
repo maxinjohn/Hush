@@ -730,14 +730,9 @@
     <string name="channel_stable">יציב</string>
     <string name="channel_nightly">לילי</string>
     <string name="channel_daily_nightly">יומי</string>
-    <string name="recent_commits">שינויים אחרונים</string>
     <string name="updates_nightly_title">הפצה לילית</string>
     <string name="updates_nightly_description">גרסאות לילה עוקבת אחר שינויים חדשים לפיתוח ועשויות לכלול שינויים שלא הושלמו.</string>
     <string name="updates_nightly_hosting_description">גרסאות פיתוח שנוצרו אוטומטית זמינות לאחר ריצות מוצלחות של GitHub Actions.</string>
-    <string name="updates_latest_commit">שינוי אחרון: %s</string>
-    <string name="updates_loading_commits">טוען את השינויים האחרונים</string>
-    <string name="updates_recent_commits_count">%1$d שינויים אחרונים</string>
-    <string name="updates_no_commits">לא נמצאו שינויים אחרונים</string>
     <string name="changelog">יומן שינויים</string>
     <string name="view_changelog">הצגת יומן שינויים</string>
     <string name="check_for_update">בדוק אם יש עדכון</string>

@@ -199,6 +199,7 @@ import moe.rukamori.archivetune.constants.PlayerHorizontalPadding
 import moe.rukamori.archivetune.constants.LandscapePlayerBottomSpacing
 import moe.rukamori.archivetune.constants.LandscapeQueuePeekHeight
 import moe.rukamori.archivetune.constants.LandscapeQueuePeekHeightV9
+import moe.rukamori.archivetune.constants.LandscapeSleepTimerPeekExtra
 import moe.rukamori.archivetune.constants.QueuePeekHeight
 import moe.rukamori.archivetune.constants.SliderStyle
 import moe.rukamori.archivetune.constants.SliderStyleKey
@@ -780,12 +781,12 @@ fun BottomSheetPlayer(
         if (playerDesignStyle == PlayerDesignStyle.V5) {
             0.dp
         } else if (isLandscape) {
-            when (playerDesignStyle) {
-                PlayerDesignStyle.V9 ->
-                    LandscapeQueuePeekHeightV9 +
-                        if (sleepTimerEnabled) 34.dp else 0.dp
-                else -> LandscapeQueuePeekHeight
-            }
+            val basePeekHeight =
+                when (playerDesignStyle) {
+                    PlayerDesignStyle.V9 -> LandscapeQueuePeekHeightV9
+                    else -> LandscapeQueuePeekHeight
+                }
+            basePeekHeight + if (sleepTimerEnabled) LandscapeSleepTimerPeekExtra else 0.dp
         } else if (playerDesignStyle == PlayerDesignStyle.V9) {
             88.dp +
                 (if (showCodecOnPlayer) 24.dp else 0.dp) +
@@ -1337,7 +1338,7 @@ fun BottomSheetPlayer(
                                 enrichedMetadata?.let { metadata ->
                                     V8PlayerControlsContent(
                                         mediaMetadata = metadata,
-                                        queueTitle = "",
+                                        queueTitle = queueTitle,
                                         playbackState = playbackState,
                                         isPlaying = isPlaying,
                                         isLoading = isLoading,
@@ -1638,7 +1639,7 @@ fun BottomSheetPlayer(
                             enrichedMetadata?.let { metadata ->
                                 V8PlayerControlsContent(
                                     mediaMetadata = metadata,
-                                    queueTitle = "",
+                                    queueTitle = queueTitle,
                                     playbackState = playbackState,
                                     isPlaying = isPlaying,
                                     isLoading = isLoading,

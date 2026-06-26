@@ -23,6 +23,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -77,6 +78,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.EnableHapticFeedbackKey
+import moe.rukamori.archivetune.constants.MiniPlayerArtworkInnerSize
+import moe.rukamori.archivetune.constants.MiniPlayerArtworkOuterSize
 import moe.rukamori.archivetune.constants.MiniPlayerHeight
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.models.MediaMetadata
@@ -312,7 +315,10 @@ private fun MiniPlayerArtwork(
 ) {
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.size(47.dp),
+        modifier =
+            modifier
+                .size(MiniPlayerArtworkOuterSize)
+                .aspectRatio(1f),
     ) {
         if (isLoading) {
             CircularWavyProgressIndicator(
@@ -333,7 +339,7 @@ private fun MiniPlayerArtwork(
             contentAlignment = Alignment.Center,
             modifier =
                 Modifier
-                    .size(37.dp)
+                    .size(MiniPlayerArtworkInnerSize)
                     .clip(CircleShape)
                     .background(colors.artworkContainer)
                     .border(
@@ -348,13 +354,16 @@ private fun MiniPlayerArtwork(
                     model = thumbnailUrl,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape),
                 )
             } else {
                 Image(
                     painter = painterResource(R.drawable.hush_logo_mark),
                     contentDescription = null,
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }
@@ -502,7 +511,7 @@ fun NewMiniPlayerContent(
         modifier =
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 8.dp, vertical = 8.dp),
+                .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
         MiniPlayerArtwork(
             mediaMetadata = mediaMetadata,

@@ -112,15 +112,15 @@ fun NavGraphBuilder.navigationBuilder(
     disableAnimations: Boolean = false,
     onClearUpdateBadge: () -> Unit = {},
 ) {
-    composable(Screens.Home.route) {
+    composable(Screens.ROUTE_HOME) {
         HomeScreen(navController)
     }
     composable(
-        Screens.Library.route,
+        Screens.ROUTE_LIBRARY,
     ) {
         LibraryScreen(navController)
     }
-    composable(Screens.Search.route) {
+    composable(Screens.ROUTE_SEARCH) {
         SearchScreen(
             navController = navController,
             onSearchClick = {
@@ -158,7 +158,7 @@ fun NavGraphBuilder.navigationBuilder(
     composable(MusicRecognitionRoute) {
         MusicRecognitionScreen(navController)
     }
-    composable(Screens.MoodAndGenres.route) {
+    composable(Screens.ROUTE_MOOD_AND_GENRES) {
         MoodAndGenresScreen(navController)
     }
     composable("account") {
@@ -373,7 +373,7 @@ fun NavGraphBuilder.navigationBuilder(
     ) {
         YouTubeBrowseScreen(navController)
     }
-    composable("settings") {
+    composable(Screens.ROUTE_SETTINGS) {
         SettingsScreen(navController, scrollBehavior, latestVersionName())
     }
     composable("settings/account") {

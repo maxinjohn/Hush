@@ -9,6 +9,7 @@ package moe.rukamori.archivetune.utils
 
 import androidx.datastore.preferences.core.edit
 import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
 import io.ktor.client.statement.HttpResponse
@@ -27,15 +28,6 @@ import moe.rukamori.archivetune.constants.GitHubReleasesJsonKey
 import moe.rukamori.archivetune.constants.GitHubReleasesLastCheckedAtKey
 import org.json.JSONArray
 
-data class GitCommit(
-    val sha: String,
-    val message: String,
-    val author: String,
-    val date: String,
-    val url: String,
-    val authorAvatarUrl: String? = null,
-)
-
 data class ReleaseInfo(
     val tagName: String,
     val name: String,
@@ -51,7 +43,7 @@ private data class ReleasesNetworkResult(
 )
 
 object Updater {
-    private val client = HttpClient()
+    private val client by lazy { HttpClient(OkHttp) }
     private const val ReleaseCacheCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
     private val stableReleaseBaseUrl = HushLinks.GITHUB_RELEASES_URL
     private val stableReleaseApiUrl = HushLinks.GITHUB_API_RELEASES_URL
@@ -322,40 +314,6 @@ object Updater {
             lastCheckTime = System.currentTimeMillis()
             latestReleaseTag = latest.tagName
             latest
-        }
-
-    suspend fun getCommitHistory(
-        count: Int = 20,
-        branch: String = "dev",
-    ): Result<List<GitCommit>> =
-        runCatching {
-            if (!isUpdaterDistribution) {
-                return@runCatching emptyList()
-            }
-
-            val response =
-                client
-                    .get("https://api.github.com/repos/${HushLinks.GITHUB_OWNER}/${HushLinks.GITHUB_REPO}/commits?sha=$branch&per_page=$count")
-                    .bodyAsText()
-            val jsonArray = JSONArray(response)
-            val commits = mutableListOf<GitCommit>()
-            for (i in 0 until jsonArray.length()) {
-                val commitObj = jsonArray.getJSONObject(i)
-                val commit = commitObj.getJSONObject("commit")
-                val authorObj = commit.optJSONObject("author")
-                val githubAuthorObj = commitObj.optJSONObject("author")
-                commits.add(
-                    GitCommit(
-                        sha = commitObj.optString("sha", "").take(7),
-                        message = commit.optString("message", "").lines().firstOrNull() ?: "",
-                        author = authorObj?.optString("name", "Unknown") ?: "Unknown",
-                        date = authorObj?.optString("date", "") ?: "",
-                        url = commitObj.optString("html_url", ""),
-                        authorAvatarUrl = githubAuthorObj?.optString("avatar_url")?.takeIf { it.isNotBlank() },
-                    ),
-                )
-            }
-            commits
         }
 
     fun getLatestDownloadUrl(): String {

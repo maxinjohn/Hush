@@ -393,20 +393,16 @@
     <string name="import_csv_format">CSV 재생목록 파일</string>
     <string name="year_in_music_recap_word">RECAP</string>
     <string name="music_recognition_history_no_results_body">다른 곡, 아티스트, 앨범 또는 코드를 입력해 보세요.</string>
-    <string name="about_lead_developer">리드 개발자</string>
     <string name="aod_customize_text_alignment">텍스트 정렬</string>
     <string name="aod_customize_sample_artist">Koiverse Ensemble</string>
     <string name="aod_customize_control_size">컨트롤 크기</string>
     <string name="lyrics_share_style_frosted_dark">프로스테드 다크</string>
     <string name="local_songs_scan_included_folders_desc">지정한 특정 폴더 경로 아래에 있는 음원 파일들만 스캔합니다.</string>
     <string name="android_auto_sort_option_format">%1$s - %2$s</string>
-    <string name="about_position_zion_huang">InnerTune 원작 개발자 · Metrolist, ArchiveTune 및 기타 포크 버전의 핵심 토대 구축</string>
     <string name="aod_customize_subtitle">모양, 레이아웃, 컨트롤 및 앰비언트 스타일 설정</string>
     <string name="aod_shape_circle">원형</string>
     <string name="aod_customize_visibility">표시 설정</string>
-    <string name="about_position_mo_agamy">기초 프레임워크 설계 | Metrolist</string>
     <string name="aod_background_tonal_edge">톤 엣지</string>
-    <string name="about_content_desc_donate">후원</string>
     <string name="aod_customize_sample_duration">3:48</string>
     <string name="aod_customize_accent_style">강조 색상 스타일</string>
     <string name="music_recognition_history_search">인식된 곡 검색</string>
@@ -417,7 +413,6 @@
     <string name="aod_accent_theme">테마 색상</string>
     <string name="lyrics_share_style_deep_blur">딥 블러</string>
     <string name="aod_shape_pentagon">오각형</string>
-    <string name="about_archive_tune_team">Hush 팀</string>
     <string name="storage_migration_cache_progress">캐시 이동 중… %1$d%%</string>
     <string name="aod_customize_horizontal_padding">가로 여백</string>
     <string name="local_songs_scan_included_folders_empty">모든 폴더가 포함됩니다.</string>
@@ -463,7 +458,6 @@
     <string name="year_in_music_totals_title">당신이 채워온 음악 속 일상</string>
     <string name="aod_customize_show_controls">컨트롤 버튼 표시</string>
     <string name="spotify_not_connected">Spotify가 연결되지 않았습니다.</string>
-    <string name="about_position_lead_dev">네?</string>
     <string name="aod_customize_controls">재생 컨트롤</string>
     <string name="storage_cache_cleared">캐시가 비워졌습니다.</string>
     <string name="storage_location_internal">내부 저장소</string>
@@ -482,7 +476,6 @@
     <string name="aod_alignment_end">오른쪽 정렬</string>
     <string name="about_contributors">기여자 목록</string>
     <string name="aod_customize_dp_value">%1$d dp</string>
-    <string name="about_respecter">존경 및 명예 기여자</string>
     <string name="aod_customize_layout">레이아웃</string>
     <string name="playlist_sync_failed">재생목록 동기화 실패: %1$s</string>
     <string name="storage_location_sheet_title">저장 위치</string>

@@ -542,7 +542,6 @@
     <string name="update_channel">Канал оновлень</string>
     <string name="channel_stable">Стабільний</string>
     <string name="channel_nightly">Нічний</string>
-    <string name="recent_commits">Останні зміни</string>
     <string name="changelog">Історія змін</string>
     <string name="view_changelog">Переглянути історію змін</string>
     <string name="error_loading_changelog">Помилка під час завантаження історії змін</string>
@@ -679,10 +678,6 @@
     <string name="update_channel_desc">Виберіть між перевіреними версіями та знімками з розробки.</string>
     <string name="updates_nightly_title">Нічна доставка</string>
     <string name="updates_nightly_description">Нічні збірки відстежують найновіші коміти з розробки та можуть містити незавершені зміни.</string>
-    <string name="updates_latest_commit">Останній коміт: %s</string>
-    <string name="updates_loading_commits">Завантаження останніх комітів</string>
-    <string name="updates_recent_commits_count">%1$d останніх комітів</string>
-    <string name="updates_no_commits">Не знайдено останніх комітів</string>
     <string name="you_might_like_source">Вам може сподобатися джерело</string>
     <string name="playlist_suggestion_source_title">Назва плейлиста</string>
     <string name="playlist_suggestion_source_content">Вміст плейлиста</string>

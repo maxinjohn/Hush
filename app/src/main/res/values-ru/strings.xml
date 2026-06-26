@@ -504,7 +504,6 @@
     <string name="update_channel">Канал обновлений</string>
     <string name="channel_stable">Стабильный</string>
     <string name="channel_nightly">Ночные сборки</string>
-    <string name="recent_commits">Последние коммиты</string>
     <string name="changelog">Список изменений</string>
     <string name="view_changelog">Посмотреть список изменений</string>
     <string name="error_loading_changelog">Ошибка при загрузке списка изменений</string>
@@ -667,10 +666,6 @@
     <string name="update_channel_desc">Выбирайте между тестированными релизами и снапшотами разработки.</string>
     <string name="updates_nightly_title">Доставка ночных сборок</string>
     <string name="updates_nightly_description">Ночные сборки отслеживают последние изменения в процессе разработки и могут включать в себя незавершенные изменения.</string>
-    <string name="updates_latest_commit">Последний коммит: %s</string>
-    <string name="updates_loading_commits">Загрузка последних коммитов</string>
-    <string name="updates_recent_commits_count">%1$d последних коммитов</string>
-    <string name="updates_no_commits">Не найдено последних коммитов</string>
     <string name="you_might_like_source">Вам может понравиться источник</string>
     <string name="playlist_suggestion_source_title">Название плейлиста</string>
     <string name="playlist_suggestion_source_content">Контент плейлиста</string>

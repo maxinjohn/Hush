@@ -580,13 +580,8 @@
     <string name="update_channel_desc">철저하게 테스트를 마친 정식 릴리즈와, 실시간 스냅샷 채널 중에서 수집 형태를 선택하세요.</string>
     <string name="channel_stable">정식 릴리즈 (Stable)</string>
     <string name="channel_nightly">Nightly</string>
-    <string name="recent_commits">최근 수집된 커밋 이력</string>
     <string name="updates_nightly_title">Nightly 개발 버전</string>
     <string name="updates_nightly_description">Nightly 빌드는 매 순간 커밋된 가장 원초적인 개발 진행 코드를 즉각 수집해 반영하므로 다소 불안정할 수 있습니다.</string>
-    <string name="updates_latest_commit">가장 최근 반영된 개발 커밋: %s</string>
-    <string name="updates_loading_commits">최근 실시간 커밋 데이터를 로드하는 중…</string>
-    <string name="updates_recent_commits_count">최근 수집된 기여 내용 %1$d개</string>
-    <string name="updates_no_commits">감지된 최근 커밋 기록이 없습니다.</string>
     <string name="changelog">변경 내역 (Changelog)</string>
     <string name="view_changelog">변경 내역 자세히 보기</string>
     <string name="error_loading_changelog">변경 로그를 불러오는 도중 원격 통신 에러가 발생했습니다.</string>

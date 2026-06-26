@@ -86,7 +86,9 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
@@ -111,6 +113,7 @@ import moe.rukamori.archivetune.constants.EnableHapticFeedbackKey
 import moe.rukamori.archivetune.constants.PlayerBackgroundStyle
 import moe.rukamori.archivetune.constants.PlayerButtonsStyle
 import moe.rukamori.archivetune.constants.PlayerDesignStyle
+import moe.rukamori.archivetune.constants.LandscapePlayerCompactHeight
 import moe.rukamori.archivetune.constants.PlayerHorizontalPadding
 import moe.rukamori.archivetune.constants.SliderStyle
 import moe.rukamori.archivetune.db.entities.FormatEntity
@@ -1961,7 +1964,7 @@ fun PlayerControlsContent(
 
     if (landscape) {
         LandscapePlayerControlsColumn(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(),
             footerContent = playbackControls,
             content = controlsBody,
         )
@@ -1979,39 +1982,54 @@ private fun LandscapePlayerControlsColumn(
     footerContent: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val density = LocalDensity.current
     BoxWithConstraints(modifier = modifier.fillMaxHeight()) {
-        val compactHeight = maxHeight < 400.dp
+        val compactHeight = maxHeight < LandscapePlayerCompactHeight
         val veryCompactHeight = maxHeight < 320.dp
         val topInset =
             when {
-                veryCompactHeight -> (maxHeight * 0.04f).coerceIn(2.dp, 8.dp)
-                compactHeight -> (maxHeight * 0.06f).coerceIn(4.dp, 16.dp)
-                maxHeight < 520.dp -> (maxHeight * 0.10f).coerceIn(8.dp, 24.dp)
-                else -> (maxHeight * 0.14f).coerceIn(12.dp, 40.dp)
+                veryCompactHeight -> 2.dp
+                compactHeight -> 4.dp
+                maxHeight < 520.dp -> 8.dp
+                else -> 12.dp
             }
         val bottomInset =
             when {
-                veryCompactHeight -> 4.dp
-                compactHeight -> 6.dp
-                else -> 10.dp
+                veryCompactHeight -> 2.dp
+                compactHeight -> 4.dp
+                else -> 6.dp
             }
-        Column(
+
+        Box(
             modifier =
                 Modifier
                     .fillMaxSize()
                     .padding(top = topInset, bottom = bottomInset),
         ) {
             if (footerContent != null) {
+                var footerHeightPx by remember { mutableStateOf(0) }
+                val footerHeight = with(density) { footerHeightPx.toDp() }
+
                 Column(
                     modifier =
                         Modifier
-                            .weight(1f)
                             .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .padding(bottom = footerHeight)
                             .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     content = content,
                 )
-                footerContent()
+
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.BottomCenter)
+                            .onSizeChanged { footerHeightPx = it.height },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    content = footerContent,
+                )
             } else {
                 Column(
                     modifier =
@@ -2026,6 +2044,23 @@ private fun LandscapePlayerControlsColumn(
     }
 }
 
+private fun landscapePlayerArtworkSize(
+    maxWidth: Dp,
+    maxHeight: Dp,
+    verticalPadding: Dp,
+    minControlsHeight: Dp,
+    maxHeightFraction: Float,
+    maxWidthFraction: Float,
+    minSize: Dp = 120.dp,
+): Dp {
+    val availableHeight = (maxHeight - verticalPadding).coerceAtLeast(minSize)
+    val heightCap = (availableHeight - minControlsHeight).coerceAtLeast(minSize)
+    return (maxHeight * maxHeightFraction)
+        .coerceAtMost(maxWidth * maxWidthFraction)
+        .coerceAtMost(heightCap)
+        .coerceAtLeast(minSize)
+}
+
 @Composable
 fun V6LandscapePlayerContent(
     artworkContent: @Composable () -> Unit,
@@ -2034,7 +2069,7 @@ fun V6LandscapePlayerContent(
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val horizontalPadding = if (maxWidth < 560.dp) 16.dp else 24.dp
-        val compactHeight = maxHeight < 400.dp
+        val compactHeight = maxHeight < LandscapePlayerCompactHeight
         val verticalPadding =
             when {
                 maxHeight < 320.dp -> 6.dp
@@ -2151,7 +2186,7 @@ fun V8PlayerControlsContent(
                 .fillMaxWidth()
                 .then(if (landscape) Modifier.fillMaxHeight() else Modifier),
     ) {
-        val compactHeight = maxHeight < 380.dp
+        val compactHeight = maxHeight < LandscapePlayerCompactHeight
         val horizontalPadding =
             if (landscape) {
                 if (maxWidth < 560.dp) 16.dp else 36.dp
@@ -2240,6 +2275,7 @@ fun V8PlayerControlsContent(
                 modifier =
                     Modifier
                         .fillMaxWidth()
+                        .fillMaxHeight()
                         .padding(horizontal = horizontalPadding),
                 footerContent = transportFooter,
                 content = controlsBody,
@@ -2311,8 +2347,11 @@ fun V8PlayerContent(
     val onTitleClick = titleActions.onTitleClick
     val onArtistClick = titleActions.onArtistClick
 
-    if (landscape) {
-        V8LandscapeContent(
+    BoxWithConstraints(modifier = modifier) {
+        val useLandscapeLayout = landscape || maxWidth > maxHeight
+
+        if (useLandscapeLayout) {
+            V8LandscapeContent(
             mediaMetadata = mediaMetadata,
             subtitle = subtitle,
             artists = mediaMetadata.artists,
@@ -2349,10 +2388,10 @@ fun V8PlayerContent(
             onSliderValueChange = onSliderValueChange,
             onSliderValueChangeFinished = onSliderValueChangeFinished,
             onVolumeChange = onVolumeChange,
-            modifier = modifier,
+            modifier = Modifier.fillMaxSize(),
         )
-    } else {
-        V8PortraitContent(
+        } else {
+            V8PortraitContent(
             mediaMetadata = mediaMetadata,
             subtitle = subtitle,
             artists = mediaMetadata.artists,
@@ -2389,8 +2428,9 @@ fun V8PlayerContent(
             onSliderValueChange = onSliderValueChange,
             onSliderValueChangeFinished = onSliderValueChangeFinished,
             onVolumeChange = onVolumeChange,
-            modifier = modifier,
+            modifier = Modifier.fillMaxSize(),
         )
+        }
     }
 }
 
@@ -2585,17 +2625,25 @@ private fun V8LandscapeContent(
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val horizontalPadding = if (maxWidth < 560.dp) 24.dp else 36.dp
         val contentGap = if (maxWidth < 560.dp) 20.dp else 36.dp
-        val compactHeight = maxHeight < 380.dp
+        val compactHeight = maxHeight < LandscapePlayerCompactHeight
+        val verticalPadding = if (compactHeight) 12.dp else 24.dp
+        val minControlsHeight = if (compactHeight) 188.dp else 228.dp
         val artworkSize =
-            (maxHeight * 0.82f)
-                .coerceAtMost((maxWidth - horizontalPadding * 2 - contentGap) * 0.42f)
-                .coerceAtLeast(160.dp)
+            landscapePlayerArtworkSize(
+                maxWidth = maxWidth,
+                maxHeight = maxHeight,
+                verticalPadding = verticalPadding,
+                minControlsHeight = minControlsHeight,
+                maxHeightFraction = if (compactHeight) 0.62f else 0.72f,
+                maxWidthFraction = 0.38f,
+                minSize = if (compactHeight) 112.dp else 140.dp,
+            )
 
         Row(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .padding(horizontal = horizontalPadding, vertical = if (compactHeight) 12.dp else 24.dp),
+                    .padding(horizontal = horizontalPadding, vertical = verticalPadding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(contentGap),
         ) {
@@ -2608,7 +2656,7 @@ private fun V8LandscapeContent(
             )
 
             LandscapePlayerControlsColumn(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
                 footerContent = {
                     Spacer(Modifier.height(if (compactHeight) 10.dp else 16.dp))
 
@@ -2668,6 +2716,17 @@ private fun V8LandscapeContent(
                     onSliderValueChange = onSliderValueChange,
                     onSliderValueChangeFinished = onSliderValueChangeFinished,
                 )
+
+                if (compactHeight) {
+                    Spacer(Modifier.height(10.dp))
+
+                    V8VolumeControls(
+                        volume = volume,
+                        foreground = foreground,
+                        secondaryForeground = secondaryForeground,
+                        onVolumeChange = onVolumeChange,
+                    )
+                }
             }
         }
     }
@@ -3275,8 +3334,11 @@ fun V9PlayerContent(
         }
     }
 
-    if (landscape) {
-        V9LandscapeContent(
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val useLandscapeLayout = landscape || maxWidth > maxHeight
+
+        if (useLandscapeLayout) {
+            V9LandscapeContent(
             title = mediaMetadata.title,
             artists = mediaMetadata.artists,
             artworkUrl = artworkUrl,
@@ -3303,10 +3365,10 @@ fun V9PlayerContent(
             onNextClick = playerConnection::seekToNext,
             onSliderValueChange = onSliderValueChange,
             onSliderValueChangeFinished = onSliderValueChangeFinished,
-            modifier = modifier,
+            modifier = Modifier.fillMaxSize(),
         )
-    } else {
-        V9PortraitContent(
+        } else {
+            V9PortraitContent(
             title = mediaMetadata.title,
             artists = mediaMetadata.artists,
             artworkUrl = artworkUrl,
@@ -3333,8 +3395,9 @@ fun V9PlayerContent(
             onNextClick = playerConnection::seekToNext,
             onSliderValueChange = onSliderValueChange,
             onSliderValueChangeFinished = onSliderValueChangeFinished,
-            modifier = modifier,
+            modifier = Modifier.fillMaxSize(),
         )
+        }
     }
 }
 
@@ -3517,17 +3580,25 @@ private fun V9LandscapeContent(
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val compactHeight = maxHeight < 380.dp
+        val compactHeight = maxHeight < LandscapePlayerCompactHeight
+        val verticalPadding = if (compactHeight) 10.dp else 16.dp
+        val minControlsHeight = if (compactHeight) 180.dp else 220.dp
         val artworkSize =
-            (maxHeight * 0.78f)
-                .coerceAtMost(maxWidth * 0.38f)
-                .coerceAtLeast(180.dp)
+            landscapePlayerArtworkSize(
+                maxWidth = maxWidth,
+                maxHeight = maxHeight,
+                verticalPadding = verticalPadding,
+                minControlsHeight = minControlsHeight,
+                maxHeightFraction = if (compactHeight) 0.58f else 0.68f,
+                maxWidthFraction = 0.36f,
+                minSize = if (compactHeight) 108.dp else 132.dp,
+            )
 
         Row(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .padding(horizontal = if (maxWidth < 560.dp) 20.dp else 28.dp, vertical = if (compactHeight) 10.dp else 16.dp),
+                    .padding(horizontal = if (maxWidth < 560.dp) 20.dp else 28.dp, vertical = verticalPadding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(if (maxWidth < 560.dp) 18.dp else 26.dp),
         ) {
@@ -3541,7 +3612,7 @@ private fun V9LandscapeContent(
             )
 
             LandscapePlayerControlsColumn(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
                 footerContent = {
                     Spacer(Modifier.height(if (compactHeight) 8.dp else 12.dp))
 

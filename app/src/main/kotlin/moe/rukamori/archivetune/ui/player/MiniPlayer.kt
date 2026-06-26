@@ -45,6 +45,7 @@ import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.constants.MiniPlayerBackgroundStyle
 import moe.rukamori.archivetune.constants.MiniPlayerBackgroundStyleKey
+import moe.rukamori.archivetune.constants.MiniPlayerHeight
 import moe.rukamori.archivetune.constants.SwipeSensitivityKey
 import moe.rukamori.archivetune.ui.theme.PlayerColorExtractor
 import moe.rukamori.archivetune.utils.rememberEnumPreference
@@ -188,9 +189,9 @@ private fun NewMiniPlayer(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(64.dp)
+                    .height(MiniPlayerHeight)
                     .offset { IntOffset(offsetX.roundToInt(), 0) }
-                    .clip(RoundedCornerShape(32.dp)),
+                    .clip(RoundedCornerShape(MiniPlayerHeight / 2)),
         ) {
             MiniPlayerBackground(
                 style = effectiveBackgroundStyle,

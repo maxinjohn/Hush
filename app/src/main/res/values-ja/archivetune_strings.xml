@@ -556,20 +556,11 @@
     <string name="ai_api_test_failed">APIテストに失敗しました</string>
     <string name="ai_translation_menu">AI翻訳</string>
     <string name="ai_translating_lyrics">歌詞を翻訳中...</string>
-    <string name="about_lead_developer">リード開発者</string>
-    <string name="about_archive_tune_team">チーム</string>
-    <string name="about_respecter">リスペクター</string>
     <string name="about_contributors">貢献者</string>
     <string name="about_contributor_translation">貢献者による翻訳</string>
     <string name="about_license">ライセンス</string>
     <string name="about_license_unknown">不明なライセンス</string>
-    <string name="about_position_lead_dev">え？</string>
-    <string name="about_position_developers">開発者 | チーム</string>
-    <string name="about_position_yuki">見せるだけ 😂 | 管理者</string>
-    <string name="about_position_mo_agamy">ベースフレームワーク | Metrolist</string>
-    <string name="about_position_zion_huang">InnerTuneの作成者 · Metrolist、ArchiveTune、その他のフォークの基盤</string>
     <string name="about_content_desc_github">GitHub</string>
     <string name="about_content_desc_website">ウェブサイト</string>
 
-    <string name="about_content_desc_donate">寄付</string>
-</resources>
+    </resources>

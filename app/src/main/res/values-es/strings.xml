@@ -499,7 +499,6 @@
     <string name="update_channel">Canal de actualización</string>
     <string name="channel_stable">Estable</string>
     <string name="channel_nightly">Experimental</string>
-    <string name="recent_commits">Cambios recientes</string>
     <string name="changelog">Registro de cambios</string>
     <string name="view_changelog">Ver registro de cambios</string>
     <string name="error_loading_changelog">Error al cargar el registro de cambios</string>
@@ -641,10 +640,6 @@
     <string name="updates_status_checking">Comprobar si hay una nueva versión</string>
     <string name="updates_status_current">Tienes la última versión disponible</string>
     <string name="update_channel_desc">Elige entre versiones probadas o en desarrollo.</string>
-    <string name="updates_latest_commit">Último commit: %s</string>
-    <string name="updates_loading_commits">Cargando las últimas modificaciones</string>
-    <string name="updates_recent_commits_count">%1$d commits recientes</string>
-    <string name="updates_no_commits">Sin cambios recientes</string>
     <string name="you_might_like_source">Podría gustarte la fuente</string>
     <string name="playlist_suggestion_source_title">Título de la lista de reproducción</string>
     <string name="playlist_suggestion_source_content">Contenido de la lista de reproducción</string>

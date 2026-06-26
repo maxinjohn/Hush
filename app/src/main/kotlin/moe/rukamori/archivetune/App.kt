@@ -20,6 +20,7 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.disk.directory
 import coil3.request.CachePolicy
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.allowHardware
 import coil3.request.crossfade
 import dagger.hilt.android.HiltAndroidApp
@@ -59,6 +60,7 @@ import moe.rukamori.archivetune.utils.reportException
 import moe.rukamori.archivetune.utils.refreshPlaybackLoginContext
 import moe.rukamori.archivetune.utils.toPlaybackAuthState
 import okhttp3.Dns
+import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -75,6 +77,7 @@ class App :
 
     @Volatile private var isInitialized = false
     private val didRunImageCacheTrim = AtomicBoolean(false)
+    private val imageNetworkClient by lazy { OkHttpClient.Builder().build() }
 
     private fun currentProcessName(): String? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -148,7 +151,20 @@ class App :
                 val lastVersionCode = prefs[LastLaunchedVersionCodeKey] ?: 0
                 val shouldForceAuthRefresh = lastVersionCode != currentVersionCode
 
-                refreshPlaybackLoginContext(forceRefresh = shouldForceAuthRefresh)
+                if (shouldForceAuthRefresh) {
+                    runCatching {
+                        refreshPlaybackLoginContext(forceRefresh = true)
+                    }.onFailure { throwable ->
+                        Timber.e(throwable, "Failed to refresh playback login context on upgrade")
+                        reportException(throwable)
+                    }
+                } else {
+                    runCatching {
+                        refreshPlaybackLoginContext(forceRefresh = false)
+                    }.onFailure { throwable ->
+                        Timber.w(throwable, "Failed to refresh playback login context")
+                    }
+                }
 
                 if (shouldForceAuthRefresh) {
                     dataStore.edit { settings ->
@@ -342,6 +358,9 @@ class App :
 
         return ImageLoader
             .Builder(this)
+            .components {
+                add(OkHttpNetworkFetcherFactory(callFactory = { imageNetworkClient }))
+            }
             .crossfade(true)
             .allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
             .diskCache(diskCache)
