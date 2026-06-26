@@ -98,8 +98,6 @@ import moe.rukamori.archivetune.viewmodels.AboutTranslationContributorUiCollecti
 import moe.rukamori.archivetune.viewmodels.AboutTranslationContributorsUiState
 import moe.rukamori.archivetune.viewmodels.AboutUiModel
 import moe.rukamori.archivetune.viewmodels.AboutViewModel
-import moe.rukamori.archivetune.viewmodels.TeamMember
-import moe.rukamori.archivetune.viewmodels.TeamMemberCollection
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -785,38 +783,6 @@ private fun AboutSuccessContent(
             }
         }
 
-        item(key = "lead_developer", contentType = "about_lead_developer") {
-            AboutContentContainer {
-                LeadDeveloperSection(
-                    member = model.leadDeveloper,
-                    onOpenUri = onOpenUri,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-
-        item(key = "team", contentType = "about_team_section") {
-            AboutContentContainer {
-                TeamMemberSection(
-                    title = stringResource(R.string.about_archive_tune_team),
-                    members = model.collaborators,
-                    onOpenUri = onOpenUri,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-
-        item(key = "respecters", contentType = "about_team_section") {
-            AboutContentContainer {
-                TeamMemberSection(
-                    title = stringResource(R.string.about_respecter),
-                    members = model.respecters,
-                    onOpenUri = onOpenUri,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-
         item(key = "contributors", contentType = "about_contributors") {
             AboutContentContainer {
                 ContributorsSection(
@@ -895,6 +861,13 @@ private fun AboutIdentityCard(
             ) {
                 Text(
                     text = stringResource(model.forkNoticeResId),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+
+                Text(
+                    text = stringResource(model.maintainerNoteResId),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -983,81 +956,6 @@ private fun LinkChipRow(
 }
 
 @Composable
-private fun LeadDeveloperSection(
-    member: TeamMember,
-    onOpenUri: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        AboutSectionHeader(title = stringResource(R.string.about_lead_developer))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.extraLarge,
-            colors =
-                CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        ) {
-            TeamMemberListItem(
-                member = member,
-                onOpenUri = onOpenUri,
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                avatarSize = 72.dp,
-                minHeight = 104.dp,
-            )
-        }
-    }
-}
-
-@Composable
-private fun TeamMemberSection(
-    title: String,
-    members: TeamMemberCollection,
-    onOpenUri: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        AboutSectionHeader(title = title)
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            colors =
-                CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        ) {
-            Column {
-                repeat(members.size) { index ->
-                    TeamMemberListItem(
-                        member = members[index],
-                        onOpenUri = onOpenUri,
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                    )
-
-                    if (index < members.size - 1) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 88.dp),
-                            thickness = SettingsDimensions.DividerThickness,
-                            color = MaterialTheme.colorScheme.outlineVariant,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun AboutSectionHeader(
     title: String,
     modifier: Modifier = Modifier,
@@ -1077,104 +975,6 @@ private fun AboutSectionHeader(
 }
 
 @Composable
-private fun TeamMemberListItem(
-    member: TeamMember,
-    onOpenUri: (String) -> Unit,
-    containerColor: Color,
-    modifier: Modifier = Modifier,
-    avatarSize: Dp = 56.dp,
-    minHeight: Dp = 88.dp,
-) {
-    val profileUrl = member.profileUrl
-    val itemClickModifier =
-        remember(profileUrl, onOpenUri) {
-            if (profileUrl.isNullOrBlank()) {
-                Modifier
-            } else {
-                Modifier.clickable { onOpenUri(profileUrl) }
-            }
-        }
-
-    ListItem(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .heightIn(min = minHeight)
-                .then(itemClickModifier),
-        colors = ListItemDefaults.colors(containerColor = containerColor),
-        leadingContent = {
-            AsyncImage(
-                model = member.avatarUrl,
-                contentDescription = member.name,
-                modifier =
-                    Modifier
-                        .size(avatarSize)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            )
-        },
-        headlineContent = {
-            Text(
-                text = member.name,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        supportingContent = {
-            Text(
-                text = stringResource(member.positionResId),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        trailingContent = {
-            MemberLinkActions(
-                links = member.links,
-                onOpenUri = onOpenUri,
-            )
-        },
-    )
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun MemberLinkActions(
-    links: AboutLinkCollection,
-    onOpenUri: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    FlowRow(
-        modifier = modifier.widthIn(max = 160.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        repeat(links.size) { index ->
-            val link = links[index]
-            val onClick =
-                remember(link.url, onOpenUri) {
-                    { onOpenUri(link.url) }
-                }
-
-            FilledTonalIconButton(
-                onClick = onClick,
-                modifier = Modifier.size(48.dp),
-            ) {
-                Icon(
-                    painter = painterResource(link.iconResId),
-                    contentDescription = stringResource(link.labelResId),
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun ContributorsSection(
     state: AboutContributorsUiState,
     readMoreUrl: String,
@@ -1187,6 +987,17 @@ private fun ContributorsSection(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         AboutSectionHeader(title = stringResource(R.string.about_contributors))
+
+        Text(
+            text = stringResource(R.string.about_contributors_upstream_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier =
+                Modifier.padding(
+                    horizontal = SettingsDimensions.SectionHeaderHorizontalPadding,
+                    vertical = SettingsDimensions.SectionHeaderBottomPadding,
+                ),
+        )
 
         Card(
             modifier = Modifier.fillMaxWidth(),

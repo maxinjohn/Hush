@@ -195,7 +195,7 @@ class AboutContributorsRepository
 
         private companion object {
             const val ContributorsLimit = 20
-            const val GitHubOwner = HushLinks.GITHUB_OWNER
-            const val GitHubRepo = HushLinks.GITHUB_REPO
+            const val GitHubOwner = HushLinks.UPSTREAM_GITHUB_OWNER
+            const val GitHubRepo = HushLinks.UPSTREAM_GITHUB_REPO
         }
     }

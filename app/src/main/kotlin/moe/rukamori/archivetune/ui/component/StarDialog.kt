@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
@@ -70,13 +69,13 @@ fun StarDialog(
 
             Button(
                 onClick = {
-                    uriHandler.openUri(HushLinks.GITHUB_RELEASES_URL)
+                    uriHandler.openUri(HushLinks.UPSTREAM_GITHUB_REPO_URL)
                     onSupport()
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(
-                    painter = painterResource(id = R.drawable.coffee),
+                    painter = painterResource(id = R.drawable.github),
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )

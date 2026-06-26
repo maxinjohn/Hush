@@ -678,10 +678,10 @@
     <string name="context_info">Contexts (comma-separated)</string>
     <string name="target_language">Target Language</string>
     <string name="close_dialog">Close</string>
-    <string name="support_development_title">Support development</string>
-    <string name="support_development_message">Hush is a personal fork of ArchiveTune. If you enjoy using it, you can star this fork on GitHub or support the upstream ArchiveTune project. Thanks for listening.</string>
-    <string name="support_development_donate">View releases on GitHub</string>
-    <string name="support_development_star">Star on GitHub</string>
+    <string name="support_development_title">Support ArchiveTune</string>
+    <string name="support_development_message">Hush is a personal fork for my own devices. If you want to support development, contribute to or donate to the upstream ArchiveTune project instead.</string>
+    <string name="support_development_donate">Open upstream ArchiveTune</string>
+    <string name="support_development_star">Star this fork on GitHub</string>
     <string name="later">Later</string>
     <string name="new_update_available">New update available</string>
     <string name="release_notes_unavailable">Release notes are unavailable</string>
@@ -837,7 +837,7 @@
     <string name="onboarding_community_releases_title">Get releases</string>
     <string name="onboarding_community_releases_desc">Download APK updates from this fork.</string>
     <string name="onboarding_community_upstream_desc">View the original ArchiveTune project and its community.</string>
-    <string name="onboarding_community_donate_desc">Support ongoing development.</string>
+    <string name="onboarding_community_donate_desc">Support upstream ArchiveTune maintainers.</string>
     <string name="you_might_like">You might like</string>
     <string name="refresh_suggestions">Refresh suggestions</string>
     <string name="you_might_like_source">You might like source</string>
