@@ -196,6 +196,9 @@ import moe.rukamori.archivetune.constants.PlayerCustomImageUriKey
 import moe.rukamori.archivetune.constants.PlayerDesignStyle
 import moe.rukamori.archivetune.constants.PlayerDesignStyleKey
 import moe.rukamori.archivetune.constants.PlayerHorizontalPadding
+import moe.rukamori.archivetune.constants.LandscapePlayerBottomSpacing
+import moe.rukamori.archivetune.constants.LandscapeQueuePeekHeight
+import moe.rukamori.archivetune.constants.LandscapeQueuePeekHeightV9
 import moe.rukamori.archivetune.constants.QueuePeekHeight
 import moe.rukamori.archivetune.constants.SliderStyle
 import moe.rukamori.archivetune.constants.SliderStyleKey
@@ -767,9 +770,22 @@ fun BottomSheetPlayer(
         }
     }
 
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscapePlayerInsets =
+        WindowInsets.systemBars.only(
+            WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+        )
+
     val dynamicQueuePeekHeight =
         if (playerDesignStyle == PlayerDesignStyle.V5) {
             0.dp
+        } else if (isLandscape) {
+            when (playerDesignStyle) {
+                PlayerDesignStyle.V9 ->
+                    LandscapeQueuePeekHeightV9 +
+                        if (sleepTimerEnabled) 34.dp else 0.dp
+                else -> LandscapeQueuePeekHeight
+            }
         } else if (playerDesignStyle == PlayerDesignStyle.V9) {
             88.dp +
                 (if (showCodecOnPlayer) 24.dp else 0.dp) +
@@ -781,6 +797,9 @@ fun BottomSheetPlayer(
         }
 
     val dismissedBound = dynamicQueuePeekHeight + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
+
+    val landscapePlayerBottomPadding =
+        dynamicQueuePeekHeight + LandscapePlayerBottomSpacing
 
     val queueSheetState =
         rememberBottomSheetState(
@@ -1290,12 +1309,9 @@ fun BottomSheetPlayer(
                             modifier =
                                 Modifier
                                     .fillMaxSize()
-                                    .padding(bottom = queueSheetState.collapsedBound)
-                                    .windowInsetsPadding(
-                                        WindowInsets.systemBars.only(
-                                            WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
-                                        ),
-                                    ).nestedScroll(state.preUpPostDownNestedScrollConnection),
+                                    .padding(bottom = landscapePlayerBottomPadding)
+                                    .windowInsetsPadding(landscapePlayerInsets)
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Box(
@@ -1353,8 +1369,8 @@ fun BottomSheetPlayer(
                             modifier =
                                 Modifier
                                     .fillMaxSize()
-                                    .padding(bottom = queueSheetState.collapsedBound + 48.dp)
-                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
+                                    .padding(bottom = landscapePlayerBottomPadding)
+                                    .windowInsetsPadding(landscapePlayerInsets)
                                     .nestedScroll(state.preUpPostDownNestedScrollConnection),
                             artworkContent = {
                                 val screenHeight = LocalConfiguration.current.screenHeightDp
@@ -1435,12 +1451,9 @@ fun BottomSheetPlayer(
                                 modifier =
                                     Modifier
                                         .fillMaxSize()
-                                        .padding(bottom = queueSheetState.collapsedBound)
-                                        .windowInsetsPadding(
-                                            WindowInsets.systemBars.only(
-                                                WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
-                                            ),
-                                        ).nestedScroll(state.preUpPostDownNestedScrollConnection),
+                                        .padding(bottom = landscapePlayerBottomPadding)
+                                        .windowInsetsPadding(landscapePlayerInsets)
+                                        .nestedScroll(state.preUpPostDownNestedScrollConnection),
                             )
                         }
                     }
@@ -1473,20 +1486,17 @@ fun BottomSheetPlayer(
                             modifier =
                                 Modifier
                                     .fillMaxSize()
-                                    .padding(bottom = queueSheetState.collapsedBound)
-                                    .windowInsetsPadding(
-                                        WindowInsets.systemBars.only(
-                                            WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
-                                        ),
-                                    ).nestedScroll(state.preUpPostDownNestedScrollConnection),
+                                    .padding(bottom = landscapePlayerBottomPadding)
+                                    .windowInsetsPadding(landscapePlayerInsets)
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
                         )
                     }
                 } else {
                     Row(
                         modifier =
                             Modifier
-                                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
-                                .padding(bottom = queueSheetState.collapsedBound + 48.dp),
+                                .windowInsetsPadding(landscapePlayerInsets)
+                                .padding(bottom = landscapePlayerBottomPadding),
                     ) {
                         Box(
                             contentAlignment = Alignment.Center,

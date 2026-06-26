@@ -1977,16 +1977,16 @@ private fun LandscapePlayerControlsColumn(
         val veryCompactHeight = maxHeight < 320.dp
         val topInset =
             when {
-                veryCompactHeight -> (maxHeight * 0.06f).coerceIn(4.dp, 12.dp)
-                compactHeight -> (maxHeight * 0.10f).coerceIn(8.dp, 24.dp)
-                maxHeight < 520.dp -> (maxHeight * 0.14f).coerceIn(12.dp, 32.dp)
-                else -> (maxHeight * 0.18f).coerceIn(16.dp, 48.dp)
+                veryCompactHeight -> (maxHeight * 0.04f).coerceIn(2.dp, 8.dp)
+                compactHeight -> (maxHeight * 0.06f).coerceIn(4.dp, 16.dp)
+                maxHeight < 520.dp -> (maxHeight * 0.10f).coerceIn(8.dp, 24.dp)
+                else -> (maxHeight * 0.14f).coerceIn(12.dp, 40.dp)
             }
         val bottomInset =
             when {
-                veryCompactHeight -> 6.dp
-                compactHeight -> 10.dp
-                else -> 16.dp
+                veryCompactHeight -> 4.dp
+                compactHeight -> 6.dp
+                else -> 10.dp
             }
         Column(
             modifier =
@@ -3566,6 +3566,7 @@ private fun V9LandscapeContent(
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
                     landscape = true,
+                    landscapeCompact = compactHeight,
                 )
             }
         }
@@ -3830,6 +3831,7 @@ private fun V9TransportControls(
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
     landscape: Boolean = false,
+    landscapeCompact: Boolean = false,
 ) {
     val haptic = LocalHapticFeedback.current
     val playPauseCorner by animateDpAsState(
@@ -3843,7 +3845,12 @@ private fun V9TransportControls(
     )
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val controlHeight = if (landscape) 104.dp else 110.dp
+        val controlHeight =
+            when {
+                landscape && landscapeCompact -> 84.dp
+                landscape -> 92.dp
+                else -> 110.dp
+            }
         val buttonGap = if (landscape) 12.dp else 10.dp
         val sideIconSize = if (landscape) 36.dp else 34.dp
         val playIconSize = if (landscape) 44.dp else 42.dp
