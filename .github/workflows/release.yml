@@ -13,6 +13,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          fetch-tags: true
       
       - name: Check version and Tag
         id: check_version
@@ -436,6 +437,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
 
       - name: Download all APKs
@@ -443,55 +445,42 @@ jobs:
         with:
           path: downloaded_artifacts/
 
-      - name: Resolve changelog range
-        id: changelog_range
+      - name: Write release notes
         shell: bash
         run: |
-          LAST_TAG="$(git describe --tags --abbrev=0 --match "v*" 2>/dev/null || true)"
-          if [ -n "$LAST_TAG" ]; then
-            FROM_REF="$LAST_TAG"
-          else
-            FROM_REF="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+          set -euo pipefail
+          MAX_ENTRIES=100
+          LAST_TAG="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+
+          {
+            echo "# Changelog"
+            echo ""
+            if [ -n "$LAST_TAG" ]; then
+              TOTAL="$(git rev-list --count "${LAST_TAG}..HEAD" 2>/dev/null || echo 0)"
+              echo "Changes since ${LAST_TAG}:"
+              echo ""
+              git log "${LAST_TAG}..HEAD" \
+                --pretty=format:'- %s (%h)' \
+                --no-merges \
+                --max-count="$MAX_ENTRIES"
+              if [ "${TOTAL:-0}" -gt "$MAX_ENTRIES" ]; then
+                echo ""
+                echo "_Showing the latest ${MAX_ENTRIES} of ${TOTAL} commits._"
+              fi
+            else
+              echo "Recent changes:"
+              echo ""
+              git log \
+                --pretty=format:'- %s (%h)' \
+                --no-merges \
+                --max-count="$MAX_ENTRIES"
+            fi
+          } > release_notes.md
+
+          if [ ! -s release_notes.md ]; then
+            echo "release_notes.md is empty."
+            exit 1
           fi
-
-          echo "from_ref=$FROM_REF" >> "$GITHUB_OUTPUT"
-          echo "to_ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-
-      - name: Build Changelog
-        id: build_changelog
-        uses: mikepenz/release-changelog-builder-action@v6
-        with:
-          mode: "COMMIT"
-          fromTag: ${{ steps.changelog_range.outputs.from_ref }}
-          toTag: ${{ steps.changelog_range.outputs.to_ref }}
-          configurationJson: |
-            {
-              "template": "# Changelog\n\n#{{CHANGELOG}}\n\n<details>\n<summary>Other changes</summary>\n\n#{{UNCATEGORIZED}}\n</details>\n",
-              "pr_template": "- #{{TITLE}} — by @#{{AUTHOR}}",
-              "categories": [
-                { "title": "## Features", "labels": ["feat", "feature"] },
-                { "title": "## Fixes", "labels": ["fix", "bug"] },
-                { "title": "## Performance", "labels": ["perf"] },
-                { "title": "## Refactors", "labels": ["refactor"] },
-                { "title": "## Documentation", "labels": ["docs"] },
-                { "title": "## Build / CI", "labels": ["build", "ci"] }
-              ],
-              "label_extractor": [
-                {
-                  "pattern": "^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test){1}(\\([\\w\\-\\.]+\\))?(!)?:\\s+.*$",
-                  "on_property": "title",
-                  "target": "$1"
-                }
-              ]
-            }
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Write release notes
-        env:
-          CHANGELOG: ${{ steps.build_changelog.outputs.changelog }}
-        run: |
-          python3 -c 'import os, pathlib; pathlib.Path("release_notes.md").write_text(os.environ.get("CHANGELOG", ""))'
 
       - name: Create Release
         env:
