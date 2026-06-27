@@ -38,6 +38,9 @@ For in-app updates: `hush-gms-mobile-universal-release.apk`
 > [!IMPORTANT]
 > If YouTube Music is not available in your region, use a VPN or proxy in a supported region for the first sync.
 
+> [!NOTE]
+> If install fails with “package conflicts with an existing package”, uninstall any old **Hush** (`app.hush.music`) or **ArchiveTune** (`moe.rukamori.archivetune`) build first, then install again. Android blocks updates when the signing key does not match.
+
 ## Build
 
 ```bash

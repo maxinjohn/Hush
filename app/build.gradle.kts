@@ -41,11 +41,11 @@ android {
     compileSdk = 37
 
     defaultConfig {
-    applicationId = "moe.rukamori.archivetune"
+        applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 138
-        versionName = "13.8.0"
+        versionCode = 139
+        versionName = "13.8.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -161,9 +161,10 @@ android {
 
     buildTypes {
         release {
-            if (hasReleaseSigningConfig) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            signingConfig =
+                signingConfigs.getByName(
+                    if (hasReleaseSigningConfig) "release" else "debug",
+                )
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
