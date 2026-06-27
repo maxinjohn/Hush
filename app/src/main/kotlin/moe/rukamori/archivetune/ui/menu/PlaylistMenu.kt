@@ -85,10 +85,13 @@ import moe.rukamori.archivetune.ui.component.NewActionGrid
 import moe.rukamori.archivetune.ui.component.PlaylistListItem
 import moe.rukamori.archivetune.ui.utils.HeaderDownloadItem
 import moe.rukamori.archivetune.ui.utils.sendAddMissingDownloads
+import moe.rukamori.archivetune.utils.PlaylistExporter
 import moe.rukamori.archivetune.utils.SpeedDialPin
 import moe.rukamori.archivetune.utils.SpeedDialPinType
+import moe.rukamori.archivetune.utils.getExportFileUri
 import moe.rukamori.archivetune.utils.parseSpeedDialPins
 import moe.rukamori.archivetune.utils.rememberPreference
+import moe.rukamori.archivetune.utils.saveExportToPublicDocuments
 import moe.rukamori.archivetune.utils.serializeSpeedDialPins
 import moe.rukamori.archivetune.utils.toggleSpeedDialPin
 import timber.log.Timber
@@ -368,6 +371,9 @@ fun PlaylistMenu(
     }
 
     var showDeletePlaylistDialog by remember {
+        mutableStateOf(false)
+    }
+    var showExportDialog by remember {
         mutableStateOf(false)
     }
 
@@ -920,6 +926,28 @@ fun PlaylistMenu(
                     )
 
                     ListItem(
+                        headlineContent = { Text(text = stringResource(R.string.export_playlist)) },
+                        leadingContent = {
+                            Icon(
+                                painter = painterResource(R.drawable.share),
+                                contentDescription = null,
+                            )
+                        },
+                        modifier =
+                            Modifier.clickable {
+                                if (songs.isNotEmpty()) {
+                                    showExportDialog = true
+                                }
+                            },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+
+                    HorizontalDivider(
+                        modifier = dividerModifier,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+
+                    ListItem(
                         headlineContent = {
                             Text(
                                 text = stringResource(R.string.delete),
@@ -974,6 +1002,76 @@ fun PlaylistMenu(
                 }
             }
         }
+    }
+
+    if (showExportDialog) {
+        ExportDialog(
+            onDismiss = { showExportDialog = false },
+            onShare = { format ->
+                showExportDialog = false
+                coroutineScope.launch(Dispatchers.IO) {
+                    val result =
+                        when (format) {
+                            "csv" -> PlaylistExporter.exportPlaylistAsCSV(context, playlist.playlist.name, songs)
+                            "m3u" -> PlaylistExporter.exportPlaylistAsM3U(context, playlist.playlist.name, songs)
+                            else -> Result.failure(IllegalArgumentException("Unknown format"))
+                        }
+                    withContext(Dispatchers.Main) {
+                        result
+                            .onSuccess { file ->
+                                val mimeType =
+                                    when (format) {
+                                        "csv" -> "text/csv"
+                                        "m3u" -> "audio/x-mpegurl"
+                                        else -> "*/*"
+                                    }
+                                val uri = getExportFileUri(context, file)
+                                val shareIntent =
+                                    Intent(Intent.ACTION_SEND).apply {
+                                        type = mimeType
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                context.startActivity(
+                                    Intent.createChooser(shareIntent, context.getString(R.string.export_playlist)),
+                                )
+                                onDismiss()
+                            }.onFailure {
+                                Toast.makeText(context, R.string.export_failed, Toast.LENGTH_SHORT).show()
+                            }
+                    }
+                }
+            },
+            onSave = { format ->
+                showExportDialog = false
+                coroutineScope.launch(Dispatchers.IO) {
+                    val exportResult =
+                        when (format) {
+                            "csv" -> PlaylistExporter.exportPlaylistAsCSV(context, playlist.playlist.name, songs)
+                            "m3u" -> PlaylistExporter.exportPlaylistAsM3U(context, playlist.playlist.name, songs)
+                            else -> Result.failure(IllegalArgumentException("Unknown format"))
+                        }
+                    val mimeType =
+                        when (format) {
+                            "csv" -> "text/csv"
+                            "m3u" -> "audio/x-mpegurl"
+                            else -> "*/*"
+                        }
+                    exportResult
+                        .mapCatching { file -> saveExportToPublicDocuments(context, file, mimeType).getOrThrow() }
+                        .onSuccess {
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, R.string.export_success, Toast.LENGTH_SHORT).show()
+                                onDismiss()
+                            }
+                        }.onFailure {
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, R.string.export_failed, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                }
+            },
+        )
     }
 
     syncProgress?.let { progress ->

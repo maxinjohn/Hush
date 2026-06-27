@@ -231,6 +231,15 @@ fun BackupAndRestore(
             PreferenceGroup(title = stringResource(R.string.internal_service)) {
                 item {
                     PreferenceEntry(
+                        title = { Text(stringResource(R.string.autobackup_settings)) },
+                        description = stringResource(R.string.automatic_backup_desc),
+                        icon = { Icon(painterResource(R.drawable.backup), null) },
+                        onClick = { navController.navigate("settings/backup_restore/autobackup") },
+                    )
+                }
+
+                item {
+                    PreferenceEntry(
                         title = { Text(stringResource(R.string.action_backup)) },
                         description = stringResource(R.string.backup_create_backup_desc),
                         icon = { Icon(painterResource(R.drawable.backup), null) },

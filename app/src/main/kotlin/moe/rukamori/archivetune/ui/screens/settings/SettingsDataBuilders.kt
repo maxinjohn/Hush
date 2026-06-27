@@ -25,6 +25,7 @@ import moe.rukamori.archivetune.R
 fun buildSettingsGroups(
     navController: NavController,
     isAndroid12OrLater: Boolean,
+    hasAndroidAuto: Boolean,
     hasUpdate: Boolean,
     context: Context,
 ): List<SettingsGroup> =
@@ -33,80 +34,110 @@ fun buildSettingsGroups(
             SettingsGroup(
                 title = stringResource(R.string.settings),
                 items =
-                    listOf(
-                        SettingsItem(
-                            key = "account",
-                            icon = painterResource(R.drawable.account),
-                            title = stringResource(R.string.account),
-                            subtitle = stringResource(R.string.settings_account_subtitle),
-                            accentColor = MaterialTheme.colorScheme.primary,
-                            onClick = { navController.navigate("settings/account") },
-                        ),
-                        SettingsItem(
-                            key = "stats",
-                            icon = painterResource(R.drawable.stats),
-                            title = stringResource(R.string.settings_stats_title),
-                            subtitle = stringResource(R.string.settings_stats_subtitle),
-                            accentColor = MaterialTheme.colorScheme.primary,
-                            onClick = { navController.navigate("stats") },
-                        ),
-                        SettingsItem(
-                            key = "appearance",
-                            icon = painterResource(R.drawable.palette),
-                            title = stringResource(R.string.appearance),
-                            subtitle = stringResource(R.string.settings_appearance_subtitle),
-                            accentColor = MaterialTheme.colorScheme.secondary,
-                            onClick = { navController.navigate("settings/appearance") },
-                        ),
-                        SettingsItem(
-                            key = "playback",
-                            icon = painterResource(R.drawable.music_note),
-                            title = stringResource(R.string.settings_playback_title),
-                            subtitle = stringResource(R.string.settings_playback_subtitle),
-                            accentColor = MaterialTheme.colorScheme.tertiary,
-                            onClick = { navController.navigate("settings/player") },
-                        ),
-                        SettingsItem(
-                            key = "behavior",
-                            icon = painterResource(R.drawable.swipe),
-                            title = stringResource(R.string.settings_behavior_title),
-                            subtitle = stringResource(R.string.settings_behavior_subtitle),
-                            accentColor = MaterialTheme.colorScheme.primary,
-                            onClick = { navController.navigate("settings/privacy") },
-                        ),
-                        SettingsItem(
-                            key = "lyrics",
-                            icon = painterResource(R.drawable.lyrics),
-                            title = stringResource(R.string.lyrics),
-                            subtitle = stringResource(R.string.settings_lyrics_subtitle),
-                            accentColor = MaterialTheme.colorScheme.secondary,
-                            onClick = { navController.navigate("settings/lyrics") },
-                        ),
-                        SettingsItem(
-                            key = "integration",
-                            icon = painterResource(R.drawable.auto_awesome),
-                            title = stringResource(R.string.integration),
-                            subtitle = stringResource(R.string.settings_integration_subtitle),
-                            accentColor = MaterialTheme.colorScheme.secondary,
-                            onClick = { navController.navigate("settings/integration") },
-                        ),
-                        SettingsItem(
-                            key = "ai_integration",
-                            icon = painterResource(R.drawable.ai),
-                            title = stringResource(R.string.ai_integration),
-                            subtitle = stringResource(R.string.ai_integration_desc),
-                            accentColor = MaterialTheme.colorScheme.secondary,
-                            onClick = { navController.navigate("settings/ai_integration") },
-                        ),
-                        SettingsItem(
-                            key = "backup_restore",
-                            icon = painterResource(R.drawable.backup),
-                            title = stringResource(R.string.backup_restore),
-                            subtitle = stringResource(R.string.settings_backup_restore_subtitle),
-                            accentColor = MaterialTheme.colorScheme.primary,
-                            onClick = { navController.navigate("settings/backup_restore") },
-                        ),
-                    ),
+                    buildList {
+                        add(
+                            SettingsItem(
+                                key = "account",
+                                icon = painterResource(R.drawable.account),
+                                title = stringResource(R.string.account),
+                                subtitle = stringResource(R.string.settings_account_subtitle),
+                                accentColor = MaterialTheme.colorScheme.primary,
+                                onClick = { navController.navigate("settings/account") },
+                            ),
+                        )
+                        add(
+                            SettingsItem(
+                                key = "stats",
+                                icon = painterResource(R.drawable.stats),
+                                title = stringResource(R.string.settings_stats_title),
+                                subtitle = stringResource(R.string.settings_stats_subtitle),
+                                accentColor = MaterialTheme.colorScheme.primary,
+                                onClick = { navController.navigate("stats") },
+                            ),
+                        )
+                        add(
+                            SettingsItem(
+                                key = "appearance",
+                                icon = painterResource(R.drawable.palette),
+                                title = stringResource(R.string.appearance),
+                                subtitle = stringResource(R.string.settings_appearance_subtitle),
+                                accentColor = MaterialTheme.colorScheme.secondary,
+                                onClick = { navController.navigate("settings/appearance") },
+                            ),
+                        )
+                        add(
+                            SettingsItem(
+                                key = "playback",
+                                icon = painterResource(R.drawable.music_note),
+                                title = stringResource(R.string.settings_playback_title),
+                                subtitle = stringResource(R.string.settings_playback_subtitle),
+                                accentColor = MaterialTheme.colorScheme.tertiary,
+                                onClick = { navController.navigate("settings/player") },
+                            ),
+                        )
+                        if (hasAndroidAuto) {
+                            add(
+                                SettingsItem(
+                                    key = "android_auto",
+                                    icon = painterResource(R.drawable.ic_android_auto),
+                                    title = stringResource(R.string.android_auto),
+                                    subtitle = stringResource(R.string.settings_android_auto_subtitle),
+                                    accentColor = MaterialTheme.colorScheme.tertiary,
+                                    onClick = { navController.navigate("settings/android_auto") },
+                                ),
+                            )
+                        }
+                        add(
+                            SettingsItem(
+                                key = "behavior",
+                                icon = painterResource(R.drawable.swipe),
+                                title = stringResource(R.string.settings_behavior_title),
+                                subtitle = stringResource(R.string.settings_behavior_subtitle),
+                                accentColor = MaterialTheme.colorScheme.primary,
+                                onClick = { navController.navigate("settings/privacy") },
+                            ),
+                        )
+                        add(
+                            SettingsItem(
+                                key = "lyrics",
+                                icon = painterResource(R.drawable.lyrics),
+                                title = stringResource(R.string.lyrics),
+                                subtitle = stringResource(R.string.settings_lyrics_subtitle),
+                                accentColor = MaterialTheme.colorScheme.secondary,
+                                onClick = { navController.navigate("settings/lyrics") },
+                            ),
+                        )
+                        add(
+                            SettingsItem(
+                                key = "integration",
+                                icon = painterResource(R.drawable.auto_awesome),
+                                title = stringResource(R.string.integration),
+                                subtitle = stringResource(R.string.settings_integration_subtitle),
+                                accentColor = MaterialTheme.colorScheme.secondary,
+                                onClick = { navController.navigate("settings/integration") },
+                            ),
+                        )
+                        add(
+                            SettingsItem(
+                                key = "ai_integration",
+                                icon = painterResource(R.drawable.ai),
+                                title = stringResource(R.string.ai_integration),
+                                subtitle = stringResource(R.string.ai_integration_desc),
+                                accentColor = MaterialTheme.colorScheme.secondary,
+                                onClick = { navController.navigate("settings/ai_integration") },
+                            ),
+                        )
+                        add(
+                            SettingsItem(
+                                key = "backup_restore",
+                                icon = painterResource(R.drawable.backup),
+                                title = stringResource(R.string.backup_restore),
+                                subtitle = stringResource(R.string.settings_backup_restore_subtitle),
+                                accentColor = MaterialTheme.colorScheme.primary,
+                                onClick = { navController.navigate("settings/backup_restore") },
+                            ),
+                        )
+                    },
             ),
         )
 

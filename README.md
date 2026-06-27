@@ -2,19 +2,25 @@
 
 Personal Android fork of [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune).
 
-Hush exists for my own devices — Android phones and a car head unit. It is not a public product fork. I maintain it for personal use and cherry-pick fixes I need.
+Hush exists for my own devices — Android phones and a car head unit. It is not a public product fork. I maintain it for personal use and cherry-pick fixes and features I need from upstream and sibling projects.
 
 - **Package:** `app.hush.music` (debug: `app.hush.music.debug`)
 - **Privacy:** [PRIVACY.md](PRIVACY.md)
 
-## Contributing
+## Contributing & donations
 
 Please do **not** open pull requests here for general features or fixes.
 
-- **Code contributions:** [ArchiveTuneApp/ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)
-- **Donations / sponsorship:** upstream ArchiveTune maintainers, not this repo
+Hush is a downstream fork. If you want to support development:
 
-You may report issues here if you use my builds, and I will look when I can. For major bugs or feature requests, please use [upstream ArchiveTune issues](https://github.com/ArchiveTuneApp/ArchiveTune/issues) — I merge useful upstream changes back into Hush over time.
+| Project | Role | Contribute / donate |
+| --- | --- | --- |
+| [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) | Primary base app | [Issues](https://github.com/ArchiveTuneApp/ArchiveTune/issues) · [Sponsor](https://github.com/sponsors/rukamori) |
+| [Metrolist](https://github.com/metrolistgroup/metrolist) | Playback & library features | [Issues](https://github.com/metrolistgroup/metrolist/issues) |
+| [Vivi Music](https://github.com/vivizzz007/vivi-music) | Playback reliability | [Issues](https://github.com/vivizzz007/vivi-music/issues) |
+| [Echo Music](https://github.com/EchoMusicApp/Echo-Music) | Settings & networking | [Issues](https://github.com/EchoMusicApp/Echo-Music/issues) |
+
+You may report issues on this repo if you use my builds. For upstream bugs or feature requests, prefer the project where the feature originated (see release notes for attribution).
 
 ## Download
 
@@ -23,8 +29,8 @@ You may report issues here if you use my builds, and I will look when I can. For
 | GitHub Releases | [maxinjohn/Hush releases](https://github.com/maxinjohn/Hush/releases/latest) |
 | Obtainium | [Add to Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/maxinjohn/Hush/) |
 
-Recommended for most phones: `hush-foss-mobile-arm64-release.apk`  
-For in-app updates: `hush-gms-mobile-arm64-release.apk`
+Recommended for most phones: `hush-foss-mobile-universal-release.apk`  
+For in-app updates: `hush-gms-mobile-universal-release.apk`
 
 > [!WARNING]
 > Install only from this repository unless you trust the source. Upstream ArchiveTune listings use a different package ID.
@@ -35,17 +41,25 @@ For in-app updates: `hush-gms-mobile-arm64-release.apk`
 ## Build
 
 ```bash
-./gradlew :app:assembleFossMobileArm64Debug --no-daemon --max-workers=2
+./gradlew :app:assembleFossMobileUniversalDebug --no-daemon --max-workers=2
 ```
 
-Output: `app/build/outputs/apk/fossMobileArm64/debug/hush-foss-mobile-arm64-debug.apk`
+Output: `app/build/outputs/apk/fossMobileUniversal/debug/hush-foss-mobile-universal-debug.apk`
 
 Copy `local.properties.example` to `local.properties` for optional API keys.  
 Release builds need signing secrets in CI or a local `app/keystore/release.keystore`.
 
 ## Acknowledgments
 
-Based on [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) and upstream projects including Metrolist, InnerTune, and BetterLyrics. GPL-3.0 license and upstream notices are preserved in the source.
+Hush is based on [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) and adapts ideas or code from:
+
+- **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** — core app, playback pipeline, lyrics stack, extractor integration
+- **[Metrolist](https://github.com/metrolistgroup/metrolist)** — music alarm, loudness normalization levels, playlist export, Android Auto settings
+- **[Vivi Music](https://github.com/vivizzz007/vivi-music)** — stream URL prefetch, automatic backup
+- **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)** — settings search, IPv4/IPv6 network preference
+- **InnerTune, ViMusic, OuterTune, BetterLyrics, and other GPL projects** in the dependency tree (see About → Licenses in the app)
+
+GPL-3.0 license and upstream notices are preserved in the source.
 
 ## Legal
 

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -30,6 +31,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -45,6 +47,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
@@ -65,6 +68,15 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val isAndroid12OrLater = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val hasAndroidAuto =
+        remember {
+            try {
+                context.packageManager.getPackageInfo("com.google.android.projection.gearhead", 0)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
     val listState = rememberLazyListState()
 
     val storagePermission =
@@ -109,10 +121,43 @@ fun SettingsScreen(
         BuildConfig.UPDATER_AVAILABLE &&
             Updater.isUpdateAvailable(latestVersionName, BuildConfig.VERSION_NAME)
     var isUpdateDismissed by remember { mutableStateOf(false) }
-    val settingsGroups = buildSettingsGroups(navController, isAndroid12OrLater, hasUpdate, context)
-    val settingsItems =
+    var searchQuery by remember { mutableStateOf("") }
+    val settingsGroups = buildSettingsGroups(navController, isAndroid12OrLater, hasAndroidAuto, hasUpdate, context)
+    val searchableSettings = getAllSearchableSettings()
+    val baseSettingsItems =
         remember(settingsGroups) {
             settingsGroups.flatMap { it.items }
+        }
+    val settingsItems =
+        if (searchQuery.isBlank()) {
+            baseSettingsItems
+        } else {
+            val searchLower = searchQuery.trim().lowercase()
+            val matchedTopLevel =
+                baseSettingsItems.filter {
+                    it.title.lowercase().contains(searchLower) ||
+                        it.subtitle.orEmpty().lowercase().contains(searchLower)
+                }
+            val matchedSubSettings =
+                searchableSettings
+                    .filter { it.label.lowercase().contains(searchLower) }
+                    .groupBy { it.sectionTitle }
+                    .map { (sectionTitle, entries) ->
+                        val route = entries.first().route
+                        SettingsItem(
+                            key = "search:${sectionTitle}:${route}",
+                            icon = painterResource(R.drawable.search),
+                            title = sectionTitle,
+                            subtitle =
+                                stringResource(
+                                    R.string.settings_search_matches,
+                                    entries.size,
+                                ),
+                            accentColor = MaterialTheme.colorScheme.primary,
+                            onClick = { navController.navigate(route) },
+                        )
+                    }
+            (matchedTopLevel + matchedSubSettings).distinctBy { it.key }
         }
 
     Scaffold(
@@ -200,6 +245,41 @@ fun SettingsScreen(
                             Modifier
                                 .padding(horizontal = SettingsDimensions.ScreenHorizontalPadding)
                                 .padding(bottom = SettingsDimensions.SectionSpacing),
+                    )
+                }
+            }
+
+            item(key = "search", contentType = "settings_search") {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = SettingsDimensions.ScreenHorizontalPadding)
+                            .padding(bottom = SettingsDimensions.SectionSpacing),
+                    placeholder = { Text(stringResource(R.string.settings_search_hint)) },
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(
+                            painter = painterResource(R.drawable.search),
+                            contentDescription = null,
+                        )
+                    },
+                )
+            }
+
+            if (settingsItems.isEmpty() && searchQuery.isNotBlank()) {
+                item(key = "search_empty", contentType = "settings_empty") {
+                    Text(
+                        text = stringResource(R.string.settings_search_no_results, searchQuery),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = SettingsDimensions.ScreenHorizontalPadding, vertical = 32.dp),
                     )
                 }
             }

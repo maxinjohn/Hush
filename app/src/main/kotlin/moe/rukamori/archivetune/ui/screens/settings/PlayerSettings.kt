@@ -49,6 +49,8 @@ import moe.rukamori.archivetune.constants.ExternalDownloaderEnabledKey
 import moe.rukamori.archivetune.constants.ExternalDownloaderPackageKey
 import moe.rukamori.archivetune.constants.HISTORY_DURATION_DEFAULT
 import moe.rukamori.archivetune.constants.HistoryDuration
+import moe.rukamori.archivetune.constants.LoudnessLevel
+import moe.rukamori.archivetune.constants.LoudnessLevelKey
 import moe.rukamori.archivetune.constants.LowDataModeKey
 import moe.rukamori.archivetune.constants.PauseOnDeviceMuteKey
 import moe.rukamori.archivetune.constants.PermanentShuffleKey
@@ -94,7 +96,7 @@ fun PlayerSettings(
     val (lowDataMode, onLowDataModeChange) =
         rememberPreference(
             LowDataModeKey,
-            defaultValue = true,
+            defaultValue = false,
         )
     val (persistentQueue, onPersistentQueueChange) =
         rememberPreference(
@@ -115,6 +117,11 @@ fun PlayerSettings(
         rememberPreference(
             AudioNormalizationKey,
             defaultValue = true,
+        )
+    val (loudnessLevel, onLoudnessLevelChange) =
+        rememberEnumPreference(
+            LoudnessLevelKey,
+            defaultValue = LoudnessLevel.BALANCED,
         )
     val (audioOffload, onAudioOffloadChange) =
         rememberPreference(
@@ -394,6 +401,24 @@ fun PlayerSettings(
                 )
             }
 
+            item(visible = audioNormalization) {
+                ListPreference(
+                    title = { Text(stringResource(R.string.loudness_level)) },
+                    icon = { Icon(painterResource(R.drawable.volume_up), null) },
+                    selectedValue = loudnessLevel,
+                    values = LoudnessLevel.entries,
+                    valueText = {
+                        when (it) {
+                            LoudnessLevel.AGGRESSIVE -> stringResource(R.string.loudness_level_aggressive)
+                            LoudnessLevel.LOUD -> stringResource(R.string.loudness_level_loud)
+                            LoudnessLevel.BALANCED -> stringResource(R.string.loudness_level_balanced)
+                            LoudnessLevel.QUIET -> stringResource(R.string.loudness_level_quiet)
+                        }
+                    },
+                    onValueSelected = onLoudnessLevelChange,
+                )
+            }
+
             item {
                 SwitchPreference(
                     title = { Text(stringResource(R.string.audio_offload)) },
@@ -515,6 +540,15 @@ fun PlayerSettings(
                     icon = { Icon(painterResource(R.drawable.clear_all), null) },
                     checked = stopMusicOnTaskClear,
                     onCheckedChange = onStopMusicOnTaskClearChange,
+                )
+            }
+
+            item {
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.alarm)) },
+                    description = stringResource(R.string.alarm_playlist_helper),
+                    icon = { Icon(painterResource(R.drawable.bedtime), null) },
+                    onClick = { navController.navigate("settings/alarm") },
                 )
             }
 

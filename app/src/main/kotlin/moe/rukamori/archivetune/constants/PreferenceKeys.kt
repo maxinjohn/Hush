@@ -144,10 +144,12 @@ enum class PlaylistSuggestionSource {
 val AppLanguageKey = stringPreferencesKey("appLanguage")
 val ContentLanguageKey = stringPreferencesKey("contentLanguage")
 val ContentCountryKey = stringPreferencesKey("contentCountry")
+val IpVersionKey = stringPreferencesKey("ipVersion")
 val PlaylistSuggestionSourceKey = stringPreferencesKey("playlistSuggestionSource")
 val EnableKugouKey = booleanPreferencesKey("enableKugou")
 val EnableLrcLibKey = booleanPreferencesKey("enableLrclib")
 val EnableBetterLyricsKey = booleanPreferencesKey("enableBetterLyrics")
+val EnableYouLyPlusLyricsKey = booleanPreferencesKey("enableYouLyPlusLyrics")
 val EnableSimpMusicLyricsKey = booleanPreferencesKey("enableSimpMusicLyrics")
 val EnablePaxsenixLyricsKey = booleanPreferencesKey("enablePaxsenixLyrics")
 val EnablePaxsenixAppleMusicLyricsKey = booleanPreferencesKey("enablePaxsenixAppleMusicLyrics")
@@ -261,6 +263,17 @@ val PersistentQueueKey = booleanPreferencesKey("persistentQueue")
 val PermanentShuffleKey = booleanPreferencesKey("permanentShuffle")
 val SkipSilenceKey = booleanPreferencesKey("skipSilence")
 val AudioNormalizationKey = booleanPreferencesKey("audioNormalization")
+val LoudnessLevelKey = stringPreferencesKey("loudnessLevel")
+
+enum class LoudnessLevel(
+    val targetLufs: Float,
+) {
+    AGGRESSIVE(-7f),
+    LOUD(-11f),
+    BALANCED(-14f),
+    QUIET(-19f),
+}
+
 val AudioOffload = booleanPreferencesKey("audioOffload")
 val CrossfadeEnabledKey = booleanPreferencesKey("crossfadeEnabled")
 val CrossfadeDurationKey = floatPreferencesKey("crossfadeDuration")
@@ -504,6 +517,7 @@ enum class QuickPicks {
 
 enum class PreferredLyricsProvider {
     BETTER_LYRICS,
+    YOULY_PLUS,
     LRCLIB,
     KUGOU,
     SIMPMUSIC,
@@ -518,6 +532,7 @@ enum class PreferredLyricsProvider {
 val DefaultLyricsProviderOrder =
     listOf(
         PreferredLyricsProvider.BETTER_LYRICS,
+        PreferredLyricsProvider.YOULY_PLUS,
         PreferredLyricsProvider.LRCLIB,
         PreferredLyricsProvider.KUGOU,
         PreferredLyricsProvider.SIMPMUSIC,
@@ -571,6 +586,12 @@ enum class PlayerDesignStyle {
     V7,
     V8,
     V9,
+    ;
+
+    companion object {
+        /** Default for new installs before the user picks a style in settings. */
+        val DEFAULT = V7
+    }
 }
 
 enum class PlayerBackgroundStyle {
@@ -807,8 +828,24 @@ val DailyNightlyReleasesFingerprintKey = stringPreferencesKey("daily_nightly_rel
 val TogetherOnlineEndpointCacheKey = stringPreferencesKey("together_online_endpoint_cache")
 val TogetherOnlineEndpointLastCheckedAtKey = longPreferencesKey("together_online_endpoint_last_checked_at")
 
+val AndroidAutoYouTubePlaylistsKey = booleanPreferencesKey("androidAutoYoutubePlaylists")
+val AndroidAutoSectionsOrderKey = stringPreferencesKey("androidAutoSectionsOrder")
+val AndroidAutoTargetPlaylistKey = stringPreferencesKey("androidAutoTargetPlaylist")
+
+val AutoBackupEnabledKey = booleanPreferencesKey("autoBackupEnabled")
+val EnableWeeklyAutoBackupKey = booleanPreferencesKey("enableWeeklyAutoBackup")
+val EnableBackupBeforeUpdateKey = booleanPreferencesKey("enableBackupBeforeUpdate")
+
 enum class UpdateChannel {
     STABLE,
     NIGHTLY,
     DAILY_NIGHTLY,
 }
+
+val AlarmEnabledKey = booleanPreferencesKey("alarmEnabled")
+val AlarmHourKey = intPreferencesKey("alarmHour")
+val AlarmMinuteKey = intPreferencesKey("alarmMinute")
+val AlarmPlaylistIdKey = stringPreferencesKey("alarmPlaylistId")
+val AlarmRandomSongKey = booleanPreferencesKey("alarmRandomSong")
+val AlarmNextTriggerAtKey = longPreferencesKey("alarmNextTriggerAt")
+val AlarmEntriesKey = stringPreferencesKey("alarmEntries")

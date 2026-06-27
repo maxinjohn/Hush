@@ -16,39 +16,36 @@ if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
 
+val discordApplicationId =
+    (
+        localProperties.getProperty("DISCORD_APPLICATION_ID")
+            ?: System.getenv("DISCORD_APPLICATION_ID")
+            ?: "1165706613961789445"
+        ).trim()
+val discordApplicationIdLong = discordApplicationId.toLongOrNull() ?: 1165706613961789445L
+val discordRedirectScheme = "discord-$discordApplicationId"
 val releaseKeystoreFile = file("keystore/release.keystore")
-
-fun signingProperty(vararg names: String): String? =
-    names.firstNotNullOfOrNull { name ->
-        System.getenv(name)?.takeIf { it.isNotBlank() }
-            ?: localProperties.getProperty(name)?.takeIf { it.isNotBlank() }
-    }
-
-val releaseStorePassword = signingProperty("STORE_PASSWORD", "KEYSTORE_PASSWORD")
-val releaseKeyAlias = signingProperty("KEY_ALIAS")
-val releaseKeyPassword = signingProperty("KEY_PASSWORD")
+val releaseStorePassword =
+    System.getenv("STORE_PASSWORD")?.takeIf { it.isNotBlank() }
+        ?: System.getenv("KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
+val releaseKeyAlias = System.getenv("KEY_ALIAS")?.takeIf { it.isNotBlank() }
+val releaseKeyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotBlank() }
 val hasReleaseSigningConfig =
     releaseKeystoreFile.isFile &&
         releaseStorePassword != null &&
         releaseKeyAlias != null &&
         releaseKeyPassword != null
-val ciUnsignedReleaseAllowed =
-    System.getenv("GITHUB_ACTIONS") == "true" ||
-        System.getenv("ALLOW_UNSIGNED_RELEASE") == "true"
-
-val hushGithubOwner = "maxinjohn"
-val hushGithubRepo = "Hush"
 
 android {
     namespace = "moe.rukamori.archivetune"
     compileSdk = 37
 
     defaultConfig {
-    applicationId = "app.hush.music"
+    applicationId = "moe.rukamori.archivetune"
         minSdk = 26
         targetSdk = 37
-        versionCode = 148
-        versionName = "13.7.10"
+        versionCode = 138
+        versionName = "13.8.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -91,8 +88,6 @@ android {
         buildConfigField("String", "NIGHTLY_BUILD_HASH", "\"$nightlyBuildHash\"")
         buildConfigField("String", "DISTRIBUTION", "\"gms\"")
         buildConfigField("boolean", "UPDATER_AVAILABLE", "true")
-        buildConfigField("String", "HUSH_GITHUB_OWNER", "\"$hushGithubOwner\"")
-        buildConfigField("String", "HUSH_GITHUB_REPO", "\"$hushGithubRepo\"")
     }
 
     flavorDimensions += listOf("distribution", "device", "abi")
@@ -102,11 +97,19 @@ android {
             isDefault = true
             buildConfigField("String", "DISTRIBUTION", "\"gms\"")
             buildConfigField("boolean", "UPDATER_AVAILABLE", "true")
+            buildConfigField("String", "DISCORD_APPLICATION_ID", "\"$discordApplicationId\"")
+            buildConfigField("long", "DISCORD_APPLICATION_ID_LONG", "${discordApplicationIdLong}L")
+            buildConfigField("String", "DISCORD_REDIRECT_SCHEME", "\"$discordRedirectScheme\"")
+            manifestPlaceholders["discordRedirectScheme"] = discordRedirectScheme
         }
         create("foss") {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION", "\"foss\"")
             buildConfigField("boolean", "UPDATER_AVAILABLE", "true")
+            buildConfigField("String", "DISCORD_APPLICATION_ID", "\"$discordApplicationId\"")
+            buildConfigField("long", "DISCORD_APPLICATION_ID_LONG", "${discordApplicationIdLong}L")
+            buildConfigField("String", "DISCORD_REDIRECT_SCHEME", "\"$discordRedirectScheme\"")
+            manifestPlaceholders["discordRedirectScheme"] = discordRedirectScheme
         }
         create("mobile") {
             dimension = "device"
@@ -220,19 +223,6 @@ android {
 
 }
 
-androidComponents {
-    onVariants { variant ->
-        variant.outputs.forEach { output ->
-            val flavorSegment =
-                variant.productFlavors.joinToString("-") { it.second }.let { segment ->
-                    if (segment.isEmpty()) "" else "$segment-"
-                }
-            val buildType = variant.buildType ?: "debug"
-            output.outputFileName.set("hush-$flavorSegment$buildType.apk")
-        }
-    }
-}
-
 kotlin {
     jvmToolchain(21)
 }
@@ -322,6 +312,7 @@ dependencies {
     implementation(project(":lyrics:paxsenix"))
     implementation(project(":lyrics:betterlyrics"))
     implementation(project(":lyrics:unison"))
+    implementation(project(":lyrics:youlyplus"))
     implementation(project(":lastfm"))
     implementation(project(":canvas"))
     implementation(project(":shazamkit"))
@@ -362,30 +353,6 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
         )
         // Suppress warnings
         suppressWarnings.set(true)
-    }
-}
-
-gradle.taskGraph.whenReady {
-    val assemblesRelease =
-        allTasks.any { task ->
-            task.name.startsWith("assemble") &&
-                task.name.endsWith("Release") &&
-                !task.name.contains("Test")
-        }
-    if (assemblesRelease && !hasReleaseSigningConfig && !ciUnsignedReleaseAllowed) {
-        error(
-            """
-            Release APK signing is not configured.
-
-            Add app/keystore/release.keystore and set these in local.properties or env:
-              STORE_PASSWORD (or KEYSTORE_PASSWORD)
-              KEY_ALIAS
-              KEY_PASSWORD
-
-            Unsigned release APKs cannot be installed on Android ("package appears to be invalid").
-            For quick sideloading, use: ./gradlew :app:assembleFossMobileArm64Debug
-            """.trimIndent(),
-        )
     }
 }
 

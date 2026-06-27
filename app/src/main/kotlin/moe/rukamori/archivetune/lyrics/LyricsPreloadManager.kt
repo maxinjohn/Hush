@@ -81,7 +81,7 @@ class LyricsPreloadManager
                         return@launch
                     }
 
-                    if (context.isLowDataModeActive(preferences[LowDataModeKey] ?: true)) {
+                    if (context.isLowDataModeActive(preferences[LowDataModeKey] ?: false)) {
                         Log.d(TAG, "Low Data Mode active, skipping lyrics pre-load")
                         return@launch
                     }

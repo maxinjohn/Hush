@@ -77,6 +77,7 @@ import moe.rukamori.archivetune.constants.EnablePaxsenixSpotifyLyricsKey
 import moe.rukamori.archivetune.constants.EnablePaxsenixYouTubeLyricsKey
 import moe.rukamori.archivetune.constants.EnableSimpMusicLyricsKey
 import moe.rukamori.archivetune.constants.EnableUnisonLyricsKey
+import moe.rukamori.archivetune.constants.EnableYouLyPlusLyricsKey
 import moe.rukamori.archivetune.constants.LyricsClickKey
 import moe.rukamori.archivetune.constants.LyricsLineBlurKey
 import moe.rukamori.archivetune.constants.LyricsLineSpacingKey
@@ -157,6 +158,8 @@ fun LyricsSettings(
     val (enableLrclib, onEnableLrclibChange) = rememberPreference(key = EnableLrcLibKey, defaultValue = true)
     val (enableKugou, onEnableKugouChange) = rememberPreference(key = EnableKugouKey, defaultValue = true)
     val (enableBetterLyrics, onEnableBetterLyricsChange) = rememberPreference(key = EnableBetterLyricsKey, defaultValue = true)
+    val (enableYouLyPlusLyrics, onEnableYouLyPlusLyricsChange) =
+        rememberPreference(key = EnableYouLyPlusLyricsKey, defaultValue = true)
     val (enableSimpMusicLyrics, onEnableSimpMusicLyricsChange) = rememberPreference(key = EnableSimpMusicLyricsKey, defaultValue = true)
     val (enablePaxsenixLyrics, onEnablePaxsenixLyricsChange) = rememberPreference(key = EnablePaxsenixLyricsKey, defaultValue = true)
     val (enablePaxsenixAppleMusicLyrics, onEnablePaxsenixAppleMusicLyricsChange) =
@@ -219,6 +222,7 @@ fun LyricsSettings(
             onDismiss = { showProviderOrderDialog = false },
             onConfirm = { newOrder ->
                 onProviderOrderStrChange(newOrder.joinToString(",") { it.name })
+                viewModel.clearLyricsCache()
                 showProviderOrderDialog = false
             },
         )
@@ -450,6 +454,18 @@ fun LyricsSettings(
 
             item {
                 SwitchPreference(
+                    title = { Text(stringResource(R.string.enable_youlyplus_lyrics)) },
+                    icon = { Icon(painterResource(R.drawable.lyrics), null) },
+                    checked = enableYouLyPlusLyrics,
+                    onCheckedChange = { enabled ->
+                        onEnableYouLyPlusLyricsChange(enabled)
+                        viewModel.clearLyricsCache()
+                    },
+                )
+            }
+
+            item {
+                SwitchPreference(
                     title = { Text(stringResource(R.string.enable_lrclib)) },
                     icon = { Icon(painterResource(R.drawable.lyrics), null) },
                     checked = enableLrclib,
@@ -660,6 +676,7 @@ private fun PreferredLyricsProvider.displayName(): String =
         PreferredLyricsProvider.LRCLIB -> "LrcLib"
         PreferredLyricsProvider.KUGOU -> "KuGou"
         PreferredLyricsProvider.BETTER_LYRICS -> "BetterLyrics"
+        PreferredLyricsProvider.YOULY_PLUS -> "YouLyPlus"
         PreferredLyricsProvider.SIMPMUSIC -> "SimpMusic"
         PreferredLyricsProvider.PAXSENIX_APPLE_MUSIC -> "Paxsenix: Apple Music"
         PreferredLyricsProvider.PAXSENIX_NETEASE -> "Paxsenix: NetEase"

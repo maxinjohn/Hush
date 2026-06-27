@@ -54,6 +54,11 @@ fun ContentSettings(navController: NavController) {
 
     val (contentLanguage, onContentLanguageChange) = rememberPreference(key = ContentLanguageKey, defaultValue = "system")
     val (contentCountry, onContentCountryChange) = rememberPreference(key = ContentCountryKey, defaultValue = "system")
+    val (ipVersion, onIpVersionChange) =
+        rememberEnumPreference(
+            key = IpVersionKey,
+            defaultValue = moe.rukamori.archivetune.innertube.models.IpVersion.AUTO,
+        )
     val (playlistSuggestionSource, onPlaylistSuggestionSourceChange) =
         rememberEnumPreference(
             key = PlaylistSuggestionSourceKey,
@@ -119,6 +124,29 @@ fun ContentSettings(navController: NavController) {
                             )
 
                         onContentCountryChange(newValue)
+                    },
+                )
+            }
+
+            item {
+                ListPreference(
+                    title = { Text(stringResource(R.string.network_ip_version)) },
+                    icon = { Icon(painterResource(R.drawable.wifi_proxy), null) },
+                    selectedValue = ipVersion,
+                    values = moe.rukamori.archivetune.innertube.models.IpVersion.entries,
+                    valueText = {
+                        when (it) {
+                            moe.rukamori.archivetune.innertube.models.IpVersion.AUTO ->
+                                stringResource(R.string.ip_version_auto)
+                            moe.rukamori.archivetune.innertube.models.IpVersion.IPV4 ->
+                                stringResource(R.string.ip_version_ipv4)
+                            moe.rukamori.archivetune.innertube.models.IpVersion.IPV6 ->
+                                stringResource(R.string.ip_version_ipv6)
+                        }
+                    },
+                    onValueSelected = { newValue ->
+                        YouTube.ipVersion = newValue
+                        onIpVersionChange(newValue)
                     },
                 )
             }

@@ -344,7 +344,7 @@ fun BottomSheetPlayer(
 
     val playerDesignStyle by rememberEnumPreference(
         key = PlayerDesignStyleKey,
-        defaultValue = PlayerDesignStyle.V4,
+        defaultValue = PlayerDesignStyle.DEFAULT,
     )
 
     val storedPlayerBackground by rememberEnumPreference(
@@ -1339,6 +1339,7 @@ fun BottomSheetPlayer(
                                     V8PlayerControlsContent(
                                         mediaMetadata = metadata,
                                         queueTitle = queueTitle,
+                                        sliderStyle = sliderStyle,
                                         playbackState = playbackState,
                                         isPlaying = isPlaying,
                                         isLoading = isLoading,
@@ -1427,6 +1428,7 @@ fun BottomSheetPlayer(
                             V8PlayerContent(
                                 mediaMetadata = metadata,
                                 queueTitle = queueTitle,
+                                sliderStyle = sliderStyle,
                                 playbackState = playbackState,
                                 isPlaying = isPlaying,
                                 isLoading = isLoading,
@@ -1462,6 +1464,7 @@ fun BottomSheetPlayer(
                     enrichedMetadata?.let { metadata ->
                         V9PlayerContent(
                             mediaMetadata = metadata,
+                            sliderStyle = sliderStyle,
                             playbackState = playbackState,
                             isPlaying = isPlaying,
                             isLoading = isLoading,
@@ -1640,6 +1643,7 @@ fun BottomSheetPlayer(
                                 V8PlayerControlsContent(
                                     mediaMetadata = metadata,
                                     queueTitle = queueTitle,
+                                    sliderStyle = sliderStyle,
                                     playbackState = playbackState,
                                     isPlaying = isPlaying,
                                     isLoading = isLoading,
@@ -1678,6 +1682,7 @@ fun BottomSheetPlayer(
                             V8PlayerContent(
                                 mediaMetadata = metadata,
                                 queueTitle = queueTitle,
+                                sliderStyle = sliderStyle,
                                 playbackState = playbackState,
                                 isPlaying = isPlaying,
                                 isLoading = isLoading,
@@ -1715,6 +1720,7 @@ fun BottomSheetPlayer(
                     enrichedMetadata?.let { metadata ->
                         V9PlayerContent(
                             mediaMetadata = metadata,
+                            sliderStyle = sliderStyle,
                             playbackState = playbackState,
                             isPlaying = isPlaying,
                             isLoading = isLoading,

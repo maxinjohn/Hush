@@ -35,8 +35,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.canvas.ArchiveTuneCanvas
 import moe.rukamori.archivetune.constants.*
-import moe.rukamori.archivetune.extensions.*
+import moe.rukamori.archivetune.extensions.toEnum
 import moe.rukamori.archivetune.innertube.YouTube
+import moe.rukamori.archivetune.innertube.models.IpVersion
 import moe.rukamori.archivetune.innertube.models.YouTubeLocale
 import moe.rukamori.archivetune.kugou.KuGou
 import moe.rukamori.archivetune.lastfm.LastFM
@@ -48,6 +49,7 @@ import moe.rukamori.archivetune.ui.player.CanvasArtworkPlaybackCache
 import moe.rukamori.archivetune.ui.screens.settings.ThemePalettes
 import moe.rukamori.archivetune.ui.theme.ThemeSeedPalette
 import moe.rukamori.archivetune.ui.theme.ThemeSeedPaletteCodec
+import moe.rukamori.archivetune.utils.AutoBackupHelper
 import moe.rukamori.archivetune.utils.PreferenceStore
 import moe.rukamori.archivetune.utils.ProxyUtils
 import moe.rukamori.archivetune.utils.YTPlayerUtils
@@ -172,6 +174,13 @@ class App :
                     }
                 }
 
+                val autoBackupEnabled = prefs[AutoBackupEnabledKey] ?: true
+                val weeklyBackupEnabled = prefs[EnableWeeklyAutoBackupKey] ?: false
+                AutoBackupHelper.updateWeeklyBackupWork(
+                    this@App,
+                    autoBackupEnabled && weeklyBackupEnabled,
+                )
+
                 prefs[ContentCountryKey]?.takeIf { it != SYSTEM_DEFAULT }?.let { country ->
                     YouTube.locale = YouTube.locale.copy(gl = country)
                 }
@@ -263,6 +272,15 @@ class App :
                     } else {
                         YouTube.dns = Dns.SYSTEM
                     }
+                }
+        }
+
+        applicationScope.launch(Dispatchers.IO) {
+            dataStore.data
+                .map { it[IpVersionKey].toEnum(IpVersion.AUTO) }
+                .distinctUntilChanged()
+                .collect { ipVersion ->
+                    YouTube.ipVersion = ipVersion
                 }
         }
 

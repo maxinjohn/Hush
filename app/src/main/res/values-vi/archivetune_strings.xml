@@ -94,7 +94,7 @@
     <string name="resume_autoscroll">Tiếp tục Tự động cuộn</string>
     <string name="lyrics_romanize_japanese">Roman hóa lời bài hát tiếng Nhật</string>
     <string name="lyrics_romanize_korean">Roman hóa lời bài hát tiếng Hàn</string>
-
+    <string name="discord">Discord</string>
     <string name="advanced_login">Đăng nhập bằng token</string>
     <string name="token_hidden">Nhấn để hiện token</string>
     <string name="token_shown">Nhấn lại để sao chép hoặc chỉnh sửa</string>
@@ -302,7 +302,7 @@
     <string name="backup_category_settings">Cài đặt của ứng dụng</string>
     <string name="backup_category_settings_desc">Giao diện, phát lại &amp; tùy chọn</string>
     <string name="backup_category_account">Chi tiết tài khoản</string>
-    <string name="backup_category_account_desc">Thông tin đăng nhập YouTube, Spotify, Last.fm và proxy</string>
+    <string name="backup_category_account_desc">Thông tin đăng nhập YouTube, Spotify, Last.fm, Discord và proxy</string>
     <string name="login_success">Đăng nhập thành công</string>
     <string name="news">Tin tức từ Nhà phát triển</string>
     <string name="news_loading">Đang tải tin tức…</string>
@@ -405,7 +405,7 @@
     <string name="settings_playback_subtitle">Hành vi âm thanh, chuyển bài và phát nền</string>
     <string name="settings_behavior_title">Hành vi</string>
     <string name="settings_behavior_subtitle">Lịch sử, mặc định và hành vi riêng tư</string>
-    <string name="settings_integration_subtitle">Last.fm và ListenBrainz</string>
+    <string name="settings_integration_subtitle">Discord, Last.fm và ListenBrainz</string>
     <string name="settings_backup_restore_subtitle">Xuất và khôi phục dữ liệu ứng dụng cá nhân</string>
     <string name="settings_developer_options_title">Tùy chọn nhà phát triển</string>
     <string name="settings_developer_options_subtitle">Tính năng thử nghiệm và gỡ lỗi</string>
@@ -457,7 +457,7 @@
     <string name="storage_folder_selected_restart">Đã lưu thư mục lưu trữ. Ứng dụng sẽ khởi động lại sau 3 giây.</string>
     <string name="storage_folder_invalid">Chọn một thư mục hợp lệ.</string>
     <string name="storage_folder_unsupported">Thư mục này không thể được sử dụng bởi bộ nhớ đệm phương tiện dựa trên tệp.</string>
-    <string name="storage_folder_not_writable">Hush không thể ghi tệp cache trong thư mục này.</string>
+    <string name="storage_folder_not_writable">ArchiveTune không thể ghi tệp cache trong thư mục này.</string>
     <string name="storage_size_ratio">%1$s / %2$s</string>
     <string name="spotify_connect">Kết nối Spotify</string>
     <string name="spotify_available_count">%1$d danh sách phát có sẵn</string>
@@ -498,12 +498,9 @@
     <string name="ai_fetch_models">Tìm nạp mô hình</string>
     <string name="ai_model_search">Tìm kiếm mô hình</string>
     <string name="ai_model_no_results">Không có mô hình nào phù hợp với tìm kiếm của bạn</string>
-    <string name="ai_translation">Dịch AI</string>
-    <string name="ai_translation_target">Mục tiêu dịch</string>
     <string name="ai_api_connected">API đã kết nối</string>
     <string name="ai_api_test_failed">Kiểm tra API thất bại</string>
     <string name="ai_translation_menu">Dịch AI</string>
-    <string name="ai_translating_lyrics">Đang dịch lời bài hát…</string>
     <string name="import_m3u_format">Danh sách phát âm thanh M3U</string>
     <string name="import_csv_format">Tệp danh sách phát CSV</string>
     <string name="internal_service">Dịch vụ nội bộ</string>
@@ -536,10 +533,18 @@
     <string name="lyrics_share_style_clear_glass">Kính trong</string>
     <string name="lyrics_share_style_deep_blur">Mờ sâu</string>
     <string name="lyrics_share_style_vivid_glow">Phát sáng rực rỡ</string>
+    <string name="about_lead_developer">Nhà phát triển chính</string>
+    <string name="about_archive_tune_team">Nhóm ArchiveTune</string>
+    <string name="about_respecter">Tôn kính</string>
     <string name="about_contributors">Người đóng góp</string>
+    <string name="about_position_lead_dev">Hả?</string>
+    <string name="about_position_mo_agamy">Khung cơ bản | Metrolist</string>
+    <string name="about_position_zion_huang">Người tạo InnerTune · Nền tảng cho Metrolist, ArchiveTune và các fork khác</string>
     <string name="about_content_desc_github">GitHub</string>
     <string name="about_content_desc_website">Trang web</string>
-
+    <string name="about_content_desc_discord">Discord</string>
+    <string name="about_content_desc_telegram">Telegram</string>
+    <string name="about_content_desc_donate">Quyên góp</string>
     <string name="storage_cache_cleared">Cache đã được dọn.</string>
     <string name="storage_cache_clear_failed">Không thể xóa cache. Kiểm tra quyền truy cập thẻ SD.</string>
     <string name="suggestions">Gợi ý</string>
@@ -553,4 +558,9 @@
     <string name="theme_export_success">Đã xuất giao diện</string>
     <string name="theme_export_failed">Xuất thất bại</string>
     <string name="theme_import_failed_title">Không thể nhập giao diện</string>
+    <string name="player_stream_client_archivetune_extractor">ArchiveTune Extractor</string>
+    <string name="player_stream_client_archivetune_extractor_desc">Sử dụng trình trích xuất phụ trợ của ArchiveTune cho các luồng phát lại. Ưu tiên Âm thanh Chất lượng Cao Tự động.</string>
+    <string name="top_albums">Album hàng đầu</string>
+    <string name="about_position_developers">Nhà phát triển | Nhóm</string>
+    <string name="about_position_yuki">Chỉ để Trang trí 😂 | Quản trị viên</string>
 </resources>

@@ -124,6 +124,8 @@ import moe.rukamori.archivetune.cast.CastMediaItemResolver
 import moe.rukamori.archivetune.cast.CastPlaybackRepository
 import moe.rukamori.archivetune.cast.CastPlaybackRepositoryLocator
 import moe.rukamori.archivetune.constants.AudioNormalizationKey
+import moe.rukamori.archivetune.constants.LoudnessLevel
+import moe.rukamori.archivetune.constants.LoudnessLevelKey
 import moe.rukamori.archivetune.constants.AudioOffload
 import moe.rukamori.archivetune.constants.AudioQuality
 import moe.rukamori.archivetune.constants.AudioQualityKey
@@ -199,6 +201,7 @@ import moe.rukamori.archivetune.extensions.mediaItems
 import moe.rukamori.archivetune.extensions.metadata
 import moe.rukamori.archivetune.extensions.setOffloadEnabled
 import moe.rukamori.archivetune.extensions.toContinuationQueue
+import moe.rukamori.archivetune.extensions.toEnum
 import moe.rukamori.archivetune.extensions.toMediaItem
 import moe.rukamori.archivetune.extensions.toPersistQueue
 import moe.rukamori.archivetune.extensions.toQueue
@@ -222,7 +225,10 @@ import moe.rukamori.archivetune.models.QueueData
 import moe.rukamori.archivetune.models.QueueType
 import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.playback.queues.EmptyQueue
+import moe.rukamori.archivetune.playback.alarm.MusicAlarmScheduler
+import moe.rukamori.archivetune.playback.alarm.MusicAlarmStore
 import moe.rukamori.archivetune.playback.queues.ListQueue
+import kotlin.random.Random
 import moe.rukamori.archivetune.playback.queues.Queue
 import moe.rukamori.archivetune.playback.queues.YouTubeQueue
 import moe.rukamori.archivetune.playback.queues.filterExplicit
@@ -245,6 +251,7 @@ import moe.rukamori.archivetune.utils.getAsync
 import moe.rukamori.archivetune.utils.isInternetAvailable
 import moe.rukamori.archivetune.utils.isLocalMediaId
 import moe.rukamori.archivetune.utils.isLowDataModeActive
+import moe.rukamori.archivetune.utils.resolveEffectiveAudioQuality
 import moe.rukamori.archivetune.utils.reportException
 import moe.rukamori.archivetune.utils.retryWithoutPlaybackLoginContext
 import moe.rukamori.archivetune.widget.LoadWidgetInsightsUseCase
@@ -263,6 +270,7 @@ import java.net.UnknownHostException
 import java.time.LocalDateTime
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import kotlin.math.PI
@@ -364,6 +372,8 @@ class MusicService :
             .proxy(YouTube.streamOkHttpProxy)
             .followRedirects(true)
             .followSslRedirects(true)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val request = chain.request()
                 val host = request.url.host
@@ -392,6 +402,8 @@ class MusicService :
             .proxy(Proxy.NO_PROXY)
             .followRedirects(true)
             .followSslRedirects(true)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val request =
                     chain
@@ -456,6 +468,7 @@ class MusicService :
     private val normalizeFactor = MutableStateFlow(1f)
     private val audioNormalizationFactorCache = ConcurrentHashMap<String, Float>()
     private var audioNormalizationEnabled = true
+    private var loudnessLevelCached = LoudnessLevel.BALANCED
     var playerVolume = MutableStateFlow(1f)
     private val audioFocusVolumeFactor = MutableStateFlow(1f)
     private var effectiveVolumeRampJob: Job? = null
@@ -464,6 +477,7 @@ class MusicService :
     private var crossfadeGapless = false
     private var crossfadeTriggerJob: Job? = null
     private var crossfadeJob: Job? = null
+    private var prefetchJob: Job? = null
     private var secondaryCrossfadePlayer: ExoPlayer? = null
     private var secondaryCrossfadeTarget: CrossfadeTarget? = null
     private var isCrossfading = false
@@ -1144,9 +1158,13 @@ class MusicService :
                 .distinctUntilChanged(),
             currentFormat,
             dataStore.data
-                .map { it[AudioNormalizationKey] ?: true }
+                .map { prefs ->
+                    (prefs[AudioNormalizationKey] ?: true) to
+                        prefs[LoudnessLevelKey].toEnum(LoudnessLevel.BALANCED)
+                }
                 .distinctUntilChanged(),
-        ) { mediaId, format, normalizeAudio ->
+        ) { mediaId, format, (normalizeAudio, loudnessLevel) ->
+            loudnessLevelCached = loudnessLevel
             normalizeAudio to resolveAudioNormalizationFactor(mediaId, format, normalizeAudio)
         }.distinctUntilChanged()
             .collectLatest(scope) { (normalizeAudio, factor) ->
@@ -2144,10 +2162,64 @@ class MusicService :
         return audioNormalizationFactorCache[currentMediaId] ?: 1f
     }
 
-    private fun FormatEntity.normalizationLoudnessDb(): Float? =
-        sequenceOf(perceptualLoudnessDb, loudnessDb)
-            .mapNotNull { it?.toFloat() }
-            .firstOrNull { it.isFinite() }
+    private fun FormatEntity.normalizationLoudnessDb(): Float? {
+        val measuredLufs =
+            perceptualLoudnessDb?.toFloat()?.takeIf { it.isFinite() }
+                ?: loudnessDb?.let { it + LoudnessLevel.AGGRESSIVE.targetLufs }
+                    ?.toFloat()
+                    ?.takeIf { it.isFinite() }
+        return measuredLufs?.let { it - loudnessLevelCached.targetLufs }
+    }
+
+    private fun prefetchNextTrack() {
+        prefetchJob?.cancel()
+
+        val nextIndex = player.nextMediaItemIndex
+        if (nextIndex == C.INDEX_UNSET) return
+
+        val nextMediaId = player.getMediaItemAt(nextIndex).mediaId.orEmpty()
+        if (nextMediaId.isBlank() || nextMediaId.isLocalMediaId()) return
+
+        val authFingerprint = YouTube.currentPlaybackAuthState().fingerprint
+        playbackUrlCache[nextMediaId]
+            ?.takeIf {
+                it.isValidFor(
+                    authFingerprint = authFingerprint,
+                    minimumRemainingMs = YTPlayerUtils.STREAM_URL_EXPIRY_SAFETY_MS,
+                )
+            }?.let { return }
+
+        prefetchJob = scope.launch(Dispatchers.IO + SilentHandler) {
+            Timber.tag(TAG).d("[Prefetch] Resolving stream URL for next track: $nextMediaId")
+            val playbackData =
+                runCatching {
+                    retryWithoutPlaybackLoginContext {
+                        YTPlayerUtils.playerResponseForPlayback(
+                            videoId = nextMediaId,
+                            audioQuality = resolveEffectiveAudioQuality(audioQuality, isLowDataModeActive()),
+                            connectivityManager = connectivityManager,
+                            preferredStreamClient = preferredStreamClient,
+                            networkMetered = isLowDataModeActive() && audioQuality != AudioQuality.HIGHEST,
+                        )
+                    }
+                }.getOrNull()?.getOrNull()
+
+            if (!isActive || playbackData == null) {
+                Timber.tag(TAG).d("[Prefetch] Could not resolve stream URL for $nextMediaId")
+                return@launch
+            }
+
+            playbackUrlCache[nextMediaId] =
+                AuthScopedCacheValue(
+                    url = playbackData.streamUrl,
+                    expiresAtMs = System.currentTimeMillis() + (playbackData.streamExpiresInSeconds * 1000L),
+                    authFingerprint = playbackData.authFingerprint,
+                )
+            Timber.tag(TAG).d(
+                "[Prefetch] Cached stream URL for $nextMediaId (expires in ${playbackData.streamExpiresInSeconds}s)",
+            )
+        }
+    }
 
     private fun shouldKeepPlaybackAudible(): Boolean {
         if (!::player.isInitialized) return false
@@ -5214,6 +5286,8 @@ class MusicService :
             lyricsPreloadManager?.onSongChanged(currentIndex, queue)
         }
 
+        prefetchNextTrack()
+
         val joined = togetherSessionState.value as? moe.rukamori.archivetune.together.TogetherSessionState.Joined
         if (joined?.role is moe.rukamori.archivetune.together.TogetherRole.Guest &&
             reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
@@ -6033,7 +6107,7 @@ class MusicService :
         }
 
         val lowDataModeActive = isLowDataModeActive()
-        val effectiveAudioQuality = if (lowDataModeActive) AudioQuality.LOW else audioQuality
+        val effectiveAudioQuality = resolveEffectiveAudioQuality(audioQuality, lowDataModeActive)
         val preferExternalExtractorOnly =
             preferredStreamClient == PlayerStreamClient.ARCHIVETUNE_EXTRACTOR &&
                 (lowDataModeActive || effectiveAudioQuality == AudioQuality.LOW)
@@ -6252,6 +6326,7 @@ class MusicService :
         val authState = YouTube.currentPlaybackAuthState()
         val authFingerprint = ArchiveTuneExtractorCacheFingerprintPrefix + authState.fingerprint
         val userPoToken = authState.resolveExtractorPoToken()
+        val userCookies = authState.resolveExtractorCookies()
 
         extractorPlaybackUrlCache[mediaId]
             ?.takeIf {
@@ -6271,6 +6346,7 @@ class MusicService :
                         videoUrl = mediaId.toYouTubeWatchUrl(),
                         audioQuality = audioQuality.toExtractorAudioQuality(),
                         userPoToken = userPoToken,
+                        cookies = userCookies,
                     )
                 }
             }.getOrElse { throwable ->
@@ -6324,12 +6400,15 @@ class MusicService :
     }
 
     private fun PlaybackAuthState.resolveExtractorPoToken(): String? =
-        resolveGvsPoToken().normalizeExtractorPoToken()
-            ?: poTokenGvs.normalizeExtractorPoToken()
-            ?: poToken.normalizeExtractorPoToken()
-            ?: poTokenPlayer.normalizeExtractorPoToken()
+        resolveGvsPoToken().normalizeExtractorRequestValue()
+            ?: poTokenGvs.normalizeExtractorRequestValue()
+            ?: poToken.normalizeExtractorRequestValue()
+            ?: poTokenPlayer.normalizeExtractorRequestValue()
 
-    private fun String?.normalizeExtractorPoToken(): String? {
+    private fun PlaybackAuthState.resolveExtractorCookies(): String? =
+        cookie.normalizeExtractorRequestValue()
+
+    private fun String?.normalizeExtractorRequestValue(): String? {
         val trimmed = this?.trim()
         return trimmed?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
     }
@@ -7064,6 +7143,100 @@ class MusicService :
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = mediaSession
 
+    private fun handleAlarmTrigger(intent: Intent) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                MusicAlarmScheduler.scheduleFromPreferences(this@MusicService)
+            } catch (t: Throwable) {
+                Timber.tag(TAG).e(t, "Failed to reschedule alarms after trigger")
+            }
+        }
+        val playlistId = intent.getStringExtra(EXTRA_ALARM_PLAYLIST_ID).orEmpty()
+        val alarmId = intent.getStringExtra(EXTRA_ALARM_ID).orEmpty()
+        if (playlistId.isBlank()) {
+            if (alarmId.isNotBlank()) {
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val alarms = MusicAlarmStore.load(this@MusicService)
+                        val updated =
+                            alarms.map { alarm ->
+                                if (alarm.id == alarmId) {
+                                    alarm.copy(enabled = false, nextTriggerAt = -1L)
+                                } else {
+                                    alarm
+                                }
+                            }
+                        MusicAlarmScheduler.scheduleAll(this@MusicService, updated)
+                    } catch (t: Throwable) {
+                        Timber.tag(TAG).e(t, "Failed to disable alarm with invalid playlist")
+                    }
+                }
+            }
+            return
+        }
+        val randomSong = intent.getBooleanExtra(EXTRA_ALARM_RANDOM_SONG, false)
+        scope.launch {
+            try {
+                val playlistSongs =
+                    withContext(Dispatchers.IO) {
+                        database.playlistSongs(playlistId).first()
+                    }
+                if (playlistSongs.isEmpty()) {
+                    if (alarmId.isNotBlank()) {
+                        withContext(Dispatchers.IO) {
+                            val alarms = MusicAlarmStore.load(this@MusicService)
+                            val updated =
+                                alarms.map { alarm ->
+                                    if (alarm.id == alarmId) {
+                                        alarm.copy(enabled = false, nextTriggerAt = -1L)
+                                    } else {
+                                        alarm
+                                    }
+                                }
+                            MusicAlarmScheduler.scheduleAll(this@MusicService, updated)
+                        }
+                    }
+                    return@launch
+                }
+                val items = playlistSongs.map { it.song.toMediaItem() }
+                val playlistName =
+                    withContext(Dispatchers.IO) {
+                        database.playlist(playlistId).first()?.title
+                    }
+                withContext(Dispatchers.IO) {
+                    MusicAlarmScheduler.scheduleFromPreferences(this@MusicService)
+                }
+
+                val alarmItems =
+                    if (randomSong) {
+                        val firstIndex = Random.nextInt(items.size)
+                        buildList(items.size) {
+                            add(items[firstIndex])
+                            items.forEachIndexed { index, item ->
+                                if (index != firstIndex) add(item)
+                            }
+                        }
+                    } else {
+                        items
+                    }
+
+                player.stop()
+                player.clearMediaItems()
+                playQueue(
+                    ListQueue(
+                        title = playlistName,
+                        items = alarmItems,
+                        startIndex = 0,
+                        position = 0L,
+                    ),
+                    playWhenReady = true,
+                )
+            } catch (t: Throwable) {
+                Timber.tag(TAG).e(t, "Failed to start alarm playback")
+            }
+        }
+    }
+
     override fun onStartCommand(
         intent: Intent?,
         flags: Int,
@@ -7071,6 +7244,10 @@ class MusicService :
     ): Int {
         ensureStartedAsForeground()
         when (intent?.action) {
+            ACTION_ALARM_TRIGGER -> {
+                handleAlarmTrigger(intent)
+            }
+
             "moe.rukamori.archivetune.WIDGET_PLAY_PAUSE" -> {
                 if (player.isPlaying) player.pause() else player.play()
             }
@@ -7117,6 +7294,11 @@ class MusicService :
     }
 
     companion object {
+        const val ACTION_ALARM_TRIGGER = "moe.rukamori.archivetune.action.ALARM_TRIGGER"
+        const val EXTRA_ALARM_ID = "extra_alarm_id"
+        const val EXTRA_ALARM_PLAYLIST_ID = "extra_alarm_playlist_id"
+        const val EXTRA_ALARM_RANDOM_SONG = "extra_alarm_random_song"
+
         internal fun shouldStopServiceOnTaskRemoved(
             stopMusicOnTaskClearEnabled: Boolean,
             isHostSessionActive: Boolean,

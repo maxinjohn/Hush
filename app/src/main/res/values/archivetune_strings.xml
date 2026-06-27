@@ -300,7 +300,7 @@
     <string name="app_language">App language</string>
     <string name="open_supported_links">Open supported link by default</string>
     <string name="set_first_lyrics_provider">Preferred lyrics provider</string>
-    <string name="audio_quality_max">Max (beta)</string>
+    <string name="audio_quality_max">Max</string>
     <string name="percentage_format">%d%%</string>
     <string name="import_online">Import a \"m3u\" playlists</string>
     <string name="import_csv">Import a \"csv\" playlists</string>
@@ -375,6 +375,17 @@
     <string name="playlist_private_desc">You don\'t have access to this playlist.</string>
     <string name="empty_playlist">Empty Playlist</string>
     <string name="empty_playlist_desc">This playlist doesn\'t contain any songs</string>
+    <string name="android_auto">Android Auto</string>
+    <string name="android_auto_visible_sections">Visible sections</string>
+    <string name="android_auto_reorder_hint">Tap a section to enable or disable it.\nLong-press the drag handle to reorder. The first section will be shown by default</string>
+    <string name="android_auto_youtube_playlists">Show YouTube suggested playlists</string>
+    <string name="android_auto_youtube_playlists_desc">Show YouTube Music recommended playlists in the playlists section while browsing with Android Auto</string>
+    <string name="android_auto_target_playlist">Quick-add destination</string>
+    <string name="android_auto_target_playlist_desc">Choose the playlist where songs are saved when using the quick-add button in Android Auto</string>
+    <string name="android_auto_target_playlist_auto">Not set</string>
+    <string name="android_auto_target_playlist_not_set">No playlist selected. Choose one in Android Auto settings</string>
+    <string name="settings_android_auto_subtitle">Sections, quick-add, and YouTube playlists</string>
+    <string name="mixes">Mixes</string>
     <string name="android_auto_suggested_songs">Suggested songs</string>
     <string name="android_auto_mixes_and_radios">Mixes and radios</string>
     <string name="android_auto_sort_playlist">Sort playlist</string>
@@ -558,7 +569,7 @@
     <string name="ai_api_test_failed">API test failed</string>
     <string name="ai_translation_menu">AI Translation</string>
     <string name="ai_translating_lyrics">Translating The Lyrics...</string>
-    <string name="about_fork_notice">Personal Android fork of ArchiveTune for my own phones and car head unit. Upstream credits and licenses are preserved below.</string>
+    <string name="about_fork_notice">Personal fork of ArchiveTune for my own phones and car head unit. Also adapts features from Metrolist, Vivi Music, and Echo Music. Upstream credits, licenses, and donation links are preserved below.</string>
     <string name="about_maintainer_note">Maintained by maxinjohn for personal use only.</string>
     <string name="app_tagline">Music for your mood</string>
     <string name="about_contributors_upstream_note">People who contributed to upstream ArchiveTune.</string>
