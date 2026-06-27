@@ -15,7 +15,7 @@ Personal Android fork for my own devices (phones and car head unit). Based on [A
 
 | Project | Issues | Donate |
 | --- | --- | --- |
-| [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) | [Issues](https://github.com/ArchiveTuneApp/ArchiveTune/issues) | [GitHub Sponsors](https://github.com/sponsors/rukamori) |
+| [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) | [Issues](https://github.com/ArchiveTuneApp/ArchiveTune/issues) | [Donation links on their repo](https://github.com/ArchiveTuneApp/ArchiveTune) |
 | [Metrolist](https://github.com/metrolistgroup/metrolist) | [Issues](https://github.com/metrolistgroup/metrolist/issues) | [Donation links on their repo](https://github.com/metrolistgroup/metrolist) |
 | [Vivi Music](https://github.com/vivizzz007/vivi-music) | [Issues](https://github.com/vivizzz007/vivi-music/issues) | [Donation links on their repo](https://github.com/vivizzz007/vivi-music) |
 | [Echo Music](https://github.com/EchoMusicApp/Echo-Music) | [Issues](https://github.com/EchoMusicApp/Echo-Music/issues) | [Donation links on their repo](https://github.com/EchoMusicApp/Echo-Music) |
@@ -30,11 +30,22 @@ Other GPL dependencies (InnerTune, ViMusic, OuterTune, BetterLyrics, …) are li
 
 CI publishes **universal** release APKs only (all CPU architectures in one file):
 
-| File | Use |
+| File | Pick this if… |
 | --- | --- |
-| `hush-foss-mobile-universal-release.apk` | Phone — no Google Play Services |
-| `hush-gms-mobile-universal-release.apk` | Phone — Cast and in-app updates |
-| `hush-gms-tv-universal-release.apk` | Android TV |
+| `hush-foss-mobile-universal-release.apk` | You want **no Google libraries** in the APK. Full app; updates open GitHub in the browser (or use Obtainium). |
+| `hush-gms-mobile-universal-release.apk` | Your phone has **Google Play Services** and you want **Chromecast** plus **in-app APK updates**. |
+| `hush-gms-tv-universal-release.apk` | **Android TV** (GMS build; Cast-oriented TV UI). |
+
+**GMS vs FOSS** — same `app.hush.music` app. The only differences are bundled libraries:
+
+| | FOSS | GMS |
+| --- | --- | --- |
+| Playback, library, lyrics, settings | ✓ | ✓ |
+| Google Cast (Chromecast) | — | ✓ |
+| Download + install update inside the app | — | ✓ |
+| Google Play Services required | No | Only for Cast (rest of the app runs without it) |
+
+Neither build uses Google account sign-in SDKs — YouTube Music login is still WebView/cookie based.
 
 Get them from **[GitHub Releases](https://github.com/maxinjohn/Hush/releases/latest)** or **[Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/maxinjohn/Hush/)**.
 
