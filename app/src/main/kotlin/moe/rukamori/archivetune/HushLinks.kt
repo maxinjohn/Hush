@@ -32,7 +32,7 @@ object HushLinks {
 
     const val PRIVACY_POLICY_URL = "$GITHUB_REPO_URL/blob/dev/PRIVACY.md"
     const val CONTRIBUTORS_URL = UPSTREAM_CONTRIBUTORS_URL
-    const val UPSTREAM_CONTRIBUTING_URL = "$GITHUB_REPO_URL/blob/dev/README.md#contributing--donations"
+    const val UPSTREAM_CONTRIBUTING_URL = "$GITHUB_REPO_URL/blob/dev/README.md#upstream-projects"
 
     const val METROLIST_REPO_URL = "https://github.com/metrolistgroup/metrolist"
     const val VIVI_MUSIC_REPO_URL = "https://github.com/vivizzz007/vivi-music"

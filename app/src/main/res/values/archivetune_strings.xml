@@ -572,7 +572,7 @@
     <string name="ai_api_test_failed">API test failed</string>
     <string name="ai_translation_menu">AI Translation</string>
     <string name="ai_translating_lyrics">Translating The Lyrics...</string>
-    <string name="about_fork_notice">Personal fork of ArchiveTune for my own phones and car head unit. Also adapts features from Metrolist, Vivi Music, and Echo Music. Upstream credits, licenses, and donation links are preserved below.</string>
+    <string name="about_fork_notice">Personal fork of ArchiveTune for my own phones and car head unit. May cherry-pick from Metrolist, Vivi Music, Echo Music, and other GPL clients over time. Upstream credits, licenses, and donation links are preserved below.</string>
     <string name="about_maintainer_note">Maintained by maxinjohn for personal use only.</string>
     <string name="app_tagline">Music for your mood</string>
     <string name="about_contributors_upstream_note">People who contributed to upstream ArchiveTune.</string>

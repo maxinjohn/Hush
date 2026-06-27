@@ -897,7 +897,7 @@
     <string name="onboarding_community_releases_title">Get releases</string>
     <string name="onboarding_community_releases_desc">Download APK updates from this fork.</string>
     <string name="onboarding_community_upstream_desc">View the original ArchiveTune project and its community.</string>
-    <string name="onboarding_community_donate_desc">Support ArchiveTune, Metrolist, Vivi Music, and Echo Music—not this fork.</string>
+    <string name="onboarding_community_donate_desc">Check each upstream project\'s page for donation links—not this fork.</string>
     <string name="you_might_like">You might like</string>
     <string name="refresh_suggestions">Refresh suggestions</string>
     <string name="you_might_like_source">You might like source</string>

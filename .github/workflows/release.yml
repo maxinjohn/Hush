@@ -458,16 +458,16 @@ jobs:
                 | grep -viE 'bump (the )?version|version bump|bump to new version|\([0-9]+\.[0-9]+\.[0-9]+\)$' || true
             fi
             echo ""
-            echo "## Upstream & adapted features"
+            echo "## Upstream credits"
             echo ""
-            echo "Hush cherry-picks from several open-source music clients. Donations and contributions belong with those projects:"
+            echo "Hush is based on [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) and may cherry-pick from other open-source clients over time. Code and donations belong with the upstream projects:"
             echo ""
-            echo "| Project | Adapted in this release |"
+            echo "| Project | Repository |"
             echo "| --- | --- |"
-            echo "| [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) | Core playback, YouLyPlus lyrics, download progress, backup hardening, HTTP timeouts |"
-            echo "| [Metrolist](https://github.com/metrolistgroup/metrolist) | Music alarm, loudness levels, playlist export (CSV/M3U), Android Auto settings |"
-            echo "| [Vivi Music](https://github.com/vivizzz007/vivi-music) | Next-track stream prefetch, automatic backup |"
-            echo "| [Echo Music](https://github.com/EchoMusicApp/Echo-Music) | Settings search, IPv4/IPv6 preference |"
+            echo "| [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) | [ArchiveTuneApp/ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) |"
+            echo "| [Metrolist](https://github.com/metrolistgroup/metrolist) | [metrolistgroup/metrolist](https://github.com/metrolistgroup/metrolist) |"
+            echo "| [Vivi Music](https://github.com/vivizzz007/vivi-music) | [vivizzz007/vivi-music](https://github.com/vivizzz007/vivi-music) |"
+            echo "| [Echo Music](https://github.com/EchoMusicApp/Echo-Music) | [EchoMusicApp/Echo-Music](https://github.com/EchoMusicApp/Echo-Music) |"
             echo ""
             echo "Thank you to all upstream maintainers and contributors."
           } > release_notes.md

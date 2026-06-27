@@ -1,152 +1,80 @@
 # Hush
 
-Personal Android fork for my own devices — phones and a car head unit. **Not a public product fork.** I maintain it for personal use and cherry-pick fixes and features from the open-source clients below.
+Personal Android fork for my own devices (phones and car head unit). Based on [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune); may cherry-pick from other GPL clients in the same space over time.
 
-## Parent projects
+**Package:** `app.hush.music` (debug: `app.hush.music.debug`)
 
-Hush is based on **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** and adapts code or ideas from these sibling projects:
-
-| Project | Repository | Adapted in Hush |
-| --- | --- | --- |
-| **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** | [ArchiveTuneApp/ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) | Core app, playback pipeline, lyrics stack, YouLyPlus lyrics, download progress, backup/restore hardening, HTTP timeouts, extractor integration |
-| **[Metrolist](https://github.com/metrolistgroup/metrolist)** | [metrolistgroup/metrolist](https://github.com/metrolistgroup/metrolist) | Music alarm, loudness normalization levels, playlist export (CSV/M3U), Android Auto settings |
-| **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | [vivizzz007/vivi-music](https://github.com/vivizzz007/vivi-music) | Next-track stream URL prefetch, automatic backup |
-| **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)** | [EchoMusicApp/Echo-Music](https://github.com/EchoMusicApp/Echo-Music) | Settings search, IPv4/IPv6 network preference |
-
-Hush also depends on **InnerTune, ViMusic, OuterTune, BetterLyrics**, and other GPL-licensed libraries in the dependency tree (see **About → Licenses** in the app).
-
-- **Package:** `app.hush.music` (debug: `app.hush.music.debug`)
-- **Privacy:** [PRIVACY.md](PRIVACY.md)
-
-## Contributing & donations
-
-Please **do not**:
-
-- open pull requests on **this repo** for general features or fixes
-- donate or sponsor **this repo** — Hush is personal maintenance only
-
-Support belongs with the projects that wrote the code:
-
-| Project | Send code / bug reports | Donate / sponsor |
-| --- | --- | --- |
-| **ArchiveTune** | [Issues](https://github.com/ArchiveTuneApp/ArchiveTune/issues) | [GitHub Sponsors (rukamori)](https://github.com/sponsors/rukamori) |
-| **Metrolist** | [Issues](https://github.com/metrolistgroup/metrolist/issues) | via that project’s repo |
-| **Vivi Music** | [Issues](https://github.com/vivizzz007/vivi-music/issues) | via that project’s repo |
-| **Echo Music** | [Issues](https://github.com/EchoMusicApp/Echo-Music/issues) | via that project’s repo |
-
-**Where to report issues**
-
-- **Hush builds** (install conflicts, wrong APK, this fork’s packaging): [maxinjohn/Hush issues](https://github.com/maxinjohn/Hush/issues)
-- **Upstream features** (playback, lyrics, alarms, backup, etc.): open an issue on the **parent project** that owns that feature (see table above or release notes)
-
-Release notes include an **Upstream & adapted features** table for each version.
-
-## Download (GitHub — universal only)
-
-CI builds and publishes **universal** APKs only (all CPU architectures in one file):
-
-| Artifact | Filename |
+| | |
 | --- | --- |
-| GMS mobile (in-app updates) | `hush-gms-mobile-universal-release.apk` |
-| FOSS mobile | `hush-foss-mobile-universal-release.apk` |
-| GMS TV | `hush-gms-tv-universal-release.apk` |
+| [Releases](https://github.com/maxinjohn/Hush/releases/latest) | APK downloads |
+| [Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/maxinjohn/Hush/) | Auto-updates from GitHub |
+| [Issues](https://github.com/maxinjohn/Hush/issues) | Install / packaging problems on this fork |
+| [Privacy](PRIVACY.md) | What the app stores and sends |
 
-| Source | Link |
+## Upstream projects
+
+| Project | Issues | Donate |
+| --- | --- | --- |
+| [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) | [Issues](https://github.com/ArchiveTuneApp/ArchiveTune/issues) | [GitHub Sponsors](https://github.com/sponsors/rukamori) |
+| [Metrolist](https://github.com/metrolistgroup/metrolist) | [Issues](https://github.com/metrolistgroup/metrolist/issues) | [Donation links on their repo](https://github.com/metrolistgroup/metrolist) |
+| [Vivi Music](https://github.com/vivizzz007/vivi-music) | [Issues](https://github.com/vivizzz007/vivi-music/issues) | [Donation links on their repo](https://github.com/vivizzz007/vivi-music) |
+| [Echo Music](https://github.com/EchoMusicApp/Echo-Music) | [Issues](https://github.com/EchoMusicApp/Echo-Music/issues) | [Donation links on their repo](https://github.com/EchoMusicApp/Echo-Music) |
+
+Playback, lyrics, and UI bugs usually belong on whichever upstream project owns that code—not on this repo.
+
+**This repo:** no feature PRs, no donations. Support the upstream projects above.
+
+Other GPL dependencies (InnerTune, ViMusic, OuterTune, BetterLyrics, …) are listed under **About → Licenses** in the app.
+
+## Download
+
+CI publishes **universal** release APKs only (all CPU architectures in one file):
+
+| File | Use |
 | --- | --- |
-| GitHub Releases | [maxinjohn/Hush releases](https://github.com/maxinjohn/Hush/releases/latest) |
-| Obtainium | [Add to Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/maxinjohn/Hush/) |
+| `hush-foss-mobile-universal-release.apk` | Phone — no Google Play Services |
+| `hush-gms-mobile-universal-release.apk` | Phone — Cast and in-app updates |
+| `hush-gms-tv-universal-release.apk` | Android TV |
 
-> [!WARNING]
-> Install only from this repository unless you trust the source. Upstream ArchiveTune store listings use package ID `moe.rukamori.archivetune`, not `app.hush.music`.
+Get them from **[GitHub Releases](https://github.com/maxinjohn/Hush/releases/latest)** or **[Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/maxinjohn/Hush/)**.
 
-> [!IMPORTANT]
-> If YouTube Music is not available in your region, use a VPN or proxy in a supported region for the first sync.
+Store builds of ArchiveTune use package `moe.rukamori.archivetune`; Hush uses `app.hush.music` — they are separate apps.
 
-> [!NOTE]
-> If install fails with “package conflicts with an existing package”, uninstall any old **Hush** (`app.hush.music`) or **ArchiveTune** (`moe.rukamori.archivetune`) build first, then install again. Android blocks updates when the signing key does not match.
+### Installing
 
-> [!IMPORTANT]
-> **Clean install for this version (13.8.x)** — If an in-place update fails with “package conflicts” or “invalid package”, you need a **clean install**:
->
-> 1. **Backup first** — In the app: **Settings → Backup and restore → Backup** (save the `.backup` file somewhere safe).
-> 2. **Uninstall** the old Hush or ArchiveTune app completely.
-> 3. **Install** the new APK from this repo.
-> 4. **Restore** — Open Hush → **Settings → Backup and restore → Restore** and pick your backup file.
->
-> Your library, settings, and account data come back from the backup. YouTube login may need a quick re-sign-in after restore depending on what was backed up.
+If update or sideload fails with **package conflicts** or **invalid package**:
+
+1. **Backup** — Settings → Backup and restore → Backup (keep the `.backup` file).
+2. **Uninstall** old Hush or ArchiveTune.
+3. **Install** the new APK from [Releases](https://github.com/maxinjohn/Hush/releases/latest).
+4. **Restore** from the backup file in Settings → Backup and restore.
+
+Prefer USB or `adb install -r <apk>` over file-share apps if the APK looks corrupt after transfer.
+
+First-time YouTube Music sync may need a VPN if YTM is not available in your region.
 
 ## Build (local)
 
-**One script for every release variant** (FOSS/GMS × mobile/TV × all ABIs). Gradle assembles unsigned APKs; the script re-signs them (same as CI).
-
 ```bash
-bash scripts/build-release.sh list          # show all 20 variants
-bash scripts/build-release.sh foss mobile arm64
+bash scripts/build-release.sh list                    # all variants
+bash scripts/build-release.sh foss mobile arm64       # typical phone build
+bash scripts/build-release.sh gms mobile universal    # matches CI
 bash scripts/build-release.sh gms tv universal
-bash scripts/build-release.sh foss mobile all    # all 5 ABIs for FOSS mobile
-bash scripts/build-release.sh mobile-all gms       # all GMS mobile ABIs
-bash scripts/build-release.sh tv-all gms           # all GMS TV ABIs
-bash scripts/build-release.sh all                  # everything (slow)
 ```
 
-### Variants (distribution × device × ABI)
+Shortcuts: `build-foss-mobile-release.sh`, `build-gms-mobile-release.sh`, `build-tv-release.sh`.
 
-| | universal | arm64 | armeabi (32-bit ARM) | x86 (32-bit) | x86_64 |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **foss mobile** | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **gms mobile** | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **foss tv** | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **gms tv** | ✓ | ✓ | ✓ | ✓ | ✓ |
-
-APK names: `hush-{foss|gms}-{mobile|tv}-{abi}-release.apk`  
-Example: `hush-gms-tv-universal-release.apk`
-
-### Shortcuts
-
-| Goal | Command |
-| --- | --- |
-| Phone, FOSS, 64-bit | `bash scripts/build-foss-mobile-release.sh arm64` |
-| Phone, FOSS, all CPUs (GitHub CI) | `bash scripts/build-foss-mobile-release.sh universal` |
-| Phone, GMS + Cast | `bash scripts/build-gms-mobile-release.sh universal` |
-| Android TV (GitHub CI) | `bash scripts/build-tv-release.sh` |
-| Emulator / x86 PC | `bash scripts/build-release.sh foss mobile x86_64` |
-
-### Manual Gradle + sign
-
-```bash
-./gradlew :app:assembleFossMobileArm64Release --no-daemon --max-workers=2
-bash scripts/resign-release-apk.sh app/build/outputs/apk/fossMobileArm64/release/hush-foss-mobile-arm64-release.apk
-```
-
-### Release signing (required when using `local.properties`)
-
-When `app/keystore/release.keystore` and passwords are in `local.properties`, Gradle outputs an **unsigned** release APK (same as CI before the sign step). You **must** run the resign script — `./gradlew assemble*Release` alone will produce an uninstallable APK (“package appears to be invalid”).
-
-This is **not** caused by `local.properties` itself; it is the intended two-step flow (assemble → sign), matching GitHub Actions.
-
-You need:
-
-1. `app/keystore/release.keystore`
-2. In `local.properties`:
-
-```properties
-STORE_PASSWORD=your_store_password
-KEY_ALIAS=hush
-KEY_PASSWORD=your_key_password
-```
-
-`KEYSTORE_PASSWORD` also works instead of `STORE_PASSWORD`.
-
-Validate credentials:
+Local release builds need `app/keystore/release.keystore` plus passwords in `local.properties`, then:
 
 ```bash
 bash scripts/resign-release-apk.sh --check
+bash scripts/build-release.sh foss mobile arm64
 ```
 
-**Before installing:** uninstall any old Hush (`app.hush.music`) or ArchiveTune (`moe.rukamori.archivetune`) build if you get package conflicts. **Back up first** (Settings → Backup and restore), then restore after a clean install — see the note at the top of this README.
+Gradle outputs an unsigned APK when the keystore is configured; the script signs it (same as CI). `./gradlew assemble*Release` alone is not enough for sideloading.
 
-**If install still fails:** copy via USB or `adb install -r <apk>` instead of LocalSend.
+See `local.properties.example` for `STORE_PASSWORD`, `KEY_ALIAS`, and `KEY_PASSWORD`.
 
 ## Legal
 
-Hush is an independent third-party client, not affiliated with Google or YouTube. It does not bypass YouTube technical protections. GPL-3.0 license and upstream copyright notices are preserved in the source. Support artists through official channels when you can.
+Independent third-party client — not affiliated with Google or YouTube. GPL-3.0; upstream copyright notices are preserved in source.
