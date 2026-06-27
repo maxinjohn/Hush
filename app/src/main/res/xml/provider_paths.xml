@@ -3,6 +3,9 @@
     <external-path
         name="external_files"
         path="." />
+    <external-files-path
+        name="app_external_files"
+        path="." />
     <files-path
         name="files"
         path="." />

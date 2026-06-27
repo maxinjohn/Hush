@@ -69,7 +69,7 @@ fun StarDialog(
 
             Button(
                 onClick = {
-                    uriHandler.openUri(HushLinks.UPSTREAM_GITHUB_REPO_URL)
+                    uriHandler.openUri(HushLinks.UPSTREAM_CONTRIBUTING_URL)
                     onSupport()
                 },
                 modifier = Modifier.fillMaxWidth(),

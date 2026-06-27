@@ -25,11 +25,13 @@ val discordApplicationId =
 val discordApplicationIdLong = discordApplicationId.toLongOrNull() ?: 1165706613961789445L
 val discordRedirectScheme = "discord-$discordApplicationId"
 val releaseKeystoreFile = file("keystore/release.keystore")
+fun signingProperty(name: String): String? =
+    localProperties.getProperty(name)?.trim()?.takeIf { it.isNotBlank() }
+        ?: System.getenv(name)?.trim()?.takeIf { it.isNotBlank() }
 val releaseStorePassword =
-    System.getenv("STORE_PASSWORD")?.takeIf { it.isNotBlank() }
-        ?: System.getenv("KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
-val releaseKeyAlias = System.getenv("KEY_ALIAS")?.takeIf { it.isNotBlank() }
-val releaseKeyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+    signingProperty("STORE_PASSWORD") ?: signingProperty("KEYSTORE_PASSWORD")
+val releaseKeyAlias = signingProperty("KEY_ALIAS")
+val releaseKeyPassword = signingProperty("KEY_PASSWORD")
 val hasReleaseSigningConfig =
     releaseKeystoreFile.isFile &&
         releaseStorePassword != null &&
@@ -44,8 +46,13 @@ android {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 139
-        versionName = "13.8.1"
+        versionCode = 140
+        versionName = "13.8.2"
+
+        ndk {
+            // ABI filters are set per product flavor (arm64, universal, etc.).
+            abiFilters.clear()
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -149,7 +156,14 @@ android {
     }
 
     signingConfigs {
+        getByName("debug") {
+            enableV1Signing = true
+            enableV2Signing = true
+        }
         create("release") {
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
             if (hasReleaseSigningConfig) {
                 storeFile = releaseKeystoreFile
                 storePassword = releaseStorePassword
@@ -161,10 +175,15 @@ android {
 
     buildTypes {
         release {
+            // Match CI: Gradle does not apply the release keystore. CI and local installs use
+            // apksigner after assemble (ilharp/sign-android-release or scripts/resign-release-apk.sh).
+            // Signing twice (Gradle release + apksigner) leaves broken v1 JAR signatures.
             signingConfig =
-                signingConfigs.getByName(
-                    if (hasReleaseSigningConfig) "release" else "debug",
-                )
+                if (hasReleaseSigningConfig) {
+                    null
+                } else {
+                    signingConfigs.getByName("debug")
+                }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -208,7 +227,8 @@ android {
 
     packaging {
         jniLibs {
-            useLegacyPackaging = false
+            // Compressed native libs — better sideload compatibility than page-aligned APKs on some OEM installers.
+            useLegacyPackaging = true
             keepDebugSymbols += listOf(
                 "**/libandroidx.graphics.path.so",
                 "**/libdatastore_shared_counter.so"
@@ -222,6 +242,85 @@ android {
         }
     }
 
+}
+
+androidComponents {
+    onVariants { variant ->
+        val distribution =
+            variant.productFlavors.firstOrNull { it.first == "distribution" }?.second ?: "gms"
+        val device = variant.productFlavors.firstOrNull { it.first == "device" }?.second ?: "mobile"
+        val abi = variant.productFlavors.firstOrNull { it.first == "abi" }?.second ?: "universal"
+        val buildType = variant.buildType?.lowercase().orEmpty().ifBlank { "release" }
+        val apkFileName = "hush-$distribution-$device-$abi-$buildType.apk"
+        variant.outputs.forEach { output ->
+            output.outputFileName.set(apkFileName)
+        }
+    }
+}
+
+tasks.register("assembleFossMobileReleaseApks") {
+    group = "build"
+    description = "Build all FOSS mobile release ABIs (unsigned; run scripts/build-release.sh to sign)."
+    dependsOn(
+        "assembleFossMobileUniversalRelease",
+        "assembleFossMobileArm64Release",
+        "assembleFossMobileArmeabiRelease",
+        "assembleFossMobileX86Release",
+        "assembleFossMobileX86_64Release",
+    )
+    doLast { logUnsignedReleaseReminder() }
+}
+
+tasks.register("assembleGmsMobileReleaseApks") {
+    group = "build"
+    description = "Build all GMS mobile release ABIs (unsigned; run scripts/build-release.sh to sign)."
+    dependsOn(
+        "assembleGmsMobileUniversalRelease",
+        "assembleGmsMobileArm64Release",
+        "assembleGmsMobileArmeabiRelease",
+        "assembleGmsMobileX86Release",
+        "assembleGmsMobileX86_64Release",
+    )
+    doLast { logUnsignedReleaseReminder() }
+}
+
+tasks.register("assembleGmsTvReleaseApks") {
+    group = "build"
+    description = "Build all GMS TV release ABIs (unsigned; run scripts/build-release.sh to sign)."
+    dependsOn(
+        "assembleGmsTvUniversalRelease",
+        "assembleGmsTvArm64Release",
+        "assembleGmsTvArmeabiRelease",
+        "assembleGmsTvX86Release",
+        "assembleGmsTvX86_64Release",
+    )
+    doLast { logUnsignedReleaseReminder() }
+}
+
+tasks.register("assembleFossTvReleaseApks") {
+    group = "build"
+    description = "Build all FOSS TV release ABIs (unsigned; run scripts/build-release.sh to sign)."
+    dependsOn(
+        "assembleFossTvUniversalRelease",
+        "assembleFossTvArm64Release",
+        "assembleFossTvArmeabiRelease",
+        "assembleFossTvX86Release",
+        "assembleFossTvX86_64Release",
+    )
+    doLast { logUnsignedReleaseReminder() }
+}
+
+fun logUnsignedReleaseReminder() {
+    if (!hasReleaseSigningConfig) return
+    logger.lifecycle(
+        """
+        |
+        |Release APKs are UNSIGNED until you run:
+        |  bash scripts/build-release.sh [foss|gms] [mobile|tv] [abi]
+        |  bash scripts/build-release.sh list
+        |
+        """.trimMargin(),
+    )
 }
 
 kotlin {

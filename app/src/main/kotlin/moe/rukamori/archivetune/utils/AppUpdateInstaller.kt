@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import moe.rukamori.archivetune.HushLinks
 import moe.rukamori.archivetune.BuildConfig
 import moe.rukamori.archivetune.constants.AutoBackupEnabledKey
 import moe.rukamori.archivetune.constants.EnableBackupBeforeUpdateKey
@@ -181,8 +182,11 @@ object AppUpdateInstaller {
                 }
                 val preferredArtifactNames =
                     listOf(
+                        HushLinks.releaseApkFileName("gms", BuildConfig.DEVICE, "universal").removeSuffix(".apk"),
+                        HushLinks.releaseApkFileName("gms", BuildConfig.DEVICE, BuildConfig.ARCHITECTURE).removeSuffix(".apk"),
+                        "hush-gms-${BuildConfig.DEVICE}-universal-",
+                        "hush-gms-${BuildConfig.DEVICE}-${BuildConfig.ARCHITECTURE}-",
                         "app-gms-${BuildConfig.DEVICE}-${BuildConfig.ARCHITECTURE}-",
-                        "app-${BuildConfig.DEVICE}-${BuildConfig.ARCHITECTURE}-",
                     )
                 val selectedEntry =
                     entries
@@ -237,8 +241,8 @@ object AppUpdateInstaller {
     }
 
     private const val UpdateDirectoryName = "app_update"
-    private const val DownloadFileName = "archive-tune-update.download"
-    private const val ApkFileName = "archive-tune-update.apk"
+    private const val DownloadFileName = "hush-update.download"
+    private const val ApkFileName = "hush-update.apk"
     private const val ApkMimeType = "application/vnd.android.package-archive"
     private const val STREAM_BUFFER_SIZE = 256 * 1024
     private const val PROGRESS_UPDATE_INTERVAL_MS = 200L

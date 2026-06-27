@@ -34,6 +34,19 @@ object AutoBackupHelper {
     private const val WEEKLY_WORK_NAME = "weekly_auto_backup"
     private const val PUBLIC_BACKUP_FOLDER = "Hush"
 
+    private fun mirrorBackupToAppDir(
+        context: Context,
+        source: File,
+        fileName: String,
+    ) {
+        val dir = File(context.getExternalFilesDir(null), "backups")
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        val target = File(dir, fileName)
+        source.copyTo(target, overwrite = true)
+    }
+
     fun getBackupDir(context: Context): File {
         val dir =
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
@@ -116,6 +129,7 @@ object AutoBackupHelper {
                 } else {
                     throw java.io.IOException("Failed to create MediaStore entry in Downloads")
                 }
+                mirrorBackupToAppDir(context, tempFile, fileName)
             } else {
                 val downloadsDir =
                     android.os.Environment.getExternalStoragePublicDirectory(
@@ -179,6 +193,10 @@ object AutoBackupHelper {
             }
         } catch (e: Exception) {
             Timber.tag("AutoBackup").e(e, "Error reading backups from app dir")
+        }
+
+        if (backupsList.isNotEmpty()) {
+            return backupsList.sortedByDescending { it.lastModified() }
         }
 
         try {
@@ -250,21 +268,30 @@ object AutoBackupHelper {
     ): Boolean =
         try {
             var deleted = false
+            if (file.exists()) {
+                deleted = file.delete()
+            }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 val resolver = context.contentResolver
-                val selection = "${MediaStore.Downloads.DATA} = ?"
-                val selectionArgs = arrayOf(file.absolutePath)
+                val selection =
+                    "${MediaStore.Downloads.DISPLAY_NAME} = ? AND (" +
+                        "${MediaStore.Downloads.RELATIVE_PATH} LIKE ? OR " +
+                        "${MediaStore.Downloads.RELATIVE_PATH} = ?)"
+                val selectionArgs =
+                    arrayOf(
+                        file.name,
+                        "Download/$PUBLIC_BACKUP_FOLDER/%",
+                        "Download/$PUBLIC_BACKUP_FOLDER",
+                    )
                 val deletedRows =
                     resolver.delete(
                         MediaStore.Downloads.EXTERNAL_CONTENT_URI,
                         selection,
                         selectionArgs,
                     )
-                deleted = deletedRows > 0
-            }
-            if (file.exists()) {
-                val fileDeleted = file.delete()
-                deleted = deleted || fileDeleted
+                deleted = deleted || deletedRows > 0
+            } else if (file.exists()) {
+                deleted = file.delete() || deleted
             }
             deleted
         } catch (e: Exception) {

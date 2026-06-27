@@ -14,8 +14,12 @@
 # Optional: nightly build metadata
 # NIGHTLY_BUILD_HASH=
 
-# Release signing (use environment variables in CI instead when possible)
+# Release signing — required for local release APKs (same key as CI).
+# After ./gradlew assemble*Release, always run scripts/resign-release-apk.sh on the APK.
+# Or use: bash scripts/build-release.sh [foss|gms] [mobile|tv] [abi]
+# List all variants: bash scripts/build-release.sh list
+# Without the resign step, some phones show "package appears to be invalid".
 # STORE_PASSWORD=
 # KEYSTORE_PASSWORD=
-# KEY_ALIAS=
+# KEY_ALIAS=hush
 # KEY_PASSWORD=

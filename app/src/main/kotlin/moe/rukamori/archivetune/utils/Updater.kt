@@ -66,13 +66,18 @@ object Updater {
     private val releaseArtifactPrefix: String
         get() =
             when (BuildConfig.DISTRIBUTION) {
-                "gms" -> "gms-"
-                "foss" -> "foss-"
-                else -> ""
+                "gms" -> "gms"
+                "foss" -> "foss"
+                else -> BuildConfig.DISTRIBUTION
             }
 
     private fun stableReleaseArtifactName(): String =
-        "${HushLinks.APK_ARTIFACT_BASE_NAME}-$releaseArtifactPrefix${BuildConfig.DEVICE}-${BuildConfig.ARCHITECTURE}-release.apk"
+        HushLinks.releaseApkFileName(
+            distribution = releaseArtifactPrefix,
+            device = BuildConfig.DEVICE,
+            // GitHub CI publishes universal APKs only.
+            architecture = "universal",
+        )
 
     private data class SemVer(
         val major: Int,

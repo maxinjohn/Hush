@@ -426,6 +426,9 @@
     <string name="settings_po_token_subtitle">Playback verification and visitor data</string>
     <string name="settings_storage_subtitle">Cache, downloads, and offline storage</string>
     <string name="settings_updates_subtitle">Version, release notes, and update channel</string>
+    <string name="updates_clean_install_title">Clean install may be required</string>
+    <string name="updates_clean_install_body">If an update fails with “package conflicts” or won’t install over an old build, uninstall the previous Hush or ArchiveTune app first.\n\nBefore uninstalling: Settings → Backup and restore → Backup.\nAfter installing this version: Restore from that backup file.</string>
+    <string name="updates_clean_install_open_backup">Open backup settings</string>
     <string name="settings_about_subtitle">App info, licenses, and contributors</string>
     <string name="settings_account_subtitle">Sign in and manage account sync</string>
     <string name="settings_stats_title">Listening Stats</string>
