@@ -226,26 +226,6 @@ jobs:
             distribution: gms
             distributionName: Gms
             deviceName: Mobile
-            abi: arm64
-          - device: mobile
-            distribution: gms
-            distributionName: Gms
-            deviceName: Mobile
-            abi: armeabi
-          - device: mobile
-            distribution: gms
-            distributionName: Gms
-            deviceName: Mobile
-            abi: x86
-          - device: mobile
-            distribution: gms
-            distributionName: Gms
-            deviceName: Mobile
-            abi: x86_64
-          - device: mobile
-            distribution: gms
-            distributionName: Gms
-            deviceName: Mobile
             abi: universal
           - device: tv
             distribution: gms
@@ -462,7 +442,8 @@ jobs:
               git log "${LAST_TAG}..HEAD" \
                 --pretty=format:'- %s (%h)' \
                 --no-merges \
-                --max-count="$MAX_ENTRIES"
+                --max-count="$MAX_ENTRIES" \
+                | grep -viE 'bump (the )?version|version bump|bump to new version|\([0-9]+\.[0-9]+\.[0-9]+\)$' || true
               if [ "${TOTAL:-0}" -gt "$MAX_ENTRIES" ]; then
                 echo ""
                 echo "_Showing the latest ${MAX_ENTRIES} of ${TOTAL} commits._"
@@ -473,8 +454,22 @@ jobs:
               git log \
                 --pretty=format:'- %s (%h)' \
                 --no-merges \
-                --max-count="$MAX_ENTRIES"
+                --max-count="$MAX_ENTRIES" \
+                | grep -viE 'bump (the )?version|version bump|bump to new version|\([0-9]+\.[0-9]+\.[0-9]+\)$' || true
             fi
+            echo ""
+            echo "## Upstream credits"
+            echo ""
+            echo "Hush is based on [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) and may cherry-pick from other open-source clients over time. Code and donations belong with the upstream projects:"
+            echo ""
+            echo "| Project | Repository |"
+            echo "| --- | --- |"
+            echo "| [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) | [ArchiveTuneApp/ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) |"
+            echo "| [Metrolist](https://github.com/metrolistgroup/metrolist) | [metrolistgroup/metrolist](https://github.com/metrolistgroup/metrolist) |"
+            echo "| [Vivi Music](https://github.com/vivizzz007/vivi-music) | [vivizzz007/vivi-music](https://github.com/vivizzz007/vivi-music) |"
+            echo "| [Echo Music](https://github.com/EchoMusicApp/Echo-Music) | [EchoMusicApp/Echo-Music](https://github.com/EchoMusicApp/Echo-Music) |"
+            echo ""
+            echo "Thank you to all upstream maintainers and contributors."
           } > release_notes.md
 
           if [ ! -s release_notes.md ]; then
@@ -490,10 +485,16 @@ jobs:
         run: |
           set -euo pipefail
           MOBILE_UNIVERSAL_APK="$(find downloaded_artifacts/hush-gms-mobile-universal-release -name "*.apk" | head -n 1)"
+          TV_UNIVERSAL_APK="$(find downloaded_artifacts/hush-gms-tv-universal-release -name "*.apk" 2>/dev/null | head -n 1 || true)"
+          FOSS_UNIVERSAL_APK="$(find downloaded_artifacts/hush-foss-mobile-universal-release -name "*.apk" 2>/dev/null | head -n 1 || true)"
 
-          mapfile -t OTHER_APKS < <(
-            find downloaded_artifacts -path "*/hush-*-release/*.apk" ! -path "*/hush-gms-mobile-universal-release/*"
-          )
+          RELEASE_ASSETS=("$MOBILE_UNIVERSAL_APK")
+          if [ -n "${TV_UNIVERSAL_APK:-}" ] && [ -f "$TV_UNIVERSAL_APK" ]; then
+            RELEASE_ASSETS+=("$TV_UNIVERSAL_APK")
+          fi
+          if [ -n "${FOSS_UNIVERSAL_APK:-}" ] && [ -f "$FOSS_UNIVERSAL_APK" ]; then
+            RELEASE_ASSETS+=("$FOSS_UNIVERSAL_APK")
+          fi
 
           if [ -z "${MOBILE_UNIVERSAL_APK:-}" ] || [ ! -f "$MOBILE_UNIVERSAL_APK" ]; then
             echo "Could not find hush-gms-mobile-universal-release APK artifact."
@@ -510,5 +511,4 @@ jobs:
             --target "${RELEASE_TARGET}" \
             --title "${RELEASE_VERSION}" \
             --notes-file release_notes.md \
-            "$MOBILE_UNIVERSAL_APK" \
-            "${OTHER_APKS[@]}"
+            "${RELEASE_ASSETS[@]}"

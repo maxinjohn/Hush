@@ -22,6 +22,19 @@ object HushLinks {
 
     const val APK_ARTIFACT_BASE_NAME = "hush"
 
+    /** e.g. hush-foss-mobile-arm64-release.apk */
+    fun releaseApkFileName(
+        distribution: String,
+        device: String,
+        architecture: String,
+        buildType: String = "release",
+    ): String = "$APK_ARTIFACT_BASE_NAME-$distribution-$device-$architecture-$buildType.apk"
+
     const val PRIVACY_POLICY_URL = "$GITHUB_REPO_URL/blob/dev/PRIVACY.md"
     const val CONTRIBUTORS_URL = UPSTREAM_CONTRIBUTORS_URL
+    const val UPSTREAM_CONTRIBUTING_URL = "$GITHUB_REPO_URL/blob/dev/README.md#upstream-projects"
+
+    const val METROLIST_REPO_URL = "https://github.com/metrolistgroup/metrolist"
+    const val VIVI_MUSIC_REPO_URL = "https://github.com/vivizzz007/vivi-music"
+    const val ECHO_MUSIC_REPO_URL = "https://github.com/EchoMusicApp/Echo-Music"
 }

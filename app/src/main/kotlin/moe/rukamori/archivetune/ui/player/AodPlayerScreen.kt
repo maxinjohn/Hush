@@ -29,8 +29,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -82,6 +80,8 @@ import moe.rukamori.archivetune.constants.AodThumbnailSizeKey
 import moe.rukamori.archivetune.constants.AodTitleMaxLinesKey
 import moe.rukamori.archivetune.constants.AodVerticalSpacingKey
 import moe.rukamori.archivetune.constants.EnableHapticFeedbackKey
+import moe.rukamori.archivetune.constants.SliderStyle
+import moe.rukamori.archivetune.constants.SliderStyleKey
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.ui.utils.supportsArtworkGlowShadow
 import moe.rukamori.archivetune.ui.utils.toComposeShape
@@ -92,8 +92,6 @@ import moe.rukamori.archivetune.utils.rememberPreference
 private val White70 = Color.White.copy(alpha = 0.70f)
 private val White65 = Color.White.copy(alpha = 0.65f)
 private val White35 = Color.White.copy(alpha = 0.35f)
-private val White30 = Color.White.copy(alpha = 0.30f)
-private val White15 = Color.White.copy(alpha = 0.15f)
 
 @Composable
 fun AodPlayerScreen(
@@ -136,6 +134,7 @@ fun AodPlayerScreen(
     val (verticalSpacing) = rememberPreference(AodVerticalSpacingKey, 20f)
     val (titleMaxLines) = rememberPreference(AodTitleMaxLinesKey, 1)
     val (ambientIntensity) = rememberPreference(AodAmbientIntensityKey, 0.18f)
+    val (sliderStyle) = rememberEnumPreference(SliderStyleKey, SliderStyle.Standard)
     val accentColor =
         if (accentStyle == AodAccentStyle.THEME) MaterialTheme.colorScheme.primary else Color.White
     val supportsArtworkGlowShadow = thumbnailShapeType.supportsArtworkGlowShadow()
@@ -270,6 +269,8 @@ fun AodPlayerScreen(
                     position = position,
                     duration = duration,
                     sliderPosition = sliderPosition,
+                    sliderStyle = sliderStyle,
+                    isPlaying = isPlaying,
                     accentColor = accentColor,
                     showTimeLabels = showTimeLabels,
                     onSeek = onSeek,
@@ -299,6 +300,8 @@ private fun AodSliderSection(
     position: Long,
     duration: Long,
     sliderPosition: Long?,
+    sliderStyle: SliderStyle,
+    isPlaying: Boolean,
     accentColor: Color,
     showTimeLabels: Boolean,
     onSeek: (Long) -> Unit,
@@ -315,24 +318,17 @@ private fun AodSliderSection(
         remember(duration, seekEnabled) {
             if (seekEnabled) makeTimeString(duration) else ""
         }
-    val sliderColors =
-        SliderDefaults.colors(
-            thumbColor = accentColor,
-            activeTrackColor = accentColor,
-            inactiveTrackColor = White30,
-            disabledThumbColor = White30,
-            disabledActiveTrackColor = White30,
-            disabledInactiveTrackColor = White15,
-        )
+    val safeDuration = if (seekEnabled) duration.toFloat() else 1f
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        Slider(
-            value = sliderValue,
-            onValueChange = { onSeek(it.toLong()) },
+        StyledPlaybackSlider(
+            sliderStyle = sliderStyle,
+            value = sliderValue.coerceIn(0f, safeDuration),
+            valueRange = 0f..safeDuration,
+            onValueChange = { if (seekEnabled) onSeek(it.toLong()) },
             onValueChangeFinished = onSeekFinished,
-            valueRange = 0f..(if (seekEnabled) duration.toFloat() else 1f),
-            enabled = seekEnabled,
-            colors = sliderColors,
+            activeColor = accentColor,
+            isPlaying = isPlaying,
             modifier = Modifier.fillMaxWidth(),
         )
         if (showTimeLabels) {

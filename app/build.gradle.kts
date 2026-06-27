@@ -16,15 +16,20 @@ if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
 
+val discordApplicationId =
+    (
+        localProperties.getProperty("DISCORD_APPLICATION_ID")
+            ?: System.getenv("DISCORD_APPLICATION_ID")
+            ?: "1165706613961789445"
+        ).trim()
+val discordApplicationIdLong = discordApplicationId.toLongOrNull() ?: 1165706613961789445L
+val discordRedirectScheme = "discord-$discordApplicationId"
 val releaseKeystoreFile = file("keystore/release.keystore")
-
-fun signingProperty(vararg names: String): String? =
-    names.firstNotNullOfOrNull { name ->
-        System.getenv(name)?.takeIf { it.isNotBlank() }
-            ?: localProperties.getProperty(name)?.takeIf { it.isNotBlank() }
-    }
-
-val releaseStorePassword = signingProperty("STORE_PASSWORD", "KEYSTORE_PASSWORD")
+fun signingProperty(name: String): String? =
+    localProperties.getProperty(name)?.trim()?.takeIf { it.isNotBlank() }
+        ?: System.getenv(name)?.trim()?.takeIf { it.isNotBlank() }
+val releaseStorePassword =
+    signingProperty("STORE_PASSWORD") ?: signingProperty("KEYSTORE_PASSWORD")
 val releaseKeyAlias = signingProperty("KEY_ALIAS")
 val releaseKeyPassword = signingProperty("KEY_PASSWORD")
 val hasReleaseSigningConfig =
@@ -32,23 +37,22 @@ val hasReleaseSigningConfig =
         releaseStorePassword != null &&
         releaseKeyAlias != null &&
         releaseKeyPassword != null
-val ciUnsignedReleaseAllowed =
-    System.getenv("GITHUB_ACTIONS") == "true" ||
-        System.getenv("ALLOW_UNSIGNED_RELEASE") == "true"
-
-val hushGithubOwner = "maxinjohn"
-val hushGithubRepo = "Hush"
 
 android {
     namespace = "moe.rukamori.archivetune"
     compileSdk = 37
 
     defaultConfig {
-    applicationId = "app.hush.music"
+        applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 148
-        versionName = "13.7.10"
+        versionCode = 140
+        versionName = "13.8.2"
+
+        ndk {
+            // ABI filters are set per product flavor (arm64, universal, etc.).
+            abiFilters.clear()
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -91,8 +95,6 @@ android {
         buildConfigField("String", "NIGHTLY_BUILD_HASH", "\"$nightlyBuildHash\"")
         buildConfigField("String", "DISTRIBUTION", "\"gms\"")
         buildConfigField("boolean", "UPDATER_AVAILABLE", "true")
-        buildConfigField("String", "HUSH_GITHUB_OWNER", "\"$hushGithubOwner\"")
-        buildConfigField("String", "HUSH_GITHUB_REPO", "\"$hushGithubRepo\"")
     }
 
     flavorDimensions += listOf("distribution", "device", "abi")
@@ -102,11 +104,19 @@ android {
             isDefault = true
             buildConfigField("String", "DISTRIBUTION", "\"gms\"")
             buildConfigField("boolean", "UPDATER_AVAILABLE", "true")
+            buildConfigField("String", "DISCORD_APPLICATION_ID", "\"$discordApplicationId\"")
+            buildConfigField("long", "DISCORD_APPLICATION_ID_LONG", "${discordApplicationIdLong}L")
+            buildConfigField("String", "DISCORD_REDIRECT_SCHEME", "\"$discordRedirectScheme\"")
+            manifestPlaceholders["discordRedirectScheme"] = discordRedirectScheme
         }
         create("foss") {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION", "\"foss\"")
             buildConfigField("boolean", "UPDATER_AVAILABLE", "true")
+            buildConfigField("String", "DISCORD_APPLICATION_ID", "\"$discordApplicationId\"")
+            buildConfigField("long", "DISCORD_APPLICATION_ID_LONG", "${discordApplicationIdLong}L")
+            buildConfigField("String", "DISCORD_REDIRECT_SCHEME", "\"$discordRedirectScheme\"")
+            manifestPlaceholders["discordRedirectScheme"] = discordRedirectScheme
         }
         create("mobile") {
             dimension = "device"
@@ -146,7 +156,14 @@ android {
     }
 
     signingConfigs {
+        getByName("debug") {
+            enableV1Signing = true
+            enableV2Signing = true
+        }
         create("release") {
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
             if (hasReleaseSigningConfig) {
                 storeFile = releaseKeystoreFile
                 storePassword = releaseStorePassword
@@ -158,9 +175,15 @@ android {
 
     buildTypes {
         release {
-            if (hasReleaseSigningConfig) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            // Match CI: Gradle does not apply the release keystore. CI and local installs use
+            // apksigner after assemble (ilharp/sign-android-release or scripts/resign-release-apk.sh).
+            // Signing twice (Gradle release + apksigner) leaves broken v1 JAR signatures.
+            signingConfig =
+                if (hasReleaseSigningConfig) {
+                    null
+                } else {
+                    signingConfigs.getByName("debug")
+                }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -204,7 +227,8 @@ android {
 
     packaging {
         jniLibs {
-            useLegacyPackaging = false
+            // Compressed native libs — better sideload compatibility than page-aligned APKs on some OEM installers.
+            useLegacyPackaging = true
             keepDebugSymbols += listOf(
                 "**/libandroidx.graphics.path.so",
                 "**/libdatastore_shared_counter.so"
@@ -222,15 +246,81 @@ android {
 
 androidComponents {
     onVariants { variant ->
+        val distribution =
+            variant.productFlavors.firstOrNull { it.first == "distribution" }?.second ?: "gms"
+        val device = variant.productFlavors.firstOrNull { it.first == "device" }?.second ?: "mobile"
+        val abi = variant.productFlavors.firstOrNull { it.first == "abi" }?.second ?: "universal"
+        val buildType = variant.buildType?.lowercase().orEmpty().ifBlank { "release" }
+        val apkFileName = "hush-$distribution-$device-$abi-$buildType.apk"
         variant.outputs.forEach { output ->
-            val flavorSegment =
-                variant.productFlavors.joinToString("-") { it.second }.let { segment ->
-                    if (segment.isEmpty()) "" else "$segment-"
-                }
-            val buildType = variant.buildType ?: "debug"
-            output.outputFileName.set("hush-$flavorSegment$buildType.apk")
+            output.outputFileName.set(apkFileName)
         }
     }
+}
+
+tasks.register("assembleFossMobileReleaseApks") {
+    group = "build"
+    description = "Build all FOSS mobile release ABIs (unsigned; run scripts/build-release.sh to sign)."
+    dependsOn(
+        "assembleFossMobileUniversalRelease",
+        "assembleFossMobileArm64Release",
+        "assembleFossMobileArmeabiRelease",
+        "assembleFossMobileX86Release",
+        "assembleFossMobileX86_64Release",
+    )
+    doLast { logUnsignedReleaseReminder() }
+}
+
+tasks.register("assembleGmsMobileReleaseApks") {
+    group = "build"
+    description = "Build all GMS mobile release ABIs (unsigned; run scripts/build-release.sh to sign)."
+    dependsOn(
+        "assembleGmsMobileUniversalRelease",
+        "assembleGmsMobileArm64Release",
+        "assembleGmsMobileArmeabiRelease",
+        "assembleGmsMobileX86Release",
+        "assembleGmsMobileX86_64Release",
+    )
+    doLast { logUnsignedReleaseReminder() }
+}
+
+tasks.register("assembleGmsTvReleaseApks") {
+    group = "build"
+    description = "Build all GMS TV release ABIs (unsigned; run scripts/build-release.sh to sign)."
+    dependsOn(
+        "assembleGmsTvUniversalRelease",
+        "assembleGmsTvArm64Release",
+        "assembleGmsTvArmeabiRelease",
+        "assembleGmsTvX86Release",
+        "assembleGmsTvX86_64Release",
+    )
+    doLast { logUnsignedReleaseReminder() }
+}
+
+tasks.register("assembleFossTvReleaseApks") {
+    group = "build"
+    description = "Build all FOSS TV release ABIs (unsigned; run scripts/build-release.sh to sign)."
+    dependsOn(
+        "assembleFossTvUniversalRelease",
+        "assembleFossTvArm64Release",
+        "assembleFossTvArmeabiRelease",
+        "assembleFossTvX86Release",
+        "assembleFossTvX86_64Release",
+    )
+    doLast { logUnsignedReleaseReminder() }
+}
+
+fun logUnsignedReleaseReminder() {
+    if (!hasReleaseSigningConfig) return
+    logger.lifecycle(
+        """
+        |
+        |Release APKs are UNSIGNED until you run:
+        |  bash scripts/build-release.sh [foss|gms] [mobile|tv] [abi]
+        |  bash scripts/build-release.sh list
+        |
+        """.trimMargin(),
+    )
 }
 
 kotlin {
@@ -322,6 +412,7 @@ dependencies {
     implementation(project(":lyrics:paxsenix"))
     implementation(project(":lyrics:betterlyrics"))
     implementation(project(":lyrics:unison"))
+    implementation(project(":lyrics:youlyplus"))
     implementation(project(":lastfm"))
     implementation(project(":canvas"))
     implementation(project(":shazamkit"))
@@ -362,30 +453,6 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
         )
         // Suppress warnings
         suppressWarnings.set(true)
-    }
-}
-
-gradle.taskGraph.whenReady {
-    val assemblesRelease =
-        allTasks.any { task ->
-            task.name.startsWith("assemble") &&
-                task.name.endsWith("Release") &&
-                !task.name.contains("Test")
-        }
-    if (assemblesRelease && !hasReleaseSigningConfig && !ciUnsignedReleaseAllowed) {
-        error(
-            """
-            Release APK signing is not configured.
-
-            Add app/keystore/release.keystore and set these in local.properties or env:
-              STORE_PASSWORD (or KEYSTORE_PASSWORD)
-              KEY_ALIAS
-              KEY_PASSWORD
-
-            Unsigned release APKs cannot be installed on Android ("package appears to be invalid").
-            For quick sideloading, use: ./gradlew :app:assembleFossMobileArm64Debug
-            """.trimIndent(),
-        )
     }
 }
 

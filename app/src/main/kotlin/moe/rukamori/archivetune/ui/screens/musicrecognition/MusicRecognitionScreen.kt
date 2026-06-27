@@ -195,6 +195,7 @@ fun MusicRecognitionScreen(navController: NavHostController) {
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) {
                 launchRecognition(
+                    context = context,
                     scope = scope,
                     strings = strings,
                     onState = ::handleRecognitionState,
@@ -221,6 +222,7 @@ fun MusicRecognitionScreen(navController: NavHostController) {
                 PackageManager.PERMISSION_GRANTED
         if (permission) {
             launchRecognition(
+                context = context,
                 scope = scope,
                 strings = strings,
                 onState = ::handleRecognitionState,
@@ -966,6 +968,7 @@ private fun RecognitionHistoryItem.matches(query: String): Boolean {
 }
 
 private fun launchRecognition(
+    context: Context,
     scope: kotlinx.coroutines.CoroutineScope,
     strings: MusicRecognitionStrings,
     onState: (MusicRecognitionState) -> Unit,
@@ -975,6 +978,7 @@ private fun launchRecognition(
     onReplaceJob(
         scope.launch {
             runRecognitionFlow(
+                context = context,
                 strings = strings,
                 onState = onState,
                 onHaptic = onHaptic,
@@ -984,6 +988,7 @@ private fun launchRecognition(
 }
 
 private suspend fun runRecognitionFlow(
+    context: Context,
     strings: MusicRecognitionStrings,
     onState: (MusicRecognitionState) -> Unit,
     onHaptic: () -> Unit,
@@ -994,6 +999,7 @@ private suspend fun runRecognitionFlow(
     val samples =
         withContext(Dispatchers.IO) {
             recordMicPcm16Mono(
+                context = context,
                 sampleRateHz = 16000,
                 recordMs = 4200L,
             ).first
@@ -1057,10 +1063,17 @@ private fun buildHistoryMetadata(item: RecognitionHistoryItem): String {
 }
 
 private suspend fun recordMicPcm16Mono(
+    context: Context,
     sampleRateHz: Int,
     recordMs: Long,
 ): Pair<ShortArray, Int> =
     withContext(Dispatchers.IO) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return@withContext ShortArray(0) to sampleRateHz
+        }
+
         val channel = AudioFormat.CHANNEL_IN_MONO
         val encoding = AudioFormat.ENCODING_PCM_16BIT
         val minBuffer = AudioRecord.getMinBufferSize(sampleRateHz, channel, encoding).coerceAtLeast(4096)

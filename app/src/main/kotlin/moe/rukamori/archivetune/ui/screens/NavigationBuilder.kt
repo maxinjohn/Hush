@@ -77,8 +77,10 @@ import moe.rukamori.archivetune.ui.screens.search.SearchScreen
 import moe.rukamori.archivetune.ui.screens.settings.AboutScreen
 import moe.rukamori.archivetune.ui.screens.settings.AccountSettings
 import moe.rukamori.archivetune.ui.screens.settings.AiIntegrationSettings
+import moe.rukamori.archivetune.ui.screens.settings.AndroidAutoSettings
 import moe.rukamori.archivetune.ui.screens.settings.AodCustomizedScreen
 import moe.rukamori.archivetune.ui.screens.settings.AppearanceSettings
+import moe.rukamori.archivetune.ui.screens.settings.AutoBackupSettings
 import moe.rukamori.archivetune.ui.screens.settings.BackupAndRestore
 import moe.rukamori.archivetune.ui.screens.settings.ChangelogScreen
 import moe.rukamori.archivetune.ui.screens.settings.ContentSettings
@@ -90,6 +92,7 @@ import moe.rukamori.archivetune.ui.screens.settings.IntegrationScreen
 import moe.rukamori.archivetune.ui.screens.settings.InternetSettings
 import moe.rukamori.archivetune.ui.screens.settings.LastFMSettings
 import moe.rukamori.archivetune.ui.screens.settings.LyricsAnimationSettings
+import moe.rukamori.archivetune.ui.screens.settings.AlarmSettings
 import moe.rukamori.archivetune.ui.screens.settings.LyricsSettings
 import moe.rukamori.archivetune.ui.screens.settings.MusicTogetherScreen
 import moe.rukamori.archivetune.ui.screens.settings.PalettePickerScreen
@@ -409,6 +412,12 @@ fun NavGraphBuilder.navigationBuilder(
     composable("settings/player") {
         PlayerSettings(navController, scrollBehavior)
     }
+    composable("settings/android_auto") {
+        AndroidAutoSettings(navController, scrollBehavior)
+    }
+    composable("settings/alarm") {
+        AlarmSettings(navController)
+    }
     composable("settings/storage") {
         StorageSettings(navController, scrollBehavior)
     }
@@ -417,6 +426,9 @@ fun NavGraphBuilder.navigationBuilder(
     }
     composable("settings/backup_restore") {
         BackupAndRestore(navController, scrollBehavior)
+    }
+    composable("settings/backup_restore/autobackup") {
+        AutoBackupSettings(navController, scrollBehavior)
     }
     composable("settings/integration") {
         IntegrationScreen(navController, scrollBehavior)

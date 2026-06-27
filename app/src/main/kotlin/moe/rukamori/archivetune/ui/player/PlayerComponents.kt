@@ -2111,6 +2111,7 @@ fun V6LandscapePlayerContent(
 fun V8PlayerControlsContent(
     mediaMetadata: MediaMetadata,
     queueTitle: String?,
+    sliderStyle: SliderStyle,
     playbackState: Int,
     isPlaying: Boolean,
     isLoading: Boolean,
@@ -2232,9 +2233,11 @@ fun V8PlayerControlsContent(
             Spacer(Modifier.height(contentGap))
 
             V8PlaybackProgress(
+                sliderStyle = sliderStyle,
                 sliderPosition = sliderPosition,
                 position = position,
                 duration = duration,
+                isPlaying = isPlaying,
                 currentFormat = currentFormat,
                 foreground = foreground,
                 onSliderValueChange = onSliderValueChange,
@@ -2299,6 +2302,7 @@ fun V8PlayerControlsContent(
 fun V8PlayerContent(
     mediaMetadata: MediaMetadata,
     queueTitle: String?,
+    sliderStyle: SliderStyle,
     playbackState: Int,
     isPlaying: Boolean,
     isLoading: Boolean,
@@ -2358,6 +2362,7 @@ fun V8PlayerContent(
             artworkUrl = artworkUrl,
             canvasPrimaryUrl = canvasPrimaryUrl,
             canvasFallbackUrl = canvasFallbackUrl,
+            sliderStyle = sliderStyle,
             playbackState = playbackState,
             isPlaying = isPlaying,
             isLoading = isLoading,
@@ -2398,6 +2403,7 @@ fun V8PlayerContent(
             artworkUrl = artworkUrl,
             canvasPrimaryUrl = canvasPrimaryUrl,
             canvasFallbackUrl = canvasFallbackUrl,
+            sliderStyle = sliderStyle,
             playbackState = playbackState,
             isPlaying = isPlaying,
             isLoading = isLoading,
@@ -2442,6 +2448,7 @@ private fun V8PortraitContent(
     artworkUrl: String?,
     canvasPrimaryUrl: String?,
     canvasFallbackUrl: String?,
+    sliderStyle: SliderStyle,
     playbackState: Int,
     isPlaying: Boolean,
     isLoading: Boolean,
@@ -2552,9 +2559,11 @@ private fun V8PortraitContent(
             Spacer(Modifier.height(controlsGap))
 
             V8PlaybackProgress(
+                sliderStyle = sliderStyle,
                 sliderPosition = sliderPosition,
                 position = position,
                 duration = duration,
+                isPlaying = isPlaying,
                 currentFormat = currentFormat,
                 foreground = foreground,
                 onSliderValueChange = onSliderValueChange,
@@ -2597,6 +2606,7 @@ private fun V8LandscapeContent(
     artworkUrl: String?,
     canvasPrimaryUrl: String?,
     canvasFallbackUrl: String?,
+    sliderStyle: SliderStyle,
     playbackState: Int,
     isPlaying: Boolean,
     isLoading: Boolean,
@@ -2708,9 +2718,11 @@ private fun V8LandscapeContent(
                 Spacer(Modifier.height(if (compactHeight) 10.dp else 16.dp))
 
                 V8PlaybackProgress(
+                    sliderStyle = sliderStyle,
                     sliderPosition = sliderPosition,
                     position = position,
                     duration = duration,
+                    isPlaying = isPlaying,
                     currentFormat = currentFormat,
                     foreground = foreground,
                     onSliderValueChange = onSliderValueChange,
@@ -2903,27 +2915,28 @@ private fun V8ActionButton(
 
 @Composable
 private fun V8PlaybackProgress(
+    sliderStyle: SliderStyle,
     sliderPosition: Long?,
     position: Long,
     duration: Long,
+    isPlaying: Boolean,
     currentFormat: FormatEntity?,
     foreground: Color,
     onSliderValueChange: (Long) -> Unit,
     onSliderValueChangeFinished: () -> Unit,
 ) {
     val safeDuration = if (duration <= 0L || duration == C.TIME_UNSET) 0f else duration.toFloat()
-    val safeValue = (sliderPosition ?: position).toFloat().coerceIn(0f, safeDuration.coerceAtLeast(0f))
+    val safeValue = (sliderPosition ?: position).toFloat().coerceIn(0f, maxOf(0f, safeDuration))
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        V8FlatSlider(
+        StyledPlaybackSlider(
+            sliderStyle = sliderStyle,
             value = safeValue,
-            valueRange = 0f..safeDuration.coerceAtLeast(0f),
-            activeColor = foreground.copy(alpha = 0.88f),
-            inactiveColor = foreground.copy(alpha = 0.32f),
-            trackHeight = 9.dp,
+            valueRange = 0f..maxOf(1f, safeDuration),
             onValueChange = { onSliderValueChange(it.toLong()) },
             onValueChangeFinished = onSliderValueChangeFinished,
-            enabled = safeDuration > 0f,
+            activeColor = foreground.copy(alpha = 0.88f),
+            isPlaying = isPlaying,
             modifier = Modifier.fillMaxWidth(),
         )
 
@@ -3297,6 +3310,7 @@ private fun V8FlatSlider(
 @Composable
 fun V9PlayerContent(
     mediaMetadata: MediaMetadata,
+    sliderStyle: SliderStyle,
     playbackState: Int,
     isPlaying: Boolean,
     isLoading: Boolean,
@@ -3344,6 +3358,7 @@ fun V9PlayerContent(
             artworkUrl = artworkUrl,
             canvasPrimaryUrl = canvasPrimaryUrl,
             canvasFallbackUrl = canvasFallbackUrl,
+            sliderStyle = sliderStyle,
             playbackState = playbackState,
             isPlaying = isPlaying,
             isLoading = isLoading,
@@ -3374,6 +3389,7 @@ fun V9PlayerContent(
             artworkUrl = artworkUrl,
             canvasPrimaryUrl = canvasPrimaryUrl,
             canvasFallbackUrl = canvasFallbackUrl,
+            sliderStyle = sliderStyle,
             playbackState = playbackState,
             isPlaying = isPlaying,
             isLoading = isLoading,
@@ -3408,6 +3424,7 @@ private fun V9PortraitContent(
     artworkUrl: String?,
     canvasPrimaryUrl: String?,
     canvasFallbackUrl: String?,
+    sliderStyle: SliderStyle,
     playbackState: Int,
     isPlaying: Boolean,
     isLoading: Boolean,
@@ -3515,12 +3532,12 @@ private fun V9PortraitContent(
             Spacer(Modifier.height(controlsGap))
 
             V9PlaybackProgress(
+                sliderStyle = sliderStyle,
                 sliderPosition = sliderPosition,
                 position = position,
                 duration = duration,
                 isPlaying = isPlaying,
                 activeColor = textButtonColor,
-                inactiveColor = textButtonColor.copy(alpha = 0.24f),
                 textColor = textBackgroundColor,
                 onSliderValueChange = onSliderValueChange,
                 onSliderValueChangeFinished = onSliderValueChangeFinished,
@@ -3556,6 +3573,7 @@ private fun V9LandscapeContent(
     artworkUrl: String?,
     canvasPrimaryUrl: String?,
     canvasFallbackUrl: String?,
+    sliderStyle: SliderStyle,
     playbackState: Int,
     isPlaying: Boolean,
     isLoading: Boolean,
@@ -3656,12 +3674,12 @@ private fun V9LandscapeContent(
                 Spacer(Modifier.height(if (compactHeight) 10.dp else 16.dp))
 
                 V9PlaybackProgress(
+                    sliderStyle = sliderStyle,
                     sliderPosition = sliderPosition,
                     position = position,
                     duration = duration,
                     isPlaying = isPlaying,
                     activeColor = textButtonColor,
-                    inactiveColor = textButtonColor.copy(alpha = 0.24f),
                     textColor = textBackgroundColor,
                     onSliderValueChange = onSliderValueChange,
                     onSliderValueChangeFinished = onSliderValueChangeFinished,
@@ -3843,47 +3861,38 @@ private fun V9Metadata(
 
 @Composable
 private fun V9PlaybackProgress(
+    sliderStyle: SliderStyle,
     sliderPosition: Long?,
     position: Long,
     duration: Long,
     isPlaying: Boolean,
     activeColor: Color,
-    inactiveColor: Color,
     textColor: Color,
     onSliderValueChange: (Long) -> Unit,
     onSliderValueChangeFinished: () -> Unit,
 ) {
     val safeDuration = if (duration <= 0L || duration == C.TIME_UNSET) 0f else duration.toFloat()
-    val safeRange = 0f..safeDuration.coerceAtLeast(1f)
-    val safeValue = (sliderPosition ?: position).toFloat().coerceIn(safeRange)
-    val sliderColors =
-        SliderDefaults.colors(
-            thumbColor = activeColor,
-            activeTrackColor = activeColor,
-            activeTickColor = activeColor,
-            inactiveTrackColor = inactiveColor,
-        )
-    val squigglesSpec =
-        remember(isPlaying) {
-            SquigglySlider.SquigglesSpec(
-                amplitude = if (isPlaying) 3.dp else 0.dp,
-                strokeWidth = 7.dp,
-            )
-        }
+    val safeValue = (sliderPosition ?: position).toFloat().coerceIn(0f, maxOf(0f, safeDuration))
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        SquigglySlider(
+        StyledPlaybackSlider(
+            sliderStyle = sliderStyle,
             value = safeValue,
-            valueRange = safeRange,
+            valueRange = 0f..maxOf(1f, safeDuration),
             onValueChange = { onSliderValueChange(it.toLong()) },
             onValueChangeFinished = onSliderValueChangeFinished,
-            enabled = safeDuration > 0f,
-            colors = sliderColors,
-            squigglesSpec = squigglesSpec,
+            activeColor = activeColor,
+            isPlaying = isPlaying,
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(36.dp),
+                    .then(
+                        if (sliderStyle == SliderStyle.Wavy) {
+                            Modifier.height(36.dp)
+                        } else {
+                            Modifier
+                        },
+                    ),
         )
 
         Row(

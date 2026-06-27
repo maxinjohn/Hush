@@ -150,7 +150,7 @@ fun Thumbnail(
     val lowDataModeActive = rememberLowDataModeActive()
     val playerDesignStyle by rememberEnumPreference(
         key = PlayerDesignStyleKey,
-        defaultValue = PlayerDesignStyle.V4,
+        defaultValue = PlayerDesignStyle.DEFAULT,
     )
     val (maxCanvasCacheSize, _) =
         rememberPreference(

@@ -623,6 +623,12 @@ fun UpdateScreen(
             }
 
             item {
+                CleanInstallNoticeCard(
+                    onOpenBackup = { navController.navigate("settings/backup_restore") },
+                )
+            }
+
+            item {
                 UpdateControlsPanel(
                     enableUpdateNotification = enableUpdateNotification,
                     onUpdateNotificationChange = { enabled ->
@@ -847,6 +853,41 @@ fun UpdateScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun CleanInstallNoticeCard(onOpenBackup: () -> Unit) {
+    Card(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .widthIn(max = 840.dp),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            ),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.updates_clean_install_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            Text(
+                text = stringResource(R.string.updates_clean_install_body),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            TextButton(onClick = onOpenBackup) {
+                Text(stringResource(R.string.updates_clean_install_open_backup))
+            }
+        }
     }
 }
 

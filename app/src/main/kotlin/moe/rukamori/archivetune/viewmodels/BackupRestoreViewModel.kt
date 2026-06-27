@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
@@ -48,6 +49,7 @@ import moe.rukamori.archivetune.playback.MusicService.Companion.PERSISTENT_QUEUE
 import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.reportException
 import org.xmlpull.v1.XmlPullParser
+import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStreamReader
@@ -256,7 +258,7 @@ class BackupRestoreViewModel
                                 database.checkpoint()
                                 completedUnits++
 
-                                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                                val buffer = ByteArray(BUFFER_SIZE)
                                 dbFiles.forEach { file ->
                                     val fileSize = file.length().coerceAtLeast(1L)
                                     var bytesCopied = 0L
@@ -310,8 +312,43 @@ class BackupRestoreViewModel
             categories: Set<BackupCategory>,
         ) {
             viewModelScope.launch(Dispatchers.IO) {
-                val title = context.getString(R.string.restore_in_progress)
-                try {
+                restoreInternal(context, uri, categories)
+            }
+        }
+
+        fun restoreFromFile(
+            context: Context,
+            file: File,
+        ) {
+            val uri =
+                FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.FileProvider",
+                    file,
+                )
+            viewModelScope.launch(Dispatchers.IO) {
+                val result = validateBackup(context, uri)
+                if (result.isValid) {
+                    restoreInternal(context, uri, result.availableCategories)
+                } else {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            context,
+                            result.errorMessage ?: context.getString(R.string.restore_failed),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+            }
+        }
+
+        private suspend fun restoreInternal(
+            context: Context,
+            uri: Uri,
+            categories: Set<BackupCategory>,
+        ) {
+            val title = context.getString(R.string.restore_in_progress)
+            try {
                     val includeSettings = BackupCategory.SETTINGS in categories
                     val includeAccount = BackupCategory.ACCOUNT in categories
                     val includeLibrary = BackupCategory.LIBRARY in categories
@@ -444,7 +481,6 @@ class BackupRestoreViewModel
                 } finally {
                     _backupRestoreProgress.value = null
                 }
-            }
         }
 
         private suspend fun writeSettingsToXml(
@@ -807,6 +843,7 @@ class BackupRestoreViewModel
         companion object {
             const val SETTINGS_FILENAME = "settings.preferences_pb"
             const val SETTINGS_XML_FILENAME = "settings.xml"
+            private const val BUFFER_SIZE = 64 * 1024
 
             val ACCOUNT_PREF_KEYS: Set<String> =
                 setOf(
@@ -829,6 +866,9 @@ class BackupRestoreViewModel
                     "lastfmApiKeyOverride",
                     "lastfmSecretOverride",
                     "listenbrainz_token",
+                    "discordToken",
+                    "discordUsername",
+                    "discordName",
                     "proxyUsername",
                     "proxyPassword",
                     "spotify_sp_dc",
