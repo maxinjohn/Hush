@@ -81,7 +81,7 @@ bash scripts/build-release.sh gms tv universal
 
 Shortcuts: `build-foss-mobile-release.sh`, `build-gms-mobile-release.sh`, `build-tv-release.sh`.
 
-Local release builds need `app/keystore/release.keystore` plus passwords in `local.properties`, then:
+Release builds need `app/keystore/release.keystore` and passwords in `local.properties` (see `local.properties.example`). Use `scripts/build-release.sh` — it assembles and signs the APK.
 
 ```bash
 bash scripts/resign-release-apk.sh --check
@@ -89,8 +89,6 @@ bash scripts/build-release.sh foss mobile arm64
 ```
 
 Gradle outputs an unsigned APK when the keystore is configured; the script signs it (same as CI). `./gradlew assemble*Release` alone is not enough for sideloading.
-
-See `local.properties.example` for `STORE_PASSWORD`, `KEY_ALIAS`, and `KEY_PASSWORD`.
 
 ## Legal
 

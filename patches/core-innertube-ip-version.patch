@@ -1,0 +1,113 @@
+diff --git a/src/main/kotlin/moe/rukamori/archivetune/innertube/InnerTube.kt b/src/main/kotlin/moe/rukamori/archivetune/innertube/InnerTube.kt
+index f4a7568..030d8e9 100644
+--- a/src/main/kotlin/moe/rukamori/archivetune/innertube/InnerTube.kt
++++ b/src/main/kotlin/moe/rukamori/archivetune/innertube/InnerTube.kt
+@@ -23,6 +23,7 @@ import kotlinx.coroutines.delay
+ import kotlinx.serialization.ExperimentalSerializationApi
+ import kotlinx.serialization.json.Json
+ import moe.rukamori.archivetune.innertube.models.Context
++import moe.rukamori.archivetune.innertube.models.IpVersion
+ import moe.rukamori.archivetune.innertube.models.MediaInfo
+ import moe.rukamori.archivetune.innertube.models.ReturnYouTubeDislikeResponse
+ import moe.rukamori.archivetune.innertube.models.YouTubeClient
+@@ -124,6 +125,13 @@ class InnerTube {
+             httpClient = createClient()
+         }
+ 
++    var ipVersion: IpVersion = IpVersion.AUTO
++        set(value) {
++            field = value
++            httpClient.close()
++            httpClient = createClient()
++        }
++
+     var useLoginForBrowse: Boolean = false
+ 
+     fun currentAuthState(): PlaybackAuthState = authState
+@@ -160,7 +168,7 @@ class InnerTube {
+ 
+             engine {
+                 config {
+-                    dns(this@InnerTube.dns)
++                    dns(this@InnerTube.dns.withIpVersionPreference(ipVersion))
+                     val sel = this@InnerTube.proxySelector
+                     if (sel != null) {
+                         proxySelector(sel)
+diff --git a/src/main/kotlin/moe/rukamori/archivetune/innertube/IpVersionDns.kt b/src/main/kotlin/moe/rukamori/archivetune/innertube/IpVersionDns.kt
+new file mode 100644
+index 0000000..a6d6301
+--- /dev/null
++++ b/src/main/kotlin/moe/rukamori/archivetune/innertube/IpVersionDns.kt
+@@ -0,0 +1,28 @@
++/*
++ * ArchiveTune (2026)
++ * © Rukamori — github.com/rukamori
++ * GPL-3.0 License | Contributors: see git history
++ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
++ */
++
++package moe.rukamori.archivetune.innertube
++
++import moe.rukamori.archivetune.innertube.models.IpVersion
++import okhttp3.Dns
++import java.net.Inet4Address
++import java.net.Inet6Address
++import java.net.InetAddress
++
++fun Dns.withIpVersionPreference(ipVersion: IpVersion): Dns {
++    if (ipVersion == IpVersion.AUTO) return this
++    return object : Dns {
++        override fun lookup(hostname: String): List<InetAddress> {
++            val addresses = this@withIpVersionPreference.lookup(hostname)
++            return when (ipVersion) {
++                IpVersion.IPV4 -> addresses.filterIsInstance<Inet4Address>().ifEmpty { addresses }
++                IpVersion.IPV6 -> addresses.filterIsInstance<Inet6Address>().ifEmpty { addresses }
++                IpVersion.AUTO -> addresses
++            }
++        }
++    }
++}
+diff --git a/src/main/kotlin/moe/rukamori/archivetune/innertube/YouTube.kt b/src/main/kotlin/moe/rukamori/archivetune/innertube/YouTube.kt
+index 22b8509..cbfb27f 100644
+--- a/src/main/kotlin/moe/rukamori/archivetune/innertube/YouTube.kt
++++ b/src/main/kotlin/moe/rukamori/archivetune/innertube/YouTube.kt
+@@ -34,6 +34,7 @@ import moe.rukamori.archivetune.innertube.models.Artist
+ import moe.rukamori.archivetune.innertube.models.ArtistItem
+ import moe.rukamori.archivetune.innertube.models.BrowseEndpoint
+ import moe.rukamori.archivetune.innertube.models.GridRenderer
++import moe.rukamori.archivetune.innertube.models.IpVersion
+ import moe.rukamori.archivetune.innertube.models.MediaInfo
+ import moe.rukamori.archivetune.innertube.models.MusicCarouselShelfRenderer
+ import moe.rukamori.archivetune.innertube.models.MusicPlaylistShelfRenderer
+@@ -188,6 +189,11 @@ object YouTube {
+         set(value) {
+             innerTube.dns = value
+         }
++    var ipVersion: IpVersion
++        get() = innerTube.ipVersion
++        set(value) {
++            innerTube.ipVersion = value
++        }
+     var streamBypassProxy: Boolean = false
+     val streamProxy: Proxy?
+         get() = if (streamBypassProxy) null else proxy
+diff --git a/src/main/kotlin/moe/rukamori/archivetune/innertube/models/IpVersion.kt b/src/main/kotlin/moe/rukamori/archivetune/innertube/models/IpVersion.kt
+new file mode 100644
+index 0000000..19d7764
+--- /dev/null
++++ b/src/main/kotlin/moe/rukamori/archivetune/innertube/models/IpVersion.kt
+@@ -0,0 +1,14 @@
++/*
++ * ArchiveTune (2026)
++ * © Rukamori — github.com/rukamori
++ * GPL-3.0 License | Contributors: see git history
++ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
++ */
++
++package moe.rukamori.archivetune.innertube.models
++
++enum class IpVersion {
++    AUTO,
++    IPV4,
++    IPV6,
++}
