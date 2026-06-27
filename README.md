@@ -13,7 +13,7 @@ Personal Android fork for my own devices (phones and car head unit). Based on [A
 
 ## Upstream projects
 
-| Project | Issues | Donate |
+| Project | Issues | Support |
 | --- | --- | --- |
 | [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) | [Issues](https://github.com/ArchiveTuneApp/ArchiveTune/issues) | [Donation links on their repo](https://github.com/ArchiveTuneApp/ArchiveTune) |
 | [Metrolist](https://github.com/metrolistgroup/metrolist) | [Issues](https://github.com/metrolistgroup/metrolist/issues) | [Donation links on their repo](https://github.com/metrolistgroup/metrolist) |
@@ -28,28 +28,34 @@ Other GPL dependencies (InnerTune, ViMusic, OuterTune, BetterLyrics, …) are li
 
 ## Download
 
-CI publishes **universal** release APKs only (all CPU architectures in one file):
+CI publishes **universal** release APKs (all CPU architectures in one file).
 
-| File | Pick this if… |
+### Which APK?
+
+| File | When to use |
 | --- | --- |
-| `hush-foss-mobile-universal-release.apk` | You want **no Google libraries** in the APK. Full app; updates open GitHub in the browser (or use Obtainium). |
-| `hush-gms-mobile-universal-release.apk` | Your phone has **Google Play Services** and you want **Chromecast** plus **in-app APK updates**. |
-| `hush-gms-tv-universal-release.apk` | **Android TV** (GMS build; Cast-oriented TV UI). |
-
-**GMS vs FOSS** — same `app.hush.music` app. The only differences are bundled libraries:
-
-| | FOSS | GMS |
-| --- | --- | --- |
-| Playback, library, lyrics, settings | ✓ | ✓ |
-| Google Cast (Chromecast) | — | ✓ |
-| Download + install update inside the app | — | ✓ |
-| Google Play Services required | No | Only for Cast (rest of the app runs without it) |
-
-Neither build uses Google account sign-in SDKs — YouTube Music login is still WebView/cookie based.
+| `hush-foss-mobile-universal-release.apk` | **Default for most phones** — no Google proprietary libraries in the APK. Use Obtainium or GitHub for updates. |
+| `hush-gms-mobile-universal-release.apk` | You use **Chromecast** or want **in-app download + install** of updates. |
+| `hush-gms-tv-universal-release.apk` | **Android TV** |
 
 Get them from **[GitHub Releases](https://github.com/maxinjohn/Hush/releases/latest)** or **[Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/maxinjohn/Hush/)**.
 
-Store builds of ArchiveTune use package `moe.rukamori.archivetune`; Hush uses `app.hush.music` — they are separate apps.
+### GMS vs FOSS
+
+Same app (`app.hush.music`). Only the **bundled libraries** differ:
+
+| | FOSS | GMS |
+| --- | :---: | :---: |
+| Playback, library, lyrics, settings | ✓ | ✓ |
+| Google Cast (Chromecast) | — | ✓ |
+| Download + install update inside the app | — | ✓ |
+| Google Play Services required | **No** | **Only for Cast** — everything else runs without it |
+| YouTube Music login | WebView / cookies | WebView / cookies |
+
+- **FOSS** — no Google Cast SDK or in-app APK installer. Smaller, fully open build. Updates: open GitHub or use Obtainium.
+- **GMS** — adds Cast + in-app updater. Pick this only if you need those; Play Services is not required for normal playback.
+
+Store builds of ArchiveTune use `moe.rukamori.archivetune`; Hush is a separate install.
 
 ### Installing
 
