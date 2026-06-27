@@ -81,7 +81,13 @@ bash scripts/build-release.sh gms tv universal
 
 Shortcuts: `build-foss-mobile-release.sh`, `build-gms-mobile-release.sh`, `build-tv-release.sh`.
 
-Local release builds need `app/keystore/release.keystore` plus passwords in `local.properties`, then:
+After clone:
+
+```bash
+git submodule update --init --recursive
+bash scripts/apply-submodule-patches.sh
+```
+
 
 ```bash
 bash scripts/resign-release-apk.sh --check
