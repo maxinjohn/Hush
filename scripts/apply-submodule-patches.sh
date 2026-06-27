@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Apply Hush-only patches on top of the upstream core submodule checkout.
-# CI runs this after checkout; Gradle also runs it automatically before compile when needed.
+# CI runs this after checkout on GitHub Actions runners.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
