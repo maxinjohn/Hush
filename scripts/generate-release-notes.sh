@@ -180,7 +180,7 @@ append_section() {
   echo ""
   echo "### Feature attribution"
   echo ""
-  echo "See the full table in [README — Where features came from](https://github.com/maxinjohn/Hush/blob/main/README.md#where-features-came-from)."
+  echo "See the full table in [README — Loot table](https://github.com/maxinjohn/Hush/blob/main/README.md#loot-table--who-donated-what)."
   echo ""
   echo "| Source | Examples integrated into Hush |"
   echo "| --- | --- |"

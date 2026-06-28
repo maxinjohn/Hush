@@ -41,7 +41,7 @@ CHANGELOG_FILE="CHANGELOG.md"
 {
   echo "# Changelog"
   echo ""
-  echo "What's new in each release. Feature attribution lives in the [README](README.md#where-features-came-from)."
+  echo "What's new in each release. Feature attribution lives in the [README](README.md#loot-table--who-donated-what)."
   echo ""
   echo "| Version | Notes |"
   echo "| --- | --- |"
@@ -76,7 +76,7 @@ PY
     echo "| ${version} | ${label} |"
   done
   echo ""
-  echo "Feature map: [README — Where features came from](README.md#where-features-came-from)"
+  echo "Feature map: [README — Loot table](README.md#loot-table--who-donated-what)"
 } > "$CHANGELOG_FILE"
 
 echo "Synced release docs for v${VERSION_NAME} (${VERSION_CODE})"

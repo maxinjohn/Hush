@@ -1,9 +1,9 @@
 # Changelog
 
-What's new in each release. Feature attribution lives in the [README](README.md#where-features-came-from).
+What's new in each release. Feature attribution lives in the [README](README.md#loot-table--who-donated-what).
 
 | Version | Notes |
 | --- | --- |
 | 13.8.5 | [13.8.5](release_notes/v13.8.5.md) · **current** |
 
-Feature map: [README — Where features came from](README.md#where-features-came-from)
+Feature map: [README — Loot table](README.md#loot-table--who-donated-what)
