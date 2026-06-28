@@ -437,21 +437,22 @@ jobs:
 
       - name: Write release notes
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.check-version.outputs.new_version }}
         run: |
           set -euo pipefail
           chmod +x scripts/generate-release-notes.sh
-          LAST_TAG="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
-          if [ -n "$LAST_TAG" ]; then
-            echo "Generating release notes for commits since ${LAST_TAG}"
-            export RELEASE_RANGE="${LAST_TAG}..HEAD"
-          else
-            echo "Generating release notes from recent commits (no prior tag found)"
-          fi
+          export RELEASE_VERSION
+          echo "Generating release notes for v${RELEASE_VERSION}"
           bash scripts/generate-release-notes.sh release_notes.md
           echo "--- Release notes preview ---"
-          head -n 60 release_notes.md
+          head -n 80 release_notes.md
           if [ ! -s release_notes.md ]; then
             echo "release_notes.md is empty."
+            exit 1
+          fi
+          if ! grep -q '^- ' release_notes.md; then
+            echo "release_notes.md has no bullet entries."
             exit 1
           fi
 
