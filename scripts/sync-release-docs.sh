@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerate release_notes/v{version}.md, CHANGELOG.md, and README version line.
+# Regenerate release_notes/v{version}.md and CHANGELOG.md (README is edited manually).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -36,42 +36,12 @@ if ! grep -q '^- ' "$NOTES_FILE"; then
   mv "$tmp" "$NOTES_FILE"
 fi
 
-# README — current version line (between markers)
-README_FILE="README.md"
-export VERSION_NAME VERSION_CODE
-python3 <<'PY'
-import os
-import re
-from pathlib import Path
-
-version_name = os.environ["VERSION_NAME"]
-version_code = os.environ["VERSION_CODE"]
-readme_path = Path("README.md")
-block = f"""<!-- hush-release-docs-start -->
-**Current version:** {version_name} ({version_code}) · [Release notes](release_notes/v{version_name}.md) · [All releases](https://github.com/maxinjohn/Hush/releases/latest)
-
-_Auto-updated on push to `dev`/`main` and when **Bump to new version** runs in GitHub Actions._
-<!-- hush-release-docs-end -->"""
-text = readme_path.read_text(encoding="utf-8")
-if "<!-- hush-release-docs-start -->" in text:
-    text = re.sub(
-        r"<!-- hush-release-docs-start -->.*?<!-- hush-release-docs-end -->",
-        block,
-        text,
-        count=1,
-        flags=re.DOTALL,
-    )
-else:
-    text = text.replace("# Hush\n\n", f"# Hush\n\n{block}\n\n", 1)
-readme_path.write_text(text, encoding="utf-8")
-PY
-
 # CHANGELOG.md — index of all version files
 CHANGELOG_FILE="CHANGELOG.md"
 {
   echo "# Changelog"
   echo ""
-  echo "Release notes are generated automatically from git history when you push to \`dev\` or \`main\`, and when the [**Bump to new version**](.github/workflows/release.yml) workflow publishes a release."
+  echo "What's new in each release. Feature attribution lives in the [README](README.md#where-features-came-from)."
   echo ""
   echo "| Version | Notes |"
   echo "| --- | --- |"
@@ -106,10 +76,9 @@ PY
     echo "| ${version} | ${label} |"
   done
   echo ""
-  echo "Upstream feature map: [README — Adapted features by source](README.md#adapted-features-by-source)"
+  echo "Feature map: [README — Where features came from](README.md#where-features-came-from)"
 } > "$CHANGELOG_FILE"
 
 echo "Synced release docs for v${VERSION_NAME} (${VERSION_CODE})"
 echo "  - ${NOTES_FILE}"
 echo "  - ${CHANGELOG_FILE}"
-echo "  - ${README_FILE}"

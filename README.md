@@ -1,119 +1,97 @@
 # Hush
 
-<!-- hush-release-docs-start -->
-**Current version:** 13.8.5 (143) · [Release notes](release_notes/v13.8.5.md) · [All releases](https://github.com/maxinjohn/Hush/releases/latest)
+**YouTube Music, but actually yours.** Personal Android player for my phone and car — built on open source, tuned for daily listening.
 
-_Auto-updated on push to `dev`/`main` and when **Bump to new version** runs in GitHub Actions._
-<!-- hush-release-docs-end -->
-
-Personal Android fork for my own devices (phones and car head unit). Built on [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) and updated with features, fixes, and UI from Metrolist, Vivi Music, Echo Music, and other GPL clients in this space—not a one-off cherry-pick, but an ongoing merge of the best from those codebases.
-
-**Package:** `app.hush.music` (debug: `app.hush.music.debug`)
+`app.hush.music` · [Get the APK](https://github.com/maxinjohn/Hush/releases/latest) · [Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/maxinjohn/Hush/)
 
 | | |
 | --- | --- |
-| [Releases](https://github.com/maxinjohn/Hush/releases/latest) | APK downloads |
-| [Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/maxinjohn/Hush/) | Auto-updates from GitHub |
-| [Issues](https://github.com/maxinjohn/Hush/issues) | Install / packaging problems on this fork |
-| [Privacy](PRIVACY.md) | What the app stores and sends |
+| [Releases](https://github.com/maxinjohn/Hush/releases/latest) | Latest APKs |
+| [Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/maxinjohn/Hush/) | Auto-update from GitHub |
+| [Issues](https://github.com/maxinjohn/Hush/issues) | Install / packaging on this fork |
+| [Privacy](PRIVACY.md) | What gets stored and sent |
+| [Changelog](CHANGELOG.md) | Per-version release notes |
 
-## Upstream projects
+## What is this?
 
-Hush integrates code and ideas from multiple open-source YouTube Music clients. Each project keeps its license and copyright notices in source; support and bug reports for shared features should go to the upstream that owns that area when possible.
+Hush is my fork of the YouTube Music client ecosystem — not a store app, not official Google anything. It starts from [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) and pulls in the best bits from other GPL clients in this space ([Metrolist](https://github.com/metrolistgroup/metrolist), [Vivi Music](https://github.com/vivizzz007/vivi-music), [Echo Music](https://github.com/EchoMusicApp/Echo-Music), and more).
 
-| Project | Issues | Support |
-| --- | --- | --- |
-| [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) | [Issues](https://github.com/ArchiveTuneApp/ArchiveTune/issues) | [Donation links on their repo](https://github.com/ArchiveTuneApp/ArchiveTune) |
-| [Metrolist](https://github.com/metrolistgroup/metrolist) | [Issues](https://github.com/metrolistgroup/metrolist/issues) | [Donation links on their repo](https://github.com/metrolistgroup/metrolist) |
-| [Vivi Music](https://github.com/vivizzz007/vivi-music) | [Issues](https://github.com/vivizzz007/vivi-music/issues) | [Donation links on their repo](https://github.com/vivizzz007/vivi-music) |
-| [Echo Music](https://github.com/EchoMusicApp/Echo-Music) | [Issues](https://github.com/EchoMusicApp/Echo-Music/issues) | [Donation links on their repo](https://github.com/EchoMusicApp/Echo-Music) |
+**What you get:** library sync, playback, lyrics, downloads, Android Auto, Cast (GMS build), local files, backups, podcasts, dynamic themes — the full listening stack, without the fluff I didn't want.
 
-Playback, lyrics, and UI bugs usually belong on whichever upstream project owns that code—not on this repo.
+**What this repo is not:** a contribution hub or donation jar. Bugs in shared upstream code belong on the project that owns that feature. I maintain this for myself; you're welcome to use the builds.
 
-**This repo:** no feature PRs, no donations. Support the upstream projects above.
+## Where features came from
 
-Other GPL dependencies (InnerTune, ViMusic, OuterTune, BetterLyrics, …) are listed under **About → Licenses** in the app.
+Honest map of what got ported from where. This table only changes when something new lands — version-by-version details live in [CHANGELOG](CHANGELOG.md) and [release notes](release_notes/).
 
-## Adapted features by source
-
-Hush is not a single upstream clone. It merges the base app from **ArchiveTune** with settings, playback, and UI work drawn from **Metrolist**, **Vivi Music**, **Echo Music**, and shared libraries used across this ecosystem. The table below is the honest map of what came from where—updated as new ports land.
-
-| Source | Features integrated into Hush |
+| Source | In Hush |
 | --- | --- |
-| **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** | Core app shell, YouTube Music login & library sync, playback engine, queue & downloads, crossfade, tempo/pitch, Chromecast, Music Together, Last.fm / ListenBrainz, local files, backup & restore, multi-provider lyrics, podcasts, Android Auto playback, dynamic theme & canvas artwork, onboarding, stream-source picker, custom extractor, hi-res / lossless playback paths |
-| **[Metrolist](https://github.com/metrolistgroup/metrolist)** | Wake-up **music alarms** (playlist alarms), **loudness level** presets, **playlist export** (CSV / M3U), **Android Auto** settings (sections, YT playlists) |
-| **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | Playlist **view-count prefetch**, **auto-backup before in-app update** install |
-| **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)** | **Settings search** across preference screens, **IPv4 / IPv6 / Auto** network mode for InnerTube |
-| **ViMusic** ([vfsfitvnm/ViMusic](https://github.com/vfsfitvnm/ViMusic)) | InnerTube client foundations, bottom-sheet patterns, KuGou lyrics client (see file headers & licenses) |
-| **OuterTune** ([OuterTune/OuterTune](https://github.com/OuterTune/OuterTune)) | Player carousel snap / parallax behaviour, network connectivity observer |
-| **BetterLyrics** ([boidu-dev/BetterLyrics](https://github.com/boidu-dev/BetterLyrics)) | Word-synced TTML lyrics provider module |
+| **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** | Core shell, YT login & sync, playback, queue & downloads, crossfade, tempo/pitch, Chromecast, Music Together, Last.fm / ListenBrainz, local files, backup & restore, multi-provider lyrics, podcasts, Android Auto, dynamic theme & canvas art, onboarding, stream-source picker, custom extractor, hi-res / lossless paths |
+| **[Metrolist](https://github.com/metrolistgroup/metrolist)** | Wake-up **music alarms**, **loudness** presets, **playlist export** (CSV / M3U), **Android Auto** settings |
+| **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | Playlist **view-count prefetch**, **auto-backup before in-app update** |
+| **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)** | **Settings search**, **IPv4 / IPv6 / Auto** network mode |
+| **[ViMusic](https://github.com/vfsfitvnm/ViMusic)** | InnerTube foundations, bottom-sheet patterns, KuGou lyrics client |
+| **[OuterTune](https://github.com/OuterTune/OuterTune)** | Player carousel snap / parallax, network connectivity observer |
+| **[BetterLyrics](https://github.com/boidu-dev/BetterLyrics)** | Word-synced TTML lyrics module |
 
-This table is not exhaustive—many small UI and playback fixes are blended across sources. When reporting bugs, use the upstream project that owns the feature area when you can.
+Lots of small UI and playback fixes are blended across sources. Full license credits are in the app under **About → Licenses**.
+
+## Upstream
+
+| Project | Issues |
+| --- | --- |
+| [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) | [Report](https://github.com/ArchiveTuneApp/ArchiveTune/issues) |
+| [Metrolist](https://github.com/metrolistgroup/metrolist) | [Report](https://github.com/metrolistgroup/metrolist/issues) |
+| [Vivi Music](https://github.com/vivizzz007/vivi-music) | [Report](https://github.com/vivizzz007/vivi-music/issues) |
+| [Echo Music](https://github.com/EchoMusicApp/Echo-Music) | [Report](https://github.com/EchoMusicApp/Echo-Music/issues) |
 
 ## Download
 
-CI publishes **universal** release APKs (all CPU architectures in one file).
+CI ships **universal** APKs — one file, all CPU archs.
 
-### Which APK?
+### Pick your build
 
-| File | When to use |
+| APK | Use when |
 | --- | --- |
-| `hush-foss-mobile-universal-release.apk` | **Default for most phones** — no Google proprietary libraries in the APK. Use Obtainium or GitHub for updates. |
-| `hush-gms-mobile-universal-release.apk` | You use **Chromecast** or want **in-app download + install** of updates. |
+| `hush-foss-mobile-universal-release.apk` | **Default.** No Google libs. Obtainium or GitHub for updates. |
+| `hush-gms-mobile-universal-release.apk` | You want **Chromecast** or **in-app update install**. |
 | `hush-gms-tv-universal-release.apk` | **Android TV** |
 
-Get them from **[GitHub Releases](https://github.com/maxinjohn/Hush/releases/latest)** or **[Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/maxinjohn/Hush/)**.
+### FOSS vs GMS
 
-### GMS vs FOSS
-
-Same app (`app.hush.music`). Only the **bundled libraries** differ:
+Same app. Different bundled libs.
 
 | | FOSS | GMS |
 | --- | :---: | :---: |
 | Playback, library, lyrics, settings | ✓ | ✓ |
-| Google Cast (Chromecast) | — | ✓ |
-| Download + install update inside the app | — | ✓ |
-| Google Play Services required | **No** | **Only for Cast** — everything else runs without it |
-| YouTube Music login | WebView / cookies | WebView / cookies |
+| Chromecast | — | ✓ |
+| In-app APK updater | — | ✓ |
+| Play Services required | No | Only for Cast |
 
-- **FOSS** — no Google Cast SDK or in-app APK installer. Smaller, fully open build. Updates: open GitHub or use Obtainium.
-- **GMS** — adds Cast + in-app updater. Pick this only if you need those; Play Services is not required for normal playback.
+Store ArchiveTune uses `moe.rukamori.archivetune` — Hush is a separate install (`app.hush.music`).
 
-Store builds of ArchiveTune use `moe.rukamori.archivetune`; Hush is a separate install.
+### Sideload trouble?
 
-### Installing
+Package conflict or invalid APK:
 
-If update or sideload fails with **package conflicts** or **invalid package**:
+1. **Backup** — Settings → Backup and restore
+2. **Uninstall** old Hush or ArchiveTune
+3. **Install** fresh from [Releases](https://github.com/maxinjohn/Hush/releases/latest)
+4. **Restore** your backup
 
-1. **Backup** — Settings → Backup and restore → Backup (keep the `.backup` file).
-2. **Uninstall** old Hush or ArchiveTune.
-3. **Install** the new APK from [Releases](https://github.com/maxinjohn/Hush/releases/latest).
-4. **Restore** from the backup file in Settings → Backup and restore.
+USB / `adb install -r <apk>` beats sketchy file-share apps. First YT Music sync might need a VPN if YTM isn't in your region.
 
-Prefer USB or `adb install -r <apk>` over file-share apps if the APK looks corrupt after transfer.
-
-First-time YouTube Music sync may need a VPN if YTM is not available in your region.
-
-## Build (local)
+## Build locally
 
 ```bash
 bash scripts/build-release.sh list                    # all variants
-bash scripts/build-release.sh foss mobile arm64       # typical phone build
+bash scripts/build-release.sh foss mobile arm64       # typical phone
 bash scripts/build-release.sh gms mobile universal    # matches CI
 bash scripts/build-release.sh gms tv universal
 ```
 
-Shortcuts: `build-foss-mobile-release.sh`, `build-gms-mobile-release.sh`, `build-tv-release.sh`.
-
-Release builds need `app/keystore/release.keystore` and passwords in `local.properties` (see `local.properties.example`). Use `scripts/build-release.sh` — it assembles and signs the APK.
-
-```bash
-bash scripts/resign-release-apk.sh --check
-bash scripts/build-release.sh foss mobile arm64
-```
-
-Gradle outputs an unsigned APK when the keystore is configured; the script signs it (same as CI). `./gradlew assemble*Release` alone is not enough for sideloading.
+Needs `app/keystore/release.keystore` + `local.properties` (see `local.properties.example`). `./gradlew assemble*Release` alone won't sign — use `scripts/build-release.sh`.
 
 ## Legal
 
-Independent third-party client — not affiliated with Google or YouTube. GPL-3.0; upstream copyright notices are preserved in source.
+Unofficial third-party client. Not Google, not YouTube. GPL-3.0 — upstream copyrights stay in source.
