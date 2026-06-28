@@ -10,7 +10,6 @@ package moe.rukamori.archivetune.ui.component
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.offset
@@ -28,6 +27,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import moe.rukamori.archivetune.constants.ThumbnailCornerRadius
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
 
 @Composable
 fun RandomizeGridItem(
@@ -53,7 +54,7 @@ fun RandomizeGridItem(
                 .aspectRatio(1f)
                 .clip(RoundedCornerShape(ThumbnailCornerRadius))
                 .background(MaterialTheme.colorScheme.secondaryContainer)
-                .clickable(onClick = onClick),
+                .archiveTunePressable(onClick = onClick, pressScale = ArchiveTuneDesign.RowPressScale),
         contentAlignment = Alignment.Center,
     ) {
         val dotColor = MaterialTheme.colorScheme.onSecondaryContainer

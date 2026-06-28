@@ -57,6 +57,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
@@ -105,6 +106,8 @@ import moe.rukamori.archivetune.constants.SongSortDescendingKey
 import moe.rukamori.archivetune.constants.SongSortType
 import moe.rukamori.archivetune.constants.SongSortTypeKey
 import moe.rukamori.archivetune.constants.ThumbnailCornerRadius
+import moe.rukamori.archivetune.db.entities.Playlist
+import moe.rukamori.archivetune.db.entities.PlaylistEntity
 import moe.rukamori.archivetune.extensions.toMediaItem
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.playback.queues.ListQueue
@@ -112,8 +115,10 @@ import moe.rukamori.archivetune.ui.component.DraggableScrollbar
 import moe.rukamori.archivetune.ui.component.EmptyPlaceholder
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.LocalMenuState
+import moe.rukamori.archivetune.ui.component.StandardPlaylistHeaderActions
 import moe.rukamori.archivetune.ui.component.SongListItem
 import moe.rukamori.archivetune.ui.component.SortHeader
+import moe.rukamori.archivetune.ui.menu.PlaylistMenu
 import moe.rukamori.archivetune.ui.menu.SelectionSongMenu
 import moe.rukamori.archivetune.ui.menu.SongMenu
 import moe.rukamori.archivetune.ui.theme.PlayerColorExtractor
@@ -133,6 +138,7 @@ fun CachePlaylistScreen(
 ) {
     val context = LocalContext.current
     val menuState = LocalMenuState.current
+    val coroutineScope = rememberCoroutineScope()
     val playerConnection = LocalPlayerConnection.current ?: return
     val haptic = LocalHapticFeedback.current
     val focusManager = LocalFocusManager.current
@@ -528,96 +534,45 @@ fun CachePlaylistScreen(
 
                             Spacer(modifier = Modifier.height(20.dp))
 
-                            // Action buttons row
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                ToggleButton(
-                                    checked = false,
-                                    onCheckedChange = {
-                                        playerConnection.playQueue(
-                                            ListQueue(
-                                                title = "Cache Songs",
-                                                items = filteredSongs.map { it.item.toMediaItem() },
-                                            ),
-                                        )
-                                    },
-                                    modifier =
-                                        Modifier
-                                            .weight(1f)
-                                            .height(48.dp),
-                                    shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
-                                    colors =
-                                        ToggleButtonDefaults.toggleButtonColors(
-                                            containerColor = MaterialTheme.colorScheme.primary,
-                                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                                            checkedContainerColor = MaterialTheme.colorScheme.primary,
-                                            checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-                                        ),
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.play),
-                                        contentDescription = stringResource(R.string.play),
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                }
-
-                                ToggleButton(
-                                    checked = false,
-                                    onCheckedChange = {
-                                        playerConnection.playQueue(
-                                            ListQueue(
-                                                title = "Cache Songs",
-                                                items = filteredSongs.shuffled().map { it.item.toMediaItem() },
-                                            ),
-                                        )
-                                    },
-                                    modifier =
-                                        Modifier
-                                            .weight(1f)
-                                            .height(48.dp),
-                                    shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
-                                    colors =
-                                        ToggleButtonDefaults.toggleButtonColors(
-                                            containerColor = MaterialTheme.colorScheme.primary,
-                                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                                            checkedContainerColor = MaterialTheme.colorScheme.primary,
-                                            checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-                                        ),
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.shuffle),
-                                        contentDescription = stringResource(R.string.shuffle),
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                }
-
-                                ToggleButton(
-                                    checked = false,
-                                    onCheckedChange = {
-                                        playerConnection.addToQueue(
+                            StandardPlaylistHeaderActions(
+                                modifier = Modifier.padding(horizontal = 24.dp),
+                                onPlay = {
+                                    playerConnection.playQueue(
+                                        ListQueue(
+                                            title = "Cache Songs",
                                             items = filteredSongs.map { it.item.toMediaItem() },
-                                        )
-                                    },
-                                    modifier = Modifier.size(48.dp),
-                                    shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
-                                    colors =
-                                        ToggleButtonDefaults.toggleButtonColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            checkedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                            checkedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                         ),
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.queue_music),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
                                     )
-                                }
-                            }
+                                },
+                                onShuffle = {
+                                    playerConnection.playQueue(
+                                        ListQueue(
+                                            title = "Cache Songs",
+                                            items = filteredSongs.shuffled().map { it.item.toMediaItem() },
+                                        ),
+                                    )
+                                },
+                                onMoreClick = {
+                                    menuState.show {
+                                        PlaylistMenu(
+                                            playlist =
+                                                Playlist(
+                                                    playlist =
+                                                        PlaylistEntity(
+                                                            name = "Cache Songs",
+                                                            isEditable = false,
+                                                        ),
+                                                    songCount = filteredSongs.size,
+                                                    songThumbnails = emptyList(),
+                                                ),
+                                            coroutineScope = coroutineScope,
+                                            onDismiss = menuState::dismiss,
+                                            autoPlaylist = true,
+                                            songList = filteredSongs.map { it.item },
+                                        )
+                                    }
+                                },
+                            )
 
                             Spacer(modifier = Modifier.height(24.dp))
                         }

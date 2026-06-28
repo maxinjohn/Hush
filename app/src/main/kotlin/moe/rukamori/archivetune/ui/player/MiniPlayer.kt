@@ -9,6 +9,7 @@ package moe.rukamori.archivetune.ui.player
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -245,9 +246,9 @@ private fun rememberMiniPlayerContentColors(useArtworkBackground: Boolean): Mini
                 progressTrack = colorScheme.outline.copy(alpha = 0.18f),
                 artworkContainer = colorScheme.surfaceVariant,
                 artworkBorder = colorScheme.outline.copy(alpha = 0.2f),
-                primaryButtonContainer = colorScheme.surface,
-                buttonBorder = colorScheme.outline.copy(alpha = 0.3f),
-                buttonIcon = colorScheme.onSurface,
+                primaryButtonContainer = colorScheme.primary,
+                buttonBorder = colorScheme.primary.copy(alpha = 0.35f),
+                buttonIcon = colorScheme.onPrimary,
                 disabledButtonIcon = colorScheme.onSurface.copy(alpha = 0.38f),
                 togetherContainer = colorScheme.primaryContainer,
                 togetherContent = colorScheme.onPrimaryContainer,
@@ -264,8 +265,12 @@ private fun MiniPlayerBackground(
 ) {
     when (style) {
         MiniPlayerBackgroundStyle.THEME -> {
+            val borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
             Box(
-                modifier = modifier.background(MaterialTheme.colorScheme.surfaceContainer),
+                modifier =
+                    modifier
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f))
+                        .border(width = 0.5.dp, color = borderColor, shape = RoundedCornerShape(MiniPlayerHeight / 2)),
             )
         }
 

@@ -77,7 +77,11 @@ import moe.rukamori.archivetune.constants.LibraryFilter
 import moe.rukamori.archivetune.constants.ShowSpotifyPlaylistsKey
 import moe.rukamori.archivetune.constants.ShowTagsInLibraryKey
 import moe.rukamori.archivetune.db.entities.TagEntity
+import moe.rukamori.archivetune.ui.component.ExpressiveTabChip
 import moe.rukamori.archivetune.ui.component.TagsManagementDialog
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneMotion
+import moe.rukamori.archivetune.ui.theme.HushAmbientBackground
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberPreference
 
@@ -101,6 +105,7 @@ fun LibraryScreen(navController: NavController) {
                     LibraryFilter.SONGS,
                     LibraryFilter.ARTISTS,
                     LibraryFilter.ALBUMS,
+                    LibraryFilter.PODCASTS,
                 )
             } else {
                 listOf(
@@ -109,6 +114,7 @@ fun LibraryScreen(navController: NavController) {
                     LibraryFilter.SONGS,
                     LibraryFilter.ARTISTS,
                     LibraryFilter.ALBUMS,
+                    LibraryFilter.PODCASTS,
                 )
             }
         }
@@ -135,6 +141,7 @@ fun LibraryScreen(navController: NavController) {
             LibraryFilter.SONGS -> stringResource(R.string.songs)
             LibraryFilter.ARTISTS -> stringResource(R.string.artists)
             LibraryFilter.ALBUMS -> stringResource(R.string.albums)
+            LibraryFilter.PODCASTS -> stringResource(R.string.filter_podcasts)
             else -> stringResource(R.string.library_title)
         }
 
@@ -146,6 +153,7 @@ fun LibraryScreen(navController: NavController) {
             LibraryFilter.SONGS -> stringResource(R.string.library_songs_subtitle)
             LibraryFilter.ARTISTS -> stringResource(R.string.library_artists_subtitle)
             LibraryFilter.ALBUMS -> stringResource(R.string.library_albums_subtitle)
+            LibraryFilter.PODCASTS -> stringResource(R.string.filter_podcasts)
             else -> stringResource(R.string.library_subtitle)
         }
 
@@ -206,6 +214,8 @@ fun LibraryScreen(navController: NavController) {
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
     ) {
+        HushAmbientBackground(modifier = Modifier.align(Alignment.TopCenter))
+
         Column(
             modifier =
                 Modifier
@@ -269,6 +279,7 @@ fun LibraryScreen(navController: NavController) {
                         LibraryFilter.SONGS -> 102.dp
                         LibraryFilter.ARTISTS -> 116.dp
                         LibraryFilter.ALBUMS -> 110.dp
+                        LibraryFilter.PODCASTS -> 124.dp
                         else -> 116.dp
                     }
                 val screenWidth = configuration.screenWidthDp.dp
@@ -303,6 +314,7 @@ fun LibraryScreen(navController: NavController) {
                             LibraryFilter.SONGS -> stringResource(R.string.songs)
                             LibraryFilter.ARTISTS -> stringResource(R.string.artists)
                             LibraryFilter.ALBUMS -> stringResource(R.string.albums)
+                            LibraryFilter.PODCASTS -> stringResource(R.string.filter_podcasts)
                         }
                     val iconRes =
                         when (filter) {
@@ -312,6 +324,7 @@ fun LibraryScreen(navController: NavController) {
                             LibraryFilter.SONGS -> R.drawable.music_note
                             LibraryFilter.ARTISTS -> R.drawable.person
                             LibraryFilter.ALBUMS -> R.drawable.album
+                            LibraryFilter.PODCASTS -> R.drawable.mic
                         }
                     ExpressiveTabChip(
                         label = label,
@@ -418,6 +431,17 @@ fun LibraryScreen(navController: NavController) {
                             },
                         )
                     }
+
+                    LibraryFilter.PODCASTS -> {
+                        LibraryPodcastsScreen(
+                            navController = navController,
+                            onDeselect = {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(0)
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -502,16 +526,15 @@ private fun PlaylistTagFilterChip(
         }
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val chipShape = ArchiveTuneDesign.chipShape
     val scale by animateFloatAsState(
         targetValue =
-            if (isPressed) {
-                0.92f
-            } else if (selected) {
-                1.05f
-            } else {
-                1.0f
+            when {
+                isPressed -> ArchiveTuneDesign.ChipPressScale
+                selected -> ArchiveTuneDesign.SelectedChipScale
+                else -> 1f
             },
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        animationSpec = ArchiveTuneMotion.gentleSpring(),
         label = "PlaylistTagFilterChipScale",
     )
     val containerColor by animateColorAsState(
@@ -542,7 +565,7 @@ private fun PlaylistTagFilterChip(
                     scaleX = scale
                     scaleY = scale
                 }.heightIn(min = 48.dp)
-                .clip(CircleShape)
+                .clip(chipShape)
                 .background(containerColor)
                 .clickable(
                     interactionSource = interactionSource,
@@ -574,86 +597,6 @@ private fun PlaylistTagFilterChip(
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-            color = contentColor,
-        )
-    }
-}
-
-@Composable
-fun ExpressiveTabChip(
-    label: String,
-    iconRes: Int,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-
-    val scale by animateFloatAsState(
-        targetValue =
-            if (isPressed) {
-                0.92f
-            } else if (selected) {
-                1.05f
-            } else {
-                1.0f
-            },
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "TabChipScale",
-    )
-
-    val bgColor by animateColorAsState(
-        targetValue =
-            if (selected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            },
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
-        label = "TabChipBgColor",
-    )
-
-    val contentColor by animateColorAsState(
-        targetValue =
-            if (selected) {
-                MaterialTheme.colorScheme.onPrimary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
-        label = "TabChipContentColor",
-    )
-
-    Row(
-        modifier =
-            Modifier
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                }.clip(CircleShape)
-                .background(bgColor)
-                .clickable(
-                    interactionSource = interactionSource,
-                    indication = null,
-                    onClick = onClick,
-                ).padding(horizontal = 18.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            painter = painterResource(id = iconRes),
-            contentDescription = label,
-            tint = contentColor,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = label,
-            style =
-                MaterialTheme.typography.labelLarge.copy(
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                ),
             color = contentColor,
         )
     }

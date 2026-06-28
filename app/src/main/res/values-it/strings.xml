@@ -501,9 +501,6 @@
     <string name="playback_login_refresh_required">Ricarica login YouTube Music</string>
     <string name="playback_requires_youtube_music_login_refresh">Ricarica il login di YouTube Music, quindi ritorna su Hush.</string>
     <string name="internet">Internet</string>
-    <string name="internet_warning_title">Sicurezza e Avvertenza Utilizzo</string>
-    <string name="internet_warning_doh">DNS tramite HTTPS funziona solo se la tua nazione blocca YouTube. Se YouTube blocca attivamente la tua regione, considera l\'utilizzo di un Proxy o VPN.</string>
-    <string name="internet_warning_proxy">Utilizza solo Proxy sicuri. I Proxy gratis sono convenienti ma non sempre affidabili, quindi presta attenzione. Uomo avvisato mezzo salvato, non siamo responsabili della tua sicurezza.</string>
     <string name="dns_over_https">DNS tramite HTTPS</string>
     <string name="dns_over_https_desc">Usa DNS tramite HTTPS (DoH) per risolvere gli hostnames</string>
     <string name="dns_provider">Provider DNS</string>

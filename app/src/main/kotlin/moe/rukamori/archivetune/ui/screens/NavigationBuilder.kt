@@ -67,6 +67,7 @@ import moe.rukamori.archivetune.ui.screens.playlist.AutoPlaylistScreen
 import moe.rukamori.archivetune.ui.screens.playlist.CachePlaylistScreen
 import moe.rukamori.archivetune.ui.screens.playlist.LocalPlaylistScreen
 import moe.rukamori.archivetune.ui.screens.playlist.OnlinePlaylistScreen
+import moe.rukamori.archivetune.ui.screens.podcast.OnlinePodcastScreen
 import moe.rukamori.archivetune.ui.screens.playlist.SpotifyPlaylistScreen
 import moe.rukamori.archivetune.ui.screens.playlist.TopPlaylistScreen
 import moe.rukamori.archivetune.ui.screens.search.OnlineSearchResult
@@ -80,6 +81,7 @@ import moe.rukamori.archivetune.ui.screens.settings.AiIntegrationSettings
 import moe.rukamori.archivetune.ui.screens.settings.AndroidAutoSettings
 import moe.rukamori.archivetune.ui.screens.settings.AodCustomizedScreen
 import moe.rukamori.archivetune.ui.screens.settings.AppearanceSettings
+import moe.rukamori.archivetune.ui.screens.settings.FontSelectionScreen
 import moe.rukamori.archivetune.ui.screens.settings.AutoBackupSettings
 import moe.rukamori.archivetune.ui.screens.settings.BackupAndRestore
 import moe.rukamori.archivetune.ui.screens.settings.ChangelogScreen
@@ -97,6 +99,7 @@ import moe.rukamori.archivetune.ui.screens.settings.LyricsSettings
 import moe.rukamori.archivetune.ui.screens.settings.MusicTogetherScreen
 import moe.rukamori.archivetune.ui.screens.settings.PalettePickerScreen
 import moe.rukamori.archivetune.ui.screens.settings.PlayerSettings
+import moe.rukamori.archivetune.ui.screens.settings.StreamSourcesSettings
 import moe.rukamori.archivetune.ui.screens.settings.PoTokenScreen
 import moe.rukamori.archivetune.ui.screens.settings.PrivacySettings
 import moe.rukamori.archivetune.ui.screens.settings.SettingsScreen
@@ -306,6 +309,17 @@ fun NavGraphBuilder.navigationBuilder(
         OnlinePlaylistScreen(navController, scrollBehavior)
     }
     composable(
+        route = "online_podcast/{podcastId}",
+        arguments =
+            listOf(
+                navArgument("podcastId") {
+                    type = NavType.StringType
+                },
+            ),
+    ) {
+        OnlinePodcastScreen(navController, scrollBehavior)
+    }
+    composable(
         route = "local_playlist/{playlistId}",
         arguments =
             listOf(
@@ -388,6 +402,9 @@ fun NavGraphBuilder.navigationBuilder(
     composable("settings/appearance") {
         AppearanceSettings(navController, scrollBehavior)
     }
+    composable("settings/appearance/font_selection") {
+        FontSelectionScreen(navController, scrollBehavior)
+    }
     composable("settings/appearance/aod_customized") {
         AodCustomizedScreen(navController, scrollBehavior)
     }
@@ -411,6 +428,9 @@ fun NavGraphBuilder.navigationBuilder(
     }
     composable("settings/player") {
         PlayerSettings(navController, scrollBehavior)
+    }
+    composable("settings/player/stream_sources") {
+        StreamSourcesSettings(navController, scrollBehavior)
     }
     composable("settings/android_auto") {
         AndroidAutoSettings(navController, scrollBehavior)

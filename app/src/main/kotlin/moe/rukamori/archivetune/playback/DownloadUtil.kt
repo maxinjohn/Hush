@@ -39,6 +39,7 @@ import moe.rukamori.archivetune.db.entities.FormatEntity
 import moe.rukamori.archivetune.db.entities.SongEntity
 import moe.rukamori.archivetune.di.DownloadCache
 import moe.rukamori.archivetune.di.PlayerCache
+import moe.rukamori.archivetune.innertube.VersionedOkHttpClient
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.utils.AuthScopedCacheValue
 import moe.rukamori.archivetune.utils.StreamClientUtils
@@ -73,48 +74,53 @@ class DownloadUtil
         private val songUrlCache = ConcurrentHashMap<String, AuthScopedCacheValue>()
         private val downloadExecutor = Executors.newFixedThreadPool(DEFAULT_MAX_PARALLEL_DOWNLOADS)
 
-        private val mediaOkHttpClient: OkHttpClient by lazy {
-            OkHttpClient
-                .Builder()
-                .proxy(YouTube.streamOkHttpProxy)
-                .followRedirects(true)
-                .followSslRedirects(true)
-                .retryOnConnectionFailure(true)
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .dispatcher(
-                    okhttp3.Dispatcher().apply {
-                        maxRequests = MAX_DOWNLOAD_HTTP_REQUESTS
-                        maxRequestsPerHost = DEFAULT_MAX_PARALLEL_DOWNLOADS
-                    },
-                ).connectionPool(
-                    ConnectionPool(
-                        MAX_IDLE_DOWNLOAD_CONNECTIONS,
-                        DOWNLOAD_CONNECTION_KEEP_ALIVE_MINUTES,
-                        TimeUnit.MINUTES,
-                    ),
-                ).addInterceptor { chain ->
-                    val request = chain.request()
-                    val host = request.url.host
-                    val isYouTubeMediaHost =
-                        host.endsWith("googlevideo.com") ||
-                            host.endsWith("googleusercontent.com") ||
-                            host.endsWith("youtube.com") ||
-                            host.endsWith("youtube-nocookie.com") ||
-                            host.endsWith("ytimg.com")
+        private val mediaOkHttpClientHolder =
+            VersionedOkHttpClient(
+                versionProvider = YouTube::okHttpNetworkVersion,
+                baseBuilder = YouTube::newOkHttpClientBuilder,
+            )
+        private val mediaOkHttpClient: OkHttpClient
+            get() =
+                mediaOkHttpClientHolder.get {
+                    proxy(YouTube.streamOkHttpProxy)
+                    followRedirects(true)
+                    followSslRedirects(true)
+                    retryOnConnectionFailure(true)
+                    connectTimeout(30, TimeUnit.SECONDS)
+                    readTimeout(30, TimeUnit.SECONDS)
+                    dispatcher(
+                        okhttp3.Dispatcher().apply {
+                            maxRequests = MAX_DOWNLOAD_HTTP_REQUESTS
+                            maxRequestsPerHost = DEFAULT_MAX_PARALLEL_DOWNLOADS
+                        },
+                    ).connectionPool(
+                        ConnectionPool(
+                            MAX_IDLE_DOWNLOAD_CONNECTIONS,
+                            DOWNLOAD_CONNECTION_KEEP_ALIVE_MINUTES,
+                            TimeUnit.MINUTES,
+                        ),
+                    ).addInterceptor { chain ->
+                        val request = chain.request()
+                        val host = request.url.host
+                        val isYouTubeMediaHost =
+                            host.endsWith("googlevideo.com") ||
+                                host.endsWith("googleusercontent.com") ||
+                                host.endsWith("youtube.com") ||
+                                host.endsWith("youtube-nocookie.com") ||
+                                host.endsWith("ytimg.com")
 
-                    if (!isYouTubeMediaHost) return@addInterceptor chain.proceed(request)
+                        if (!isYouTubeMediaHost) return@addInterceptor chain.proceed(request)
 
-                    val requestProfile = StreamClientUtils.resolveRequestProfile(request.url)
-                    chain.proceed(
-                        StreamClientUtils
-                            .applyRequestProfile(
-                                request.newBuilder(),
-                                requestProfile,
-                            ).build(),
-                    )
-                }.build()
-        }
+                        val requestProfile = StreamClientUtils.resolveRequestProfile(request.url)
+                        chain.proceed(
+                            StreamClientUtils
+                                .applyRequestProfile(
+                                    request.newBuilder(),
+                                    requestProfile,
+                                ).build(),
+                        )
+                    }
+                }
 
         val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
 

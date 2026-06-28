@@ -60,6 +60,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -81,6 +82,8 @@ import moe.rukamori.archivetune.onboarding.OnboardingPermissionUiModel
 import moe.rukamori.archivetune.onboarding.OnboardingScreenState
 import moe.rukamori.archivetune.onboarding.OnboardingUiState
 import moe.rukamori.archivetune.onboarding.OnboardingViewModel
+import moe.rukamori.archivetune.ui.theme.HushAmbientBackground
+import moe.rukamori.archivetune.ui.theme.hushGradientPrimaryButton
 
 @Composable
 fun OnboardingRoute(
@@ -140,11 +143,17 @@ fun OnboardingScreen(
     onCommunityAction: (OnboardingCommunityActionUiModel) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
-    ) { padding ->
-        when (state) {
+    Box(modifier = modifier.fillMaxSize()) {
+        HushAmbientBackground(
+            heightFraction = 0.75f,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
+
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color.Transparent,
+        ) { padding ->
+            when (state) {
             OnboardingScreenState.Loading -> LoadingContent(contentPadding = padding)
             OnboardingScreenState.Empty ->
                 MessageContent(
@@ -172,6 +181,7 @@ fun OnboardingScreen(
                     contentPadding = padding,
                 )
         }
+    }
     }
 }
 
@@ -220,9 +230,10 @@ private fun MessageContent(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Button(onClick = onAction) {
-                Text(text = actionLabel)
-            }
+            OnboardingPrimaryButton(
+                text = actionLabel,
+                onClick = onAction,
+            )
         }
     }
 }
@@ -856,15 +867,22 @@ private fun OnboardingInlineActions(
 }
 
 @Composable
-private fun OnboardingNextButton(
+private fun OnboardingPrimaryButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val buttonShape = MaterialTheme.shapes.extraLarge
     Button(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.hushGradientPrimaryButton(shape = buttonShape),
         contentPadding = OnboardingActionButtonPadding,
+        colors =
+            ButtonDefaults.buttonColors(
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
     ) {
         Text(
             text = text,
@@ -872,6 +890,19 @@ private fun OnboardingNextButton(
             fontWeight = FontWeight.SemiBold,
         )
     }
+}
+
+@Composable
+private fun OnboardingNextButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OnboardingPrimaryButton(
+        text = text,
+        onClick = onClick,
+        modifier = modifier,
+    )
 }
 
 private fun OnboardingPermissionStatus.labelResId(): Int =

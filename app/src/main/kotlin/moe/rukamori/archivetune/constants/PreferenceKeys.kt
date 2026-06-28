@@ -17,6 +17,7 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 
 val DynamicThemeKey = booleanPreferencesKey("dynamicTheme")
+val EnableDynamicIconKey = booleanPreferencesKey("enableDynamicIcon")
 val CustomThemeColorKey = stringPreferencesKey("customThemeColor")
 val RandomThemeOnStartupKey = booleanPreferencesKey("randomThemeOnStartup")
 val DarkModeKey = stringPreferencesKey("darkMode")
@@ -132,6 +133,10 @@ const val SYSTEM_DEFAULT = "SYSTEM_DEFAULT"
 enum class AppFontPreference {
     DEFAULT,
     SYSTEM,
+    OUTFIT,
+    PLUS_JAKARTA,
+    SANS_FLEX,
+    GOOGLE_SANS,
     CUSTOM,
 }
 
@@ -259,6 +264,12 @@ enum class PlayerStreamClient {
     ANDROID_MUSIC,
 }
 
+fun PlayerStreamClient.usesStrictYouTubeClient(): Boolean =
+    when (this) {
+        PlayerStreamClient.ANDROID_VR -> false
+        else -> true
+    }
+
 val PersistentQueueKey = booleanPreferencesKey("persistentQueue")
 val PermanentShuffleKey = booleanPreferencesKey("permanentShuffle")
 val SkipSilenceKey = booleanPreferencesKey("skipSilence")
@@ -342,6 +353,7 @@ val MixSortDescendingKey = booleanPreferencesKey("albumSortDescending")
 val SongFilterKey = stringPreferencesKey("songFilter")
 val ArtistFilterKey = stringPreferencesKey("artistFilter")
 val AlbumFilterKey = stringPreferencesKey("albumFilter")
+val PodcastFilterKey = stringPreferencesKey("podcastFilter")
 
 val LastLikeSongSyncKey = longPreferencesKey("last_like_song_sync")
 val LastLibSongSyncKey = longPreferencesKey("last_library_song_sync")
@@ -395,6 +407,12 @@ enum class AlbumFilter {
     LIKED,
     DOWNLOADED,
     DOWNLOADED_FULL,
+}
+
+enum class PodcastFilter {
+    EPISODES,
+    CHANNELS,
+    DOWNLOADED,
 }
 
 enum class SongSortType {
@@ -736,6 +754,14 @@ val LanguageCodeToName =
         "tr" to "Türkçe",
         "ar" to "العربية",
         "hi" to "हिन्दी",
+        "ml" to "മലയാളം",
+        "ta" to "தமிழ்",
+        "te" to "తెలుగు",
+        "kn" to "ಕನ್ನಡ",
+        "bn" to "বাংলা",
+        "mr" to "मराठी",
+        "gu" to "ગુજરાતી",
+        "pa" to "ਪੰਜਾਬੀ",
         "th" to "ไทย",
         "id" to "Bahasa Indonesia",
         "ms" to "Bahasa Melayu",
@@ -797,11 +823,7 @@ val CountryCodeToName =
         "AE" to "United Arab Emirates",
     )
 
-// App rating / star prompt preferences
-val LaunchCountKey = intPreferencesKey("launch_count")
 val OnboardingCompletedKey = booleanPreferencesKey("onboarding_completed")
-val HasPressedStarKey = booleanPreferencesKey("has_pressed_star")
-val RemindAfterKey = intPreferencesKey("remind_after")
 
 // Update settings
 val EnableUpdateNotificationKey = booleanPreferencesKey("enableUpdateNotification")
@@ -835,6 +857,17 @@ val AndroidAutoTargetPlaylistKey = stringPreferencesKey("androidAutoTargetPlayli
 val AutoBackupEnabledKey = booleanPreferencesKey("autoBackupEnabled")
 val EnableWeeklyAutoBackupKey = booleanPreferencesKey("enableWeeklyAutoBackup")
 val EnableBackupBeforeUpdateKey = booleanPreferencesKey("enableBackupBeforeUpdate")
+
+enum class AutoBackupFrequency {
+    OFF,
+    DAILY,
+    WEEKLY,
+}
+
+val AutoBackupFrequencyKey = stringPreferencesKey("autoBackupFrequency")
+val AutoBackupHourKey = intPreferencesKey("autoBackupHour")
+val AutoBackupMinuteKey = intPreferencesKey("autoBackupMinute")
+val AutoBackupDayOfWeekKey = intPreferencesKey("autoBackupDayOfWeek")
 
 enum class UpdateChannel {
     STABLE,

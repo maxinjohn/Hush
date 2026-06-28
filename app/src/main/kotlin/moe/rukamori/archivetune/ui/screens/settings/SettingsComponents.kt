@@ -9,13 +9,16 @@
 
 package moe.rukamori.archivetune.ui.screens.settings
 
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +35,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -48,23 +54,33 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
+import moe.rukamori.archivetune.ui.theme.graphicsLayerPressScale
+import moe.rukamori.archivetune.ui.theme.rememberArchiveTunePressScale
+import moe.rukamori.archivetune.ui.theme.rememberHushAccentGradient
 
 @Composable
 fun SettingsProfileHeader(
@@ -90,33 +106,37 @@ fun SettingsProfileHeader(
             modifier
                 .fillMaxWidth()
                 .padding(horizontal = SettingsDimensions.ScreenHorizontalPadding)
-                .clickable(onClick = onClick),
+                .archiveTunePressable(onClick = onClick, pressScale = ArchiveTuneDesign.RowPressScale),
         shape = RoundedCornerShape(SettingsDimensions.BannerCardCornerRadius),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-            ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Row(
+        val accentGradient = rememberHushAccentGradient()
+        Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                    .background(accentGradient),
         ) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
             Box(
                 modifier =
                     Modifier
                         .size(SettingsDimensions.ProfileCardAvatarSize)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.12f)),
+                        .background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.16f)),
                 contentAlignment = Alignment.Center,
             ) {
                 if (state.isLoading) {
                     CircularWavyProgressIndicator(
                         modifier = Modifier.size(SettingsDimensions.BannerIconInnerSize),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        color = MaterialTheme.colorScheme.onPrimary,
                     )
                 } else if (state.isLoggedIn && !state.accountImageUrl.isNullOrBlank()) {
                     AsyncImage(
@@ -134,7 +154,7 @@ fun SettingsProfileHeader(
                                 if (state.isLoggedIn) R.drawable.account else R.drawable.login,
                             ),
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(SettingsDimensions.ProfileCardAvatarIconSize),
                     )
                 }
@@ -147,7 +167,7 @@ fun SettingsProfileHeader(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    color = MaterialTheme.colorScheme.onPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -155,7 +175,7 @@ fun SettingsProfileHeader(
                     Text(
                         text = s,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -165,9 +185,10 @@ fun SettingsProfileHeader(
             Icon(
                 painter = painterResource(R.drawable.navigate_next),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
+                tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.72f),
                 modifier = Modifier.size(SettingsDimensions.ChevronSize),
             )
+            }
         }
     }
 }
@@ -261,25 +282,12 @@ fun SettingsUpdateBanner(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) SettingsAnimations.PressScale else 1f,
-        animationSpec = SettingsAnimations.pressSpring(),
-        label = "updateScale",
-    )
-
     Card(
         modifier =
             modifier
                 .fillMaxWidth()
-                .scale(scale)
                 .focusable()
-                .clickable(
-                    interactionSource = interactionSource,
-                    indication = null,
-                    onClick = onClick,
-                ),
+                .archiveTunePressable(onClick = onClick, pressScale = SettingsAnimations.PressScale),
         shape = RoundedCornerShape(SettingsDimensions.BannerCardCornerRadius),
         colors =
             CardDefaults.cardColors(
@@ -362,6 +370,12 @@ fun SettingsGroupCard(
         )
 
         Card(
+            modifier =
+                Modifier.border(
+                    width = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f),
+                    shape = RoundedCornerShape(SettingsDimensions.GroupCardCornerRadius),
+                ),
             shape = RoundedCornerShape(SettingsDimensions.GroupCardCornerRadius),
             colors =
                 CardDefaults.cardColors(
@@ -394,33 +408,15 @@ fun SettingsRow(
             MaterialTheme.colorScheme.primary
         }
 
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.98f else 1f,
-        animationSpec = SettingsAnimations.pressSpring(),
-        label = "rowScale",
-    )
-    val bgAlpha by animateFloatAsState(
-        targetValue = if (isPressed) 0.06f else 0f,
-        animationSpec = SettingsAnimations.pressSpring(),
-        label = "rowBgAlpha",
-    )
-
     Column(modifier = modifier) {
         Row(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                    }.background(MaterialTheme.colorScheme.primary.copy(alpha = bgAlpha))
                     .focusable()
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = null,
+                    .archiveTunePressable(
                         onClick = item.onClick,
+                        pressScale = ArchiveTuneDesign.RowPressScale,
                     ).padding(
                         horizontal = SettingsDimensions.RowHorizontalPadding,
                         vertical = SettingsDimensions.RowVerticalPadding,
@@ -562,27 +558,16 @@ fun SettingsSegmentedItem(
             MaterialTheme.colorScheme.surface
         }
     val shape = remember(index, count) { segmentedSettingsItemShape(index, count) }
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) SettingsAnimations.PressScale else 1f,
-        animationSpec = SettingsAnimations.pressSpring(),
-        label = "settingsSegmentScale",
-    )
 
     Card(
         modifier =
             modifier
                 .fillMaxWidth()
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                }.clip(shape)
+                .clip(shape)
                 .focusable()
-                .clickable(
-                    interactionSource = interactionSource,
-                    indication = null,
+                .archiveTunePressable(
                     onClick = item.onClick,
+                    pressScale = SettingsAnimations.PressScale,
                 ),
         shape = shape,
         colors =
@@ -681,7 +666,7 @@ private fun segmentedSettingsItemShape(
     index: Int,
     count: Int,
 ): Shape {
-    val large = 28.dp
+    val large = ArchiveTuneDesign.CardCornerRadius
     val small = 6.dp
     return when {
         count <= 1 -> {
@@ -728,7 +713,7 @@ fun SettingsFlatItem(
         modifier =
             modifier
                 .fillMaxWidth()
-                .clickable(onClick = item.onClick),
+                .archiveTunePressable(onClick = item.onClick, pressScale = ArchiveTuneDesign.RowPressScale),
         color = Color.Transparent,
     ) {
         Row(
@@ -798,6 +783,124 @@ fun SettingsFlatItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    onSearch: () -> Unit = {},
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val borderColor by animateColorAsState(
+        targetValue =
+            if (isFocused) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+            },
+        animationSpec = SettingsAnimations.pressSpring(),
+        label = "settingsSearchBorder",
+    )
+    val glowAlpha by animateFloatAsState(
+        targetValue = if (isFocused) 1f else 0f,
+        animationSpec = SettingsAnimations.pressSpring(),
+        label = "settingsSearchGlow",
+    )
+    val shape = RoundedCornerShape(ArchiveTuneDesign.SearchBarCornerRadius)
+
+    Box(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    shadowElevation = if (isFocused) 6f else 0f
+                },
+    ) {
+        Surface(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .border(width = 1.dp, color = borderColor, shape = shape),
+            shape = shape,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = if (isFocused) 2.dp else 0.dp,
+        ) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 52.dp)
+                        .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .padding(start = 12.dp)
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f + (0.1f * glowAlpha))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.search),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f + (0.3f * glowAlpha)),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .padding(horizontal = 12.dp, vertical = 14.dp)
+                            .onFocusChanged { isFocused = it.isFocused },
+                    textStyle =
+                        MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Medium,
+                        ),
+                    singleLine = true,
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                    decorationBox = { innerTextField ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (query.isEmpty()) {
+                                Text(
+                                    text = stringResource(R.string.settings_search_hint),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+
+                if (query.isNotEmpty()) {
+                    androidx.compose.material3.IconButton(
+                        onClick = { onQueryChange("") },
+                        modifier = Modifier.padding(end = 4.dp),
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.close),
+                            contentDescription = stringResource(R.string.clear),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
             }
         }

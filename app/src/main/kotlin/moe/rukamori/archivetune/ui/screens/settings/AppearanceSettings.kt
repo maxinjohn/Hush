@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -49,6 +50,7 @@ import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -56,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -82,6 +85,10 @@ import moe.rukamori.archivetune.constants.DefaultOpenTabKey
 import moe.rukamori.archivetune.constants.DisableAnimationsKey
 import moe.rukamori.archivetune.constants.DisableBlurKey
 import moe.rukamori.archivetune.constants.DynamicThemeKey
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import moe.rukamori.archivetune.constants.EnableDynamicIconKey
 import moe.rukamori.archivetune.constants.FontPreferenceKey
 import moe.rukamori.archivetune.constants.GridItemSize
 import moe.rukamori.archivetune.constants.GridItemsSizeKey
@@ -116,9 +123,12 @@ import moe.rukamori.archivetune.ui.component.PreferenceGroup
 import moe.rukamori.archivetune.ui.component.SwitchPreference
 import moe.rukamori.archivetune.ui.component.ThumbnailCornerRadiusSelectorButton
 import moe.rukamori.archivetune.ui.player.StyledPlaybackSlider
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import moe.rukamori.archivetune.ui.theme.CustomFontLoader
+import moe.rukamori.archivetune.ui.theme.HushAmbientBackground
 import moe.rukamori.archivetune.ui.utils.backToMain
 import moe.rukamori.archivetune.utils.isLowRamDevice
+import moe.rukamori.archivetune.utils.IconUtils
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberPreference
 import kotlin.math.roundToInt
@@ -130,12 +140,35 @@ fun AppearanceSettings(
     scrollBehavior: TopAppBarScrollBehavior,
 ) {
     val context = LocalContext.current
+    val iconScope = rememberCoroutineScope()
     val defaultDisableAnimations = remember(context) { context.isLowRamDevice() }
     val (dynamicTheme, onDynamicThemeChange) =
         rememberPreference(
             DynamicThemeKey,
             defaultValue = true,
         )
+    val (enableDynamicIcon, onEnableDynamicIconPrefChange) =
+        rememberPreference(
+            EnableDynamicIconKey,
+            defaultValue = true,
+        )
+    val onEnableDynamicIconChange: (Boolean) -> Unit = { enabled ->
+        onEnableDynamicIconPrefChange(enabled)
+        iconScope.launch(Dispatchers.IO) {
+            IconUtils.setIcon(context, enabled)
+        }
+    }
+    LaunchedEffect(enableDynamicIcon) {
+        val actualEnabled =
+            withContext(Dispatchers.IO) {
+                IconUtils.isDynamicIconEnabled(context)
+            }
+        if (enableDynamicIcon != actualEnabled) {
+            withContext(Dispatchers.IO) {
+                IconUtils.setIcon(context, enableDynamicIcon)
+            }
+        }
+    }
     val (randomThemeOnStartup, onRandomThemeOnStartupChange) =
         rememberPreference(
             RandomThemeOnStartupKey,
@@ -284,15 +317,6 @@ fun AppearanceSettings(
                 customFontPickerLauncher.launch(CustomFontLoader.supportedMimeTypes)
             }
         }
-    val onFontPreferenceSelected =
-        remember(customFontUri, onFontPreferenceChange, pickCustomFont) {
-            { value: AppFontPreference ->
-                onFontPreferenceChange(value)
-                if (value == AppFontPreference.CUSTOM && customFontUri.isBlank()) {
-                    pickCustomFont()
-                }
-            }
-        }
 
     val availableBackgroundStyles =
         PlayerBackgroundStyle.entries.filter {
@@ -386,9 +410,16 @@ fun AppearanceSettings(
         }
     }
 
-    Column(
+    Box(modifier = Modifier.fillMaxSize()) {
+        HushAmbientBackground(
+            heightFraction = 0.55f,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
+
+        Column(
         Modifier
             .windowInsetsPadding(LocalPlayerAwareWindowInsets.current)
+            .nestedScroll(scrollBehavior.nestedScrollConnection)
             .verticalScroll(rememberScrollState())
             .padding(bottom = SettingsDimensions.ScreenBottomPadding),
     ) {
@@ -399,6 +430,16 @@ fun AppearanceSettings(
                     icon = { Icon(painterResource(R.drawable.palette), null) },
                     checked = dynamicTheme,
                     onCheckedChange = onDynamicThemeChange,
+                )
+            }
+
+            item(visible = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.enable_dynamic_icon)) },
+                    description = stringResource(R.string.enable_dynamic_icon_desc),
+                    icon = { Icon(painterResource(R.drawable.small_icon), null) },
+                    checked = enableDynamicIcon,
+                    onCheckedChange = onEnableDynamicIconChange,
                 )
             }
 
@@ -517,18 +558,26 @@ fun AppearanceSettings(
             }
 
             item {
-                EnumListPreference(
+                PreferenceEntry(
                     title = { Text(stringResource(R.string.font_preference)) },
                     description = stringResource(R.string.font_preference_desc),
                     icon = { Icon(painterResource(R.drawable.text_fields), null) },
-                    selectedValue = fontPreference,
-                    onValueSelected = onFontPreferenceSelected,
-                    valueText = {
-                        when (it) {
-                            AppFontPreference.DEFAULT -> stringResource(R.string.font_preference_default)
-                            AppFontPreference.SYSTEM -> stringResource(R.string.font_preference_system)
-                            AppFontPreference.CUSTOM -> stringResource(R.string.font_preference_custom)
-                        }
+                    onClick = { navController.navigate("settings/appearance/font_selection") },
+                    trailingContent = {
+                        Text(
+                            text =
+                                when (fontPreference) {
+                                    AppFontPreference.DEFAULT -> stringResource(R.string.font_preference_default)
+                                    AppFontPreference.SYSTEM -> stringResource(R.string.font_preference_system)
+                                    AppFontPreference.OUTFIT -> stringResource(R.string.font_option_outfit)
+                                    AppFontPreference.PLUS_JAKARTA -> stringResource(R.string.font_option_plus_jakarta)
+                                    AppFontPreference.SANS_FLEX -> stringResource(R.string.font_option_sans_flex)
+                                    AppFontPreference.GOOGLE_SANS -> stringResource(R.string.font_option_google_sans)
+                                    AppFontPreference.CUSTOM -> stringResource(R.string.font_preference_custom)
+                                },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     },
                 )
             }
@@ -837,6 +886,7 @@ fun AppearanceSettings(
                             LibraryFilter.SONGS,
                             LibraryFilter.ALBUMS,
                             LibraryFilter.ARTISTS,
+                            LibraryFilter.PODCASTS,
                         ),
                     valueText = {
                         when (it) {
@@ -844,6 +894,7 @@ fun AppearanceSettings(
                             LibraryFilter.ARTISTS -> stringResource(R.string.artists)
                             LibraryFilter.ALBUMS -> stringResource(R.string.albums)
                             LibraryFilter.PLAYLISTS -> stringResource(R.string.playlists)
+                            LibraryFilter.PODCASTS -> stringResource(R.string.filter_podcasts)
                             LibraryFilter.SPOTIFY -> stringResource(R.string.spotify_playlists)
                             LibraryFilter.LIBRARY -> stringResource(R.string.filter_library)
                         }
@@ -883,20 +934,28 @@ fun AppearanceSettings(
         }
     }
 
-    TopAppBar(
-        title = { Text(stringResource(R.string.appearance)) },
-        navigationIcon = {
-            IconButton(
-                onClick = navController::navigateUp,
-                onLongClick = navController::backToMain,
-            ) {
-                Icon(
-                    painterResource(R.drawable.arrow_back),
-                    contentDescription = null,
-                )
-            }
-        },
-    )
+        TopAppBar(
+            modifier = Modifier.align(Alignment.TopCenter),
+            title = { Text(stringResource(R.string.appearance)) },
+            navigationIcon = {
+                IconButton(
+                    onClick = navController::navigateUp,
+                    onLongClick = navController::backToMain,
+                ) {
+                    Icon(
+                        painterResource(R.drawable.arrow_back),
+                        contentDescription = null,
+                    )
+                }
+            },
+            scrollBehavior = scrollBehavior,
+            colors =
+                TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
+        )
+    }
 }
 
 @Composable

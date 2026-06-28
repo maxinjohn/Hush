@@ -11,6 +11,7 @@ data class AuthScopedCacheValue(
     val url: String,
     val expiresAtMs: Long,
     val authFingerprint: String,
+    val playbackClientLabel: String? = null,
 ) {
     fun isValidFor(
         authFingerprint: String,

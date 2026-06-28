@@ -17,6 +17,7 @@ import androidx.work.WorkManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import moe.rukamori.archivetune.BuildConfig
+import moe.rukamori.archivetune.constants.AutoBackupFrequency
 import moe.rukamori.archivetune.db.InternalDatabase
 import moe.rukamori.archivetune.extensions.div
 import moe.rukamori.archivetune.extensions.zipOutputStream
@@ -300,33 +301,99 @@ object AutoBackupHelper {
             false
         }
 
+    private const val SCHEDULED_WORK_NAME = "scheduled_auto_backup"
+
+    fun calculateInitialDelayMillis(
+        hour: Int,
+        minute: Int,
+        dayOfWeek: Int? = null,
+    ): Long {
+        val now = LocalDateTime.now()
+        var target =
+            now
+                .withHour(hour.coerceIn(0, 23))
+                .withMinute(minute.coerceIn(0, 59))
+                .withSecond(0)
+                .withNano(0)
+        if (dayOfWeek != null) {
+            val normalizedDay = dayOfWeek.coerceIn(1, 7)
+            while (target.dayOfWeek.value != normalizedDay || !target.isAfter(now)) {
+                target = target.plusDays(1)
+            }
+        } else if (!target.isAfter(now)) {
+            target = target.plusDays(1)
+        }
+        return java.time.Duration.between(now, target).toMillis().coerceAtLeast(0L)
+    }
+
+    fun updateScheduledBackupWork(
+        context: Context,
+        enabled: Boolean,
+        frequency: AutoBackupFrequency,
+        hour: Int = 2,
+        minute: Int = 0,
+        dayOfWeek: Int = 1,
+    ) {
+        val workManager = WorkManager.getInstance(context)
+        workManager.cancelUniqueWork(SCHEDULED_WORK_NAME)
+        workManager.cancelUniqueWork(WEEKLY_WORK_NAME)
+
+        if (!enabled || frequency == AutoBackupFrequency.OFF) {
+            Timber.tag("AutoBackup").d("Scheduled backup disabled")
+            return
+        }
+
+        val constraints =
+            Constraints
+                .Builder()
+                .setRequiresBatteryNotLow(true)
+                .build()
+
+        val initialDelayMillis =
+            when (frequency) {
+                AutoBackupFrequency.DAILY ->
+                    calculateInitialDelayMillis(hour = hour, minute = minute)
+                AutoBackupFrequency.WEEKLY ->
+                    calculateInitialDelayMillis(hour = hour, minute = minute, dayOfWeek = dayOfWeek)
+                AutoBackupFrequency.OFF -> return
+            }
+
+        val repeatInterval =
+            when (frequency) {
+                AutoBackupFrequency.DAILY -> 1L to TimeUnit.DAYS
+                AutoBackupFrequency.WEEKLY -> 7L to TimeUnit.DAYS
+                AutoBackupFrequency.OFF -> return
+            }
+
+        Timber.tag("AutoBackup").d(
+            "Enqueuing %s backup worker (initial delay %d ms)",
+            frequency.name,
+            initialDelayMillis,
+        )
+
+        val autoBackupRequest =
+            PeriodicWorkRequestBuilder<AutoBackupWorker>(repeatInterval.first, repeatInterval.second)
+                .setInitialDelay(initialDelayMillis, TimeUnit.MILLISECONDS)
+                .setConstraints(constraints)
+                .addTag(SCHEDULED_WORK_NAME)
+                .build()
+
+        workManager.enqueueUniquePeriodicWork(
+            SCHEDULED_WORK_NAME,
+            ExistingPeriodicWorkPolicy.UPDATE,
+            autoBackupRequest,
+        )
+    }
+
+    @Deprecated("Use updateScheduledBackupWork", ReplaceWith("updateScheduledBackupWork(context, enabled, frequency)"))
     fun updateWeeklyBackupWork(
         context: Context,
         enabled: Boolean,
     ) {
-        val workManager = WorkManager.getInstance(context)
-        if (enabled) {
-            Timber.tag("AutoBackup").d("Enqueuing periodic weekly backup worker")
-            val constraints =
-                Constraints
-                    .Builder()
-                    .setRequiresBatteryNotLow(true)
-                    .build()
-
-            val autoBackupRequest =
-                PeriodicWorkRequestBuilder<AutoBackupWorker>(7, TimeUnit.DAYS)
-                    .setConstraints(constraints)
-                    .addTag(WEEKLY_WORK_NAME)
-                    .build()
-
-            workManager.enqueueUniquePeriodicWork(
-                WEEKLY_WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
-                autoBackupRequest,
-            )
-        } else {
-            Timber.tag("AutoBackup").d("Cancelling periodic weekly backup worker")
-            workManager.cancelUniqueWork(WEEKLY_WORK_NAME)
-        }
+        updateScheduledBackupWork(
+            context = context,
+            enabled = enabled,
+            frequency = if (enabled) AutoBackupFrequency.WEEKLY else AutoBackupFrequency.OFF,
+        )
     }
 }

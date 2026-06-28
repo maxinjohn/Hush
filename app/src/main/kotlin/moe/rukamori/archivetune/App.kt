@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.canvas.ArchiveTuneCanvas
 import moe.rukamori.archivetune.constants.*
 import moe.rukamori.archivetune.extensions.toEnum
+import moe.rukamori.archivetune.innertube.VersionedOkHttpClient
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.innertube.models.IpVersion
 import moe.rukamori.archivetune.innertube.models.YouTubeLocale
@@ -50,6 +51,7 @@ import moe.rukamori.archivetune.ui.screens.settings.ThemePalettes
 import moe.rukamori.archivetune.ui.theme.ThemeSeedPalette
 import moe.rukamori.archivetune.ui.theme.ThemeSeedPaletteCodec
 import moe.rukamori.archivetune.utils.AutoBackupHelper
+import moe.rukamori.archivetune.utils.IconUtils
 import moe.rukamori.archivetune.utils.PreferenceStore
 import moe.rukamori.archivetune.utils.ProxyUtils
 import moe.rukamori.archivetune.utils.YTPlayerUtils
@@ -59,6 +61,7 @@ import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.get
 import moe.rukamori.archivetune.utils.potoken.BotGuardTokenGenerator
 import moe.rukamori.archivetune.utils.reportException
+import moe.rukamori.archivetune.utils.safeDataStoreEdit
 import moe.rukamori.archivetune.utils.refreshPlaybackLoginContext
 import moe.rukamori.archivetune.utils.toPlaybackAuthState
 import okhttp3.Dns
@@ -67,7 +70,8 @@ import timber.log.Timber
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.net.Proxy
-import java.util.*
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.system.exitProcess
 
@@ -79,7 +83,19 @@ class App :
 
     @Volatile private var isInitialized = false
     private val didRunImageCacheTrim = AtomicBoolean(false)
-    private val imageNetworkClient by lazy { OkHttpClient.Builder().build() }
+    private val imageNetworkClientHolder =
+        VersionedOkHttpClient(
+            versionProvider = YouTube::okHttpNetworkVersion,
+            baseBuilder = YouTube::newOkHttpClientBuilder,
+        )
+
+    private fun imageNetworkClient(): OkHttpClient =
+        imageNetworkClientHolder.get {
+            connectTimeout(15, TimeUnit.SECONDS)
+            readTimeout(15, TimeUnit.SECONDS)
+            followRedirects(true)
+            followSslRedirects(true)
+        }
 
     private fun currentProcessName(): String? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -169,17 +185,43 @@ class App :
                 }
 
                 if (shouldForceAuthRefresh) {
-                    dataStore.edit { settings ->
+                    val backupBeforeUpdate = prefs[EnableBackupBeforeUpdateKey] ?: true
+                    val autoBackupEnabledOnUpgrade = prefs[AutoBackupEnabledKey] ?: true
+                    if (autoBackupEnabledOnUpgrade && backupBeforeUpdate) {
+                        runCatching {
+                            AutoBackupHelper.performBackup(this@App, "before_update")
+                        }.onFailure { throwable ->
+                            Timber.e(throwable, "Failed to create backup before app update")
+                            reportException(throwable)
+                        }
+                    }
+                    safeDataStoreEdit { settings ->
                         settings[LastLaunchedVersionCodeKey] = currentVersionCode
                     }
                 }
 
                 val autoBackupEnabled = prefs[AutoBackupEnabledKey] ?: true
-                val weeklyBackupEnabled = prefs[EnableWeeklyAutoBackupKey] ?: false
-                AutoBackupHelper.updateWeeklyBackupWork(
+                val backupFrequency =
+                    prefs[AutoBackupFrequencyKey]?.let { raw ->
+                        runCatching { AutoBackupFrequency.valueOf(raw) }.getOrNull()
+                    } ?: if (prefs[EnableWeeklyAutoBackupKey] == true) {
+                        AutoBackupFrequency.WEEKLY
+                    } else {
+                        AutoBackupFrequency.OFF
+                    }
+                val backupHour = prefs[AutoBackupHourKey] ?: 2
+                val backupMinute = prefs[AutoBackupMinuteKey] ?: 0
+                val backupDayOfWeek = prefs[AutoBackupDayOfWeekKey] ?: 1
+                AutoBackupHelper.updateScheduledBackupWork(
                     this@App,
-                    autoBackupEnabled && weeklyBackupEnabled,
+                    enabled = autoBackupEnabled,
+                    frequency = backupFrequency,
+                    hour = backupHour,
+                    minute = backupMinute,
+                    dayOfWeek = backupDayOfWeek,
                 )
+
+                IconUtils.setIcon(this@App, prefs[EnableDynamicIconKey] != false)
 
                 prefs[ContentCountryKey]?.takeIf { it != SYSTEM_DEFAULT }?.let { country ->
                     YouTube.locale = YouTube.locale.copy(gl = country)
@@ -199,6 +241,12 @@ class App :
                     password = prefs[ProxyPasswordKey],
                 )
                 YouTube.streamBypassProxy = YouTube.proxy != null && prefs[StreamBypassProxyKey] == true
+
+                applyDnsOverHttpsSettings(
+                    enabled = prefs[EnableDnsOverHttpsKey] ?: false,
+                    provider = prefs[DnsOverHttpsProviderKey] ?: "Cloudflare",
+                    customUrl = prefs[stringPreferencesKey("customDnsUrl")] ?: "https://",
+                )
 
                 if (prefs[IpRotationEnabledKey] == true) {
                     try {
@@ -231,7 +279,7 @@ class App :
                             neutral = randomPalette.neutral,
                         )
                     val encodedPalette = ThemeSeedPaletteCodec.encodeForPreference(seedPalette, "Random")
-                    dataStore.edit { settings ->
+                    safeDataStoreEdit { settings ->
                         settings[CustomThemeColorKey] = encodedPalette
                     }
                 }
@@ -253,25 +301,25 @@ class App :
                     )
                 }.distinctUntilChanged()
                 .collect { (enabled, provider, customUrl) ->
-                    if (enabled) {
-                        val dnsProviderUrls =
-                            mapOf(
-                                "Google" to "https://dns.google/dns-query",
-                                "Cloudflare" to "https://cloudflare-dns.com/dns-query",
-                                "AdGuard" to "https://dns.adguard.com/dns-query",
-                                "Quad9" to "https://dns.quad9.net/dns-query",
-                            )
-                        val url = if (provider == "Custom") customUrl else dnsProviderUrls[provider]
-                        if (!url.isNullOrBlank() && url.startsWith("https://")) {
-                            runCatching {
-                                YouTube.dns = YouTube.createDnsOverHttps(url)
-                            }
-                        } else {
-                            YouTube.dns = Dns.SYSTEM
-                        }
-                    } else {
-                        YouTube.dns = Dns.SYSTEM
-                    }
+                    applyDnsOverHttpsSettings(enabled, provider, customUrl)
+                }
+        }
+
+        applicationScope.launch(Dispatchers.IO) {
+            dataStore.data
+                .map { it[PlayerStreamClientKey].toEnum(PlayerStreamClient.ANDROID_VR) }
+                .distinctUntilChanged()
+                .collect {
+                    YTPlayerUtils.clearPlaybackAuthCaches()
+                }
+        }
+
+        applicationScope.launch(Dispatchers.IO) {
+            dataStore.data
+                .map { it[EnableDynamicIconKey] != false }
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    IconUtils.setIcon(this@App, enabled)
                 }
         }
 
@@ -313,7 +361,7 @@ class App :
                             reportException(it)
                         }.getOrNull()
                         ?.also { newVisitorData ->
-                            dataStore.edit { settings ->
+                            safeDataStoreEdit { settings ->
                                 settings[VisitorDataKey] = newVisitorData
                             }
                         }
@@ -377,7 +425,7 @@ class App :
         return ImageLoader
             .Builder(this)
             .components {
-                add(OkHttpNetworkFetcherFactory(callFactory = { imageNetworkClient }))
+                add(OkHttpNetworkFetcherFactory(callFactory = { imageNetworkClient() }))
             }
             .crossfade(true)
             .allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
@@ -424,11 +472,37 @@ class App :
                 clearPlaybackWebAuthSession(context)
             }
             CoroutineScope(Dispatchers.IO).launch {
-                context.dataStore.edit { settings ->
+                context.safeDataStoreEdit { settings ->
                     settings.clearPlaybackAuthSession()
                 }
             }
         }
+    }
+
+    private fun applyDnsOverHttpsSettings(
+        enabled: Boolean,
+        provider: String,
+        customUrl: String,
+    ) {
+        if (enabled) {
+            val url = YouTube.resolveDnsProviderUrl(provider, customUrl)
+            if (url != null) {
+                runCatching {
+                    YouTube.dns = YouTube.createDnsOverHttps(url)
+                    Timber.i("Configured DNS over HTTPS via $provider")
+                }.onFailure { throwable ->
+                    Timber.e(throwable, "Failed to configure DNS over HTTPS via $provider")
+                    YouTube.dns = Dns.SYSTEM
+                    reportException(throwable)
+                }
+            } else {
+                Timber.w("Invalid DNS over HTTPS configuration for provider $provider")
+                YouTube.dns = Dns.SYSTEM
+            }
+        } else {
+            YouTube.dns = Dns.SYSTEM
+        }
+        YTPlayerUtils.invalidateStreamClient()
     }
 }
 

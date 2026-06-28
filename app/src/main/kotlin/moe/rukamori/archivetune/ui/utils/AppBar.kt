@@ -68,6 +68,18 @@ class AppBarScrollBehavior(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+suspend fun TopAppBarState.resetContentOffset() {
+    if (contentOffset != 0f) {
+        animate(
+            initialValue = contentOffset,
+            targetValue = 0f,
+        ) { value, _ ->
+            contentOffset = value
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 suspend fun TopAppBarState.resetHeightOffset() {
     if (heightOffset != 0f) {
         animate(

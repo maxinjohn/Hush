@@ -72,12 +72,16 @@ import moe.rukamori.archivetune.innertube.YouTube.SearchFilter.Companion.FILTER_
 import moe.rukamori.archivetune.innertube.YouTube.SearchFilter.Companion.FILTER_VIDEO
 import moe.rukamori.archivetune.innertube.models.AlbumItem
 import moe.rukamori.archivetune.innertube.models.ArtistItem
+import moe.rukamori.archivetune.innertube.models.EpisodeItem
+import moe.rukamori.archivetune.innertube.models.PodcastItem
 import moe.rukamori.archivetune.innertube.models.PlaylistItem
 import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.models.WatchEndpoint
 import moe.rukamori.archivetune.innertube.models.YTItem
 import moe.rukamori.archivetune.innertube.pages.SearchSummary
+import moe.rukamori.archivetune.extensions.toMediaItem
 import moe.rukamori.archivetune.models.toMediaMetadata
+import moe.rukamori.archivetune.playback.queues.ListQueue
 import moe.rukamori.archivetune.playback.queues.YouTubeQueue
 import moe.rukamori.archivetune.ui.component.ChipsRow
 import moe.rukamori.archivetune.ui.component.EmptyPlaceholder
@@ -195,6 +199,22 @@ fun OnlineSearchResult(
                             onDismiss = menuState::dismiss,
                         )
                     }
+
+                is PodcastItem -> {
+                    YouTubePlaylistMenu(
+                        playlist = item.asPlaylistItem(),
+                        coroutineScope = coroutineScope,
+                        onDismiss = menuState::dismiss,
+                    )
+                }
+
+                is EpisodeItem -> {
+                    YouTubeSongMenu(
+                        song = item.asSongItem(),
+                        navController = navController,
+                        onDismiss = menuState::dismiss,
+                    )
+                }
                 }
             }
         }
@@ -247,6 +267,19 @@ fun OnlineSearchResult(
                                 is PlaylistItem -> {
                                     navController.navigate("online_playlist/${item.id}")
                                 }
+
+                            is PodcastItem -> {
+                                navController.navigate("online_podcast/${item.id}")
+                            }
+
+                            is EpisodeItem -> {
+                                playerConnection.playQueue(
+                                    ListQueue(
+                                        title = item.title,
+                                        items = listOf(item.asSongItem().toMediaMetadata().toMediaItem()),
+                                    ),
+                                )
+                            }
                             }
                         },
                         onLongClick = longClick,

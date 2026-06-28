@@ -111,6 +111,8 @@ import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.playback.queues.LocalAlbumRadio
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.LocalMenuState
+import moe.rukamori.archivetune.ui.component.MetadataChip
+import moe.rukamori.archivetune.ui.component.StandardPlaylistHeaderActions
 import moe.rukamori.archivetune.ui.component.NavigationTitle
 import moe.rukamori.archivetune.ui.component.SongListItem
 import moe.rukamori.archivetune.ui.component.YouTubeGridItem
@@ -539,209 +541,62 @@ fun AlbumScreen(
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        // Action Buttons Row
-                        Row(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 24.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            val isBookmarked = albumWithSongs.album.bookmarkedAt != null
-
-                            ToggleButton(
-                                checked = isBookmarked,
-                                onCheckedChange = {
-                                    database.query {
-                                        update(albumWithSongs.album.toggleLike())
-                                    }
-                                },
-                                modifier = Modifier.size(56.dp),
-                                shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
-                                colors =
-                                    ToggleButtonDefaults.toggleButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        checkedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                        checkedContentColor = MaterialTheme.colorScheme.error,
-                                    ),
-                            ) {
-                                Icon(
-                                    painter =
-                                        painterResource(
-                                            if (isBookmarked) R.drawable.favorite else R.drawable.favorite_border,
-                                        ),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(28.dp),
+                        StandardPlaylistHeaderActions(
+                            modifier = Modifier.padding(horizontal = 24.dp),
+                            liked = albumWithSongs.album.bookmarkedAt != null,
+                            onToggleLike = {
+                                database.query {
+                                    update(albumWithSongs.album.toggleLike())
+                                }
+                            },
+                            onPlay = {
+                                playerConnection.playQueue(LocalAlbumRadio(albumWithSongs))
+                            },
+                            onShuffle = {
+                                playerConnection.playQueue(
+                                    LocalAlbumRadio(albumWithSongs.copy(songs = albumWithSongs.songs.shuffled())),
                                 )
-                            }
-
-                            ToggleButton(
-                                checked = false,
-                                onCheckedChange = {
-                                    playerConnection.playQueue(
-                                        LocalAlbumRadio(albumWithSongs),
-                                    )
-                                },
-                                modifier = Modifier.height(56.dp),
-                                shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
-                                colors =
-                                    ToggleButtonDefaults.toggleButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary,
-                                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                                        checkedContainerColor = MaterialTheme.colorScheme.primary,
-                                        checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-                                    ),
-                            ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.play),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(22.dp),
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.play),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-
-                            ToggleButton(
-                                checked = false,
-                                onCheckedChange = {
-                                    playerConnection.playQueue(
-                                        LocalAlbumRadio(albumWithSongs.copy(songs = albumWithSongs.songs.shuffled())),
-                                    )
-                                },
-                                modifier = Modifier.height(56.dp),
-                                shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
-                                colors =
-                                    ToggleButtonDefaults.toggleButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary,
-                                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                                        checkedContainerColor = MaterialTheme.colorScheme.primary,
-                                        checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-                                    ),
-                            ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.shuffle),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(22.dp),
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.shuffle),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-
-                            ToggleButton(
-                                checked = downloadState == HeaderDownloadState.Completed,
-                                onCheckedChange = {
-                                    when (downloadState) {
-                                        HeaderDownloadState.Completed -> {
-                                            sendRemoveDownloads(
-                                                context = context,
-                                                songIds = albumWithSongs.songs.map { it.id },
-                                            )
-                                        }
-
-                                        else -> {
-                                            downloadProgressToolbarDismissed = false
-                                            sendAddMissingDownloads(
-                                                context = context,
-                                                songs =
-                                                    albumWithSongs.songs.map {
-                                                        HeaderDownloadItem(
-                                                            id = it.id,
-                                                            title = it.song.title,
-                                                        )
-                                                    },
-                                                downloads = downloads,
-                                            )
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.size(56.dp),
-                                shapes = ButtonGroupDefaults.connectedMiddleButtonShapes(),
-                                colors =
-                                    ToggleButtonDefaults.toggleButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        checkedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                        checkedContentColor = MaterialTheme.colorScheme.primary,
-                                    ),
-                            ) {
-                                val state = downloadState
-                                when (state) {
+                            },
+                            downloadState = downloadState,
+                            onDownloadClick = {
+                                when (downloadState) {
                                     HeaderDownloadState.Completed -> {
-                                        Icon(
-                                            painter = painterResource(R.drawable.offline),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(28.dp),
+                                        sendRemoveDownloads(
+                                            context = context,
+                                            songIds = albumWithSongs.songs.map { it.id },
                                         )
-                                    }
-
-                                    is HeaderDownloadState.Partial -> {
-                                        HeaderDownloadProgressIndicator(progress = state.progress)
                                     }
 
                                     else -> {
-                                        Icon(
-                                            painter = painterResource(R.drawable.download),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(28.dp),
+                                        downloadProgressToolbarDismissed = false
+                                        sendAddMissingDownloads(
+                                            context = context,
+                                            songs =
+                                                albumWithSongs.songs.map {
+                                                    HeaderDownloadItem(
+                                                        id = it.id,
+                                                        title = it.song.title,
+                                                    )
+                                                },
+                                            downloads = downloads,
                                         )
                                     }
                                 }
-                            }
-
-                            ToggleButton(
-                                checked = false,
-                                onCheckedChange = {
-                                    menuState.show {
-                                        AlbumMenu(
-                                            originalAlbum =
-                                                Album(
-                                                    albumWithSongs.album,
-                                                    albumWithSongs.artists,
-                                                ),
-                                            navController = navController,
-                                            onDismiss = menuState::dismiss,
-                                        )
-                                    }
-                                },
-                                modifier = Modifier.size(56.dp),
-                                shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
-                                colors =
-                                    ToggleButtonDefaults.toggleButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        checkedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                        checkedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    ),
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.more_vert),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(28.dp),
-                                )
-                            }
-                        }
+                            },
+                            onMoreClick = {
+                                menuState.show {
+                                    AlbumMenu(
+                                        originalAlbum =
+                                            Album(
+                                                albumWithSongs.album,
+                                                albumWithSongs.artists,
+                                            ),
+                                        navController = navController,
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
+                            },
+                        )
 
                         Spacer(modifier = Modifier.height(24.dp))
                     }
@@ -1178,38 +1033,6 @@ fun AlbumScreen(
                     },
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun MetadataChip(
-    icon: Int,
-    text: String,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                painter = painterResource(icon),
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = text,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
         }
     }
 }

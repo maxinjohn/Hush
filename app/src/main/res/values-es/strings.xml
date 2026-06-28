@@ -649,9 +649,6 @@
     <string name="removed_song_from_queue">Se ha eliminado «%s» de la cola</string>
     <string name="removed_n_songs_from_queue">Se han eliminado %d canciones de la cola</string>
     <string name="internet">Internet</string>
-    <string name="internet_warning_title">Advertencia sobre seguridad y uso</string>
-    <string name="internet_warning_doh">El DNS sobre HTTPS solo funciona si tu país bloquea YouTube. Si YouTube bloquea activamente tu región, plantéate utilizar un proxy o una VPN.</string>
-    <string name="internet_warning_proxy">Utiliza únicamente proxies de los que estés seguro que son seguros. Los proxies gratuitos son prácticos, pero no siempre son seguros, así que ten cuidado. Quedas advertido, y no nos hacemos responsables de tu seguridad.</string>
     <string name="dns_over_https">DNS sobre HTTPS</string>
     <string name="dns_over_https_desc">Utiliza DNS sobre HTTPS (DoH) para resolver nombres de host</string>
     <string name="dns_provider">Proveedor de DNS</string>

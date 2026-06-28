@@ -45,10 +45,11 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import moe.rukamori.archivetune.constants.AppFontPreference
+import moe.rukamori.archivetune.ui.theme.fontFamilyFor
 import kotlin.math.abs
 import kotlin.math.min
 
-val DefaultThemeColor = Color(0xFFED5564)
+val DefaultThemeColor = Color(0xFFFF2D55)
 val LocalArchiveTuneFontPreference = staticCompositionLocalOf { AppFontPreference.DEFAULT }
 val LocalArchiveTuneFontFamily = staticCompositionLocalOf { AppFontFamily }
 
@@ -101,18 +102,20 @@ fun ArchiveTuneTheme(
     val resolvedFontFamily =
         remember(fontPreference, customFontFamily) {
             when (fontPreference) {
-                AppFontPreference.DEFAULT -> AppFontFamily
-                AppFontPreference.SYSTEM -> FontFamily.Default
                 AppFontPreference.CUSTOM -> customFontFamily ?: AppFontFamily
+                else -> fontFamilyFor(fontPreference)
             }
         }
+    val plainFontFamily =
+        remember(fontPreference) {
+            plainFontFamilyFor(fontPreference)
+        }
     val typography =
-        remember(resolvedFontFamily) {
-            when (resolvedFontFamily) {
-                AppFontFamily -> AppTypography
-                FontFamily.Default -> SystemTypography
-                else -> typographyFor(resolvedFontFamily)
-            }
+        remember(resolvedFontFamily, plainFontFamily) {
+            getTypography(
+                brandFont = resolvedFontFamily,
+                plainFont = plainFontFamily,
+            )
         }
     val expressiveMotionScheme = remember { MotionScheme.expressive() }
     val paletteStyle =
@@ -153,21 +156,11 @@ fun ArchiveTuneTheme(
     val expressiveShapes =
         remember {
             Shapes(
-                extraSmall =
-                    androidx.compose.foundation.shape
-                        .RoundedCornerShape(8.dp),
-                small =
-                    androidx.compose.foundation.shape
-                        .RoundedCornerShape(12.dp),
-                medium =
-                    androidx.compose.foundation.shape
-                        .RoundedCornerShape(16.dp),
-                large =
-                    androidx.compose.foundation.shape
-                        .RoundedCornerShape(24.dp),
-                extraLarge =
-                    androidx.compose.foundation.shape
-                        .RoundedCornerShape(32.dp),
+                extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                small = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+                medium = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                large = androidx.compose.foundation.shape.RoundedCornerShape(32.dp),
+                extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(40.dp),
             )
         }
 

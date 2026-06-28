@@ -76,6 +76,7 @@ import moe.rukamori.archivetune.extensions.filterExplicitAlbums
 import moe.rukamori.archivetune.extensions.reversed
 import moe.rukamori.archivetune.extensions.toEnum
 import moe.rukamori.archivetune.innertube.YouTube
+import moe.rukamori.archivetune.innertube.utils.completed
 import moe.rukamori.archivetune.library.LibraryTopMix
 import moe.rukamori.archivetune.library.ObserveLibraryTopMixesUseCase
 import moe.rukamori.archivetune.library.RefreshLibraryTopMixesResult
@@ -84,10 +85,12 @@ import moe.rukamori.archivetune.library.TopMixGenerationFailure
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.playback.DownloadUtil
+import moe.rukamori.archivetune.utils.PodcastRefreshTrigger
 import moe.rukamori.archivetune.utils.SyncUtils
 import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.get
 import moe.rukamori.archivetune.utils.reportException
+import timber.log.Timber
 import java.text.Collator
 import java.time.Duration
 import java.time.LocalDateTime
@@ -834,6 +837,135 @@ data class MostPlayedAlbumUiModel(
     val trackCount: Int,
     val tracks: ImmutableList<MediaMetadata>,
 )
+
+@HiltViewModel
+class LibraryPodcastsViewModel
+    @Inject
+    constructor(
+        @ApplicationContext context: Context,
+        private val database: MusicDatabase,
+        private val syncUtils: SyncUtils,
+    ) : ViewModel() {
+        val subscribedChannels =
+            database
+                .subscribedPodcasts()
+                .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+        private val _sePlaylist = MutableStateFlow<moe.rukamori.archivetune.innertube.models.PlaylistItem?>(null)
+        val sePlaylist = _sePlaylist.asStateFlow()
+
+        private val _rdpnPlaylist = MutableStateFlow<moe.rukamori.archivetune.innertube.models.PlaylistItem?>(null)
+        val rdpnPlaylist = _rdpnPlaylist.asStateFlow()
+
+        private val _apiPodcastChannels =
+            MutableStateFlow<List<moe.rukamori.archivetune.innertube.models.ArtistItem>>(emptyList())
+
+        val podcastChannels =
+            combine(
+                _apiPodcastChannels,
+                database.bookmarkedPodcastChannels(),
+            ) { apiChannels, localPodcastChannels ->
+                val localAsArtistItems =
+                    localPodcastChannels.map { artist ->
+                        moe.rukamori.archivetune.innertube.models.ArtistItem(
+                            id = artist.id,
+                            title = artist.artist.name,
+                            thumbnail = artist.artist.thumbnailUrl,
+                            shuffleEndpoint = null,
+                            radioEndpoint = null,
+                        )
+                    }
+                val apiIds = apiChannels.map { it.id }.toSet()
+                val uniqueLocalChannels = localAsArtistItems.filter { it.id !in apiIds }
+                apiChannels + uniqueLocalChannels
+            }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+        val downloadedEpisodes =
+            context.dataStore.data
+                .map {
+                    Pair(
+                        it[SongSortTypeKey].toEnum(SongSortType.CREATE_DATE) to (it[SongSortDescendingKey] ?: true),
+                        it[HideExplicitKey] ?: false,
+                    )
+                }.distinctUntilChanged()
+                .flatMapLatest { (sortDesc, hideExplicit) ->
+                    val (sortType, descending) = sortDesc
+                    database.downloadedPodcastEpisodes(sortType, descending).map { it.filterExplicit(hideExplicit) }
+                }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+        val savedEpisodes =
+            context.dataStore.data
+                .map {
+                    Pair(
+                        it[SongSortTypeKey].toEnum(SongSortType.CREATE_DATE) to (it[SongSortDescendingKey] ?: true),
+                        it[HideExplicitKey] ?: false,
+                    )
+                }.distinctUntilChanged()
+                .flatMapLatest { (sortDesc, hideExplicit) ->
+                    val (sortType, descending) = sortDesc
+                    database.savedPodcastEpisodes(sortType, descending).map { it.filterExplicit(hideExplicit) }
+                }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+        private suspend fun fetchSePlaylist() {
+            YouTube
+                .library("FEmusic_liked_playlists")
+                .completed()
+                .onSuccess {
+                    _sePlaylist.value =
+                        it.items
+                            .filterIsInstance<moe.rukamori.archivetune.innertube.models.PlaylistItem>()
+                            .find { playlist -> playlist.id == "SE" }
+                }.onFailure {
+                    Timber.e(it, "[PODCAST] Failed to fetch SE playlist")
+                }
+        }
+
+        private suspend fun fetchPodcastChannels() {
+            YouTube.libraryPodcastChannels().onSuccess { page ->
+                val channels = page.items.filterIsInstance<moe.rukamori.archivetune.innertube.models.ArtistItem>()
+                _apiPodcastChannels.value = channels
+            }.onFailure {
+                Timber.e(it, "[PODCAST] Failed to fetch podcast channels")
+            }
+        }
+
+        private suspend fun fetchRdpnPlaylist() {
+            YouTube.newEpisodesPlaylistInfo().onSuccess { item ->
+                _rdpnPlaylist.value = item
+            }.onFailure {
+                Timber.e(it, "[PODCAST] Failed to fetch RDPN playlist info")
+            }
+        }
+
+        init {
+            viewModelScope.launch(Dispatchers.IO) {
+                fetchSePlaylist()
+                fetchPodcastChannels()
+                fetchRdpnPlaylist()
+                syncUtils.syncPodcastSubscriptionsSuspend()
+            }
+            viewModelScope.launch(Dispatchers.IO) {
+                PodcastRefreshTrigger.refreshFlow.collect {
+                    kotlinx.coroutines.delay(1500)
+                    fetchPodcastChannels()
+                }
+            }
+        }
+
+        suspend fun refreshAll() {
+            fetchSePlaylist()
+            fetchPodcastChannels()
+            fetchRdpnPlaylist()
+            syncUtils.syncPodcastSubscriptionsSuspend()
+            syncUtils.syncEpisodesForLaterSuspend()
+        }
+
+        fun refreshChannels() {
+            viewModelScope.launch(Dispatchers.IO) {
+                fetchPodcastChannels()
+            }
+        }
+    }
 
 @HiltViewModel
 class LibraryViewModel

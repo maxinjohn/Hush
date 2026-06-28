@@ -107,6 +107,7 @@ import moe.rukamori.archivetune.ui.component.BottomSheetPage
 import moe.rukamori.archivetune.ui.component.BottomSheetPageState
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.MarkdownText
+import moe.rukamori.archivetune.ui.theme.HushAmbientBackground
 import moe.rukamori.archivetune.ui.utils.backToMain
 import moe.rukamori.archivetune.utils.AppUpdateInstaller
 import moe.rukamori.archivetune.utils.UpdateNotificationManager
@@ -540,18 +541,20 @@ fun UpdateScreen(
             }
         }
     }
-    val topBarSubtitle =
-        when (updateChannel) {
-            UpdateChannel.NIGHTLY -> stringResource(R.string.updates_subtitle_nightly)
-            else -> stringResource(R.string.updates_subtitle_stable)
-        }
+    val topBarSubtitle = stringResource(R.string.updates_subtitle_stable)
 
-    Scaffold(
+    Box(modifier = Modifier.fillMaxSize()) {
+        HushAmbientBackground(
+            heightFraction = 0.55f,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
+
+        Scaffold(
         modifier =
             Modifier
                 .fillMaxSize()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
@@ -608,7 +611,6 @@ fun UpdateScreen(
                 UpdateSummaryCard(
                     currentVersion = BuildConfig.VERSION_NAME,
                     latestVersion = latestVersion,
-                    updateChannel = updateChannel,
                     isUpdateAvailable = isUpdateAvailable,
                 )
             }
@@ -616,15 +618,9 @@ fun UpdateScreen(
             item {
                 UpdateActionPanel(
                     onOpenChangelog = {
-                        navController.navigate("settings/changelog?channel=$updateChannel")
+                        navController.navigate("settings/changelog?channel=${UpdateChannel.STABLE}")
                     },
                     onCheckForUpdate = onCheckForUpdate,
-                )
-            }
-
-            item {
-                CleanInstallNoticeCard(
-                    onOpenBackup = { navController.navigate("settings/backup_restore") },
                 )
             }
 
@@ -639,19 +635,6 @@ fun UpdateScreen(
                             UpdateNotificationManager.cancelPeriodicUpdateCheck(context)
                         }
                     },
-                    updateChannel = updateChannel,
-                    onStableSelected = { onUpdateChannelChange(UpdateChannel.STABLE) },
-                    onNightlySelected = {
-                        if (updateChannel != UpdateChannel.NIGHTLY) {
-                            showNightlyChannelConfirmDialog = true
-                        }
-                    },
-                    onDailyNightlySelected = {
-                        if (updateChannel != UpdateChannel.DAILY_NIGHTLY) {
-                            showDailyNightlyChannelConfirmDialog = true
-                        }
-                    },
-                    experimentalChannelsAvailable = experimentalChannelsAvailable,
                 )
             }
 
@@ -822,6 +805,7 @@ fun UpdateScreen(
             },
         )
     }
+    }
 
     if (showUpdateErrorDialog) {
         AlertDialog(
@@ -857,53 +841,11 @@ fun UpdateScreen(
 }
 
 @Composable
-private fun CleanInstallNoticeCard(onOpenBackup: () -> Unit) {
-    Card(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .widthIn(max = 840.dp),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            ),
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.updates_clean_install_title),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onTertiaryContainer,
-            )
-            Text(
-                text = stringResource(R.string.updates_clean_install_body),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onTertiaryContainer,
-            )
-            TextButton(onClick = onOpenBackup) {
-                Text(stringResource(R.string.updates_clean_install_open_backup))
-            }
-        }
-    }
-}
-
-@Composable
 private fun UpdateSummaryCard(
     currentVersion: String,
     latestVersion: String?,
-    updateChannel: UpdateChannel,
     isUpdateAvailable: Boolean,
 ) {
-    val channelLabel =
-        when (updateChannel) {
-            UpdateChannel.STABLE -> stringResource(R.string.channel_stable)
-            UpdateChannel.NIGHTLY -> stringResource(R.string.channel_nightly)
-            UpdateChannel.DAILY_NIGHTLY -> stringResource(R.string.channel_daily_nightly)
-        }
     val supportingText =
         when {
             latestVersion == null -> stringResource(R.string.updates_status_checking)
@@ -919,18 +861,6 @@ private fun UpdateSummaryCard(
     val statusContentColor =
         if (isUpdateAvailable) {
             MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSecondaryContainer
-        }
-    val channelContainerColor =
-        if (updateChannel == UpdateChannel.NIGHTLY) {
-            MaterialTheme.colorScheme.tertiaryContainer
-        } else {
-            MaterialTheme.colorScheme.secondaryContainer
-        }
-    val channelContentColor =
-        if (updateChannel == UpdateChannel.NIGHTLY) {
-            MaterialTheme.colorScheme.onTertiaryContainer
         } else {
             MaterialTheme.colorScheme.onSecondaryContainer
         }
@@ -966,28 +896,11 @@ private fun UpdateSummaryCard(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.current_version),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Surface(
-                            shape = MaterialTheme.shapes.large,
-                            color = channelContainerColor,
-                        ) {
-                            Text(
-                                text = channelLabel,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = channelContentColor,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            )
-                        }
-                    }
+                    Text(
+                        text = stringResource(R.string.current_version),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
 
                     Text(
                         text = currentVersion,
@@ -1067,11 +980,6 @@ private fun UpdateActionPanel(
 private fun UpdateControlsPanel(
     enableUpdateNotification: Boolean,
     onUpdateNotificationChange: (Boolean) -> Unit,
-    updateChannel: UpdateChannel,
-    onStableSelected: () -> Unit,
-    onNightlySelected: () -> Unit,
-    onDailyNightlySelected: () -> Unit,
-    experimentalChannelsAvailable: Boolean,
 ) {
     Card(
         modifier =
@@ -1084,108 +992,28 @@ private fun UpdateControlsPanel(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             ),
     ) {
-        Column {
-            ListItem(
-                headlineContent = {
-                    Text(text = stringResource(R.string.enable_update_notification))
-                },
-                supportingContent = {
-                    Text(text = stringResource(R.string.enable_update_notification_desc))
-                },
-                leadingContent = {
-                    FeatureIcon(
-                        iconRes = R.drawable.new_release,
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                },
-                trailingContent = {
-                    Switch(
-                        checked = enableUpdateNotification,
-                        onCheckedChange = onUpdateNotificationChange,
-                    )
-                },
-                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            )
-
-            HorizontalDivider(
-                modifier = Modifier.padding(horizontal = 16.dp),
-                color = MaterialTheme.colorScheme.outlineVariant,
-            )
-
-            ListItem(
-                headlineContent = {
-                    Text(text = stringResource(R.string.update_channel))
-                },
-                supportingContent = {
-                    Text(text = stringResource(R.string.update_channel_desc))
-                },
-                leadingContent = {
-                    FeatureIcon(
-                        iconRes = R.drawable.tune,
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    )
-                },
-                trailingContent = {
-                    Text(
-                        text =
-                            when (updateChannel) {
-                                UpdateChannel.STABLE -> stringResource(R.string.channel_stable)
-                                UpdateChannel.NIGHTLY -> stringResource(R.string.channel_nightly)
-                                UpdateChannel.DAILY_NIGHTLY -> stringResource(R.string.channel_daily_nightly)
-                            },
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                },
-                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            )
-
-            if (experimentalChannelsAvailable) {
-                SingleChoiceSegmentedButtonRow(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, top = 2.dp, end = 16.dp, bottom = 16.dp),
-                ) {
-                    SegmentedButton(
-                        selected = updateChannel == UpdateChannel.STABLE,
-                        onClick = onStableSelected,
-                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
-                        icon = {},
-                    ) {
-                        Text(text = stringResource(R.string.channel_stable))
-                    }
-                    SegmentedButton(
-                        selected = updateChannel == UpdateChannel.NIGHTLY,
-                        onClick = onNightlySelected,
-                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
-                        icon = {},
-                    ) {
-                        Text(text = stringResource(R.string.channel_nightly))
-                    }
-                    SegmentedButton(
-                        selected = updateChannel == UpdateChannel.DAILY_NIGHTLY,
-                        onClick = onDailyNightlySelected,
-                        shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
-                        icon = {},
-                    ) {
-                        Text(text = stringResource(R.string.channel_daily_nightly))
-                    }
-                }
-            } else {
-                Text(
-                    text = stringResource(R.string.channel_stable),
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, top = 2.dp, end = 16.dp, bottom = 16.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
+        ListItem(
+            headlineContent = {
+                Text(text = stringResource(R.string.enable_update_notification))
+            },
+            supportingContent = {
+                Text(text = stringResource(R.string.enable_update_notification_desc))
+            },
+            leadingContent = {
+                FeatureIcon(
+                    iconRes = R.drawable.new_release,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
-            }
-        }
+            },
+            trailingContent = {
+                Switch(
+                    checked = enableUpdateNotification,
+                    onCheckedChange = onUpdateNotificationChange,
+                )
+            },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        )
     }
 }
 

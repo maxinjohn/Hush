@@ -134,13 +134,6 @@ class BuildOnboardingUiStateUseCase
             val communityActions =
                 ImmutableList.of(
                     OnboardingCommunityActionUiModel(
-                        id = "github",
-                        titleResId = R.string.support_development_star,
-                        descriptionResId = R.string.onboarding_community_github_desc,
-                        iconResId = R.drawable.github,
-                        url = HushLinks.GITHUB_REPO_URL,
-                    ),
-                    OnboardingCommunityActionUiModel(
                         id = "releases",
                         titleResId = R.string.onboarding_community_releases_title,
                         descriptionResId = R.string.onboarding_community_releases_desc,

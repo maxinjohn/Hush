@@ -138,12 +138,16 @@ import moe.rukamori.archivetune.extensions.toMediaItem
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.innertube.models.AlbumItem
 import moe.rukamori.archivetune.innertube.models.ArtistItem
+import moe.rukamori.archivetune.innertube.models.EpisodeItem
+import moe.rukamori.archivetune.innertube.models.PodcastItem
 import moe.rukamori.archivetune.innertube.models.PlaylistItem
 import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.models.YTItem
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.playback.queues.LocalAlbumRadio
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
 import moe.rukamori.archivetune.ui.theme.PlayerColorExtractor
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
 import moe.rukamori.archivetune.ui.theme.extractThemeColor
 import moe.rukamori.archivetune.ui.utils.resize
 import moe.rukamori.archivetune.utils.joinByBullet
@@ -166,52 +170,66 @@ inline fun ListItem(
 ) {
     val titleColor =
         if (isActive) {
-            MaterialTheme.colorScheme.onSecondaryContainer
+            MaterialTheme.colorScheme.onPrimaryContainer
         } else {
             MaterialTheme.colorScheme.onSurface
         }
     val subtitleContentColor =
         if (isActive) {
-            MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         }
     val trailingContentColor =
         if (isActive) {
-            MaterialTheme.colorScheme.onSecondaryContainer
+            MaterialTheme.colorScheme.onPrimaryContainer
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         }
+    val itemBackground =
+        if (isActive) {
+            Brush.horizontalGradient(
+                colors =
+                    listOf(
+                        MaterialTheme.colorScheme.primaryContainer,
+                        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f),
+                    ),
+            )
+        } else {
+            null
+        }
+    val inactiveBackground = MaterialTheme.colorScheme.surfaceContainerLow
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier =
             modifier
-                .focusable()
-                .height(ListItemHeight)
-                .padding(horizontal = 8.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 3.dp)
+                .clip(ArchiveTuneDesign.itemShape)
                 .then(
-                    if (isActive) {
-                        Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                    if (itemBackground != null) {
+                        Modifier.background(itemBackground, ArchiveTuneDesign.itemShape)
                     } else {
-                        Modifier
+                        Modifier.background(inactiveBackground, ArchiveTuneDesign.itemShape)
                     },
-                ),
+                ).focusable()
+                .height(ListItemHeight),
     ) {
-        Box(Modifier.padding(8.dp), contentAlignment = Alignment.Center) { thumbnailContent() }
+        Box(Modifier.padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), contentAlignment = Alignment.Center) {
+            thumbnailContent()
+        }
         Column(
             modifier =
                 Modifier
                     .weight(1f)
-                    .padding(horizontal = 6.dp),
+                    .padding(horizontal = 4.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 color = titleColor,
@@ -226,7 +244,9 @@ inline fun ListItem(
             }
         }
         CompositionLocalProvider(LocalContentColor provides trailingContentColor) {
-            trailingContent()
+            Row(modifier = Modifier.padding(end = 6.dp)) {
+                trailingContent()
+            }
         }
     }
 }
@@ -1385,6 +1405,14 @@ fun YouTubeListItem(
                     is PlaylistItem -> {
                         joinByBullet(item.author?.name, item.songCountText)
                     }
+
+                    is PodcastItem -> {
+                        joinByBullet(item.author?.name, item.episodeCountText)
+                    }
+
+                    is EpisodeItem -> {
+                        joinByBullet(item.author?.name, makeTimeString(item.duration?.times(1000L)))
+                    }
                 },
             badges = badges,
             thumbnailContent = {
@@ -1462,6 +1490,8 @@ fun YouTubeGridItem(
                 is AlbumItem -> joinByBullet(item.artists?.joinToString { it.name }, item.year?.toString())
                 is ArtistItem -> null
                 is PlaylistItem -> joinByBullet(item.author?.name, item.songCountText)
+                is PodcastItem -> joinByBullet(item.author?.name, item.episodeCountText)
+                is EpisodeItem -> joinByBullet(item.author?.name, makeTimeString(item.duration?.times(1000L)))
             }
         if (subtitle != null) {
             Text(
@@ -2008,7 +2038,7 @@ fun BoxScope.AlbumPlayButton(
                     .size(36.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = ActiveBoxAlpha))
-                    .clickable(onClick = onClick),
+                    .archiveTunePressable(onClick = onClick, pressScale = ArchiveTuneDesign.ChipPressScale),
         ) {
             Icon(
                 painter = painterResource(R.drawable.play),

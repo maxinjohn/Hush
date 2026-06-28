@@ -10,7 +10,9 @@ package moe.rukamori.archivetune.ui.component
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -105,7 +107,7 @@ fun TagChip(
     )
 
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = ArchiveTuneDesign.chipShape,
         color = animatedBackgroundColor,
         border =
             BorderStroke(
@@ -117,10 +119,10 @@ fun TagChip(
         Row(
             modifier =
                 Modifier
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(ArchiveTuneDesign.chipShape)
                     .then(
                         if (onClick != null) {
-                            Modifier.clickable(onClick = onClick)
+                            Modifier.archiveTunePressable(onClick = onClick)
                         } else {
                             Modifier
                         },
@@ -166,7 +168,7 @@ fun TagChip(
                         Modifier
                             .size(24.dp)
                             .clip(CircleShape)
-                            .clickable(onClick = onRemove)
+                            .archiveTunePressable(onClick = onRemove, pressScale = ArchiveTuneDesign.ChipPressScale)
                             .background(contentColor.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center,
                 ) {

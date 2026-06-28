@@ -84,6 +84,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -222,6 +223,8 @@ import moe.rukamori.archivetune.ui.component.ResizableIconButton
 import moe.rukamori.archivetune.ui.component.rememberBottomSheetState
 import moe.rukamori.archivetune.ui.menu.PlayerMenu
 import moe.rukamori.archivetune.ui.screens.settings.DarkMode
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
 import moe.rukamori.archivetune.ui.theme.PlayerBackgroundColorUtils
 import moe.rukamori.archivetune.ui.theme.PlayerColorExtractor
 import moe.rukamori.archivetune.ui.theme.PlayerSliderColors
@@ -236,7 +239,6 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
-private const val SeekbarSettleToleranceMs = 1_500L
 private const val V7BackdropMinArtworkSizePx = 1_024
 private const val V7BackdropMaxArtworkSizePx = 2_048
 private const val V7BackdropBlurDp = 44
@@ -453,24 +455,27 @@ fun BottomSheetPlayer(
         CanvasArtworkPlaybackCache.setMaxSize(maxCanvasCacheSize)
     }
 
-    var position by rememberSaveable(mediaMetadata?.id) {
-        mutableLongStateOf(playerConnection.player.currentPosition)
-    }
-    var duration by rememberSaveable(mediaMetadata?.id) {
-        mutableLongStateOf(playerConnection.player.duration)
+    var sliderPosition by remember(mediaMetadata?.id) {
+        mutableStateOf<Long?>(null)
     }
     var lyricsSyncOffset by rememberSaveable(mediaMetadata?.id) {
         mutableIntStateOf(0)
-    }
-    var sliderPosition by remember(mediaMetadata?.id) {
-        mutableStateOf<Long?>(null)
     }
     var isUserSeeking by remember(mediaMetadata?.id) {
         mutableStateOf(false)
     }
 
-    // Track loading state: when buffering or when user is seeking
-    val isLoading = playbackState == STATE_BUFFERING || sliderPosition != null
+    // Track loading state: when buffering or when user is seeking (debounced to avoid spinner flicker)
+    val rawLoading = playbackState == STATE_BUFFERING || sliderPosition != null
+    var isLoading by remember(mediaMetadata?.id) { mutableStateOf(rawLoading) }
+    LaunchedEffect(rawLoading) {
+        if (rawLoading) {
+            isLoading = true
+        } else {
+            delay(250)
+            isLoading = false
+        }
+    }
 
     var gradientColors by remember {
         mutableStateOf<List<Color>>(emptyList())
@@ -721,56 +726,6 @@ fun BottomSheetPlayer(
         mutableStateOf(false)
     }
 
-    LaunchedEffect(mediaMetadata?.id, playbackState, aodModeEnabled) {
-        val startTime = SystemClock.elapsedRealtime()
-        if (playbackState == STATE_READY) {
-            while (isActive) {
-                delay(if (aodModeEnabled) 500L else 100L)
-                val isTransitioning = playerConnection.player.currentMediaItem?.mediaId != mediaMetadata?.id
-                val currentPlayerPosition = playerConnection.player.currentPosition
-                val currentPlayerDuration = playerConnection.player.duration
-
-                if (isTransitioning) {
-                    val elapsedSinceStart = SystemClock.elapsedRealtime() - startTime
-                    position = elapsedSinceStart
-                    mediaMetadata?.let {
-                        val metaDuration = it.duration.toLong() * 1000
-                        duration = if (metaDuration > 0) metaDuration else 0L
-                    }
-                } else {
-                    position = currentPlayerPosition
-                    duration = currentPlayerDuration
-                    if (!isUserSeeking) {
-                        sliderPosition?.let { targetPosition ->
-                            val clampedTargetPosition =
-                                when {
-                                    currentPlayerDuration > 0L && currentPlayerDuration != C.TIME_UNSET -> {
-                                        targetPosition.coerceIn(0L, currentPlayerDuration)
-                                    }
-
-                                    else -> {
-                                        targetPosition.coerceAtLeast(0L)
-                                    }
-                                }
-                            if (abs(currentPlayerPosition - clampedTargetPosition) <= SeekbarSettleToleranceMs) {
-                                sliderPosition = null
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            mediaMetadata?.let {
-                val metaDuration = it.duration.toLong() * 1000
-                duration = if (metaDuration > 0) metaDuration else 0L
-            }
-            val currentPlayerPosition = playerConnection.player.currentPosition
-            if (sliderPosition == null && currentPlayerPosition > 0L) {
-                position = currentPlayerPosition
-            }
-        }
-    }
-
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val landscapePlayerInsets =
         WindowInsets.systemBars.only(
@@ -847,6 +802,18 @@ fun BottomSheetPlayer(
         }
     }
 
+    val playbackPositionState =
+        rememberPlayerPlaybackPositionState(
+            playerConnection = playerConnection,
+            mediaMetadata = mediaMetadata,
+            playbackState = playbackState,
+            aodModeEnabled = aodModeEnabled,
+            isUserSeeking = isUserSeeking,
+            sliderPosition = sliderPosition,
+            onSliderSettled = { sliderPosition = null },
+        )
+
+    CompositionLocalProvider(LocalPlayerPlaybackPosition provides playbackPositionState) {
     BottomSheet(
         state = state,
         modifier =
@@ -992,6 +959,8 @@ fun BottomSheetPlayer(
             playerConnection.service.stopAndClearPlayback(clearPersistentState = true)
         },
         collapsedContent = {
+            val position = LocalPlayerPlaybackPosition.current.positionMs
+            val duration = LocalPlayerPlaybackPosition.current.durationMs
             MiniPlayer(
                 position = position,
                 duration = duration,
@@ -999,6 +968,9 @@ fun BottomSheetPlayer(
             )
         },
     ) {
+        val playbackPosition = LocalPlayerPlaybackPosition.current
+        val position = playbackPosition.positionMs
+        val duration = playbackPosition.durationMs
         val onSliderValueChange: (Long) -> Unit = {
             isUserSeeking = true
             sliderPosition = it
@@ -1014,7 +986,7 @@ fun BottomSheetPlayer(
                 } else {
                     playerConnection.player.seekTo(it)
                 }
-                position = it
+                playbackPosition.positionMs = it
             }
             isUserSeeking = false
         }
@@ -1862,6 +1834,7 @@ fun BottomSheetPlayer(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -1912,7 +1885,7 @@ private fun MikoLyricsTransition(
                             this.alpha = alpha
                             translationY = size.height * 0.16f * (1f - boundedProgress)
                         }.clip(RoundedCornerShape(cornerRadius))
-                        .background(MaterialTheme.colorScheme.surface),
+                        .background(Color.Transparent),
             ) {
                 LyricsScreen(
                     mediaMetadata = mediaMetadata,
@@ -2564,11 +2537,7 @@ private fun LittlePlayerContent(
                     modifier =
                         Modifier
                             .size(collapseIconSize)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = onCollapse,
-                            ),
+                            .archiveTunePressable(onClick = onCollapse, pressScale = ArchiveTuneDesign.ChipPressScale),
                 )
 
                 Spacer(Modifier.weight(1f))
@@ -2585,11 +2554,7 @@ private fun LittlePlayerContent(
                     modifier =
                         Modifier
                             .size(iconSize)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = onToggleLike,
-                            ),
+                            .archiveTunePressable(onClick = onToggleLike, pressScale = ArchiveTuneDesign.ChipPressScale),
                 )
 
                 Spacer(Modifier.width((18f * scale).dp))
@@ -2601,11 +2566,7 @@ private fun LittlePlayerContent(
                     modifier =
                         Modifier
                             .size(iconSize)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = onExpandQueue,
-                            ),
+                            .archiveTunePressable(onClick = onExpandQueue, pressScale = ArchiveTuneDesign.ChipPressScale),
                 )
 
                 Spacer(Modifier.width((18f * scale).dp))
@@ -2617,11 +2578,7 @@ private fun LittlePlayerContent(
                     modifier =
                         Modifier
                             .size(iconSize)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = onMenuClick,
-                            ),
+                            .archiveTunePressable(onClick = onMenuClick, pressScale = ArchiveTuneDesign.ChipPressScale),
                 )
             }
         }

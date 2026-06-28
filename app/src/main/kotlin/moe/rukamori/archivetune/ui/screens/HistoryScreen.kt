@@ -23,8 +23,8 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
+import moe.rukamori.archivetune.ui.theme.archiveTuneCombinedPressable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -74,6 +74,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -118,6 +119,7 @@ import moe.rukamori.archivetune.ui.component.YouTubeListItem
 import moe.rukamori.archivetune.ui.menu.SelectionMediaMetadataMenu
 import moe.rukamori.archivetune.ui.menu.SongMenu
 import moe.rukamori.archivetune.ui.menu.YouTubeSongMenu
+import moe.rukamori.archivetune.ui.theme.HushAmbientBackground
 import moe.rukamori.archivetune.ui.utils.appBarScrollBehavior
 import moe.rukamori.archivetune.ui.utils.backToMain
 import moe.rukamori.archivetune.utils.rememberPreference
@@ -456,12 +458,18 @@ fun HistoryScreen(
         clearSelection()
     }
 
-    Scaffold(
+    Box(modifier = Modifier.fillMaxSize()) {
+        HushAmbientBackground(
+            heightFraction = 0.55f,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
+
+        Scaffold(
         modifier =
             Modifier
                 .fillMaxSize()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (!showSearchBar) {
@@ -638,6 +646,7 @@ fun HistoryScreen(
             )
         }
     }
+    }
 }
 
 @Composable
@@ -735,7 +744,7 @@ private fun LocalHistoryFeed(
                             Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 8.dp)
-                                .combinedClickable(
+                                .archiveTuneCombinedPressable(
                                     onClick = {
                                         if (isSelectionMode) {
                                             onToggleSelection(event.event.id)
@@ -866,7 +875,7 @@ private fun RemoteHistoryFeed(
                                     Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 8.dp)
-                                        .combinedClickable(
+                                        .archiveTuneCombinedPressable(
                                             onClick = { onSongClick(song) },
                                             onLongClick = { onSongMenu(song) },
                                         ).animateItem(),
@@ -1112,7 +1121,7 @@ private fun HistoryToolbarAction(
         modifier =
             Modifier
                 .clip(MaterialTheme.shapes.large)
-                .clickable(role = Role.Button, onClick = onClick)
+                .archiveTunePressable(onClick = onClick)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Icon(

@@ -94,6 +94,8 @@ import moe.rukamori.archivetune.spotify.SpotifyLibraryViewModel
 import moe.rukamori.archivetune.spotify.SpotifyMapper
 import moe.rukamori.archivetune.spotify.models.SpotifyPlaylist
 import moe.rukamori.archivetune.ui.component.ExpressivePullToRefreshBox
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
 import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.viewmodels.LibraryMixViewModel
 import moe.rukamori.archivetune.viewmodels.LibraryTopMixEmptyReason
@@ -419,26 +421,13 @@ fun LibraryMixScreen(
                                         fallbackColor = MaterialTheme.colorScheme.surfaceContainerLow,
                                     )
 
-                                val interactionSource = remember { MutableInteractionSource() }
-                                val isPressed by interactionSource.collectIsPressedAsState()
-                                val scale by animateFloatAsState(
-                                    targetValue = if (isPressed) 0.97f else 1.0f,
-                                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-                                    label = "MixPlaylistCardScale",
-                                )
-
                                 Column(
                                     modifier =
                                         Modifier
                                             .width(130.dp)
-                                            .graphicsLayer {
-                                                scaleX = scale
-                                                scaleY = scale
-                                            }.clip(RoundedCornerShape(32.dp))
+                                            .clip(RoundedCornerShape(32.dp))
                                             .background(cardBgColor)
-                                            .clickable(
-                                                interactionSource = interactionSource,
-                                                indication = null,
+                                            .archiveTunePressable(
                                                 onClick = {
                                                     if (!playlist.playlist.isEditable && playlist.songCount == 0 &&
                                                         playlist.playlist.remoteSongCount != 0
@@ -448,6 +437,7 @@ fun LibraryMixScreen(
                                                         navController.navigate("local_playlist/${playlist.id}")
                                                     }
                                                 },
+                                                pressScale = ArchiveTuneDesign.PressScale,
                                             ).padding(12.dp),
                                 ) {
                                     Box(
@@ -691,28 +681,14 @@ private fun SpotifyPlaylistCompactCard(
             thumbnailUrl = thumbnailUrl,
             fallbackColor = MaterialTheme.colorScheme.surfaceContainerLow,
         )
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.97f else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "SpotifyPlaylistCompactCardScale",
-    )
-
     Column(
         modifier =
             modifier
                 .width(130.dp)
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                }.clip(RoundedCornerShape(32.dp))
+                .clip(RoundedCornerShape(32.dp))
                 .background(cardBgColor)
-                .clickable(
-                    interactionSource = interactionSource,
-                    indication = null,
-                    onClick = onClick,
-                ).padding(12.dp),
+                .archiveTunePressable(onClick = onClick, pressScale = ArchiveTuneDesign.PressScale)
+                .padding(12.dp),
     ) {
         Box(
             modifier =
@@ -982,27 +958,12 @@ private fun LibraryTopMixCard(
     onPlay: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.97f else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "LibraryTopMixCardScale",
-    )
-
     Card(
         modifier =
             modifier
                 .width(180.dp)
                 .height(130.dp)
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                }.clickable(
-                    interactionSource = interactionSource,
-                    indication = null,
-                    onClick = onPlay,
-                ),
+                .archiveTunePressable(onClick = onPlay, pressScale = ArchiveTuneDesign.PressScale),
         shape = RoundedCornerShape(32.dp),
         colors =
             CardDefaults.cardColors(
@@ -1127,7 +1088,7 @@ private fun MostPlayedAlbumSpotlightCard(
                 .padding(horizontal = 24.dp)
                 .clip(RoundedCornerShape(32.dp))
                 .background(backgroundBrush)
-                .clickable(onClick = onOpenAlbum)
+                .archiveTunePressable(onClick = onOpenAlbum, pressScale = ArchiveTuneDesign.PressScale)
                 .padding(16.dp),
     ) {
         Column {
@@ -1270,14 +1231,6 @@ fun ShortcutCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.96f else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "ShortcutCardScale",
-    )
-
     val isDark =
         MaterialTheme.colorScheme.surface.let {
             ColorUtils.calculateLuminance(it.toArgb()) < 0.5
@@ -1305,15 +1258,10 @@ fun ShortcutCard(
     Box(
         modifier =
             modifier
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                }.clip(RoundedCornerShape(26.dp))
+                .clip(RoundedCornerShape(26.dp))
                 .background(finalBgColor)
-                .clickable(
-                    interactionSource = interactionSource,
-                    onClick = onClick,
-                ).padding(12.dp),
+                .archiveTunePressable(onClick = onClick, pressScale = ArchiveTuneDesign.PressScale)
+                .padding(12.dp),
     ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(6.dp),

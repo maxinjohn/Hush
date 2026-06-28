@@ -15,6 +15,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -29,11 +30,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
@@ -42,6 +42,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -55,6 +57,7 @@ import moe.rukamori.archivetune.BuildConfig
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.ui.component.IconButton
+import moe.rukamori.archivetune.ui.theme.HushAmbientBackground
 import moe.rukamori.archivetune.ui.utils.backToMain
 import moe.rukamori.archivetune.utils.Updater
 
@@ -159,16 +162,24 @@ fun SettingsScreen(
                     }
             (matchedTopLevel + matchedSubSettings).distinctBy { it.key }
         }
+    val isSearching = searchQuery.isNotBlank()
 
-    Scaffold(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = MaterialTheme.colorScheme.surface,
+    Box(modifier = Modifier.fillMaxSize()) {
+        HushAmbientBackground(
+            heightFraction = 0.55f,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
+
+        Scaffold(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+            containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            LargeFlexibleTopAppBar(
+            TopAppBar(
+                windowInsets = TopAppBarDefaults.windowInsets,
                 title = {
                     Text(
                         text = stringResource(R.string.settings),
@@ -187,7 +198,7 @@ fun SettingsScreen(
                     }
                 },
                 colors =
-                    TopAppBarDefaults.largeTopAppBarColors(
+                    TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surface,
                         scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
                     ),
@@ -250,26 +261,17 @@ fun SettingsScreen(
             }
 
             item(key = "search", contentType = "settings_search") {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
+                SettingsSearchBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
                     modifier =
                         Modifier
-                            .fillMaxWidth()
                             .padding(horizontal = SettingsDimensions.ScreenHorizontalPadding)
-                            .padding(bottom = SettingsDimensions.SectionSpacing),
-                    placeholder = { Text(stringResource(R.string.settings_search_hint)) },
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(
-                            painter = painterResource(R.drawable.search),
-                            contentDescription = null,
-                        )
-                    },
+                            .padding(top = 8.dp, bottom = 12.dp),
                 )
             }
 
-            if (settingsItems.isEmpty() && searchQuery.isNotBlank()) {
+            if (settingsItems.isEmpty() && isSearching) {
                 item(key = "search_empty", contentType = "settings_empty") {
                     Text(
                         text = stringResource(R.string.settings_search_no_results, searchQuery),
@@ -297,5 +299,6 @@ fun SettingsScreen(
                 )
             }
         }
+    }
     }
 }

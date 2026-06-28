@@ -13,6 +13,8 @@ import io.ktor.client.plugins.ClientRequestException
 import io.ktor.http.HttpStatusCode
 import moe.rukamori.archivetune.constants.AudioQuality
 import moe.rukamori.archivetune.constants.PlayerStreamClient
+import moe.rukamori.archivetune.constants.StreamSourcePreferences
+import moe.rukamori.archivetune.constants.usesStrictYouTubeClient
 import moe.rukamori.archivetune.innertube.NewPipeUtils
 import moe.rukamori.archivetune.innertube.PlaybackAuthState
 import moe.rukamori.archivetune.innertube.YouTube
@@ -108,24 +110,38 @@ object YTPlayerUtils {
         val reason: String?,
     )
 
-    @Volatile private var streamClientPair: Pair<Proxy, OkHttpClient>? = null
+    @Volatile private var streamClientPair: Pair<StreamClientCacheKey, OkHttpClient>? = null
+
+    private data class StreamClientCacheKey(
+        val proxy: Proxy,
+        val networkVersion: Int,
+    )
+
+    fun invalidateStreamClient() {
+        streamClientPair = null
+    }
 
     private fun currentStreamClient(): OkHttpClient {
-        val current = YouTube.streamOkHttpProxy
-        streamClientPair?.let { (proxy, client) ->
-            if (proxy == current) return client
+        val currentProxy = YouTube.streamOkHttpProxy
+        val cacheKey =
+            StreamClientCacheKey(
+                proxy = currentProxy,
+                networkVersion = YouTube.okHttpNetworkVersion(),
+            )
+        streamClientPair?.let { (key, client) ->
+            if (key == cacheKey) return client
         }
         val client =
-            OkHttpClient
-                .Builder()
-                .proxy(current)
+            YouTube
+                .newOkHttpClientBuilder()
+                .proxy(currentProxy)
                 .connectTimeout(STREAM_PROBE_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .readTimeout(STREAM_PROBE_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .callTimeout(STREAM_PROBE_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .followRedirects(true)
                 .followSslRedirects(true)
                 .build()
-        streamClientPair = current to client
+        streamClientPair = cacheKey to client
         return client
     }
 
@@ -174,6 +190,10 @@ object YTPlayerUtils {
     private val failedStreamClientsUntil = ConcurrentHashMap<String, Long>()
 
     @Volatile private var lastSuccessfulClientKey: String? = null
+
+    /** Client names disabled in Settings → Stream sources. Updated by MusicService. */
+    @Volatile
+    var disabledStreamClients: Set<String> = emptySet()
 
     fun clearPlaybackAuthCaches() {
         streamUrlCache.clear()
@@ -388,7 +408,7 @@ object YTPlayerUtils {
 
         return when (preferredStreamClient) {
             PlayerStreamClient.ANDROID_VR -> {
-                if (authState.hasPlaybackLoginContext) ANDROID_MUSIC else ANDROID_VR_NO_AUTH
+                ANDROID_VR_1_61_48
             }
 
             PlayerStreamClient.WEB_REMIX -> {
@@ -396,7 +416,7 @@ object YTPlayerUtils {
             }
 
             PlayerStreamClient.ARCHIVETUNE_EXTRACTOR -> {
-                if (authState.hasPlaybackLoginContext) ANDROID_MUSIC else ANDROID_VR_NO_AUTH
+                WEB_REMIX
             }
 
             PlayerStreamClient.HI_RES_LOSSLESS -> {
@@ -456,6 +476,7 @@ object YTPlayerUtils {
         val streamUrl: String,
         val streamExpiresInSeconds: Int,
         val authFingerprint: String,
+        val playbackClientLabel: String? = null,
     )
 
     /**
@@ -471,6 +492,7 @@ object YTPlayerUtils {
         preferredStreamClient: PlayerStreamClient = PlayerStreamClient.ANDROID_VR,
         // if provided, this preference overrides ConnectivityManager.isActiveNetworkMetered
         networkMetered: Boolean? = null,
+        fastResolution: Boolean = true,
     ): Result<PlaybackData> =
         runCatching {
             val attempts =
@@ -494,6 +516,7 @@ object YTPlayerUtils {
                             connectivityManager = connectivityManager,
                             preferredStreamClient = preferredStreamClient,
                             networkMetered = networkMetered,
+                            fastResolution = fastResolution,
                         )
                     }
                 if (attemptResult.isSuccess) return@runCatching attemptResult.getOrThrow()
@@ -513,6 +536,7 @@ object YTPlayerUtils {
                                 connectivityManager = connectivityManager,
                                 preferredStreamClient = preferredStreamClient,
                                 networkMetered = networkMetered,
+                                fastResolution = fastResolution,
                             )
                         }
                     if (rotatedAttemptResult.isSuccess) return@runCatching rotatedAttemptResult.getOrThrow()
@@ -601,6 +625,7 @@ object YTPlayerUtils {
         connectivityManager: ConnectivityManager,
         preferredStreamClient: PlayerStreamClient,
         networkMetered: Boolean?,
+        fastResolution: Boolean = true,
     ): PlaybackData {
         Timber.tag(logTag).i("Fetching player response for videoId: $videoId, playlistId: $playlistId")
         val signatureTimestamp = getSignatureTimestampOrNull(videoId)
@@ -738,8 +763,18 @@ object YTPlayerUtils {
                 ?.takeIf { it > 0 }
                 ?.times(1000L)
 
+        val isMetered = networkMetered ?: connectivityManager.isActiveNetworkMetered
         val streamClients =
-            buildStreamClientOrder(preferredStreamClient, authState).filterNot { client ->
+            buildStreamClientOrder(
+                preferredStreamClient = preferredStreamClient,
+                authState = authState,
+            ).filterNot { client ->
+                if (isStreamClientDisabledByPreference(client, preferredStreamClient)) {
+                    Timber.tag(logTag).d(
+                        "Skipping ${describeClient(client)} — disabled in stream sources",
+                    )
+                    return@filterNot true
+                }
                 val blocked =
                     isStreamClientTemporarilyBlocked(
                         videoId = videoId,
@@ -935,7 +970,7 @@ object YTPlayerUtils {
             Timber.tag(logTag).i("Format found: ${format.mimeType}, bitrate: ${format.bitrate}")
             Timber.tag(logTag).v("Stream expires in: $streamExpiresInSeconds seconds")
 
-            val valid = validateStatus(streamUrl)
+            val valid = validateStatus(streamUrl, fastProbe = fastResolution)
             if (valid) {
                 Timber.tag(logTag).i("Stream validated successfully with client: ${describeClient(client)}")
                 lastSuccessfulClientKey = StreamClientUtils.buildClientKey(client)
@@ -1037,6 +1072,7 @@ object YTPlayerUtils {
             streamUrl,
             streamExpiresInSeconds,
             authState.fingerprint,
+            describeClient(resolvedStreamClient),
         )
     }
 
@@ -1239,11 +1275,14 @@ object YTPlayerUtils {
      * If this returns true the url is likely to work.
      * If this returns false the url might cause an error during playback.
      */
-    private fun validateStatus(url: String): Boolean {
+    private fun validateStatus(
+        url: String,
+        fastProbe: Boolean = false,
+    ): Boolean {
         Timber.tag(logTag).v("Validating stream URL status")
         try {
             val requestProfile = StreamClientUtils.resolveRequestProfile(url)
-            val probeRanges = buildPlaybackProbeRanges()
+            val probeRanges = buildPlaybackProbeRanges(fastProbe = fastProbe)
 
             var sawReadableProbe = false
             for (range in probeRanges) {
@@ -1457,12 +1496,60 @@ object YTPlayerUtils {
         return false
     }
 
-    private fun buildPlaybackProbeRanges(): List<String> =
-        listOf(
-            "bytes=0-0",
-            "bytes=0-524287",
-            "bytes=1048576-1049087",
-        )
+    private fun isStreamClientDisabledByPreference(
+        client: YouTubeClient,
+        preferredStreamClient: PlayerStreamClient,
+        disabledClients: Set<String> = disabledStreamClients,
+    ): Boolean {
+        if (isProtectedPreferredStreamClient(client, preferredStreamClient)) return false
+        if (disabledClients.isEmpty()) return false
+        val family = StreamSourcePreferences.normalizeClientFamily(client.clientName)
+        if (family in disabledClients) return true
+        if (client.clientName in disabledClients) return true
+        if (client.clientName.startsWith("TVHTML5") && "TVHTML5" in disabledClients) return true
+        return false
+    }
+
+    /**
+     * Returns the YouTube client families that playback will try, in order,
+     * honoring the preferred client and disabled stream source toggles.
+     */
+    fun streamClientPreviewFamilies(
+        preferredStreamClient: PlayerStreamClient,
+        disabledClients: Set<String>,
+    ): List<String> {
+        val authState = YouTube.currentPlaybackAuthState()
+        return buildStreamClientOrder(preferredStreamClient, authState)
+            .filterNot { isStreamClientDisabledByPreference(it, preferredStreamClient, disabledClients) }
+            .map { StreamSourcePreferences.normalizeClientFamily(it.clientName) }
+            .distinct()
+    }
+
+    private fun isProtectedPreferredStreamClient(
+        client: YouTubeClient,
+        preferredStreamClient: PlayerStreamClient,
+    ): Boolean =
+        when (preferredStreamClient) {
+            PlayerStreamClient.ANDROID_VR -> client.clientName == "ANDROID_VR"
+            PlayerStreamClient.WEB_REMIX -> client.clientName == "WEB_REMIX"
+            PlayerStreamClient.IOS -> client.clientName == "IOS"
+            PlayerStreamClient.TVHTML5 ->
+                client.clientName == "TVHTML5" ||
+                    client.clientName.startsWith("TVHTML5")
+            PlayerStreamClient.ANDROID_MUSIC -> client.clientName == "ANDROID_MUSIC"
+            else -> false
+        }
+
+    private fun buildPlaybackProbeRanges(fastProbe: Boolean = false): List<String> =
+        if (fastProbe) {
+            listOf("bytes=0-0")
+        } else {
+            listOf(
+                "bytes=0-0",
+                "bytes=0-524287",
+                "bytes=1048576-1049087",
+            )
+        }
 
     private fun describeClient(client: YouTubeClient): String = "${client.clientName}@${client.clientVersion}"
 

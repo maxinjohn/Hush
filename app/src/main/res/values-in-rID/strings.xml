@@ -326,9 +326,6 @@
     <string name="system_default">Bawaan sistem</string>
     <string name="enable_proxy">Aktifkan proksi</string>
     <string name="internet">Internet</string>
-    <string name="internet_warning_title">Keamanan &amp; Peringatan Penggunaan</string>
-    <string name="internet_warning_doh">DNS melalui HTTPS hanya berfungsi jika negara Anda memblokir YouTube. Jika YouTube secara aktif memblokir wilayah Anda, pertimbangkan untuk menggunakan Proxy atau VPN.</string>
-    <string name="internet_warning_proxy">Harap hanya menggunakan Proksi yang Anda yakini aman. Proksi Gratis memang nyaman tetapi tidak selalu aman, jadi berhati-hatilah. Anda telah diperingatkan, dan kami tidak bertanggung jawab atas keamanan Anda.</string>
     <string name="dns_over_https">DNS melalui HTTPS</string>
     <string name="dns_over_https_desc">Gunakan DNS melalui HTTPS (DoH) untuk menyelesaikan nama host</string>
     <string name="dns_provider">Penyedia DNS</string>

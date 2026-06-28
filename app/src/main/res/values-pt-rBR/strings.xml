@@ -467,9 +467,6 @@
     <string name="system_default">Padrão do sistema</string>
     <string name="enable_proxy">Ativar proxy</string>
     <string name="internet">Internet</string>
-    <string name="internet_warning_title">Aviso de segurança e uso</string>
-    <string name="internet_warning_doh">DNS sobre HTTPS só funciona se seu país bloquear o YouTube. Se o YouTube bloquear ativamente sua região, considere usar um proxy ou VPN.</string>
-    <string name="internet_warning_proxy">Use apenas proxies que você tem certeza de que são seguros. Proxies gratuitos são convenientes, mas nem sempre seguros; tenha cuidado. Você foi avisado, e não somos responsáveis pela sua segurança.</string>
     <string name="dns_over_https">DNS sobre HTTPS</string>
     <string name="dns_over_https_desc">Usar DNS sobre HTTPS (DoH) para resolver nomes de host</string>
     <string name="dns_provider">Provedor DNS</string>

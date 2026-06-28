@@ -128,8 +128,11 @@ import moe.rukamori.archivetune.ui.component.MenuState
 import moe.rukamori.archivetune.ui.component.PlayerSliderTrack
 import moe.rukamori.archivetune.ui.component.ResizableIconButton
 import moe.rukamori.archivetune.ui.menu.PlayerMenu
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
 import moe.rukamori.archivetune.ui.theme.PlayerBackgroundColorUtils
 import moe.rukamori.archivetune.ui.theme.PlayerSliderColors
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
+import moe.rukamori.archivetune.ui.theme.hushPlayButtonBackground
 import moe.rukamori.archivetune.ui.utils.ShowMediaInfo
 import moe.rukamori.archivetune.ui.utils.highRes
 import moe.rukamori.archivetune.utils.makeTimeString
@@ -1015,10 +1018,14 @@ fun PlayerPlaybackControls(
                                 .size(52.dp)
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(textBackgroundColor.copy(alpha = 0.08f))
-                                .clickable(enabled = canSkipPrevious) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    playerConnection.seekToPrevious()
-                                },
+                                .archiveTunePressable(
+                                    enabled = canSkipPrevious,
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        playerConnection.seekToPrevious()
+                                    },
+                                    pressScale = ArchiveTuneDesign.ChipPressScale,
+                                ),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -1035,15 +1042,18 @@ fun PlayerPlaybackControls(
                                 .size(70.dp)
                                 .clip(RoundedCornerShape(50))
                                 .background(textBackgroundColor)
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (playbackState == STATE_ENDED) {
-                                        playerConnection.player.seekTo(0, 0)
-                                        playerConnection.player.playWhenReady = true
-                                    } else {
-                                        playerConnection.player.togglePlayPause()
-                                    }
-                                },
+                                .archiveTunePressable(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        if (playbackState == STATE_ENDED) {
+                                            playerConnection.player.seekTo(0, 0)
+                                            playerConnection.player.playWhenReady = true
+                                        } else {
+                                            playerConnection.player.togglePlayPause()
+                                        }
+                                    },
+                                    pressScale = ArchiveTuneDesign.PressScale,
+                                ),
                         contentAlignment = Alignment.Center,
                     ) {
                         if (isLoading) {
@@ -1074,10 +1084,14 @@ fun PlayerPlaybackControls(
                                 .size(52.dp)
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(textBackgroundColor.copy(alpha = 0.08f))
-                                .clickable(enabled = canSkipNext) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    playerConnection.seekToNext()
-                                },
+                                .archiveTunePressable(
+                                    enabled = canSkipNext,
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        playerConnection.seekToNext()
+                                    },
+                                    pressScale = ArchiveTuneDesign.ChipPressScale,
+                                ),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -1235,11 +1249,12 @@ fun PlayerPlaybackControls(
                             }
                         },
                         shape = RoundedCornerShape(cinematicPlayPauseCorner),
-                        color = textButtonColor,
+                        color = Color.Transparent,
                         modifier =
                             Modifier
                                 .padding(horizontal = 20.dp)
-                                .size(88.dp),
+                                .size(88.dp)
+                                .hushPlayButtonBackground(RoundedCornerShape(cinematicPlayPauseCorner)),
                     ) {
                         Box(
                             modifier = Modifier.fillMaxSize(),
@@ -1248,7 +1263,7 @@ fun PlayerPlaybackControls(
                             if (isLoading) {
                                 CircularWavyProgressIndicator(
                                     modifier = Modifier.size(40.dp),
-                                    color = icBackgroundColor,
+                                    color = MaterialTheme.colorScheme.onPrimary,
                                 )
                             } else {
                                 Icon(
@@ -1261,7 +1276,7 @@ fun PlayerPlaybackControls(
                                             },
                                         ),
                                     contentDescription = null,
-                                    tint = icBackgroundColor,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(44.dp),
                                 )
                             }
@@ -1608,8 +1623,11 @@ fun PlayerPlaybackControls(
                                     }
                                 },
                                 shape = RoundedCornerShape(28.dp),
-                                color = textButtonColor,
-                                modifier = Modifier.size(width = playWidth, height = playHeight),
+                                color = Color.Transparent,
+                                modifier =
+                                    Modifier
+                                        .size(width = playWidth, height = playHeight)
+                                        .hushPlayButtonBackground(RoundedCornerShape(28.dp)),
                             ) {
                                 Box(
                                     modifier = Modifier.fillMaxSize(),
@@ -1618,7 +1636,7 @@ fun PlayerPlaybackControls(
                                     if (isLoading) {
                                         CircularWavyProgressIndicator(
                                             modifier = Modifier.size(if (landscape) 46.dp else 40.dp),
-                                            color = iconButtonColor,
+                                            color = MaterialTheme.colorScheme.onPrimary,
                                         )
                                     } else {
                                         Icon(
@@ -1631,7 +1649,7 @@ fun PlayerPlaybackControls(
                                                     },
                                                 ),
                                             contentDescription = null,
-                                            tint = iconButtonColor,
+                                            tint = MaterialTheme.colorScheme.onPrimary,
                                             modifier = Modifier.size(playIconSize),
                                         )
                                     }
@@ -2845,11 +2863,7 @@ private fun V8MetadataActions(
                 modifier =
                     Modifier
                         .basicMarquee()
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() },
-                            onClick = onTitleClick,
-                        ),
+                        .archiveTunePressable(onClick = onTitleClick),
             )
             ClickableArtists(
                 artists = artists,
@@ -3031,10 +3045,10 @@ private fun V8TransportControls(
     landscape: Boolean = false,
 ) {
     val haptic = LocalHapticFeedback.current
-    val sideTouchSize = if (landscape) 76.dp else 64.dp
-    val sideIconSize = if (landscape) 46.dp else 44.dp
-    val playButtonSize = if (landscape) 84.dp else 72.dp
-    val playIconSize = if (landscape) 54.dp else 52.dp
+    val sideTouchSize = if (landscape) 84.dp else 72.dp
+    val sideIconSize = if (landscape) 48.dp else 46.dp
+    val playButtonSize = if (landscape) 88.dp else 76.dp
+    val playIconSize = if (landscape) 56.dp else 54.dp
 
     if (landscape) {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
@@ -3070,7 +3084,10 @@ private fun V8TransportControls(
                     },
                     shape = CircleShape,
                     color = Color.Transparent,
-                    modifier = Modifier.size(scaledPlayButton),
+                    modifier =
+                        Modifier
+                            .size(scaledPlayButton)
+                            .hushPlayButtonBackground(CircleShape),
                 ) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -3079,7 +3096,7 @@ private fun V8TransportControls(
                         if (isLoading) {
                             CircularWavyProgressIndicator(
                                 modifier = Modifier.size(scaledPlayIcon),
-                                color = foreground,
+                                color = MaterialTheme.colorScheme.onPrimary,
                             )
                         } else {
                             Icon(
@@ -3097,7 +3114,7 @@ private fun V8TransportControls(
                                     } else {
                                         stringResource(R.string.play)
                                     },
-                                tint = foreground,
+                                tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.size(scaledPlayIcon),
                             )
                         }
@@ -3146,7 +3163,10 @@ private fun V8TransportControls(
             },
             shape = CircleShape,
             color = Color.Transparent,
-            modifier = Modifier.size(playButtonSize),
+            modifier =
+                Modifier
+                    .size(playButtonSize)
+                    .hushPlayButtonBackground(CircleShape),
         ) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -3155,7 +3175,7 @@ private fun V8TransportControls(
                 if (isLoading) {
                     CircularWavyProgressIndicator(
                         modifier = Modifier.size(playIconSize),
-                        color = foreground,
+                        color = MaterialTheme.colorScheme.onPrimary,
                     )
                 } else {
                     Icon(
@@ -3173,7 +3193,7 @@ private fun V8TransportControls(
                             } else {
                                 stringResource(R.string.play)
                             },
-                        tint = foreground,
+                        tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(playIconSize),
                     )
                 }
@@ -3205,12 +3225,21 @@ private fun V8TransportButton(
     iconSize: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit,
 ) {
+    val haptic = LocalHapticFeedback.current
     Surface(
-        onClick = onClick,
-        enabled = enabled,
         shape = CircleShape,
-        color = Color.Transparent,
-        modifier = Modifier.size(touchSize),
+        color = foreground.copy(alpha = if (enabled) 0.12f else 0.06f),
+        modifier =
+            Modifier
+                .size(touchSize)
+                .archiveTunePressable(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onClick()
+                    },
+                    enabled = enabled,
+                    pressScale = ArchiveTuneDesign.TransportPressScale,
+                ),
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -3839,11 +3868,7 @@ private fun V9Metadata(
                 Modifier
                     .fillMaxWidth()
                     .basicMarquee()
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() },
-                        onClick = onTitleClick,
-                    ),
+                    .archiveTunePressable(onClick = onTitleClick),
         )
         ClickableArtists(
             artists = artists,

@@ -222,16 +222,40 @@ fun LyricsEnhanced(
     var shareDialogData by remember { mutableStateOf<Triple<String, String, String>?>(null) }
     var showShareImageDialog by remember { mutableStateOf(false) }
 
+    val crossfadeLyricsState by playerConnection.crossfadeLyricsState.collectAsState()
+
+    var crossfadeLyricsText by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(crossfadeLyricsState.isActive, crossfadeLyricsState.incomingMediaId) {
+        val incomingMediaId = crossfadeLyricsState.incomingMediaId
+        if (crossfadeLyricsState.isActive && incomingMediaId != null) {
+            playerConnection.database.lyrics(incomingMediaId).collectLatest { lyricsEntity ->
+                crossfadeLyricsText = lyricsEntity?.lyrics
+            }
+        } else {
+            crossfadeLyricsText = null
+        }
+    }
+
     val currentLyrics by playerConnection.currentLyrics.collectAsState(initial = null)
     val lyrics =
-        remember(currentLyrics, mediaMetadata?.id) {
-            currentLyrics
-                ?.takeIf { lyricsEntity -> lyricsEntity.id == mediaMetadata?.id }
-                ?.lyrics
+        remember(currentLyrics, crossfadeLyricsState, crossfadeLyricsText, mediaMetadata?.id) {
+            if (crossfadeLyricsState.isActive && crossfadeLyricsText != null) {
+                crossfadeLyricsText
+            } else {
+                currentLyrics
+                    ?.takeIf { lyricsEntity -> lyricsEntity.id == mediaMetadata?.id }
+                    ?.lyrics
+            }
         }
-    val lyricsSessionKey =
-        remember(mediaMetadata?.id, lyrics) {
-            mediaMetadata?.id.orEmpty() to lyrics
+    val lyricsSessionKey: Pair<String, String?> =
+        remember(mediaMetadata?.id, crossfadeLyricsState.incomingMediaId, lyrics) {
+            val activeId =
+                if (crossfadeLyricsState.isActive) {
+                    crossfadeLyricsState.incomingMediaId.orEmpty()
+                } else {
+                    mediaMetadata?.id.orEmpty()
+                }
+            activeId to lyrics
         }
 
     val isSynced = remember(lyrics) { lyrics != null && (isLineSyncedLrc(lyrics!!) || isTtml(lyrics!!)) }
@@ -272,6 +296,10 @@ fun LyricsEnhanced(
 
         val toRomanize =
             lyricsEntries.mapIndexedNotNull { index, entry ->
+                if (providedTranslationTextForEntry(entry) != null && (!isTtmlFormat || entry.words == null)) {
+                    return@mapIndexedNotNull null
+                }
+
                 val hasProviderRomanization =
                     providedRomanizedTextForEntry(entry, romanizationPreferences) != null
                 if (hasProviderRomanization || shouldRomanizeLyricsLine(entry.text, romanizationPreferences)) {
@@ -326,6 +354,7 @@ fun LyricsEnhanced(
     val latestLyricsSyncOffset = rememberUpdatedState(lyricsSyncOffset)
     val latestLeadMs = rememberUpdatedState(leadMs)
     val latestPlaybackSpeed = rememberUpdatedState(playbackParameters.speed)
+    val latestCrossfadeLyricsState = rememberUpdatedState(crossfadeLyricsState)
     val playbackPositionMs =
         remember(player) {
             mutableLongStateOf(player.currentPosition.coerceAtLeast(0L))
@@ -334,8 +363,13 @@ fun LyricsEnhanced(
     var lastManualScrollTime by remember { mutableLongStateOf(0L) }
     val listState = key(lyricsSessionKey) { rememberLazyListState() }
 
-    LaunchedEffect(lyricsSessionKey) {
-        playbackPositionMs.longValue = player.currentPosition.coerceAtLeast(0L)
+    LaunchedEffect(lyricsSessionKey, crossfadeLyricsState.isActive) {
+        playbackPositionMs.longValue =
+            if (crossfadeLyricsState.isActive) {
+                crossfadeLyricsState.incomingPositionMs
+            } else {
+                player.currentPosition.coerceAtLeast(0L)
+            }
         isManualScrolling = false
         lastManualScrollTime = 0L
         isSelectionModeActive = false
@@ -354,14 +388,20 @@ fun LyricsEnhanced(
             }
             wasSliderActive = isSliderActive
 
-            val rawPosition = (sliderPosition ?: player.currentPosition).coerceAtLeast(0L)
-            if (sliderPosition != null || !player.isPlaying || animationsDisabled) {
+            val crossfadeState = latestCrossfadeLyricsState.value
+            val rawPosition =
+                when {
+                    sliderPosition != null -> sliderPosition
+                    crossfadeState.isActive -> crossfadeState.incomingPositionMs
+                    else -> player.currentPosition
+                }.coerceAtLeast(0L)
+            if (sliderPosition != null || crossfadeState.isActive || !player.isPlaying || animationsDisabled) {
                 anchorPlayerPositionMs = rawPosition
                 anchorFrameNanos = 0L
                 if (playbackPositionMs.longValue != rawPosition) {
                     playbackPositionMs.longValue = rawPosition
                 }
-                if (sliderPosition == null) {
+                if (sliderPosition == null && !crossfadeState.isActive) {
                     delay(100L)
                 } else {
                     withFrameNanos { }
@@ -625,6 +665,7 @@ fun LyricsEnhanced(
         modifier =
             modifier
                 .fillMaxSize()
+                .lyricsViewport()
                 .padding(bottom = 12.dp),
     ) {
         when {
@@ -667,30 +708,6 @@ fun LyricsEnhanced(
                 }
             }
 
-            !isSynced -> {
-                PlainLyricsView(
-                    lines = plainLyrics,
-                    listState = listState,
-                    selectedLineKeys = selectedLineKeySet,
-                    textColor = textColor,
-                    textStyle = normalTextStyle,
-                    onLineClicked = { lineKey ->
-                        if (isSelectionModeActive) toggleSelectedLine(lineKey)
-                    },
-                    onLinePressed = { lineKey ->
-                        if (!isSelectionModeActive) {
-                            isSelectionModeActive = true
-                            if (!selectedLineKeys.contains(lineKey)) {
-                                selectedLineKeys.add(lineKey)
-                            }
-                        } else if (!selectedLineKeys.contains(lineKey)) {
-                            toggleSelectedLine(lineKey)
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-
             else -> {
                 BoxWithConstraints(
                     modifier =
@@ -698,9 +715,63 @@ fun LyricsEnhanced(
                             .fillMaxSize()
                             .nestedScroll(nestedScrollConnection),
                 ) {
+                    if (maxWidth <= 0.dp) return@BoxWithConstraints
+
+                    val scaledTextSize = remember(maxWidth, lyricsTextSize) {
+                        effectiveLyricFontSize(lyricsTextSize, maxWidth)
+                    }
+                    val scaledNormalTextStyle =
+                        remember(normalTextStyle, scaledTextSize, lyricsFontFamily) {
+                            normalTextStyle.copy(
+                                fontSize = scaledTextSize.sp,
+                                lineHeight = (scaledTextSize * 1.35f).sp,
+                                fontFamily = lyricsFontFamily ?: normalTextStyle.fontFamily,
+                            )
+                        }
+                    val scaledAccompanimentTextStyle =
+                        remember(accompanimentTextStyle, scaledTextSize, lyricsFontFamily) {
+                            accompanimentTextStyle.copy(
+                                fontSize = (scaledTextSize * 0.82f).sp,
+                                lineHeight = (scaledTextSize * 1.1f).sp,
+                                fontFamily = lyricsFontFamily ?: accompanimentTextStyle.fontFamily,
+                            )
+                        }
+                    val scaledPhoneticTextStyle =
+                        remember(phoneticTextStyle, scaledTextSize) {
+                            phoneticTextStyle.copy(
+                                fontSize = (scaledTextSize * 0.55f).sp,
+                                lineHeight = (scaledTextSize * 0.75f).sp,
+                            )
+                        }
+
+                    if (!isSynced) {
+                        PlainLyricsView(
+                            lines = plainLyrics,
+                            listState = listState,
+                            selectedLineKeys = selectedLineKeySet,
+                            textColor = textColor,
+                            textStyle = scaledNormalTextStyle,
+                            onLineClicked = { lineKey ->
+                                if (isSelectionModeActive) toggleSelectedLine(lineKey)
+                            },
+                            onLinePressed = { lineKey ->
+                                if (!isSelectionModeActive) {
+                                    isSelectionModeActive = true
+                                    if (!selectedLineKeys.contains(lineKey)) {
+                                        selectedLineKeys.add(lineKey)
+                                    }
+                                } else if (!selectedLineKeys.contains(lineKey)) {
+                                    toggleSelectedLine(lineKey)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        return@BoxWithConstraints
+                    }
+
                     val lyricsViewportOffset = remember(maxHeight) { maxHeight * 0.38f }
 
-                    key(lyricsSessionKey, syncedLyricsRenderVersion) {
+                    key(lyricsSessionKey, syncedLyricsRenderVersion, maxWidth) {
                         KaraokeLyricsView(
                             listState = listState,
                             lyrics = syncedLyrics,
@@ -724,16 +795,20 @@ fun LyricsEnhanced(
                                 }
                             },
                             textColor = textColor,
-                            normalLineTextStyle = normalTextStyle,
-                            accompanimentLineTextStyle = accompanimentTextStyle,
-                            phoneticTextStyle = phoneticTextStyle,
+                            normalLineTextStyle = scaledNormalTextStyle,
+                            accompanimentLineTextStyle = scaledAccompanimentTextStyle,
+                            phoneticTextStyle = scaledPhoneticTextStyle,
                             blendMode = BlendMode.SrcOver,
                             useBlurEffect = lyricsLineBlur,
                             showTranslation = true,
                             showPhonetic = romanizationPreferences.isEnabled,
                             offset = lyricsViewportOffset,
-                            keepAliveZone = 72.dp,
-                            modifier = Modifier.fillMaxSize(),
+                            keepAliveZone = 120.dp,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .fillMaxSize()
+                                    .padding(horizontal = 4.dp),
                         )
                     }
                 }
@@ -936,6 +1011,7 @@ private fun PlainLyricLineItem(
         text = line.text,
         style = textStyle,
         color = contentColor,
+        softWrap = true,
         modifier =
             Modifier
                 .fillMaxWidth()
@@ -1102,6 +1178,8 @@ private fun LyricsSelectionLineItem(
                 style = MaterialTheme.typography.headlineSmall,
                 color = contentColor,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                softWrap = true,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -1205,7 +1283,8 @@ private fun SyncedLyrics.findLastStartedLineIndex(time: Int): Int {
 }
 
 private fun List<WordTimestamp>.toKaraokeSyllables(phonetics: List<String?>): List<KaraokeSyllable> =
-    mapIndexed { index, word ->
+    flatMapIndexed { index, word ->
+        val phonetic = phonetics.getOrNull(index)
         val start = word.startTime.toMilliseconds()
         val nextStart = getOrNull(index + 1)?.startTime?.toMilliseconds()
         val rawEnd = word.endTime.toMilliseconds()
@@ -1213,14 +1292,48 @@ private fun List<WordTimestamp>.toKaraokeSyllables(phonetics: List<String?>): Li
             nextStart
                 ?.let { minOf(rawEnd, it) }
                 ?: rawEnd
-
-        KaraokeSyllable(
-            content = word.text,
-            start = start,
-            end = end.coerceAtLeast(start + MIN_KARAOKE_SYLLABLE_DURATION_MS),
-            phonetic = phonetics.getOrNull(index),
+        word.text.toTimedKaraokeSyllables(
+            startMs = start,
+            endMs = end.coerceAtLeast(start + MIN_KARAOKE_SYLLABLE_DURATION_MS),
+            syllablePhonetic = phonetic,
         )
     }
+
+private fun String.toTimedKaraokeSyllables(
+    startMs: Int,
+    endMs: Int,
+    syllablePhonetic: String?,
+): List<KaraokeSyllable> {
+    val segments = splitLyricTextForWrapping(this)
+    if (segments.isEmpty()) return emptyList()
+    if (segments.size == 1) {
+        return listOf(
+            KaraokeSyllable(
+                content = segments.first(),
+                start = startMs,
+                end = endMs,
+                phonetic = syllablePhonetic?.trim()?.takeIf { it.isNotEmpty() },
+            ),
+        )
+    }
+
+    val durationMs = (endMs - startMs).coerceAtLeast(segments.size)
+    return segments.mapIndexed { index, segment ->
+        val segmentStart = startMs + durationMs * index / segments.size
+        val segmentEnd = startMs + durationMs * (index + 1) / segments.size
+        KaraokeSyllable(
+            content = segment,
+            start = segmentStart,
+            end = segmentEnd.coerceAtLeast(segmentStart + MIN_KARAOKE_SYLLABLE_DURATION_MS),
+            phonetic =
+                if (index == 0) {
+                    syllablePhonetic?.trim()?.takeIf { it.isNotEmpty() }
+                } else {
+                    null
+                },
+        )
+    }
+}
 
 private fun Double.toMilliseconds(): Int = (this * 1000.0).roundToInt().coerceAtLeast(0)
 
@@ -1326,28 +1439,12 @@ private fun buildLineSyncedLrcLine(
     val translation = providedTranslationTextForEntry(entry)
     val normalizedRomanizedText = romanizedText?.trim()?.takeIf { it.isNotEmpty() }
 
-    if (normalizedRomanizedText == null) {
-        return SyncedLine(
-            content = entry.text,
-            translation = translation,
-            start = start,
-            end = end,
-        )
-    }
-
     return KaraokeLine.MainKaraokeLine(
-        syllables =
-            listOf(
-                KaraokeSyllable(
-                    content = entry.text,
-                    start = start,
-                    end = end,
-                    phonetic = normalizedRomanizedText,
-                ),
-            ),
+        syllables = entry.text.toTimedKaraokeSyllables(start, end, syllablePhonetic = null),
         translation = translation,
         alignment = KaraokeAlignment.Start,
         start = start,
         end = end,
+        phonetic = normalizedRomanizedText,
     )
 }

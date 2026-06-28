@@ -19,6 +19,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -94,6 +95,9 @@ import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.HISTORY_DURATION_DEFAULT
 import moe.rukamori.archivetune.constants.HISTORY_DURATION_RANGE
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
+import moe.rukamori.archivetune.ui.theme.rememberHushAccentGradient
 import kotlin.math.roundToInt
 
 val LocalPreferenceInGroup = compositionLocalOf { false }
@@ -180,13 +184,6 @@ fun PreferenceEntry(
             preferenceItemShapeForPosition(groupPosition)
         }
     val resolvedShape = shape ?: preferenceItemShape
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.98f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessHigh),
-        label = "prefScale",
-    )
 
     val rowContent: @Composable () -> Unit = {
         Row(
@@ -195,12 +192,17 @@ fun PreferenceEntry(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = PreferenceEntryMinHeight)
-                    .then(if (isEnabled && onClick != null) Modifier.focusable() else Modifier)
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = LocalIndication.current,
-                        enabled = isEnabled && onClick != null,
-                        onClick = onClick ?: {},
+                    .then(
+                        if (isEnabled && onClick != null) {
+                            Modifier
+                                .focusable()
+                                .archiveTunePressable(
+                                    onClick = onClick,
+                                    pressScale = ArchiveTuneDesign.RowPressScale,
+                                )
+                        } else {
+                            Modifier
+                        },
                     ).alpha(if (isEnabled) 1f else 0.5f)
                     .padding(
                         horizontal = PreferenceEntryHorizontalPadding,
@@ -208,15 +210,17 @@ fun PreferenceEntry(
                     ),
         ) {
             if (icon != null) {
+                val iconGradient = rememberHushAccentGradient()
                 Box(
                     modifier =
                         Modifier
                             .align(Alignment.CenterVertically)
                             .size(44.dp)
-                            .clip(preferenceIconShape),
+                            .clip(preferenceIconShape)
+                            .background(iconGradient, preferenceIconShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.primary) {
+                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onPrimary) {
                         icon()
                     }
                 }
@@ -250,25 +254,37 @@ fun PreferenceEntry(
         }
     }
 
-    Card(
-        shape = resolvedShape,
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = if (inGroup) 0.dp else 16.dp,
-                    vertical = if (inGroup) 0.dp else 3.dp,
-                ).graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                },
-    ) {
-        rowContent()
+    if (inGroup) {
+        Box(
+            modifier =
+                modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 0.dp, vertical = 0.dp),
+        ) {
+            rowContent()
+        }
+    } else {
+        Card(
+            shape = resolvedShape,
+            colors =
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            modifier =
+                modifier
+                    .fillMaxWidth()
+                    .border(
+                        width = 0.5.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f),
+                        shape = resolvedShape,
+                    ).padding(
+                        horizontal = 16.dp,
+                        vertical = 3.dp,
+                    ),
+        ) {
+            rowContent()
+        }
     }
 }
 
@@ -1104,8 +1120,13 @@ fun PreferenceGroup(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = PreferenceGroupHorizontalPadding),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+                    .padding(horizontal = PreferenceGroupHorizontalPadding)
+                    .border(
+                        width = 0.5.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f),
+                        shape = RoundedCornerShape(PreferenceGroupLargeCorner),
+                    ).clip(RoundedCornerShape(PreferenceGroupLargeCorner)),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             scope.items.forEachIndexed { index, itemContent ->
                 val position =

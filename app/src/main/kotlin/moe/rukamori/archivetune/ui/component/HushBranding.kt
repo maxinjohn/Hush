@@ -8,6 +8,8 @@
 package moe.rukamori.archivetune.ui.component
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -27,22 +30,26 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.rememberHushAccentGradient
 
 private val DefaultLogoSize = 56.dp
-private val DefaultLogoBoxSize = 68.dp
+private val DefaultLogoBoxSize = 72.dp
 private val CompactLogoSize = 48.dp
-private val CompactLogoBoxSize = 56.dp
+private val CompactLogoBoxSize = 60.dp
 
 @Composable
 fun HushBrandHeader(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
     showTagline: Boolean = true,
-    horizontalPadding: Dp = 12.dp,
+    horizontalPadding: Dp = ArchiveTuneDesign.ScreenHorizontalPadding,
 ) {
     val logoSize = if (compact) CompactLogoSize else DefaultLogoSize
     val logoBoxSize = if (compact) CompactLogoBoxSize else DefaultLogoBoxSize
     val sectionGap = if (compact) 8.dp else 12.dp
+    val accentGradient = rememberHushAccentGradient()
+    val ringColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
 
     Column(
         modifier =
@@ -53,7 +60,12 @@ fun HushBrandHeader(
         verticalArrangement = Arrangement.spacedBy(sectionGap),
     ) {
         Box(
-            modifier = Modifier.size(logoBoxSize),
+            modifier =
+                Modifier
+                    .size(logoBoxSize)
+                    .clip(ArchiveTuneDesign.cardShape)
+                    .background(accentGradient, ArchiveTuneDesign.cardShape)
+                    .border(0.5.dp, ringColor, ArchiveTuneDesign.cardShape),
             contentAlignment = Alignment.Center,
         ) {
             Image(
@@ -83,6 +95,7 @@ fun HushBrandHeader(
                 text = stringResource(R.string.app_tagline),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
             )

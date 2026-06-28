@@ -10,8 +10,8 @@
 package moe.rukamori.archivetune.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import moe.rukamori.archivetune.ui.theme.archiveTuneCombinedPressable
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -42,6 +42,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -57,9 +58,13 @@ import moe.rukamori.archivetune.constants.ListItemHeight
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.innertube.models.AlbumItem
 import moe.rukamori.archivetune.innertube.models.ArtistItem
+import moe.rukamori.archivetune.innertube.models.EpisodeItem
+import moe.rukamori.archivetune.innertube.models.PodcastItem
 import moe.rukamori.archivetune.innertube.models.PlaylistItem
 import moe.rukamori.archivetune.innertube.models.SongItem
+import moe.rukamori.archivetune.extensions.toMediaItem
 import moe.rukamori.archivetune.models.toMediaMetadata
+import moe.rukamori.archivetune.playback.queues.ListQueue
 import moe.rukamori.archivetune.playback.queues.YouTubeQueue
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.LocalMenuState
@@ -73,6 +78,7 @@ import moe.rukamori.archivetune.ui.menu.YouTubeAlbumMenu
 import moe.rukamori.archivetune.ui.menu.YouTubeArtistMenu
 import moe.rukamori.archivetune.ui.menu.YouTubePlaylistMenu
 import moe.rukamori.archivetune.ui.menu.YouTubeSongMenu
+import moe.rukamori.archivetune.ui.theme.HushAmbientBackground
 import moe.rukamori.archivetune.ui.utils.SnapLayoutInfoProvider
 import moe.rukamori.archivetune.ui.utils.backToMain
 import moe.rukamori.archivetune.viewmodels.YouTubeBrowseViewModel
@@ -96,6 +102,8 @@ fun YouTubeBrowseScreen(
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize(),
     ) {
+        HushAmbientBackground(modifier = Modifier.align(Alignment.TopCenter))
+
         val horizontalLazyGridItemWidthFactor = if (maxWidth * 0.475f >= 320.dp) 0.475f else 0.9f
         val lazyGridState = rememberLazyGridState()
         val snapLayoutInfoProvider =
@@ -183,7 +191,7 @@ fun YouTubeBrowseScreen(
                                             },
                                             modifier =
                                                 Modifier
-                                                    .clickable {
+                                                    .archiveTunePressable(onClick = {
                                                         if (song.id == mediaMetadata?.id) {
                                                             playerConnection.player.togglePlayPause()
                                                         } else {
@@ -193,7 +201,7 @@ fun YouTubeBrowseScreen(
                                                                 ),
                                                             )
                                                         }
-                                                    }.animateItem(),
+                                                    }).animateItem(),
                                         )
                                     }
                                 }
@@ -216,12 +224,14 @@ fun YouTubeBrowseScreen(
                                         coroutineScope = coroutineScope,
                                         modifier =
                                             Modifier
-                                                .combinedClickable(
+                                                .archiveTuneCombinedPressable(
                                                     onClick = {
                                                         when (item) {
                                                             is AlbumItem -> navController.navigate("album/${item.id}")
                                                             is ArtistItem -> navController.navigate("artist/${item.id}")
                                                             is PlaylistItem -> navController.navigate("online_playlist/${item.id}")
+                                                            is PodcastItem -> navController.navigate("online_podcast/${item.id}")
+                                                            is EpisodeItem -> playerConnection.playQueue(ListQueue(title = item.title, items = listOf(item.asSongItem().toMediaMetadata().toMediaItem())))
                                                             else -> item
                                                         }
                                                     },
@@ -259,6 +269,22 @@ fun YouTubeBrowseScreen(
                                                                         onDismiss = menuState::dismiss,
                                                                     )
                                                                 }
+
+                                                            is PodcastItem -> {
+                                                                YouTubePlaylistMenu(
+                                                                    playlist = item.asPlaylistItem(),
+                                                                    coroutineScope = coroutineScope,
+                                                                    onDismiss = menuState::dismiss,
+                                                                )
+                                                            }
+
+                                                            is EpisodeItem -> {
+                                                                YouTubeSongMenu(
+                                                                    song = item.asSongItem(),
+                                                                    navController = navController,
+                                                                    onDismiss = menuState::dismiss,
+                                                                )
+                                                            }
                                                             }
                                                         }
                                                     },

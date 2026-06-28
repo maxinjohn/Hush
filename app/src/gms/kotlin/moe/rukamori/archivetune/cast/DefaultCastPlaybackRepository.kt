@@ -43,6 +43,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import moe.rukamori.archivetune.utils.isLocalMediaId
 import timber.log.Timber
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -89,7 +90,6 @@ class DefaultCastPlaybackRepository(
             mutableScreenState.value = CastScreenState.Empty
             return localPlayer
         }
-        registerSessionListener(contextResult)
         val converter =
             GmsCastMediaItemConverter(
                 mediaItemResolver = mediaItemResolver,
@@ -100,6 +100,7 @@ class DefaultCastPlaybackRepository(
                 .Builder(context.applicationContext)
                 .setMediaItemConverter(converter)
                 .build()
+        registerSessionListener(contextResult, converter)
         return CastPlayer
             .Builder(context.applicationContext)
             .setLocalPlayer(localPlayer)
@@ -125,63 +126,22 @@ class DefaultCastPlaybackRepository(
             Timber.tag("Cast").w(it, "Unable to initialize CastContext")
         }.getOrNull()?.also { castContext = it }
 
-    private fun registerSessionListener(context: CastContext) {
+    private fun registerSessionListener(
+        context: CastContext,
+        mediaItemConverter: GmsCastMediaItemConverter,
+    ) {
         if (listenerRegistered) return
-        context.sessionManager.addSessionManagerListener(sessionListener, CastSession::class.java)
+        context.sessionManager.addSessionManagerListener(
+            CastSessionListener(
+                localMediaServer = localMediaServer,
+                mediaItemConverter = mediaItemConverter,
+                onStateChanged = ::updateState,
+            ),
+            CastSession::class.java,
+        )
         listenerRegistered = true
         updateState(context.sessionManager.currentCastSession)
     }
-
-    private val sessionListener =
-        object : SessionManagerListener<CastSession> {
-            override fun onSessionStarting(session: CastSession) = updateState(session)
-
-            override fun onSessionStarted(
-                session: CastSession,
-                sessionId: String,
-            ) = updateState(session)
-
-            override fun onSessionStartFailed(
-                session: CastSession,
-                error: Int,
-            ) {
-                localMediaServer.stop()
-                updateState(null)
-            }
-
-            override fun onSessionEnding(session: CastSession) = updateState(session)
-
-            override fun onSessionEnded(
-                session: CastSession,
-                error: Int,
-            ) {
-                localMediaServer.stop()
-                updateState(null)
-            }
-
-            override fun onSessionResuming(
-                session: CastSession,
-                sessionId: String,
-            ) = updateState(session)
-
-            override fun onSessionResumed(
-                session: CastSession,
-                wasSuspended: Boolean,
-            ) = updateState(session)
-
-            override fun onSessionResumeFailed(
-                session: CastSession,
-                error: Int,
-            ) {
-                localMediaServer.stop()
-                updateState(null)
-            }
-
-            override fun onSessionSuspended(
-                session: CastSession,
-                reason: Int,
-            ) = updateState(session)
-        }
 
     private fun updateState(session: CastSession?) {
         val device = session?.castDevice
@@ -203,24 +163,198 @@ class DefaultCastPlaybackRepository(
     }
 }
 
+private class CastSessionListener(
+    private val localMediaServer: LocalCastMediaServer,
+    private val mediaItemConverter: GmsCastMediaItemConverter,
+    private val onStateChanged: (CastSession?) -> Unit,
+) : SessionManagerListener<CastSession> {
+    override fun onSessionStarting(session: CastSession) = onStateChanged(session)
+
+    override fun onSessionStarted(
+        session: CastSession,
+        sessionId: String,
+    ) = onStateChanged(session)
+
+    override fun onSessionStartFailed(
+        session: CastSession,
+        error: Int,
+    ) {
+        localMediaServer.stop()
+        mediaItemConverter.clearCachedOriginalItems()
+        onStateChanged(null)
+    }
+
+    override fun onSessionEnding(session: CastSession) = onStateChanged(session)
+
+    override fun onSessionEnded(
+        session: CastSession,
+        error: Int,
+    ) {
+        localMediaServer.stop()
+        mediaItemConverter.clearCachedOriginalItems()
+        onStateChanged(null)
+    }
+
+    override fun onSessionResuming(
+        session: CastSession,
+        sessionId: String,
+    ) = onStateChanged(session)
+
+    override fun onSessionResumed(
+        session: CastSession,
+        wasSuspended: Boolean,
+    ) = onStateChanged(session)
+
+    override fun onSessionResumeFailed(
+        session: CastSession,
+        error: Int,
+    ) {
+        localMediaServer.stop()
+        mediaItemConverter.clearCachedOriginalItems()
+        onStateChanged(null)
+    }
+
+    override fun onSessionSuspended(
+        session: CastSession,
+        reason: Int,
+    ) = onStateChanged(session)
+}
+
 private class GmsCastMediaItemConverter(
     private val mediaItemResolver: CastMediaItemResolver,
     private val localMediaServer: LocalCastMediaServer,
 ) : MediaItemConverter {
     private val delegate = DefaultMediaItemConverter()
+    private val originalMediaItems = ConcurrentHashMap<String, MediaItem>()
 
-    override fun toMediaQueueItem(mediaItem: MediaItem): MediaQueueItem {
-        val castMediaItem = mediaItem.resolveForReceiver()
-        return delegate.toMediaQueueItem(castMediaItem)
+    fun clearCachedOriginalItems() {
+        originalMediaItems.clear()
     }
 
-    override fun toMediaItem(mediaQueueItem: MediaQueueItem): MediaItem =
-        try {
-            delegate.toMediaItem(mediaQueueItem)
-        } catch (error: RuntimeException) {
-            Timber.tag("Cast").w(error, "Falling back to manual Cast media item conversion")
-            mediaQueueItem.toFallbackMediaItem()
+    override fun toMediaQueueItem(mediaItem: MediaItem): MediaQueueItem {
+        rememberOriginalMediaItem(mediaItem)
+        val baseQueueItem = delegate.toMediaQueueItem(mediaItem)
+        val receiverItem = mediaItem.resolveForReceiver()
+        val receiverUri = receiverItem.localConfiguration?.uri ?: return baseQueueItem
+        val sourceUri = mediaItem.localConfiguration?.uri
+        if (receiverUri == sourceUri) return baseQueueItem
+
+        val baseMediaInfo = baseQueueItem.media ?: return baseQueueItem
+        val contentId = baseMediaInfo.contentId?.trim().orEmpty().ifBlank { mediaItem.mediaId }
+        val updatedMediaInfo =
+            MediaInfo
+                .Builder(contentId)
+                .setContentUrl(receiverUri.toString())
+                .setStreamType(baseMediaInfo.streamType)
+                .setContentType(baseMediaInfo.contentType)
+                .setMetadata(baseMediaInfo.metadata)
+                .setCustomData(baseMediaInfo.customData)
+                .setStreamDuration(baseMediaInfo.streamDuration)
+                .build()
+        return MediaQueueItem
+            .Builder(updatedMediaInfo)
+            .setAutoplay(baseQueueItem.autoplay)
+            .setStartTime(baseQueueItem.startTime)
+            .setPlaybackDuration(baseQueueItem.playbackDuration)
+            .setPreloadTime(baseQueueItem.preloadTime)
+            .build()
+    }
+
+    override fun toMediaItem(mediaQueueItem: MediaQueueItem): MediaItem {
+        val converted =
+            try {
+                delegate.toMediaItem(mediaQueueItem)
+            } catch (error: RuntimeException) {
+                Timber.tag("Cast").w(error, "Falling back to manual Cast media item conversion")
+                mediaQueueItem.toFallbackMediaItem()
+            }
+        return converted.restoreForLocalPlayback(mediaQueueItem)
+    }
+
+    private fun rememberOriginalMediaItem(mediaItem: MediaItem) {
+        val mediaId = mediaItem.mediaId.trim()
+        if (mediaId.isNotEmpty()) {
+            originalMediaItems[mediaId] = mediaItem
         }
+    }
+
+    private fun MediaItem.restoreForLocalPlayback(fallback: MediaQueueItem): MediaItem {
+        val cachedOriginal = originalMediaItems[mediaId.trim()]
+        if (cachedOriginal != null) {
+            return cachedOriginal
+        }
+
+        val configUri = localConfiguration?.uri?.toString().orEmpty()
+        val playableId = resolvePlayableMediaId(fallback)
+        if (playableId.isNullOrBlank()) {
+            return if (configUri.isNotBlank() && !configUri.contains("/cast/local/")) {
+                this
+            } else {
+                fallback.toFallbackMediaItem()
+            }
+        }
+
+        if (
+            configUri.isBlank() ||
+            configUri.contains("/cast/local/") ||
+            configUri.startsWith("http://") ||
+            configUri.startsWith("https://")
+        ) {
+            return rebuildForLocalPlayback(
+                mediaId = playableId,
+                source = this,
+                fallback = fallback,
+            )
+        }
+        return this
+    }
+
+    private fun MediaItem.resolvePlayableMediaId(fallback: MediaQueueItem): String? {
+        mediaId
+            .trim()
+            .takeIf { it.isNotEmpty() && !it.contains("/cast/") && !it.startsWith("http") }
+            ?.let { return it }
+
+        localConfiguration
+            ?.customCacheKey
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it }
+
+        (localConfiguration?.tag as? moe.rukamori.archivetune.models.MediaMetadata)
+            ?.id
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it }
+
+        fallback.media
+            ?.contentId
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && !it.contains("/cast/") && !it.startsWith("http") }
+            ?.let { return it }
+
+        return null
+    }
+
+    private fun rebuildForLocalPlayback(
+        mediaId: String,
+        source: MediaItem,
+        fallback: MediaQueueItem,
+    ): MediaItem {
+        val builder =
+            source
+                .buildUpon()
+                .setMediaId(mediaId)
+                .setUri(mediaId)
+        if (!mediaId.isLocalMediaId()) {
+            builder.setCustomCacheKey(mediaId)
+        }
+        val rebuilt = builder.build()
+        if (rebuilt.localConfiguration?.uri != null) {
+            return rebuilt
+        }
+        return fallback.toFallbackMediaItem()
+    }
 
     private fun MediaItem.resolveForReceiver(): MediaItem {
         val uri = localConfiguration?.uri ?: return this
@@ -247,25 +381,23 @@ private class GmsCastMediaItemConverter(
     private fun MediaQueueItem.toFallbackMediaItem(): MediaItem {
         val mediaInfo = media
         val mediaId =
-            mediaInfo?.contentId?.trim().takeUnless { it.isNullOrEmpty() }
-                ?: mediaInfo?.contentUrl?.trim().takeUnless { it.isNullOrEmpty() }
+            mediaInfo
+                ?.contentId
+                ?.trim()
+                .takeUnless { it.isNullOrEmpty() || it.contains("/cast/") || it.startsWith("http") }
                 ?: itemId.toString()
         return MediaItem
             .Builder()
             .setMediaId(mediaId)
-            .setUri(mediaInfo.resolveFallbackUri(mediaId))
-            .setMimeType(mediaInfo?.contentType?.trim()?.takeIf { it.isNotEmpty() })
+            .setUri(mediaId)
+            .apply {
+                if (!mediaId.isLocalMediaId()) {
+                    setCustomCacheKey(mediaId)
+                }
+            }.setMimeType(mediaInfo?.contentType?.trim()?.takeIf { it.isNotEmpty() })
             .setTag(mediaInfo?.toAppMediaMetadata(mediaId))
             .setMediaMetadata(mediaInfo.toMedia3Metadata(mediaId))
             .build()
-    }
-
-    private fun MediaInfo?.resolveFallbackUri(mediaId: String): Uri {
-        val contentId = this?.contentId?.trim()
-        if (!contentId.isNullOrEmpty()) return contentId.toUri()
-        val contentUrl = this?.contentUrl?.trim()
-        if (!contentUrl.isNullOrEmpty()) return contentUrl.toUri()
-        return mediaId.toUri()
     }
 
     private fun MediaInfo?.toMedia3Metadata(

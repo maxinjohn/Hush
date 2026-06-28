@@ -8,6 +8,7 @@
 package moe.rukamori.archivetune.extensions
 
 import android.os.Bundle
+import android.net.Uri
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata.MEDIA_TYPE_MUSIC
@@ -17,16 +18,30 @@ import moe.rukamori.archivetune.innertube.models.WatchEndpoint.WatchEndpointMusi
 import moe.rukamori.archivetune.innertube.models.WatchEndpoint.WatchEndpointMusicSupportedConfigs.WatchEndpointMusicConfig.Companion.MUSIC_VIDEO_TYPE_UGC
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.models.toMediaMetadata
-import moe.rukamori.archivetune.ui.utils.resize
+import moe.rukamori.archivetune.ui.utils.deriveYouTubeThumbnailUrl
+import moe.rukamori.archivetune.ui.utils.highRes
+import moe.rukamori.archivetune.ui.utils.resolvePlaybackArtworkUrl
+import moe.rukamori.archivetune.ui.utils.toValidArtworkUrl
 import moe.rukamori.archivetune.utils.isLocalMediaId
 
 const val ExtraIsMusicVideo = "moe.rukamori.archivetune.extra.IS_MUSIC_VIDEO"
-private const val NotificationArtworkSizePx = 1080
 
 val MediaItem.metadata: MediaMetadata?
     get() = localConfiguration?.tag as? MediaMetadata
 
-private fun String?.toNotificationArtworkUri() = this?.resize(NotificationArtworkSizePx, NotificationArtworkSizePx)?.toUri()
+private fun String?.toNotificationArtworkUrl(mediaId: String? = null): String? =
+    this
+        ?.toValidArtworkUrl()
+        ?.highRes()
+        ?: mediaId?.deriveYouTubeThumbnailUrl()?.highRes()
+
+private fun String?.toNotificationArtworkUri(mediaId: String? = null): Uri? =
+    toNotificationArtworkUrl(mediaId)?.toUri()
+
+fun MediaItem.resolveNotificationArtworkUrl(): String? =
+    metadata?.resolvePlaybackArtworkUrl()
+        ?: mediaMetadata.artworkUri?.toString()?.toValidArtworkUrl()?.highRes()
+        ?: mediaId.deriveYouTubeThumbnailUrl()?.highRes()
 
 private fun MediaItem.Builder.setCacheKeyIfRemote(mediaId: String): MediaItem.Builder {
     if (!mediaId.isLocalMediaId()) {
@@ -48,7 +63,7 @@ fun Song.toMediaItem() =
                 .setTitle(song.title)
                 .setSubtitle(artists.joinToString { it.name })
                 .setArtist(artists.joinToString { it.name })
-                .setArtworkUri(song.thumbnailUrl.toNotificationArtworkUri())
+                .setArtworkUri(song.thumbnailUrl.toNotificationArtworkUri(song.id))
                 .setAlbumTitle(song.albumName)
                 .setIsPlayable(true)
                 .setMediaType(MEDIA_TYPE_MUSIC)
@@ -69,7 +84,7 @@ fun SongItem.toMediaItem() =
                 .setTitle(title)
                 .setSubtitle(artists.joinToString { it.name })
                 .setArtist(artists.joinToString { it.name })
-                .setArtworkUri(thumbnail.toNotificationArtworkUri())
+                .setArtworkUri(thumbnail.toNotificationArtworkUri(id))
                 .setAlbumTitle(album?.name)
                 .setIsPlayable(true)
                 .setMediaType(MEDIA_TYPE_MUSIC)
@@ -90,7 +105,7 @@ fun MediaMetadata.toMediaItem() =
                 .setTitle(title)
                 .setSubtitle(artists.joinToString { it.name })
                 .setArtist(artists.joinToString { it.name })
-                .setArtworkUri(thumbnailUrl.toNotificationArtworkUri())
+                .setArtworkUri(thumbnailUrl.toNotificationArtworkUri(id))
                 .setAlbumTitle(album?.title)
                 .setIsPlayable(true)
                 .setMediaType(MEDIA_TYPE_MUSIC)

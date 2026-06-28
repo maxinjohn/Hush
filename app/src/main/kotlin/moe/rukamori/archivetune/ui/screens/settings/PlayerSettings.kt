@@ -7,8 +7,10 @@
 
 package moe.rukamori.archivetune.ui.screens.settings
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -17,8 +19,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,7 +30,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -73,6 +79,8 @@ import moe.rukamori.archivetune.ui.component.SliderPreference
 import moe.rukamori.archivetune.ui.component.SwitchPreference
 import moe.rukamori.archivetune.ui.component.TagsManagementDialog
 import moe.rukamori.archivetune.ui.component.TextFieldDialog
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import moe.rukamori.archivetune.ui.theme.HushAmbientBackground
 import moe.rukamori.archivetune.ui.utils.backToMain
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberPreference
@@ -213,11 +221,14 @@ fun PlayerSettings(
         )
     val playerStreamClients =
         remember {
-            listOf(
-                PlayerStreamClient.ANDROID_VR,
-                PlayerStreamClient.WEB_REMIX,
-                PlayerStreamClient.ARCHIVETUNE_EXTRACTOR,
-            )
+            buildList {
+                add(PlayerStreamClient.ANDROID_VR)
+                add(PlayerStreamClient.WEB_REMIX)
+                if (moe.rukamori.archivetune.BuildConfig.EXTRACTOR_BEARER.isNotBlank()) {
+                    add(PlayerStreamClient.ARCHIVETUNE_EXTRACTOR)
+                }
+                add(PlayerStreamClient.HI_RES_LOSSLESS)
+            }
         }
     val selectedPlayerStreamClient =
         if (playerStreamClient in playerStreamClients) {
@@ -269,9 +280,16 @@ fun PlayerSettings(
         )
     }
 
-    Column(
+    Box(modifier = Modifier.fillMaxSize()) {
+        HushAmbientBackground(
+            heightFraction = 0.55f,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
+
+        Column(
         Modifier
             .windowInsetsPadding(LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+            .nestedScroll(scrollBehavior.nestedScrollConnection)
             .verticalScroll(rememberScrollState())
             .padding(bottom = SettingsDimensions.ScreenBottomPadding),
     ) {
@@ -285,10 +303,17 @@ fun PlayerSettings(
 
         PreferenceGroup(title = stringResource(R.string.player)) {
             item {
-                EnumListPreference(
+                ListPreference(
                     title = { Text(stringResource(R.string.audio_quality)) },
                     icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
                     selectedValue = audioQuality,
+                    values =
+                        listOf(
+                            AudioQuality.HIGHEST,
+                            AudioQuality.HIGH,
+                            AudioQuality.AUTO,
+                            AudioQuality.LOW,
+                        ),
                     onValueSelected = onAudioQualityChange,
                     isEnabled = audioQualityEnabled,
                     valueText = {
@@ -315,6 +340,7 @@ fun PlayerSettings(
                             PlayerStreamClient.ANDROID_VR -> stringResource(R.string.player_stream_client_android_vr)
                             PlayerStreamClient.WEB_REMIX -> stringResource(R.string.player_stream_client_web_remix)
                             PlayerStreamClient.ARCHIVETUNE_EXTRACTOR -> stringResource(R.string.player_stream_client_archivetune_extractor)
+                            PlayerStreamClient.HI_RES_LOSSLESS -> stringResource(R.string.player_stream_client_hi_res_lossless)
                             else -> stringResource(R.string.player_stream_client_web_remix)
                         }
                     },
@@ -323,9 +349,19 @@ fun PlayerSettings(
                             PlayerStreamClient.ANDROID_VR -> stringResource(R.string.player_stream_client_android_vr_desc)
                             PlayerStreamClient.WEB_REMIX -> stringResource(R.string.player_stream_client_web_remix_desc)
                             PlayerStreamClient.ARCHIVETUNE_EXTRACTOR -> stringResource(R.string.player_stream_client_archivetune_extractor_desc)
+                            PlayerStreamClient.HI_RES_LOSSLESS -> stringResource(R.string.player_stream_client_hi_res_lossless_desc)
                             else -> stringResource(R.string.player_stream_client_web_remix_desc)
                         }
                     },
+                )
+            }
+
+            item {
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.stream_sources)) },
+                    description = stringResource(R.string.stream_sources_desc),
+                    icon = { Icon(painterResource(R.drawable.integration), null) },
+                    onClick = { navController.navigate("settings/player/stream_sources") },
                 )
             }
 
@@ -602,18 +638,26 @@ fun PlayerSettings(
         }
     }
 
-    TopAppBar(
-        title = { Text(stringResource(R.string.player_and_audio)) },
-        navigationIcon = {
-            IconButton(
-                onClick = navController::navigateUp,
-                onLongClick = navController::backToMain,
-            ) {
-                Icon(
-                    painterResource(R.drawable.arrow_back),
-                    contentDescription = null,
-                )
-            }
-        },
-    )
+        TopAppBar(
+            modifier = Modifier.align(Alignment.TopCenter),
+            title = { Text(stringResource(R.string.player_and_audio)) },
+            navigationIcon = {
+                IconButton(
+                    onClick = navController::navigateUp,
+                    onLongClick = navController::backToMain,
+                ) {
+                    Icon(
+                        painterResource(R.drawable.arrow_back),
+                        contentDescription = null,
+                    )
+                }
+            },
+            scrollBehavior = scrollBehavior,
+            colors =
+                TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
+        )
+    }
 }

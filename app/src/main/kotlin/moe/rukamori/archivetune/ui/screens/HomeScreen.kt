@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -26,14 +27,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
@@ -53,6 +49,7 @@ import moe.rukamori.archivetune.ui.component.ExpressivePullToRefreshBox
 import moe.rukamori.archivetune.ui.component.LocalBottomSheetPageState
 import moe.rukamori.archivetune.ui.component.LocalMenuState
 import moe.rukamori.archivetune.ui.component.NavigationTitle
+import moe.rukamori.archivetune.ui.theme.HushAmbientBackground
 import moe.rukamori.archivetune.ui.utils.SnapLayoutInfoProvider
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberPreference
@@ -79,6 +76,7 @@ fun HomeScreen(
     val homePage by viewModel.homePage.collectAsStateWithLifecycle()
 
     val selectedChip by viewModel.selectedChip.collectAsStateWithLifecycle()
+    val isChipLoading by viewModel.isChipLoading.collectAsStateWithLifecycle()
 
     val isLoading: Boolean by viewModel.isLoading.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
@@ -140,132 +138,13 @@ fun HomeScreen(
         forgottenFavoritesLazyGridState.scrollToItem(0)
     }
 
-    // Capture M3 Expressive colors from theme outside drawBehind
-    val color1 = MaterialTheme.colorScheme.primary
-    val color2 = MaterialTheme.colorScheme.secondary
-    val color3 = MaterialTheme.colorScheme.tertiary
-    val color4 = MaterialTheme.colorScheme.primaryContainer
-    val color5 = MaterialTheme.colorScheme.secondaryContainer
-    val surfaceColor = MaterialTheme.colorScheme.surface
-
     Box(
         modifier = Modifier.fillMaxSize(),
     ) {
-        // M3E Mesh gradient background layer at the top
-        if (!disableBlur) {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .fillMaxSize(0.7f) // Cover top 70% of screen
-                        .align(Alignment.TopCenter)
-                        .zIndex(-1f) // Place behind all content
-                        .drawWithCache {
-                            val width = this.size.width
-                            val height = this.size.height
-
-                            // Create mesh gradient with 5 color blobs for more variation
-                            // First color blob - top left
-                            val brush1 =
-                                Brush.radialGradient(
-                                    colors =
-                                        listOf(
-                                            color1.copy(alpha = 0.38f),
-                                            color1.copy(alpha = 0.24f),
-                                            color1.copy(alpha = 0.14f),
-                                            color1.copy(alpha = 0.06f),
-                                            Color.Transparent,
-                                        ),
-                                    center = Offset(width * 0.15f, height * 0.1f),
-                                    radius = width * 0.55f,
-                                )
-
-                            // Second color blob - top right
-                            val brush2 =
-                                Brush.radialGradient(
-                                    colors =
-                                        listOf(
-                                            color2.copy(alpha = 0.34f),
-                                            color2.copy(alpha = 0.2f),
-                                            color2.copy(alpha = 0.11f),
-                                            color2.copy(alpha = 0.05f),
-                                            Color.Transparent,
-                                        ),
-                                    center = Offset(width * 0.85f, height * 0.2f),
-                                    radius = width * 0.65f,
-                                )
-
-                            // Third color blob - middle left
-                            val brush3 =
-                                Brush.radialGradient(
-                                    colors =
-                                        listOf(
-                                            color3.copy(alpha = 0.3f),
-                                            color3.copy(alpha = 0.17f),
-                                            color3.copy(alpha = 0.09f),
-                                            color3.copy(alpha = 0.04f),
-                                            Color.Transparent,
-                                        ),
-                                    center = Offset(width * 0.3f, height * 0.45f),
-                                    radius = width * 0.6f,
-                                )
-
-                            // Fourth color blob - middle right
-                            val brush4 =
-                                Brush.radialGradient(
-                                    colors =
-                                        listOf(
-                                            color4.copy(alpha = 0.26f),
-                                            color4.copy(alpha = 0.14f),
-                                            color4.copy(alpha = 0.08f),
-                                            color4.copy(alpha = 0.03f),
-                                            Color.Transparent,
-                                        ),
-                                    center = Offset(width * 0.7f, height * 0.5f),
-                                    radius = width * 0.7f,
-                                )
-
-                            // Fifth color blob - bottom center (helps with smooth fade)
-                            val brush5 =
-                                Brush.radialGradient(
-                                    colors =
-                                        listOf(
-                                            color5.copy(alpha = 0.22f),
-                                            color5.copy(alpha = 0.12f),
-                                            color5.copy(alpha = 0.06f),
-                                            color5.copy(alpha = 0.02f),
-                                            Color.Transparent,
-                                        ),
-                                    center = Offset(width * 0.5f, height * 0.75f),
-                                    radius = width * 0.8f,
-                                )
-
-                            // Add a final vertical gradient overlay to ensure smooth bottom fade
-                            val overlayBrush =
-                                Brush.verticalGradient(
-                                    colors =
-                                        listOf(
-                                            Color.Transparent,
-                                            Color.Transparent,
-                                            surfaceColor.copy(alpha = 0.22f),
-                                            surfaceColor.copy(alpha = 0.55f),
-                                            surfaceColor,
-                                        ),
-                                    startY = height * 0.4f,
-                                    endY = height,
-                                )
-
-                            onDrawBehind {
-                                drawRect(brush = brush1)
-                                drawRect(brush = brush2)
-                                drawRect(brush = brush3)
-                                drawRect(brush = brush4)
-                                drawRect(brush = brush5)
-                                drawRect(brush = overlayBrush)
-                            }
-                        },
-            ) {}
-        }
+        HushAmbientBackground(
+            disabled = disableBlur,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
 
         ExpressivePullToRefreshBox(
             isRefreshing = isRefreshing,
@@ -299,8 +178,19 @@ fun HomeScreen(
                                 },
                             )
                         }
+                        if (isChipLoading) {
+                            item(key = "home_chip_loading") {
+                                androidx.compose.material3.LinearProgressIndicator(
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
+                            }
+                        }
                     }
 
+                    if (selectedChip == null) {
                     quickPicks?.takeIf { it.isNotEmpty() }?.let { picks ->
                 /*
                     item {
@@ -419,6 +309,7 @@ fun HomeScreen(
                         haptic = haptic,
                         scope = scope,
                     )
+                    }
 
                     homePage?.sections?.forEach { section ->
                         item {
