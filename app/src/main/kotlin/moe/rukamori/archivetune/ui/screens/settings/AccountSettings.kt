@@ -137,6 +137,7 @@ import moe.rukamori.archivetune.utils.Updater
 import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.decodeSavedAccounts
 import moe.rukamori.archivetune.utils.encodeSavedAccounts
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
 import moe.rukamori.archivetune.utils.putLegacyPoToken
 import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.viewmodels.AccountChannelUiModel
@@ -144,12 +145,11 @@ import moe.rukamori.archivetune.viewmodels.AccountChannelsState
 import moe.rukamori.archivetune.viewmodels.HomeViewModel
 import java.util.UUID
 
-private val CardShape = RoundedCornerShape(28.dp)
-private val InnerTileShape = RoundedCornerShape(22.dp)
+private val CardShape = ArchiveTuneDesign.cardShape
+private val InnerTileShape = ArchiveTuneDesign.itemShape
 private val AvatarSize = 88.dp
 private val QuickTileIconSize = 48.dp
 private val RowIconSize = 42.dp
-private const val PressScale = 0.96f
 
 @Immutable
 private data class SavedAccountCollection(
@@ -191,7 +191,7 @@ fun AccountSettings(
         }
 
     val onLegacyPoTokenChange: (String) -> Unit = { value ->
-        PreferenceStore.launchEdit(context.dataStore) {
+        PreferenceStore.launchEdit(context) {
             putLegacyPoToken(value)
         }
     }
@@ -627,7 +627,7 @@ private fun ProfileIdentityCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) PressScale else 1f,
+        targetValue = if (isPressed) ArchiveTuneDesign.PressScale else 1f,
         animationSpec = spring(stiffness = Spring.StiffnessHigh),
         label = "heroScale",
     )
@@ -1084,7 +1084,7 @@ private fun UpdateBannerStrip(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) PressScale else 1f,
+        targetValue = if (isPressed) ArchiveTuneDesign.PressScale else 1f,
         animationSpec = spring(stiffness = Spring.StiffnessHigh),
         label = "updateScale",
     )
@@ -1204,7 +1204,7 @@ private fun ExpressiveActionRow(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.98f else 1f,
+        targetValue = if (isPressed) ArchiveTuneDesign.RowPressScale else 1f,
         animationSpec = spring(stiffness = Spring.StiffnessHigh),
         label = "rowScale",
     )

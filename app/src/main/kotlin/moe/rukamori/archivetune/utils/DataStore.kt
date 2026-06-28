@@ -35,34 +35,66 @@ import moe.rukamori.archivetune.constants.HISTORY_DURATION_MAX
 import moe.rukamori.archivetune.constants.HISTORY_DURATION_MIN
 import moe.rukamori.archivetune.constants.HistoryDuration
 import moe.rukamori.archivetune.extensions.toEnum
+import timber.log.Timber
+import java.io.File
+import java.io.IOException
 import kotlin.properties.ReadOnlyProperty
 
-val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
-    name = "settings",
-    produceMigrations = { _ ->
-        listOf(
-            object : DataMigration<Preferences> {
-                override suspend fun shouldMigrate(currentData: Preferences): Boolean =
-                    currentData[HISTORY_DURATION_LEGACY_FLOAT_KEY] != null &&
-                        currentData[HistoryDuration] == null
+@Volatile
+private var dataStoreInstance: DataStore<Preferences>? = null
+private val dataStoreLock = Any()
 
-                override suspend fun migrate(currentData: Preferences): Preferences =
-                    currentData.toMutablePreferences().apply {
-                        val oldFloat = currentData[HISTORY_DURATION_LEGACY_FLOAT_KEY]
-                        if (oldFloat != null) {
-                            this[HistoryDuration] =
-                                oldFloat
-                                    .toInt()
-                                    .coerceIn(HISTORY_DURATION_MIN, HISTORY_DURATION_MAX)
-                            this.remove(HISTORY_DURATION_LEGACY_FLOAT_KEY)
-                        }
-                    }
+private val historyDurationMigration =
+    object : DataMigration<Preferences> {
+        override suspend fun shouldMigrate(currentData: Preferences): Boolean =
+            currentData[HISTORY_DURATION_LEGACY_FLOAT_KEY] != null &&
+                currentData[HistoryDuration] == null
 
-                override suspend fun cleanUp() {}
-            },
-        )
-    },
-)
+        override suspend fun migrate(currentData: Preferences): Preferences =
+            currentData.toMutablePreferences().apply {
+                val oldFloat = currentData[HISTORY_DURATION_LEGACY_FLOAT_KEY]
+                if (oldFloat != null) {
+                    this[HistoryDuration] =
+                        oldFloat
+                            .toInt()
+                            .coerceIn(HISTORY_DURATION_MIN, HISTORY_DURATION_MAX)
+                    this.remove(HISTORY_DURATION_LEGACY_FLOAT_KEY)
+                }
+            }
+
+        override suspend fun cleanUp() {}
+    }
+
+val Context.dataStore: DataStore<Preferences>
+    get() {
+        dataStoreInstance?.let { return it }
+        synchronized(dataStoreLock) {
+            dataStoreInstance?.let { return it }
+            File(filesDir, "datastore").mkdirs()
+            return preferencesDataStore(
+                name = "settings",
+                produceMigrations = { _ -> listOf(historyDurationMigration) },
+            ).getValue(this, ::dataStore)
+                .also { dataStoreInstance = it }
+        }
+    }
+
+/**
+ * Safe DataStore write that ensures the parent directory exists before every edit.
+ * Catches and reports IOException instead of crashing the coroutine scope.
+ */
+suspend fun Context.safeDataStoreEdit(
+    transform: suspend (MutablePreferences) -> Unit,
+): Boolean =
+    try {
+        File(filesDir, "datastore").mkdirs()
+        dataStore.edit(transform)
+        true
+    } catch (e: IOException) {
+        Timber.e(e, "DataStore edit failed")
+        reportException(e)
+        false
+    }
 
 object PreferenceStore {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -86,11 +118,11 @@ object PreferenceStore {
     fun <T> get(key: Preferences.Key<T>): T? = _prefs.value?.get(key)
 
     fun launchEdit(
-        dataStore: DataStore<Preferences>,
+        context: Context,
         block: MutablePreferences.() -> Unit,
     ) {
         scope.launch {
-            dataStore.edit { prefs ->
+            context.safeDataStoreEdit { prefs ->
                 prefs.block()
             }
         }
@@ -162,7 +194,7 @@ fun <T> rememberPreference(
             override var value: T
                 get() = state.value
                 set(value) {
-                    PreferenceStore.launchEdit(context.dataStore) {
+                    PreferenceStore.launchEdit(context) {
                         this[key] = value
                     }
                 }
@@ -193,7 +225,7 @@ inline fun <reified T : Enum<T>> rememberEnumPreference(
             override var value: T
                 get() = state.value
                 set(value) {
-                    PreferenceStore.launchEdit(context.dataStore) {
+                    PreferenceStore.launchEdit(context) {
                         this[key] = value.name
                     }
                 }

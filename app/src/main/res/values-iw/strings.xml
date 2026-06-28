@@ -161,7 +161,6 @@
     <string name="add_anyway">הוסף בכל זאת</string>
     <string name="together_role_guest">אורח</string>
     <string name="sort_by_artist">אמן</string>
-    <string name="internet_warning_title">אזהרת אבטחה ושימוש</string>
     <string name="removed_song_from_queue">השיר \"%s\" הוסר מהתור</string>
     <string name="shortest_duration">משך הזמן הקצר ביותר</string>
     <string name="cache">מטמון</string>
@@ -175,7 +174,6 @@
     <string name="palette_scarlet">שני</string>
     <string name="year_sort">שנה</string>
     <string name="tempo">מקצב</string>
-    <string name="internet_warning_doh">DNS over HTTPS פועל רק אם המדינה שלך חוסמת את YouTube. אם YouTube חוסם באופן פעיל את האזור שלך, כדאי לשקול להשתמש ב-Proxy או ב-VPN.</string>
     <string name="no_matching_playlists">אין פלייליסטים תואמים</string>
     <string name="added_n_songs_to_playlist">נוספו %1$d שירים ל%2$s</string>
     <string name="palette_forest">יער כהה</string>
@@ -494,7 +492,6 @@
     <string name="custom_font_desc">בחר גופן מסוג ttf</string>
     <string name="proxy_connection_success">חיבור הפרוקסי הצליח!</string>
     <string name="skip_duplicates">דלג כפילויות</string>
-    <string name="internet_warning_proxy">אנא השתמשו רק בשרתי פרוקסי (Proxies) שאתם בטוחים שהם בטוחים לשימוש. שרתּי פרוקסי חינמיים הם אמנם נוחים, אך לא תמיד בטוחים, לכן היזהרו. הוזהרתם, ואנו לא נישא באחריות לאבטחה שלכם.</string>
     <string name="clear_all_downloads">נקה את כל ההורדות</string>
     <string name="external_downloader_package">חבילת אפליקציית הורדה</string>
     <string name="repeat_mode_one">חזרה על השיר הנוכחי</string>

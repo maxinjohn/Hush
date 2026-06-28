@@ -42,13 +42,16 @@ import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.LocalDatabase
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.extensions.toMediaItem
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.innertube.models.*
 import moe.rukamori.archivetune.models.toMediaMetadata
+import moe.rukamori.archivetune.playback.queues.ListQueue
 import moe.rukamori.archivetune.playback.queues.YouTubeQueue
 import moe.rukamori.archivetune.ui.component.LocalMenuState
 import moe.rukamori.archivetune.ui.component.YouTubeListItem
 import moe.rukamori.archivetune.ui.menu.*
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
 import moe.rukamori.archivetune.viewmodels.OnlineSearchSuggestionViewModel
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class, ExperimentalMaterial3Api::class)
@@ -226,6 +229,28 @@ fun OnlineSearchScreen(
                                             },
                                         )
                                     }
+
+                                    is PodcastItem -> {
+                                        YouTubePlaylistMenu(
+                                            playlist = item.asPlaylistItem(),
+                                            coroutineScope = scope,
+                                            onDismiss = {
+                                                menuState.dismiss()
+                                                onDismiss()
+                                            },
+                                        )
+                                    }
+
+                                    is EpisodeItem -> {
+                                        YouTubeSongMenu(
+                                            song = item.asSongItem(),
+                                            navController = navController,
+                                            onDismiss = {
+                                                menuState.dismiss()
+                                                onDismiss()
+                                            },
+                                        )
+                                    }
                                 }
                             }
                         },
@@ -266,6 +291,25 @@ fun OnlineSearchScreen(
                                         navController.navigate("online_playlist/${item.id}")
                                         onDismiss()
                                     }
+
+                                is PodcastItem -> {
+                                    navController.navigate("online_podcast/${item.id}")
+                                    onDismiss()
+                                }
+
+                                is EpisodeItem -> {
+                                    if (item.id == mediaMetadata?.id) {
+                                        playerConnection.player.togglePlayPause()
+                                    } else {
+                                        playerConnection.playQueue(
+                                            ListQueue(
+                                                title = item.title,
+                                                items = listOf(item.asSongItem().toMediaMetadata().toMediaItem()),
+                                            ),
+                                        )
+                                    }
+                                    onDismiss()
+                                }
                                 }
                             },
                             onLongClick = {
@@ -314,6 +358,28 @@ fun OnlineSearchScreen(
                                                 },
                                             )
                                         }
+
+                                        is PodcastItem -> {
+                                            YouTubePlaylistMenu(
+                                                playlist = item.asPlaylistItem(),
+                                                coroutineScope = coroutineScope,
+                                                onDismiss = {
+                                                    menuState.dismiss()
+                                                    onDismiss()
+                                                },
+                                            )
+                                        }
+
+                                        is EpisodeItem -> {
+                                            YouTubeSongMenu(
+                                                song = item.asSongItem(),
+                                                navController = navController,
+                                                onDismiss = {
+                                                    menuState.dismiss()
+                                                    onDismiss()
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             },
@@ -353,17 +419,17 @@ fun SuggestionItem(
             modifier
                 .fillMaxWidth()
                 .focusable()
-                .clickable(onClick = onClick)
+                .archiveTunePressable(onClick = onClick)
                 .padding(horizontal = 16.dp, vertical = 6.dp),
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier =
                 Modifier
-                    .size(40.dp)
+                    .size(42.dp)
                     .background(
                         color = iconContainerColor,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                     ),
         ) {
             Icon(

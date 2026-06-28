@@ -632,9 +632,6 @@
     <string name="playback_login_refresh_required">Обновить вход в YouTube Music</string>
     <string name="playback_requires_youtube_music_login_refresh">Обновите ваш вход в YouTube Music, потом вернитесь в Hush.</string>
     <string name="internet">Интернет</string>
-    <string name="internet_warning_title">Предупреждение об безопасности и использовании</string>
-    <string name="internet_warning_doh">DNS через HTTPS работает только в том случае, если в вашей стране заблокирован YouTube. Если YouTube активно блокирует ваш регион, рассмотрите возможность использования прокси-сервера или VPN.</string>
-    <string name="internet_warning_proxy">Пожалуйста, используйте только те прокси, в безопасности которых вы уверены. Бесплатные прокси удобны, но не всегда безопасны, поэтому будьте осторожны. Мы вас предупредили и не несем ответственности за вашу безопасность.</string>
     <string name="dns_over_https">DNS через HTTPS</string>
     <string name="dns_over_https_desc">Использовать DNS через HTTPS (DoH) чтобы получать имена хостов</string>
     <string name="dns_provider">Провайдер DNS</string>

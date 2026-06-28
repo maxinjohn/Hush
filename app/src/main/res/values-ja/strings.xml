@@ -467,9 +467,6 @@
     <string name="system_default">システム既定</string>
     <string name="enable_proxy">プロキシを有効にする</string>
     <string name="internet">インターネット</string>
-    <string name="internet_warning_title">セキュリティと使用上の警告</string>
-    <string name="internet_warning_doh">DNS over HTTPSは、お住まいの国でYouTubeがブロックされている場合にのみ機能します。YouTubeがお住まいの地域を積極的にブロックしている場合は、プロキシまたはVPNの使用を検討してください。</string>
-    <string name="internet_warning_proxy">安全だと確信できるプロキシのみを使用してください。無料プロキシは便利ですが常に安全とは限りません。注意してください。警告済みであり、セキュリティについて当方は責任を負いません。</string>
     <string name="dns_over_https">DNS over HTTPS</string>
     <string name="dns_over_https_desc">DNS over HTTPS（DoH）を使用してホスト名を解決します</string>
     <string name="dns_provider">DNSプロバイダー</string>

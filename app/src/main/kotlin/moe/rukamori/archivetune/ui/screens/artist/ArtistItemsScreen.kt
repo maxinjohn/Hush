@@ -50,6 +50,8 @@ import moe.rukamori.archivetune.extensions.toMediaItem
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.innertube.models.AlbumItem
 import moe.rukamori.archivetune.innertube.models.ArtistItem
+import moe.rukamori.archivetune.innertube.models.EpisodeItem
+import moe.rukamori.archivetune.innertube.models.PodcastItem
 import moe.rukamori.archivetune.innertube.models.PlaylistItem
 import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.models.WatchEndpoint
@@ -173,6 +175,22 @@ fun ArtistItemsScreen(
                                                 onDismiss = menuState::dismiss,
                                             )
                                         }
+
+                                    is PodcastItem -> {
+                                        YouTubePlaylistMenu(
+                                            playlist = item.asPlaylistItem(),
+                                            coroutineScope = coroutineScope,
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
+
+                                    is EpisodeItem -> {
+                                        YouTubeSongMenu(
+                                            song = item.asSongItem(),
+                                            navController = navController,
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
                                     }
                                 }
                             },
@@ -218,6 +236,19 @@ fun ArtistItemsScreen(
                                     is PlaylistItem -> {
                                         navController.navigate("online_playlist/${item.id}")
                                     }
+
+                                is PodcastItem -> {
+                                    navController.navigate("online_podcast/${item.id}")
+                                }
+
+                                is EpisodeItem -> {
+                                    playerConnection.playQueue(
+                                        ListQueue(
+                                            title = item.title,
+                                            items = listOf(item.asSongItem().toMediaMetadata().toMediaItem()),
+                                        ),
+                                    )
+                                }
                                 }
                             },
                 )
@@ -280,6 +311,19 @@ fun ArtistItemsScreen(
                                         is PlaylistItem -> {
                                             navController.navigate("online_playlist/${item.id}")
                                         }
+
+                                    is PodcastItem -> {
+                                        navController.navigate("online_podcast/${item.id}")
+                                    }
+
+                                    is EpisodeItem -> {
+                                        playerConnection.playQueue(
+                                            ListQueue(
+                                                title = item.title,
+                                                items = listOf(item.asSongItem().toMediaMetadata().toMediaItem()),
+                                            ),
+                                        )
+                                    }
                                     }
                                 },
                                 onLongClick = {
@@ -316,6 +360,22 @@ fun ArtistItemsScreen(
                                                     onDismiss = menuState::dismiss,
                                                 )
                                             }
+
+                                        is PodcastItem -> {
+                                            YouTubePlaylistMenu(
+                                                playlist = item.asPlaylistItem(),
+                                                coroutineScope = coroutineScope,
+                                                onDismiss = menuState::dismiss,
+                                            )
+                                        }
+
+                                        is EpisodeItem -> {
+                                            YouTubeSongMenu(
+                                                song = item.asSongItem(),
+                                                navController = navController,
+                                                onDismiss = menuState::dismiss,
+                                            )
+                                        }
                                         }
                                     }
                                 },

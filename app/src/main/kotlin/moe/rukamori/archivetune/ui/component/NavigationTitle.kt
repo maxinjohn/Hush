@@ -7,8 +7,6 @@
 
 package moe.rukamori.archivetune.ui.component
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +28,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
 
 @Composable
 fun NavigationTitle(
@@ -47,10 +47,13 @@ fun NavigationTitle(
             modifier
                 .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
-                .then(if (onClick != null) Modifier.focusable() else Modifier)
-                .clickable(enabled = onClick != null) {
-                    onClick?.invoke()
-                }.padding(horizontal = 12.dp, vertical = 12.dp),
+                .then(
+                    if (onClick != null) {
+                        Modifier.archiveTunePressable(onClick = onClick, pressScale = ArchiveTuneDesign.RowPressScale)
+                    } else {
+                        Modifier
+                    },
+                ).padding(horizontal = ArchiveTuneDesign.ScreenHorizontalPadding, vertical = 10.dp),
     ) {
         thumbnail?.invoke()
 
@@ -62,15 +65,17 @@ fun NavigationTitle(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
 
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.onSurface,
                 overflow = TextOverflow.Ellipsis,
                 maxLines = 1,
             )
@@ -79,7 +84,7 @@ fun NavigationTitle(
                 Text(
                     text = it,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.secondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     overflow = TextOverflow.Ellipsis,
                     maxLines = 1,
                 )

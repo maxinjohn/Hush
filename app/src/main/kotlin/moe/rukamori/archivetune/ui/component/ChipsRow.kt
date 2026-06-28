@@ -28,7 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.DropdownMenu
@@ -94,11 +94,13 @@ fun <E> ChipsRow(
                         )
                     }
                 },
-                shape = RoundedCornerShape(16.dp),
+                shape = ArchiveTuneDesign.chipShape,
                 border = null,
                 colors =
                     FilterChipDefaults.filterChipColors(
-                        containerColor = containerColor,
+                        containerColor = if (isSelected) MaterialTheme.colorScheme.primary else containerColor,
+                        labelColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        iconColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                     ),
             )
 
@@ -158,11 +160,11 @@ fun <Int> ChoiceChipsRow(
                         modifier = Modifier.graphicsLayer(rotationZ = rotationAnimation),
                     )
                 },
-                shape = RoundedCornerShape(16.dp),
+                shape = ArchiveTuneDesign.chipShape,
                 border = null,
                 colors =
                     AssistChipDefaults.assistChipColors(
-                        containerColor = containerColor,
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         labelColor = MaterialTheme.colorScheme.onSurface,
                     ),
             )
@@ -211,13 +213,22 @@ fun <Int> ChoiceChipsRow(
                     FilterChip(
                         label = { Text(label) },
                         selected = currentValue == value,
+                        onClick = { onValueUpdate(value) },
+                        shape = ArchiveTuneDesign.chipShape,
+                        border = null,
                         colors =
                             FilterChipDefaults.filterChipColors(
-                                containerColor = containerColor,
+                                containerColor = if (currentValue == value) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    containerColor
+                                },
+                                labelColor = if (currentValue == value) {
+                                    MaterialTheme.colorScheme.onPrimary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
                             ),
-                        onClick = { onValueUpdate(value) },
-                        shape = RoundedCornerShape(16.dp),
-                        border = null,
                     )
                 }
             }

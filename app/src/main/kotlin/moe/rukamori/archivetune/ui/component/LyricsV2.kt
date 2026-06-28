@@ -364,7 +364,13 @@ fun LyricsV2(
         val pollIntervalMs = if (isTtmlFormat) 16L else 50L
         while (isActive) {
             val sliderPos = sliderPositionProvider()
-            val pos = sliderPos ?: player.currentPosition
+            val crossfadeState = playerConnection.crossfadeLyricsState.value
+            val pos =
+                when {
+                    sliderPos != null -> sliderPos
+                    crossfadeState.isActive -> crossfadeState.incomingPositionMs
+                    else -> player.currentPosition
+                }
 
             playbackPositionMs = (pos + lyricsSyncOffset.toLong()).coerceAtLeast(0L)
             currentPositionMs = (playbackPositionMs + leadMs + LYRIC_VISUAL_TUNING_OFFSET_MS).coerceAtLeast(0L)
@@ -459,8 +465,13 @@ fun LyricsV2(
         modifier =
             modifier
                 .fillMaxSize()
+                .lyricsViewport()
                 .padding(bottom = 12.dp),
     ) {
+        val scaledLyricsTextSize =
+            remember(maxWidth, lyricsTextSize) {
+                effectiveLyricFontSize(lyricsTextSize, maxWidth)
+            }
         if (lyrics == LYRICS_NOT_FOUND) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -856,10 +867,10 @@ fun LyricsV2(
                         val translationText = remember(item.providerTranslationText, item.text) { providedTranslationTextForEntry(item) }
                         val supplementaryBaseTextStyle = MaterialTheme.typography.bodyMedium
                         val supplementaryTextStyle =
-                            remember(supplementaryBaseTextStyle, lyricsTextSize, lyricsFontFamily, isAllBackground) {
+                            remember(supplementaryBaseTextStyle, scaledLyricsTextSize, lyricsFontFamily, isAllBackground) {
                                 supplementaryBaseTextStyle.copy(
-                                    fontSize = (lyricsTextSize * 0.55f).sp,
-                                    lineHeight = (lyricsTextSize * 0.75f).sp,
+                                    fontSize = (scaledLyricsTextSize * 0.55f).sp,
+                                    lineHeight = (scaledLyricsTextSize * 0.75f).sp,
                                     fontWeight = FontWeight.Normal,
                                     fontStyle = if (isAllBackground) FontStyle.Italic else FontStyle.Normal,
                                     fontFamily = lyricsFontFamily ?: supplementaryBaseTextStyle.fontFamily,
@@ -872,10 +883,11 @@ fun LyricsV2(
                                 style = supplementaryTextStyle,
                                 color = textColor.copy(alpha = if (isActive) 0.76f else 0.42f),
                                 textAlign = textAlign,
+                                softWrap = true,
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(bottom = (lyricsTextSize * 0.18f).dp),
+                                        .padding(bottom = (scaledLyricsTextSize * 0.18f).dp),
                             )
                         }
 
@@ -887,7 +899,7 @@ fun LyricsV2(
                                 currentPositionMs = currentPositionMs,
                                 textColor = textColor,
                                 inactiveAlpha = inactiveAlpha,
-                                baseFontSize = lyricsTextSize,
+                                baseFontSize = scaledLyricsTextSize,
                                 isLineAllBackground = isAllBackground,
                                 textAlign = textAlign,
                                 lyricsFontFamily = lyricsFontFamily,
@@ -901,7 +913,7 @@ fun LyricsV2(
                                 text = item.text,
                                 isActive = isActive,
                                 textColor = textColor.copy(alpha = if (isActive) 1f else 0.52f),
-                                fontSize = lyricsTextSize,
+                                fontSize = scaledLyricsTextSize,
                                 lineSpacing = lyricsLineSpacing,
                                 isAllBackground = isAllBackground,
                                 lyricsFontFamily = lyricsFontFamily,
@@ -913,14 +925,15 @@ fun LyricsV2(
                                 text = item.text,
                                 style =
                                     MaterialTheme.typography.headlineMedium.copy(
-                                        fontSize = if (isAllBackground) (lyricsTextSize * 0.82f).sp else lyricsTextSize.sp,
+                                        fontSize = if (isAllBackground) (scaledLyricsTextSize * 0.82f).sp else scaledLyricsTextSize.sp,
                                         fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
                                         fontStyle = if (isAllBackground) FontStyle.Italic else FontStyle.Normal,
-                                        lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
+                                        lineHeight = (scaledLyricsTextSize * lyricsLineSpacing).sp,
                                         fontFamily = lyricsFontFamily ?: MaterialTheme.typography.headlineMedium.fontFamily,
                                     ),
                                 color = textColor.copy(alpha = if (isActive) 1f else 0.52f),
                                 textAlign = textAlign,
+                                softWrap = true,
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -931,10 +944,11 @@ fun LyricsV2(
                                 style = supplementaryTextStyle,
                                 color = textColor.copy(alpha = if (isActive) 0.76f else 0.42f),
                                 textAlign = textAlign,
+                                softWrap = true,
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(top = (lyricsTextSize * 0.3f).dp),
+                                        .padding(top = (scaledLyricsTextSize * 0.3f).dp),
                             )
                         }
                     }
@@ -1197,9 +1211,9 @@ private fun LyricsLineV2(
             else -> Arrangement.Start
         }
 
-    // Split words into main and background
-    val mainWords = words.filter { !it.isBackground }
-    val bgWords = words.filter { it.isBackground }
+    // Split words into main and background, breaking long runs so FlowRow can wrap.
+    val mainWords = words.filter { !it.isBackground }.flatMap { it.segmentsForWrapping() }
+    val bgWords = words.filter { it.isBackground }.flatMap { it.segmentsForWrapping() }
 
     // 1. Render main words First (if any)
     if (mainWords.isNotEmpty()) {
@@ -1477,7 +1491,31 @@ private fun LyricsLineLrcBounce(
     textAlign: TextAlign,
     bounceFactor: Float,
 ) {
-    val words = remember(text) { text.split(" ").filter { it.isNotEmpty() } }
+    val words = remember(text) { splitLrcWordsForBounce(text) }
+    if (words.isEmpty()) return
+
+    if (!lyricLineUsesWordFlow(text) && (bounceFactor == 0f || words.size == 1)) {
+        val effectiveFontSize = if (isAllBackground) fontSize * 0.82f else fontSize
+        val fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold
+        val fontStyle = if (isAllBackground) FontStyle.Italic else FontStyle.Normal
+        Text(
+            text = text,
+            style =
+                MaterialTheme.typography.headlineMedium.copy(
+                    fontSize = effectiveFontSize.sp,
+                    fontWeight = fontWeight,
+                    fontStyle = fontStyle,
+                    lineHeight = (fontSize * lineSpacing).sp,
+                    fontFamily = lyricsFontFamily ?: MaterialTheme.typography.headlineMedium.fontFamily,
+                ),
+            color = textColor,
+            textAlign = textAlign,
+            softWrap = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        return
+    }
+
     val effectiveFontSize = if (isAllBackground) fontSize * 0.82f else fontSize
     val fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold
     val fontStyle = if (isAllBackground) FontStyle.Italic else FontStyle.Normal
@@ -1546,8 +1584,14 @@ private fun LyricsLineLrcBounce(
             },
     ) {
         words.forEachIndexed { i, word ->
+            val displayWord =
+                when {
+                    lyricLineUsesWordFlow(text) && i < words.lastIndex -> "$word "
+                    !lyricLineUsesWordFlow(text) -> word
+                    else -> word
+                }
             LrcBouncingWord(
-                text = if (i < words.lastIndex) "$word " else word,
+                text = displayWord,
                 scaleAnim = scaleAnimatables[i],
                 floatAnim = floatAnimatables[i],
                 color = textColor,

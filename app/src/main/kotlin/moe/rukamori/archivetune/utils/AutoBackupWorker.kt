@@ -11,6 +11,8 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import moe.rukamori.archivetune.constants.AutoBackupEnabledKey
+import moe.rukamori.archivetune.constants.AutoBackupFrequency
+import moe.rukamori.archivetune.constants.AutoBackupFrequencyKey
 import moe.rukamori.archivetune.constants.EnableWeeklyAutoBackupKey
 
 class AutoBackupWorker(
@@ -19,13 +21,27 @@ class AutoBackupWorker(
 ) : CoroutineWorker(context, workerParams) {
     override suspend fun doWork(): Result {
         val autoBackupEnabled = context.dataStore[AutoBackupEnabledKey] ?: true
-        val weeklyBackupEnabled = context.dataStore[EnableWeeklyAutoBackupKey] ?: false
+        val frequency =
+            context.dataStore[AutoBackupFrequencyKey]?.let { raw ->
+                runCatching { AutoBackupFrequency.valueOf(raw) }.getOrNull()
+            } ?: if (context.dataStore[EnableWeeklyAutoBackupKey] == true) {
+                AutoBackupFrequency.WEEKLY
+            } else {
+                AutoBackupFrequency.OFF
+            }
 
-        if (!autoBackupEnabled || !weeklyBackupEnabled) {
+        if (!autoBackupEnabled || frequency == AutoBackupFrequency.OFF) {
             return Result.success()
         }
 
-        val success = AutoBackupHelper.performBackup(context, "weekly")
+        val backupType =
+            when (frequency) {
+                AutoBackupFrequency.DAILY -> "daily"
+                AutoBackupFrequency.WEEKLY -> "weekly"
+                AutoBackupFrequency.OFF -> return Result.success()
+            }
+
+        val success = AutoBackupHelper.performBackup(context, backupType)
         return if (success) {
             Result.success()
         } else {

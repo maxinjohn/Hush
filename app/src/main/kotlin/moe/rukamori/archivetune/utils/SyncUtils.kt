@@ -35,11 +35,14 @@ import moe.rukamori.archivetune.db.entities.ArtistEntity
 import moe.rukamori.archivetune.db.entities.Playlist
 import moe.rukamori.archivetune.db.entities.PlaylistEntity
 import moe.rukamori.archivetune.db.entities.PlaylistSongMap
+import moe.rukamori.archivetune.db.entities.PodcastEntity
+import moe.rukamori.archivetune.db.entities.SetVideoIdEntity
 import moe.rukamori.archivetune.db.entities.SongEntity
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.innertube.models.AlbumItem
 import moe.rukamori.archivetune.innertube.models.ArtistItem
 import moe.rukamori.archivetune.innertube.models.PlaylistItem
+import moe.rukamori.archivetune.innertube.models.PodcastItem
 import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.utils.completed
 import moe.rukamori.archivetune.innertube.utils.hasYouTubeLoginCookie
@@ -109,6 +112,8 @@ class SyncUtils
                         ).awaitAll()
 
                         syncSavedPlaylists(authoritative = authoritative)
+                        syncPodcastSubscriptionsSuspend()
+                        syncEpisodesForLaterSuspend()
                         if (!authoritative) {
                             syncAutoSyncPlaylists()
                         }
@@ -848,6 +853,121 @@ class SyncUtils
                 }
             }
         }
+
+        fun savePodcast(
+            podcastId: String,
+            save: Boolean,
+        ) {
+            syncScope.launch {
+                if (!isLoggedIn()) return@launch
+                YouTube.savePodcast(podcastId, save).onFailure {
+                    Timber.e(it, "Failed to save/unsave podcast: $podcastId")
+                }
+            }
+        }
+
+        fun saveEpisode(
+            episodeId: String,
+            save: Boolean,
+            setVideoId: String? = null,
+        ) {
+            syncScope.launch {
+                if (!isLoggedIn()) return@launch
+                if (save) {
+                    YouTube.addEpisodeToSavedEpisodes(episodeId).onFailure {
+                        Timber.e(it, "Failed to save episode: $episodeId")
+                    }
+                } else if (setVideoId != null) {
+                    YouTube.removeEpisodeFromSavedEpisodes(episodeId, setVideoId).onFailure {
+                        Timber.e(it, "Failed to remove episode: $episodeId")
+                    }
+                }
+            }
+        }
+
+        suspend fun syncPodcastSubscriptionsSuspend() =
+            withContext(Dispatchers.IO) {
+                if (!isLoggedIn() || !isYtmSyncEnabled()) return@withContext
+                YouTube.savedPodcastShows().onSuccess { remotePodcasts ->
+                    remotePodcasts.forEach { podcast ->
+                        val dbPodcast = database.podcast(podcast.id).firstOrNull()
+                        database.transaction {
+                            if (dbPodcast == null) {
+                                insert(
+                                    PodcastEntity(
+                                        id = podcast.id,
+                                        title = podcast.title,
+                                        author = podcast.author?.name,
+                                        thumbnailUrl = podcast.thumbnail,
+                                        channelId = podcast.channelId ?: podcast.author?.id,
+                                        bookmarkedAt = LocalDateTime.now(),
+                                    ),
+                                )
+                            } else if (dbPodcast.bookmarkedAt != null) {
+                                update(
+                                    dbPodcast.copy(
+                                        title = podcast.title,
+                                        author = podcast.author?.name,
+                                        thumbnailUrl = podcast.thumbnail,
+                                        channelId = podcast.channelId ?: podcast.author?.id ?: dbPodcast.channelId,
+                                        lastUpdateTime = LocalDateTime.now(),
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }.onFailure {
+                    Timber.e(it, "Failed to sync saved podcast shows")
+                }
+            }
+
+        suspend fun syncEpisodesForLaterSuspend() =
+            withContext(Dispatchers.IO) {
+                if (!isLoggedIn() || !isYtmSyncEnabled()) return@withContext
+                YouTube.episodesForLater().onSuccess { remoteEpisodes ->
+                    remoteEpisodes.forEach { episode ->
+                        val dbSong = database.song(episode.id).firstOrNull()
+                        database.transaction {
+                            if (dbSong == null) {
+                                insert(episode.toMediaMetadata()) {
+                                    it.copy(
+                                        inLibrary = LocalDateTime.now(),
+                                        isEpisode = true,
+                                    )
+                                }
+                            } else if (!dbSong.song.isEpisode || dbSong.song.inLibrary == null) {
+                                update(
+                                    dbSong.song.copy(
+                                        isEpisode = true,
+                                        inLibrary = dbSong.song.inLibrary ?: LocalDateTime.now(),
+                                    ),
+                                )
+                            }
+                            episode.setVideoId?.let { setVideoId ->
+                                insert(SetVideoIdEntity(videoId = episode.id, setVideoId = setVideoId))
+                            }
+                        }
+                    }
+                }.onFailure {
+                    Timber.e(it, "Failed to sync episodes for later")
+                }
+            }
+
+        suspend fun clearPodcastData() =
+            withContext(Dispatchers.IO) {
+                database.subscribedPodcasts().first().forEach { podcast ->
+                    database.transaction {
+                        update(podcast.copy(bookmarkedAt = null))
+                    }
+                }
+                database.podcastEpisodesByCreateDateAsc().first()
+                    .filter { it.song.inLibrary != null }
+                    .forEach { song ->
+                        database.transaction {
+                            update(song.song.copy(inLibrary = null))
+                        }
+                    }
+            }
     }
 
 internal fun likedSongTimestamp(

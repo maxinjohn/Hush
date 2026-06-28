@@ -10,8 +10,10 @@
 package moe.rukamori.archivetune.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
+import moe.rukamori.archivetune.ui.theme.archiveTuneCombinedPressable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -19,14 +21,18 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -46,6 +52,7 @@ import moe.rukamori.archivetune.ui.component.shimmer.ShimmerHost
 import moe.rukamori.archivetune.ui.menu.YouTubeAlbumMenu
 import moe.rukamori.archivetune.ui.menu.YouTubeArtistMenu
 import moe.rukamori.archivetune.ui.menu.YouTubePlaylistMenu
+import moe.rukamori.archivetune.ui.theme.HushAmbientBackground
 import moe.rukamori.archivetune.ui.utils.backToMain
 import moe.rukamori.archivetune.viewmodels.AccountContentType
 import moe.rukamori.archivetune.viewmodels.AccountViewModel
@@ -67,10 +74,14 @@ fun AccountScreen(
     val artists by viewModel.artists.collectAsState()
     val selectedContentType by viewModel.selectedContentType.collectAsState()
 
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = GridThumbnailHeight + 24.dp),
-        contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        HushAmbientBackground(modifier = Modifier.align(Alignment.TopCenter))
+
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = GridThumbnailHeight + 24.dp),
+            contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
+            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             ChipsRow(
                 chips =
@@ -95,7 +106,7 @@ fun AccountScreen(
                         fillMaxWidth = true,
                         modifier =
                             Modifier
-                                .combinedClickable(
+                                .archiveTuneCombinedPressable(
                                     onClick = {
                                         navController.navigate("online_playlist/${item.id}")
                                     },
@@ -132,7 +143,7 @@ fun AccountScreen(
                         fillMaxWidth = true,
                         modifier =
                             Modifier
-                                .combinedClickable(
+                                .archiveTuneCombinedPressable(
                                     onClick = {
                                         navController.navigate("album/${item.id}")
                                     },
@@ -169,7 +180,7 @@ fun AccountScreen(
                         fillMaxWidth = true,
                         modifier =
                             Modifier
-                                .combinedClickable(
+                                .archiveTuneCombinedPressable(
                                     onClick = {
                                         navController.navigate("artist/${item.id}")
                                     },
@@ -195,20 +206,28 @@ fun AccountScreen(
                 }
             }
         }
-    }
+        }
 
-    TopAppBar(
-        title = { Text(stringResource(R.string.account)) },
-        navigationIcon = {
-            IconButton(
-                onClick = navController::navigateUp,
-                onLongClick = navController::backToMain,
-            ) {
-                Icon(
-                    painterResource(R.drawable.arrow_back),
-                    contentDescription = null,
-                )
-            }
-        },
-    )
+        TopAppBar(
+            modifier = Modifier.align(Alignment.TopCenter),
+            title = { Text(stringResource(R.string.account)) },
+            navigationIcon = {
+                IconButton(
+                    onClick = navController::navigateUp,
+                    onLongClick = navController::backToMain,
+                ) {
+                    Icon(
+                        painterResource(R.drawable.arrow_back),
+                        contentDescription = null,
+                    )
+                }
+            },
+            scrollBehavior = scrollBehavior,
+            colors =
+                TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
+        )
+    }
 }

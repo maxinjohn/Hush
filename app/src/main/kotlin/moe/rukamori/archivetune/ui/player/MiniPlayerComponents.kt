@@ -10,9 +10,11 @@
 package moe.rukamori.archivetune.ui.player
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -75,8 +77,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.rememberHushAccentGradient
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
+import moe.rukamori.archivetune.ui.utils.resolvePlaybackArtworkUrl
 import moe.rukamori.archivetune.constants.EnableHapticFeedbackKey
 import moe.rukamori.archivetune.constants.MiniPlayerArtworkInnerSize
 import moe.rukamori.archivetune.constants.MiniPlayerArtworkOuterSize
@@ -118,6 +125,7 @@ fun SwipeableMiniPlayerBox(
     content: @Composable (Float) -> Unit,
 ) {
     val offsetXAnimatable = remember { Animatable(0f) }
+    var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragStartTime by remember { mutableStateOf(0L) }
     var totalDragDistance by remember { mutableFloatStateOf(0f) }
 
@@ -159,8 +167,10 @@ fun SwipeableMiniPlayerBox(
                                 onDragStart = {
                                     dragStartTime = System.currentTimeMillis()
                                     totalDragDistance = 0f
+                                    dragOffsetX = 0f
                                 },
                                 onDragCancel = {
+                                    dragOffsetX = 0f
                                     coroutineScope.launch {
                                         offsetXAnimatable.animateTo(
                                             targetValue = 0f,
@@ -177,15 +187,14 @@ fun SwipeableMiniPlayerBox(
                                     val allowRight = adjustedDragAmount > 0 && canSkipPrevious
                                     if (allowLeft || allowRight) {
                                         totalDragDistance += kotlin.math.abs(adjustedDragAmount)
-                                        coroutineScope.launch {
-                                            offsetXAnimatable.snapTo(offsetXAnimatable.value + adjustedDragAmount)
-                                        }
+                                        dragOffsetX += adjustedDragAmount
                                     }
                                 },
                                 onDragEnd = {
                                     val dragDuration = System.currentTimeMillis() - dragStartTime
                                     val velocity = if (dragDuration > 0) totalDragDistance / dragDuration else 0f
-                                    val currentOffset = offsetXAnimatable.value
+                                    val currentOffset = offsetXAnimatable.value + dragOffsetX
+                                    dragOffsetX = 0f
 
                                     val minDistanceThreshold = 50f
                                     val velocityThreshold = (swipeSensitivity * -8.25f) + 8.5f
@@ -208,7 +217,7 @@ fun SwipeableMiniPlayerBox(
                                                     android.view.HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING,
                                                 )
                                             }
-                                            playerConnection.player.seekToPreviousMediaItem()
+                                            playerConnection.seekToPrevious()
                                         } else if (!isRightSwipe && canSkipNext) {
                                             if (enableHapticFeedback) {
                                                 view.performHapticFeedback(
@@ -216,11 +225,12 @@ fun SwipeableMiniPlayerBox(
                                                     android.view.HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING,
                                                 )
                                             }
-                                            playerConnection.player.seekToNext()
+                                            playerConnection.seekToNext()
                                         }
                                     }
 
                                     coroutineScope.launch {
+                                        offsetXAnimatable.snapTo(currentOffset)
                                         offsetXAnimatable.animateTo(
                                             targetValue = 0f,
                                             animationSpec = animationSpec,
@@ -234,19 +244,20 @@ fun SwipeableMiniPlayerBox(
                     }
                 },
     ) {
-        content(offsetXAnimatable.value)
+        content(offsetXAnimatable.value + dragOffsetX)
 
-        if (offsetXAnimatable.value.absoluteValue > 50f) {
+        val swipeOffset = offsetXAnimatable.value + dragOffsetX
+        if (swipeOffset.absoluteValue > 50f) {
             Box(
                 modifier =
                     Modifier
-                        .align(if (offsetXAnimatable.value > 0) Alignment.CenterStart else Alignment.CenterEnd)
+                        .align(if (swipeOffset > 0) Alignment.CenterStart else Alignment.CenterEnd)
                         .padding(horizontal = 16.dp),
             ) {
                 Icon(
                     painter =
                         painterResource(
-                            if (offsetXAnimatable.value > 0) R.drawable.skip_previous else R.drawable.skip_next,
+                            if (swipeOffset > 0) R.drawable.skip_previous else R.drawable.skip_next,
                         ),
                     contentDescription = null,
                     tint =
@@ -274,7 +285,9 @@ fun RowScope.MiniPlayerInfo(
     ) {
         AnimatedContent(
             targetState = mediaMetadata.title,
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            transitionSpec = {
+                fadeIn(tween(180)) togetherWith fadeOut(tween(120))
+            },
             label = "title",
         ) { title ->
             Text(
@@ -289,7 +302,9 @@ fun RowScope.MiniPlayerInfo(
 
         AnimatedContent(
             targetState = mediaMetadata.artists,
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            transitionSpec = {
+                fadeIn(tween(180)) togetherWith fadeOut(tween(120))
+            },
             label = "artist",
         ) { artists ->
             Text(
@@ -348,23 +363,29 @@ private fun MiniPlayerArtwork(
                         shape = CircleShape,
                     ),
         ) {
-            val thumbnailUrl = mediaMetadata?.thumbnailUrl
-            if (thumbnailUrl != null) {
-                AsyncImage(
-                    model = thumbnailUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape),
-                )
-            } else {
-                Image(
-                    painter = painterResource(R.drawable.hush_logo_mark),
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
+            val artworkUrl = mediaMetadata.resolvePlaybackArtworkUrl()
+            Crossfade(
+                targetState = artworkUrl,
+                animationSpec = tween(220),
+                label = "miniPlayerArtwork",
+            ) { url ->
+                if (url != null) {
+                    AsyncImage(
+                        model = url,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape),
+                    )
+                } else {
+                    Image(
+                        painter = painterResource(R.drawable.hush_logo_mark),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
     }
@@ -382,17 +403,30 @@ private fun MiniPlayerTransportButton(
 ) {
     val view = LocalView.current
     val (enableHapticFeedback) = rememberPreference(EnableHapticFeedbackKey, true)
+    val accentGradient = rememberHushAccentGradient()
 
     LaunchedEffect(enableHapticFeedback) {
         view.isHapticFeedbackEnabled = enableHapticFeedback
     }
 
-    val containerColor =
-        if (isPrimary) colors.primaryButtonContainer else Color.Transparent
+    val backgroundModifier =
+        if (isPrimary) {
+            Modifier.background(accentGradient, CircleShape)
+        } else {
+            Modifier.background(colors.primaryButtonContainer.copy(alpha = 0.12f), CircleShape)
+        }
     val borderColor =
-        if (enabled) colors.buttonBorder else colors.buttonBorder.copy(alpha = 0.12f)
+        if (enabled) {
+            if (isPrimary) colors.buttonBorder.copy(alpha = 0.45f) else colors.buttonBorder
+        } else {
+            colors.buttonBorder.copy(alpha = 0.12f)
+        }
     val iconTint =
-        if (enabled) colors.buttonIcon else colors.disabledButtonIcon
+        if (enabled) {
+            if (isPrimary) MaterialTheme.colorScheme.onPrimary else colors.buttonIcon
+        } else {
+            colors.disabledButtonIcon
+        }
 
     Box(
         contentAlignment = Alignment.Center,
@@ -401,9 +435,12 @@ private fun MiniPlayerTransportButton(
                 .then(modifier)
                 .size(if (isPrimary) 40.dp else 36.dp)
                 .clip(CircleShape)
-                .background(containerColor)
-                .border(width = 1.dp, color = borderColor, shape = CircleShape)
-                .clickable(enabled = enabled, onClick = {
+                .then(backgroundModifier)
+                .border(width = 0.5.dp, color = borderColor, shape = CircleShape)
+                .archiveTunePressable(
+                    enabled = enabled,
+                    pressScale = ArchiveTuneDesign.ChipPressScale,
+                    onClick = {
                     if (enableHapticFeedback) {
                         view.performHapticFeedback(
                             android.view.HapticFeedbackConstants.CONTEXT_CLICK,
@@ -411,7 +448,8 @@ private fun MiniPlayerTransportButton(
                         )
                     }
                     onClick()
-                }),
+                },
+                ),
     ) {
         Icon(
             painter = painterResource(iconResId),
@@ -504,7 +542,16 @@ fun NewMiniPlayerContent(
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsStateWithLifecycle()
     val canSkipNext by playerConnection.canSkipNext.collectAsStateWithLifecycle()
 
-    val isLoading = playbackState == Player.STATE_BUFFERING
+    val rawLoading = playbackState == Player.STATE_BUFFERING
+    var isLoading by remember(mediaMetadata?.id) { mutableStateOf(rawLoading) }
+    LaunchedEffect(rawLoading) {
+        if (rawLoading) {
+            isLoading = true
+        } else {
+            delay(250)
+            isLoading = false
+        }
+    }
 
     Row(
         verticalAlignment = Alignment.CenterVertically,

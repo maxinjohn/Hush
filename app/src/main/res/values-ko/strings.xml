@@ -322,9 +322,6 @@
     <string name="system_default">시스템 기본값</string>
     <string name="enable_proxy">프록시 사용</string>
     <string name="internet">인터넷</string>
-    <string name="internet_warning_title">보안 및 사용 주의사항</string>
-    <string name="internet_warning_doh">보안 DNS 채널 사용 (DoH)은 해당 국가/지역에서 YouTube 연결이 검열 및 차단되었을 때만 유용합니다. 해당 네트워크 영역 전체가 물리적으로 차단된 경우라면 VPN이나 프록시 사용을 고려해 주세요.</string>
-    <string name="internet_warning_proxy">안전성이 명확히 검증된 개인 우회 서버만 사용하는 것을 권장합니다. 공개 무료 우회 서버는 해킹 및 개인정보 탈취 위험이 크므로 각별히 주의하시기 바랍니다. 사용 시 발생할 수 있는 보안 문제에 대해 당사는 책임을 지지 않습니다.</string>
     <string name="dns_over_https">보안 DNS 채널 사용 (DoH)</string>
     <string name="dns_over_https_desc">보안 웹 채널을 이용해 주소를 안전하게 우회하여 찾아냅니다.</string>
     <string name="dns_provider">DNS 제공업체</string>

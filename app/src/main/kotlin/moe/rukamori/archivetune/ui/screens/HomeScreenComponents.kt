@@ -9,10 +9,14 @@ package moe.rukamori.archivetune.ui.screens
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import moe.rukamori.archivetune.ui.theme.archiveTuneCombinedPressable
+import moe.rukamori.archivetune.ui.theme.hushCarouselContentParallax
+import moe.rukamori.archivetune.ui.theme.hushCarouselLiveParallax
+import moe.rukamori.archivetune.ui.theme.hushHomeCarouselCard
+import moe.rukamori.archivetune.ui.theme.hushHomeRowCard
+import moe.rukamori.archivetune.ui.theme.rememberHushAccentGradient
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
@@ -100,6 +104,8 @@ import moe.rukamori.archivetune.extensions.toMediaItem
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.innertube.models.AlbumItem
 import moe.rukamori.archivetune.innertube.models.ArtistItem
+import moe.rukamori.archivetune.innertube.models.EpisodeItem
+import moe.rukamori.archivetune.innertube.models.PodcastItem
 import moe.rukamori.archivetune.innertube.models.PlaylistItem
 import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.models.WatchEndpoint
@@ -154,8 +160,9 @@ fun QuickPicksSection(
 
     when (displayMode) {
         QuickPicksDisplayMode.CARD -> {
+            val carouselState = rememberCarouselState { distinctQuickPicks.size }
             HorizontalCenteredHeroCarousel(
-                state = rememberCarouselState { distinctQuickPicks.size },
+                state = carouselState,
                 maxItemWidth = 250.dp,
                 itemSpacing = 8.dp,
                 contentPadding = PaddingValues(horizontal = 16.dp),
@@ -166,17 +173,17 @@ fun QuickPicksSection(
             ) { index ->
                 val song = distinctQuickPicks[index]
                 val isActive = song.id == mediaMetadata?.id
+                val drawInfo = carouselItemDrawInfo
 
                 Box(
                     modifier =
                         Modifier
                             .fillMaxSize()
+                            .hushCarouselLiveParallax(drawInfo)
+                            .hushHomeCarouselCard(shape = MaterialTheme.shapes.extraLarge)
                             .maskClip(MaterialTheme.shapes.extraLarge)
-                            .maskBorder(
-                                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                MaterialTheme.shapes.extraLarge,
-                            ).focusable()
-                            .combinedClickable(
+                            .focusable()
+                            .archiveTuneCombinedPressable(
                                 onClick = {
                                     if (isActive) {
                                         playerConnection.player.togglePlayPause()
@@ -211,7 +218,10 @@ fun QuickPicksSection(
                                 .build(),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .hushCarouselContentParallax(drawInfo),
                     )
 
                     Box(
@@ -238,7 +248,7 @@ fun QuickPicksSection(
                                     .padding(12.dp)
                                     .size(32.dp)
                                     .background(
-                                        MaterialTheme.colorScheme.primary,
+                                        rememberHushAccentGradient(),
                                         CircleShape,
                                     ),
                             contentAlignment = Alignment.Center,
@@ -338,7 +348,7 @@ fun QuickPicksSection(
                             modifier =
                                 Modifier
                                     .width(itemWidth)
-                                    .combinedClickable(
+                                    .archiveTuneCombinedPressable(
                                         onClick = {
                                             if (song.id == mediaMetadata?.id) {
                                                 playerConnection.player.togglePlayPause()
@@ -588,7 +598,7 @@ fun SpeedDialSection(
                                                     .size(tileSize)
                                                     .clip(MaterialTheme.shapes.large)
                                                     .focusable()
-                                                    .combinedClickable(
+                                                    .archiveTuneCombinedPressable(
                                                         onClick = {
                                                             when (localItem) {
                                                                 is Song -> {
@@ -722,7 +732,7 @@ private fun SpeedDialRandomTile(
         modifier =
             modifier
                 .aspectRatio(1f)
-                .combinedClickable(onClick = onClick),
+                .archiveTuneCombinedPressable(onClick = onClick),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Column(
@@ -869,7 +879,7 @@ fun ForgottenFavoritesSection(
                     Modifier
                         .width(horizontalLazyGridItemWidth)
                         .focusable()
-                        .combinedClickable(
+                        .archiveTuneCombinedPressable(
                             onClick = {
                                 if (song.id == mediaMetadata?.id) {
                                     playerConnection.player.togglePlayPause()
@@ -1073,8 +1083,10 @@ private fun YouTubeGridItemWrapper(
         thumbnailRatio = 1f,
         modifier =
             modifier
+                .padding(horizontal = 4.dp)
+                .hushHomeRowCard()
                 .focusable()
-                .combinedClickable(
+                .archiveTuneCombinedPressable(
                     onClick = {
                         when (item) {
                             is SongItem -> {
@@ -1096,6 +1108,19 @@ private fun YouTubeGridItemWrapper(
 
                             is PlaylistItem -> {
                                 navController.navigate("online_playlist/${item.id}")
+                            }
+
+                            is PodcastItem -> {
+                                navController.navigate("online_podcast/${item.id}")
+                            }
+
+                            is EpisodeItem -> {
+                                playerConnection.playQueue(
+                                    ListQueue(
+                                        title = item.title,
+                                        items = listOf(item.asSongItem().toMediaMetadata().toMediaItem()),
+                                    ),
+                                )
                             }
                         }
                     },
@@ -1133,6 +1158,22 @@ private fun YouTubeGridItemWrapper(
                                         onDismiss = menuState::dismiss,
                                     )
                                 }
+
+                                is PodcastItem -> {
+                                    YouTubePlaylistMenu(
+                                        playlist = item.asPlaylistItem(),
+                                        coroutineScope = scope,
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
+
+                                is EpisodeItem -> {
+                                    YouTubeSongMenu(
+                                        song = item.asSongItem(),
+                                        navController = navController,
+                                        onDismiss = menuState::dismiss,
+                                    )
+                                }
                             }
                         }
                     },
@@ -1164,7 +1205,7 @@ private fun LocalGridItem(
                     modifier
                         .fillMaxWidth()
                         .focusable()
-                        .combinedClickable(
+                        .archiveTuneCombinedPressable(
                             onClick = {
                                 if (item.id == mediaMetadata?.id) {
                                     playerConnection.player.togglePlayPause()
@@ -1198,7 +1239,7 @@ private fun LocalGridItem(
                     modifier
                         .fillMaxWidth()
                         .focusable()
-                        .combinedClickable(
+                        .archiveTuneCombinedPressable(
                             onClick = { navController.navigate("album/${item.id}") },
                             onLongClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1221,7 +1262,7 @@ private fun LocalGridItem(
                     modifier
                         .fillMaxWidth()
                         .focusable()
-                        .combinedClickable(
+                        .archiveTuneCombinedPressable(
                             onClick = { navController.navigate("artist/${item.id}") },
                             onLongClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)

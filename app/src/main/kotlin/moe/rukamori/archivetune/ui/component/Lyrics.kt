@@ -697,7 +697,13 @@ fun Lyrics(
             if (isSeeking != seekingNow) {
                 isSeeking = seekingNow
             }
-            val position = sliderPosition ?: playerConnection.player.currentPosition
+            val position =
+                when {
+                    sliderPosition != null -> sliderPosition
+                    playerConnection.crossfadeLyricsState.value.isActive ->
+                        playerConnection.crossfadeLyricsState.value.incomingPositionMs
+                    else -> playerConnection.player.currentPosition
+                }
             val syncedPosition = (position + wordSyncLeadMs + lyricsSyncOffset.toLong()).coerceAtLeast(0L)
             if (currentPlaybackPosition != syncedPosition) {
                 currentPlaybackPosition = syncedPosition
@@ -817,6 +823,7 @@ fun Lyrics(
         modifier =
             modifier
                 .fillMaxSize()
+                .lyricsViewport()
                 .padding(bottom = 12.dp),
     ) {
         if (lyrics == LYRICS_NOT_FOUND) {
@@ -1135,20 +1142,20 @@ fun Lyrics(
                                         isSelectionModeActive
 
                                     if (effectiveAnimationStyle == LyricsAnimationStyle.KARAOKE && hasWordTimings) {
-                                        val isCjk =
+                                        val isComplexScript =
                                             remember(item.text) {
-                                                isChinese(item.text) || isJapanese(item.text) || isKorean(item.text)
+                                                isComplexScriptLyric(item.text)
                                             }
 
                                         val wordsToRender =
-                                            remember(item.words, item.text, item.time, lines.size, index, lineIsRtl, isCjk) {
+                                            remember(item.words, item.text, item.time, lines.size, index, lineIsRtl, isComplexScript) {
                                                 if (hasWordTimings && item.words != null) {
                                                     val baseWords = item.words.filter { it.text.isNotBlank() }
                                                     baseWords.flatMapIndexed { idx, word ->
                                                         val prevText = baseWords.getOrNull(idx - 1)?.text
                                                         val nextText = baseWords.getOrNull(idx + 1)?.text
                                                         val includeSpace =
-                                                            if (isCjk) {
+                                                            if (isComplexScript) {
                                                                 // Add space at CJK↔Latin boundaries
                                                                 val currEdge =
                                                                     if (lineIsRtl) {
@@ -1181,19 +1188,17 @@ fun Lyrics(
                                                         val wordEndMs = (word.endTime * 1000).toLong()
                                                         val wordDuration = wordEndMs - wordStartMs
 
-                                                        if (isCjk && word.text.length > 3) {
-                                                            // Split long CJK phrases into individual characters for FlowRow wrapping
-                                                            // Short entries (1-3 chars) are kept intact — TTML already provides granular timing
-                                                            val chars = word.text.toList()
-                                                            chars.mapIndexed { charIdx, char ->
+                                                        if (shouldSplitLyricTokenForWrapping(word.text)) {
+                                                            // Split long/complex-script tokens so FlowRow can wrap on narrow screens.
+                                                            val chars = splitLyricTextForWrapping(word.text)
+                                                            chars.mapIndexed { charIdx, segment ->
                                                                 val charStartMs = wordStartMs + (wordDuration * charIdx / chars.size)
                                                                 val charEndMs = wordStartMs + (wordDuration * (charIdx + 1) / chars.size)
-                                                                // Add space only at the last/first character boundary with next/prev word
                                                                 val charText =
                                                                     when {
-                                                                        includeSpace && !lineIsRtl && charIdx == chars.lastIndex -> "$char "
-                                                                        includeSpace && lineIsRtl && charIdx == 0 -> " $char"
-                                                                        else -> char.toString()
+                                                                        includeSpace && !lineIsRtl && charIdx == chars.lastIndex -> "$segment "
+                                                                        includeSpace && lineIsRtl && charIdx == 0 -> " $segment"
+                                                                        else -> segment
                                                                     }
                                                                 Triple(charText, charStartMs to charEndMs, word.isBackground)
                                                             }
@@ -1220,21 +1225,13 @@ fun Lyrics(
                                                             ?: (item.time + 5000L).coerceAtLeast(item.time + 1000L)
                                                     val lineDuration = (nextLineTime - item.time).coerceAtLeast(100L)
 
-                                                    val splitWords =
-                                                        if (isCjk) {
-                                                            item.text.map { it.toString() }
-                                                        } else {
-                                                            item.text
-                                                                .trim()
-                                                                .split(Regex("\\s+"))
-                                                                .filter { it.isNotBlank() }
-                                                        }
+                                                    val splitWords = splitLyricTextForWrapping(item.text)
                                                     val lengths =
                                                         splitWords.mapIndexed { idx, wordText ->
                                                             val prevText = splitWords.getOrNull(idx - 1)
                                                             val nextText = splitWords.getOrNull(idx + 1)
                                                             val includeSpace =
-                                                                if (isCjk) {
+                                                                if (isComplexScript) {
                                                                     val currEdge =
                                                                         if (lineIsRtl) {
                                                                             wordText.firstOrNull()
@@ -1276,7 +1273,7 @@ fun Lyrics(
                                                         val prevText = splitWords.getOrNull(idx - 1)
                                                         val nextText = splitWords.getOrNull(idx + 1)
                                                         val includeSpace =
-                                                            if (isCjk) {
+                                                            if (isComplexScript) {
                                                                 val currEdge =
                                                                     if (lineIsRtl) {
                                                                         wordText.firstOrNull()
@@ -1373,6 +1370,8 @@ fun Lyrics(
                                                 textAlign = alignment,
                                                 fontWeight = if (hasRomanization) FontWeight.Bold else FontWeight.SemiBold,
                                                 lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
+                                                softWrap = true,
+                                                modifier = Modifier.fillMaxWidth(),
                                             )
                                         } else {
                                             val styledText =
@@ -1452,6 +1451,8 @@ fun Lyrics(
                                                 fontSize = lyricsTextSize.sp,
                                                 textAlign = alignment,
                                                 lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
+                                                softWrap = true,
+                                                modifier = Modifier.fillMaxWidth(),
                                             )
                                         }
                                     } else if (hasWordTimings && item.words != null &&
@@ -1465,6 +1466,8 @@ fun Lyrics(
                                                 textAlign = alignment,
                                                 fontWeight = if (hasRomanization) FontWeight.Bold else FontWeight.SemiBold,
                                                 lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
+                                                softWrap = true,
+                                                modifier = Modifier.fillMaxWidth(),
                                             )
                                         } else {
                                             val styledText =
@@ -1536,6 +1539,8 @@ fun Lyrics(
                                                 fontSize = lyricsTextSize.sp,
                                                 textAlign = alignment,
                                                 lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
+                                                softWrap = true,
+                                                modifier = Modifier.fillMaxWidth(),
                                             )
                                         }
                                     } else if (hasWordTimings && item.words != null &&
@@ -1549,6 +1554,8 @@ fun Lyrics(
                                                 textAlign = alignment,
                                                 fontWeight = if (hasRomanization) FontWeight.Bold else FontWeight.SemiBold,
                                                 lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
+                                                softWrap = true,
+                                                modifier = Modifier.fillMaxWidth(),
                                             )
                                         } else {
                                             val styledText =
@@ -1668,6 +1675,8 @@ fun Lyrics(
                                                 fontSize = lyricsTextSize.sp,
                                                 textAlign = alignment,
                                                 lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
+                                                softWrap = true,
+                                                modifier = Modifier.fillMaxWidth(),
                                             )
                                         }
                                     } else if (hasWordTimings && item.words != null &&
@@ -1733,6 +1742,8 @@ fun Lyrics(
                                                 fontSize = lyricsTextSize.sp,
                                                 textAlign = alignment,
                                                 lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
+                                                softWrap = true,
+                                                modifier = Modifier.fillMaxWidth(),
                                             )
                                         } else if (hasLinePassed) {
                                             Text(
@@ -1751,6 +1762,8 @@ fun Lyrics(
                                                 textAlign = alignment,
                                                 fontWeight = if (hasRomanization) FontWeight.Bold else FontWeight.SemiBold,
                                                 lineHeight = (lyricsTextSize * lyricsLineSpacing).sp,
+                                                softWrap = true,
+                                                modifier = Modifier.fillMaxWidth(),
                                             )
                                         }
                                     } else if (hasWordTimings && item.words != null &&

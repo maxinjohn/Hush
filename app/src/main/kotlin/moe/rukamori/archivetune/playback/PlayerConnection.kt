@@ -57,6 +57,7 @@ class PlayerConnection(
             player.playWhenReady && player.playbackState != STATE_ENDED,
         )
     val mediaMetadata = service.currentMediaMetadata
+    val activePlaybackClientLabel = service.activePlaybackClientLabel
     val currentSong =
         mediaMetadata.flatMapLatest {
             database.song(it?.id)
@@ -86,6 +87,7 @@ class PlayerConnection(
     val error = MutableStateFlow<PlaybackException?>(null)
     val waitingForNetworkConnection = service.waitingForNetworkConnection
     val queueRestoreCompleted = service.queueRestoreCompleted
+    val crossfadeLyricsState = service.crossfadeLyricsState
 
     init {
         player.addListener(this)
@@ -138,8 +140,14 @@ class PlayerConnection(
             service.requestTogetherControl(moe.rukamori.archivetune.together.ControlAction.SkipNext)
             return
         }
-        player.seekToNext()
-        player.prepare()
+        if (player.isCommandAvailable(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
+            player.seekToNextMediaItem()
+        } else {
+            player.seekToNext()
+        }
+        if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+            player.prepare()
+        }
         player.playWhenReady = true
     }
 
@@ -149,8 +157,16 @@ class PlayerConnection(
             service.requestTogetherControl(moe.rukamori.archivetune.together.ControlAction.SkipPrevious)
             return
         }
-        player.seekToPrevious()
-        player.prepare()
+        if (player.isCommandAvailable(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)) {
+            player.seekToPreviousMediaItem()
+        } else if (player.isCommandAvailable(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM) && player.currentPosition > 3_000) {
+            player.seekTo(0)
+        } else {
+            player.seekToPrevious()
+        }
+        if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+            player.prepare()
+        }
         player.playWhenReady = true
     }
 

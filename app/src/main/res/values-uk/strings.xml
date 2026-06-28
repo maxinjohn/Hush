@@ -646,9 +646,6 @@
     <string name="disable_animations">Вимкнути анімацію</string>
     <string name="disable_animations_desc">Вимкення більшості анімацій у програмі. Рекомендується для пристроїв низького класу</string>
     <string name="internet">Інтернет</string>
-    <string name="internet_warning_title">Попередження щодо безпеки та використання</string>
-    <string name="internet_warning_doh">DNS через HTTPS працює лише в тому випадку, якщо у вашій країні заблоковано YouTube. Якщо YouTube активно блокує доступ у вашому регіоні, рекомендуємо скористатися проксі-сервером або VPN.</string>
-    <string name="internet_warning_proxy">Будь ласка, використовуйте лише ті проксі-сервери, у безпеці яких ви впевнені. Безкоштовні проксі-сервери зручні, але не завжди безпечні, тому будьте обережні. Ми Вас попередили і не несемо відповідальності за Вашу безпеку.</string>
     <string name="dns_over_https">DNS через HTTPS</string>
     <string name="dns_over_https_desc">Використовуйте протокол DNS через HTTPS (DoH) для розпізнавання імен хостів</string>
     <string name="dns_provider">Провайдер DNS</string>

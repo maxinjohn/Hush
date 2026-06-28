@@ -53,7 +53,7 @@ import androidx.compose.material.icons.outlined.Hearing
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonGroupDefaults
+
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -63,7 +63,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -134,6 +133,8 @@ import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.innertube.models.AlbumItem
 import moe.rukamori.archivetune.innertube.models.ArtistItem
 import moe.rukamori.archivetune.innertube.models.BrowseEndpoint
+import moe.rukamori.archivetune.innertube.models.EpisodeItem
+import moe.rukamori.archivetune.innertube.models.PodcastItem
 import moe.rukamori.archivetune.innertube.models.PlaylistItem
 import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.models.WatchEndpoint
@@ -147,6 +148,7 @@ import moe.rukamori.archivetune.ui.component.HideOnScrollFAB
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.LocalMenuState
 import moe.rukamori.archivetune.ui.component.NavigationTitle
+import moe.rukamori.archivetune.ui.component.StandardPlaylistHeaderActions
 import moe.rukamori.archivetune.ui.component.SongListItem
 import moe.rukamori.archivetune.ui.component.YouTubeGridItem
 import moe.rukamori.archivetune.ui.component.YouTubeListItem
@@ -154,6 +156,7 @@ import moe.rukamori.archivetune.ui.component.shimmer.ButtonPlaceholder
 import moe.rukamori.archivetune.ui.component.shimmer.ListItemPlaceHolder
 import moe.rukamori.archivetune.ui.component.shimmer.ShimmerHost
 import moe.rukamori.archivetune.ui.component.shimmer.TextPlaceholder
+import moe.rukamori.archivetune.ui.menu.ArtistMenu
 import moe.rukamori.archivetune.ui.menu.AlbumMenu
 import moe.rukamori.archivetune.ui.menu.SongMenu
 import moe.rukamori.archivetune.ui.menu.YouTubeAlbumMenu
@@ -619,152 +622,95 @@ fun ArtistScreen(
                             ArtistStatsButtonGroup(stats = artistStats)
                         }
 
-                        // Action Buttons
-                        Row(
+                        val isSubscribed = libraryArtist?.artist?.bookmarkedAt != null
+                        val canPlayOnline = artistPage?.artist?.playEndpoint != null
+                        val canPlayLocal = showLocal && librarySongs.isNotEmpty()
+                        val canShuffleOnline = artistPage?.artist?.shuffleEndpoint != null
+                        val canShuffleLocal = showLocal && librarySongs.isNotEmpty()
+
+                        StandardPlaylistHeaderActions(
                             modifier =
                                 Modifier
-                                    .fillMaxWidth()
                                     .padding(horizontal = 24.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            val isSubscribed = libraryArtist?.artist?.bookmarkedAt != null
-
-                            ToggleButton(
-                                checked = isSubscribed,
-                                onCheckedChange = {
-                                    database.transaction {
-                                        val artist = libraryArtist?.artist
-                                        if (artist != null) {
-                                            update(artist.toggleLike())
-                                        } else {
-                                            artistPage?.artist?.let {
-                                                insert(
-                                                    ArtistEntity(
-                                                        id = it.id,
-                                                        name = it.title,
-                                                        channelId = it.channelId,
-                                                        thumbnailUrl = it.thumbnail,
-                                                    ).toggleLike(),
-                                                )
-                                            }
-                                        }
-                                    }
-                                },
-                                colors =
-                                    ToggleButtonDefaults.toggleButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                                        checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        checkedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    ),
-                                modifier =
-                                    Modifier
-                                        .weight(1f)
-                                        .height(48.dp),
-                                shapes =
-                                    if (!showLocal && artistPage?.artist?.radioEndpoint != null) {
-                                        ButtonGroupDefaults.connectedLeadingButtonShapes()
+                            subscribed = isSubscribed,
+                            onToggleSubscribe = {
+                                database.transaction {
+                                    val artist = libraryArtist?.artist
+                                    if (artist != null) {
+                                        update(artist.toggleLike())
                                     } else {
-                                        ButtonGroupDefaults.connectedLeadingButtonShapes()
-                                    },
-                            ) {
-                                Icon(
-                                    painter =
-                                        painterResource(
-                                            if (isSubscribed) R.drawable.done else R.drawable.add,
-                                        ),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text =
-                                        stringResource(
-                                            if (isSubscribed) R.string.subscribed else R.string.subscribe,
-                                        ),
-                                    maxLines = 1,
-                                )
-                            }
-
-                            ToggleButton(
-                                checked = false,
-                                onCheckedChange = {
-                                    if (!showLocal) {
-                                        artistPage?.artist?.shuffleEndpoint?.let { shuffleEndpoint ->
-                                            playerConnection.playQueue(YouTubeQueue(shuffleEndpoint))
+                                        artistPage?.artist?.let {
+                                            insert(
+                                                ArtistEntity(
+                                                    id = it.id,
+                                                    name = it.title,
+                                                    channelId = it.channelId,
+                                                    thumbnailUrl = it.thumbnail,
+                                                ).toggleLike(),
+                                            )
                                         }
-                                    } else if (librarySongs.isNotEmpty()) {
-                                        val shuffledSongs = librarySongs.shuffled()
-                                        playerConnection.playQueue(
-                                            ListQueue(
-                                                title = libraryArtist?.artist?.name ?: "Unknown Artist",
-                                                items = shuffledSongs.map { it.toMediaItem() },
-                                            ),
-                                        )
-                                    }
-                                },
-                                enabled = if (showLocal) librarySongs.isNotEmpty() else artistPage?.artist?.shuffleEndpoint != null,
-                                modifier =
-                                    Modifier
-                                        .weight(1f)
-                                        .height(48.dp),
-                                shapes =
-                                    if (!showLocal && artistPage?.artist?.radioEndpoint != null) {
-                                        ButtonGroupDefaults.connectedMiddleButtonShapes()
-                                    } else {
-                                        ButtonGroupDefaults.connectedTrailingButtonShapes()
-                                    },
-                                colors =
-                                    ToggleButtonDefaults.toggleButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary,
-                                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                                        checkedContainerColor = MaterialTheme.colorScheme.primary,
-                                        checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-                                    ),
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.shuffle),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = stringResource(R.string.shuffle),
-                                    maxLines = 1,
-                                )
-                            }
-
-                            if (!showLocal) {
-                                artistPage?.artist?.radioEndpoint?.let { radioEndpoint ->
-                                    ToggleButton(
-                                        checked = false,
-                                        onCheckedChange = {
-                                            playerConnection.playQueue(YouTubeQueue(radioEndpoint))
-                                        },
-                                        modifier =
-                                            Modifier
-                                                .weight(1f)
-                                                .height(48.dp),
-                                        shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
-                                        colors =
-                                            ToggleButtonDefaults.toggleButtonColors(
-                                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                checkedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                checkedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            ),
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.radio),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(text = stringResource(R.string.radio))
                                     }
                                 }
-                            }
-                        }
+                            },
+                            onPlay =
+                                if (canPlayOnline || canPlayLocal) {
+                                    {
+                                        if (!showLocal) {
+                                            artistPage?.artist?.playEndpoint?.let { playEndpoint ->
+                                                playerConnection.playQueue(YouTubeQueue.playlist(playEndpoint))
+                                            }
+                                        } else {
+                                            playerConnection.playQueue(
+                                                ListQueue(
+                                                    title = libraryArtist?.artist?.name ?: "Unknown Artist",
+                                                    items = librarySongs.map { it.toMediaItem() },
+                                                ),
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    null
+                                },
+                            onShuffle =
+                                if (canShuffleOnline || canShuffleLocal) {
+                                    {
+                                        if (!showLocal) {
+                                            artistPage?.artist?.shuffleEndpoint?.let { shuffleEndpoint ->
+                                                playerConnection.playQueue(YouTubeQueue(shuffleEndpoint))
+                                            }
+                                        } else {
+                                            playerConnection.playQueue(
+                                                ListQueue(
+                                                    title = libraryArtist?.artist?.name ?: "Unknown Artist",
+                                                    items = librarySongs.shuffled().map { it.toMediaItem() },
+                                                ),
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    null
+                                },
+                            playEnabled = canPlayOnline || canPlayLocal,
+                            shuffleEnabled = canShuffleOnline || canShuffleLocal,
+                            onMoreClick = {
+                                menuState.show {
+                                    if (showLocal && libraryArtist != null) {
+                                        ArtistMenu(
+                                            originalArtist = libraryArtist!!,
+                                            coroutineScope = coroutineScope,
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    } else {
+                                        artistPage?.artist?.let { artist ->
+                                            YouTubeArtistMenu(
+                                                artist = artist,
+                                                onDismiss = menuState::dismiss,
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                        )
 
                         Spacer(modifier = Modifier.height(16.dp))
                     }
@@ -1078,6 +1024,19 @@ fun ArtistScreen(
                                                                 is PlaylistItem -> {
                                                                     navController.navigate("online_playlist/${item.id}")
                                                                 }
+
+                                                            is PodcastItem -> {
+                                                                navController.navigate("online_podcast/${item.id}")
+                                                            }
+
+                                                            is EpisodeItem -> {
+                                                                playerConnection.playQueue(
+                                                                    ListQueue(
+                                                                        title = item.title,
+                                                                        items = listOf(item.asSongItem().toMediaMetadata().toMediaItem()),
+                                                                    ),
+                                                                )
+                                                            }
                                                             }
                                                         },
                                                         onLongClick = {
@@ -1114,6 +1073,22 @@ fun ArtistScreen(
                                                                             onDismiss = menuState::dismiss,
                                                                         )
                                                                     }
+
+                                                                is PodcastItem -> {
+                                                                    YouTubePlaylistMenu(
+                                                                        playlist = item.asPlaylistItem(),
+                                                                        coroutineScope = coroutineScope,
+                                                                        onDismiss = menuState::dismiss,
+                                                                    )
+                                                                }
+
+                                                                is EpisodeItem -> {
+                                                                    YouTubeSongMenu(
+                                                                        song = item.asSongItem(),
+                                                                        navController = navController,
+                                                                        onDismiss = menuState::dismiss,
+                                                                    )
+                                                                }
                                                                 }
                                                             }
                                                         },

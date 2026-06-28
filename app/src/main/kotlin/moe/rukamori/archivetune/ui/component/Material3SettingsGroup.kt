@@ -9,10 +9,12 @@ package moe.rukamori.archivetune.ui.component
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -51,11 +53,15 @@ fun Material3SettingsGroup(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .animateContentSize(),
-            shape = RoundedCornerShape(24.dp),
+                    .border(
+                        width = 0.5.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f),
+                        shape = ArchiveTuneDesign.cardShape,
+                    ).animateContentSize(),
+            shape = ArchiveTuneDesign.cardShape,
             colors =
                 CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                 ),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
@@ -84,11 +90,17 @@ private fun Material3SettingsItemRow(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(ArchiveTuneDesign.itemShape)
                     .then(if (item.onClick != null) Modifier.focusable() else Modifier)
-                    .clickable(
-                        enabled = item.onClick != null,
-                        onClick = { item.onClick?.invoke() },
+                    .then(
+                        if (item.onClick != null) {
+                            Modifier.archiveTunePressable(
+                                onClick = { item.onClick?.invoke() },
+                                pressScale = ArchiveTuneDesign.RowPressScale,
+                            )
+                        } else {
+                            Modifier
+                        },
                     ).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

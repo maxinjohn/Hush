@@ -197,8 +197,6 @@ import moe.rukamori.archivetune.constants.FloatingToolbarBottomPadding
 import moe.rukamori.archivetune.constants.FloatingToolbarHeight
 import moe.rukamori.archivetune.constants.FloatingToolbarHorizontalPadding
 import moe.rukamori.archivetune.constants.FontPreferenceKey
-import moe.rukamori.archivetune.constants.HasPressedStarKey
-import moe.rukamori.archivetune.constants.LaunchCountKey
 import moe.rukamori.archivetune.constants.MiniPlayerBottomSpacing
 import moe.rukamori.archivetune.constants.MiniPlayerHeight
 import moe.rukamori.archivetune.constants.MiniPlayerLastAnchorKey
@@ -209,7 +207,6 @@ import moe.rukamori.archivetune.constants.PlayerBackgroundStyleKey
 import moe.rukamori.archivetune.constants.PlayerDesignStyle
 import moe.rukamori.archivetune.constants.PlayerDesignStyleKey
 import moe.rukamori.archivetune.constants.PureBlackKey
-import moe.rukamori.archivetune.constants.RemindAfterKey
 import moe.rukamori.archivetune.constants.SYSTEM_DEFAULT
 import moe.rukamori.archivetune.constants.SearchSource
 import moe.rukamori.archivetune.constants.SearchSourceKey
@@ -227,7 +224,9 @@ import moe.rukamori.archivetune.extensions.toMediaItem
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.innertube.models.AlbumItem
 import moe.rukamori.archivetune.innertube.models.ArtistItem
+import moe.rukamori.archivetune.innertube.models.EpisodeItem
 import moe.rukamori.archivetune.innertube.models.PlaylistItem
+import moe.rukamori.archivetune.innertube.models.PodcastItem
 import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.musicrecognition.ACTION_MUSIC_RECOGNITION
@@ -253,7 +252,6 @@ import moe.rukamori.archivetune.ui.component.LocalBottomSheetPageState
 import moe.rukamori.archivetune.ui.component.LocalMenuState
 import moe.rukamori.archivetune.ui.component.MarkdownText
 import moe.rukamori.archivetune.ui.component.NetworkStatusBanner
-import moe.rukamori.archivetune.ui.component.StarDialog
 import moe.rukamori.archivetune.ui.component.TopSearch
 import moe.rukamori.archivetune.ui.component.TvNavigationRail
 import moe.rukamori.archivetune.ui.component.rememberBottomSheetState
@@ -264,6 +262,7 @@ import moe.rukamori.archivetune.ui.screens.LOGIN_URL_ARGUMENT
 import moe.rukamori.archivetune.ui.screens.Screens
 import moe.rukamori.archivetune.ui.screens.buildLoginRoute
 import moe.rukamori.archivetune.ui.screens.navigationBuilder
+import moe.rukamori.archivetune.ui.screens.search.DynamicSearchPlaceholder
 import moe.rukamori.archivetune.ui.screens.search.LocalSearchScreen
 import moe.rukamori.archivetune.ui.screens.search.OnlineSearchResultArgument
 import moe.rukamori.archivetune.ui.screens.search.OnlineSearchResultRoutePrefix
@@ -281,6 +280,7 @@ import moe.rukamori.archivetune.ui.theme.DefaultThemeColor
 import moe.rukamori.archivetune.ui.theme.extractThemeColor
 import moe.rukamori.archivetune.ui.utils.appBarScrollBehavior
 import moe.rukamori.archivetune.ui.utils.backToMain
+import moe.rukamori.archivetune.ui.utils.resetContentOffset
 import moe.rukamori.archivetune.ui.utils.resetHeightOffset
 import moe.rukamori.archivetune.utils.PreferenceStore
 import moe.rukamori.archivetune.utils.SyncUtils
@@ -1252,7 +1252,7 @@ class MainActivity : ComponentActivity() {
                                 currentRoute !in topLevelScreens &&
                                 currentRoute.startsWith(OnlineSearchResultRoutePrefix) != true
                         if (isEnteringSubScreen) {
-                            topAppBarScrollBehavior.state.contentOffset = 0f
+                            topAppBarScrollBehavior.state.resetContentOffset()
                         }
 
                         previousRoute = currentRoute
@@ -1407,76 +1407,6 @@ class MainActivity : ComponentActivity() {
                         } else {
                             handleIntent(intent, navController)
                         }
-                    }
-
-                    var showStarDialog by remember { mutableStateOf(false) }
-
-                    LaunchedEffect(Unit) {
-                        kotlinx.coroutines.delay(3000)
-
-                        withContext(Dispatchers.IO) {
-                            val current = dataStore[LaunchCountKey] ?: 0
-                            val newCount = current + 1
-                            dataStore.edit { prefs ->
-                                prefs[LaunchCountKey] = newCount
-                            }
-                        }
-
-                        val shouldShow =
-                            withContext(Dispatchers.IO) {
-                                val hasPressed = dataStore[HasPressedStarKey] ?: false
-                                val remindAfter = dataStore[RemindAfterKey] ?: 3
-                                !hasPressed && (dataStore[LaunchCountKey] ?: 0) >= remindAfter
-                            }
-
-                        if (shouldShow) {
-                            var waited = 0L
-                            val waitStep = 500L
-                            val maxWait = 30_000L
-                            while (bottomSheetPageState.isVisible && waited < maxWait) {
-                                delay(waitStep)
-                                waited += waitStep
-                            }
-                            showStarDialog = true
-                        }
-                    }
-
-                    if (showStarDialog) {
-                        StarDialog(
-                            onDismissRequest = { showStarDialog = false },
-                            onSupport = {
-                                coroutineScope.launch {
-                                    try {
-                                        withContext(Dispatchers.IO) {
-                                            dataStore.edit { prefs ->
-                                                prefs[HasPressedStarKey] = true
-                                                prefs[RemindAfterKey] = Int.MAX_VALUE
-                                            }
-                                        }
-                                    } catch (e: Exception) {
-                                        reportException(e)
-                                    } finally {
-                                        showStarDialog = false
-                                    }
-                                }
-                            },
-                            onLater = {
-                                coroutineScope.launch {
-                                    try {
-                                        val launch = withContext(Dispatchers.IO) { dataStore[LaunchCountKey] ?: 0 }
-                                        withContext(Dispatchers.IO) {
-                                            dataStore.edit { prefs ->
-                                                prefs[RemindAfterKey] = launch + 20
-                                            }
-                                        }
-                                    } catch (e: Exception) {
-                                        reportException(e)
-                                    } finally {
-                                        showStarDialog = false
-                                    }
-                                }
-                            },
-                        )
                     }
 
                     val currentTitleRes =
@@ -1764,14 +1694,8 @@ class MainActivity : ComponentActivity() {
                                             active = active,
                                             onActiveChange = onActiveChange,
                                             placeholder = {
-                                                Text(
-                                                    text =
-                                                        stringResource(
-                                                            when (searchSource) {
-                                                                SearchSource.LOCAL -> R.string.search_library
-                                                                SearchSource.ONLINE -> R.string.search_yt_music
-                                                            },
-                                                        ),
+                                                DynamicSearchPlaceholder(
+                                                    searchSource = searchSource,
                                                 )
                                             },
                                             leadingIcon = {
@@ -2082,6 +2006,24 @@ class MainActivity : ComponentActivity() {
                                                                                 playerConnection?.playQueue(YouTubeQueue.playlist(it))
                                                                             }
                                                                         }
+
+                                                                        is PodcastItem -> {
+                                                                            luckyItem.playEndpoint?.let {
+                                                                                playerConnection?.playQueue(YouTubeQueue.playlist(it))
+                                                                            }
+                                                                        }
+
+                                                                        is EpisodeItem -> {
+                                                                            playerConnection?.playQueue(
+                                                                                ListQueue(
+                                                                                    title = luckyItem.title,
+                                                                                    items =
+                                                                                        listOf(
+                                                                                            luckyItem.asSongItem().toMediaMetadata().toMediaItem(),
+                                                                                        ),
+                                                                                ),
+                                                                            )
+                                                                        }
                                                                     }
                                                                 }
                                                             }
@@ -2183,7 +2125,16 @@ class MainActivity : ComponentActivity() {
                                         } else if (initialState.destination.route in topLevelScreens &&
                                             targetState.destination.route in topLevelScreens
                                         ) {
-                                            fadeIn(tween(250))
+                                            val enterFromRight =
+                                                transitionDirection ==
+                                                    AnimatedContentTransitionScope.SlideDirection.Left
+                                            fadeIn(tween(280)) +
+                                                slideInHorizontally(
+                                                    initialOffsetX = { fullWidth ->
+                                                        if (enterFromRight) fullWidth / 2 else -fullWidth / 2
+                                                    },
+                                                    animationSpec = tween(300),
+                                                )
                                         } else {
                                             fadeIn(tween(250)) + slideInHorizontally { it / 2 }
                                         }
@@ -2194,7 +2145,16 @@ class MainActivity : ComponentActivity() {
                                         } else if (initialState.destination.route in topLevelScreens &&
                                             targetState.destination.route in topLevelScreens
                                         ) {
-                                            fadeOut(tween(200))
+                                            val enterFromRight =
+                                                transitionDirection ==
+                                                    AnimatedContentTransitionScope.SlideDirection.Left
+                                            fadeOut(tween(220)) +
+                                                slideOutHorizontally(
+                                                    targetOffsetX = { fullWidth ->
+                                                        if (enterFromRight) -fullWidth / 2 else fullWidth / 2
+                                                    },
+                                                    animationSpec = tween(280),
+                                                )
                                         } else {
                                             fadeOut(tween(200)) + slideOutHorizontally { -it / 2 }
                                         }

@@ -26,6 +26,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import moe.rukamori.archivetune.canvas.models.CanvasArtwork
+import moe.rukamori.archivetune.innertube.VersionedOkHttpClient
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.storage.StorageFolderKind
 import moe.rukamori.archivetune.storage.StorageLocationRepository
@@ -72,41 +73,48 @@ object CanvasArtworkPlaybackCache {
             explicitNulls = false
         }
 
-    private val directClient: OkHttpClient by lazy {
-        canvasClient(proxy = null)
-    }
+    private val directClientHolder =
+        VersionedOkHttpClient(
+            versionProvider = YouTube::okHttpNetworkVersion,
+            baseBuilder = YouTube::newOkHttpClientBuilder,
+        )
+    private val streamClientHolder =
+        VersionedOkHttpClient(
+            versionProvider = YouTube::okHttpNetworkVersion,
+            baseBuilder = YouTube::newOkHttpClientBuilder,
+        )
 
-    private val streamClient: OkHttpClient by lazy {
-        canvasClient(proxy = YouTube.streamOkHttpProxy)
-    }
+    private fun directClient(): OkHttpClient = directClientHolder.get { configureCanvasClient(proxy = null) }
 
-    private fun canvasClient(proxy: Proxy?): OkHttpClient {
-        return OkHttpClient
-            .Builder()
-            .apply {
-                if (proxy != null) this.proxy(proxy)
-            }.connectTimeout(12, TimeUnit.SECONDS)
-            .readTimeout(45, TimeUnit.SECONDS)
-            .callTimeout(3, TimeUnit.MINUTES)
-            .addInterceptor { chain ->
-                val request = chain.request()
-                if (!request.url.isYouTubeMediaHost()) {
-                    return@addInterceptor chain.proceed(
-                        request
-                            .newBuilder()
-                            .header("User-Agent", CanvasDownloadUserAgent)
-                            .build(),
-                    )
-                }
-                val requestProfile = StreamClientUtils.resolveRequestProfile(request.url)
-                chain.proceed(
-                    StreamClientUtils
-                        .applyRequestProfile(
-                            request.newBuilder(),
-                            requestProfile,
-                        ).build(),
+    private fun streamClient(): OkHttpClient =
+        streamClientHolder.get {
+            configureCanvasClient(proxy = YouTube.streamOkHttpProxy)
+        }
+
+    private fun OkHttpClient.Builder.configureCanvasClient(proxy: Proxy?) {
+        if (proxy != null) this.proxy(proxy)
+        connectTimeout(12, TimeUnit.SECONDS)
+        readTimeout(45, TimeUnit.SECONDS)
+        callTimeout(3, TimeUnit.MINUTES)
+        addInterceptor { chain ->
+            val request = chain.request()
+            if (!request.url.isYouTubeMediaHost()) {
+                return@addInterceptor chain.proceed(
+                    request
+                        .newBuilder()
+                        .header("User-Agent", CanvasDownloadUserAgent)
+                        .build(),
                 )
-            }.build()
+            }
+            val requestProfile = StreamClientUtils.resolveRequestProfile(request.url)
+            chain.proceed(
+                StreamClientUtils
+                    .applyRequestProfile(
+                        request.newBuilder(),
+                        requestProfile,
+                    ).build(),
+            )
+        }
     }
 
     fun init(context: Context) {
@@ -453,7 +461,7 @@ object CanvasArtworkPlaybackCache {
             requestBuilder.header("Range", "bytes=$existingBytes-")
         }
         val request = requestBuilder.build()
-        val callClient = if (request.url.isYouTubeMediaHost()) streamClient else directClient
+        val callClient = if (request.url.isYouTubeMediaHost()) streamClient() else directClient()
         callClient.newCall(request).execute().use { response ->
             if (existingBytes > 0L && response.code == 416) return
             if (!response.isSuccessful) throw IOException("Canvas request failed: HTTP ${response.code}")

@@ -79,6 +79,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.ui.screens.Screens
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.rememberHushAccentGradient
 
 @Composable
 fun FloatingNavigationToolbar(
@@ -161,6 +163,7 @@ private fun ToolbarItemsContainer(
     val density = LocalDensity.current
     val itemWidths = remember { mutableStateMapOf<Screens, Dp>() }
     val itemPositions = remember { mutableStateMapOf<Screens, Dp>() }
+    val accentGradient = rememberHushAccentGradient()
 
     val activeScreen = items.find { isSelected(it) }
     val targetWidth = itemWidths[activeScreen] ?: 0.dp
@@ -198,10 +201,8 @@ private fun ToolbarItemsContainer(
                             .offset(x = slidingPillOffset)
                             .width(slidingPillWidth)
                             .fillMaxHeight()
-                            .background(
-                                color = floatingToolbarSelectedItemContainerColor(pureBlack),
-                                shape = RoundedCornerShape(24.dp),
-                            ),
+                            .clip(ArchiveTuneDesign.navItemShape)
+                            .background(accentGradient),
                 )
             }
 
@@ -260,7 +261,7 @@ private fun FloatingToolbarOverflowInlineAction(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.91f else 1f,
+        targetValue = if (isPressed) ArchiveTuneDesign.NavPressScale else 1f,
         animationSpec =
             spring(
                 dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -442,7 +443,7 @@ private fun FloatingNavigationToolbarItem(
     onDoubleClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(24.dp)
+    val shape = ArchiveTuneDesign.navItemShape
     val showLabel = selected && showSelectedLabel
     val transition = updateTransition(targetState = selected, label = "navItem_${screen.route}")
 
@@ -451,7 +452,7 @@ private fun FloatingNavigationToolbarItem(
         label = "contentColor",
     ) { isSelected ->
         if (isSelected) {
-            floatingToolbarSelectedItemContentColor(pureBlack)
+            if (pureBlack) Color.White else MaterialTheme.colorScheme.onPrimary
         } else {
             floatingToolbarItemContentColor(pureBlack)
         }
@@ -486,7 +487,7 @@ private fun FloatingNavigationToolbarItem(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.91f else 1f,
+        targetValue = if (isPressed) ArchiveTuneDesign.NavPressScale else 1f,
         animationSpec =
             spring(
                 dampingRatio = Spring.DampingRatioMediumBouncy,

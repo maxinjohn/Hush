@@ -7,11 +7,11 @@
 
 package moe.rukamori.archivetune.ui.screens.settings
 
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -21,8 +21,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -130,8 +129,9 @@ fun AndroidAutoSettings(
     val lazyListState = rememberLazyListState()
     val reorderableState =
         rememberReorderableLazyListState(lazyListState) { from, to ->
-            val fromReal = from.index
-            val toReal = to.index
+            val sectionHeaderOffset = 2
+            val fromReal = from.index - sectionHeaderOffset
+            val toReal = to.index - sectionHeaderOffset
             if (fromReal in sections.indices && toReal in sections.indices) {
                 sections =
                     sections.toMutableList().apply {
@@ -152,43 +152,38 @@ fun AndroidAutoSettings(
         }
     }
 
-    Column(
-        modifier =
-            Modifier
-                .windowInsetsPadding(
-                    LocalPlayerAwareWindowInsets.current.only(
-                        WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
-                    ),
-                )
-                .verticalScroll(rememberScrollState())
-                .padding(bottom = SettingsDimensions.ScreenBottomPadding),
-    ) {
-        Spacer(
-            Modifier.windowInsetsPadding(
-                LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Top),
-            ),
-        )
-
-        PreferenceGroup(title = stringResource(R.string.android_auto_visible_sections)) {
-            item {
-                PreferenceEntry(
-                    title = { Text(stringResource(R.string.android_auto_reorder_hint)) },
-                    onClick = null,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(SettingsDimensions.SectionSpacing))
-
+    Box(Modifier.fillMaxSize()) {
         LazyColumn(
             state = lazyListState,
             modifier =
                 Modifier
-                    .fillMaxWidth()
-                    .height((sections.size * 80).dp)
-                    .padding(horizontal = SettingsDimensions.ScreenHorizontalPadding),
-            userScrollEnabled = false,
+                    .fillMaxSize()
+                    .nestedScroll(scrollBehavior.nestedScrollConnection)
+                    .windowInsetsPadding(
+                        LocalPlayerAwareWindowInsets.current.only(
+                            WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
+                        ),
+                    ),
         ) {
+            item {
+                Spacer(
+                    Modifier.windowInsetsPadding(
+                        LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Top),
+                    ),
+                )
+            }
+
+            item {
+                PreferenceGroup(title = stringResource(R.string.android_auto_visible_sections)) {
+                    item {
+                        PreferenceEntry(
+                            title = { Text(stringResource(R.string.android_auto_reorder_hint)) },
+                            onClick = null,
+                        )
+                    }
+                }
+            }
+
             items(sections, key = { (section, _) -> section.id }) { (section, enabled) ->
                 ReorderableItem(reorderableState, key = section.id) {
                     PreferenceGroup {
@@ -258,52 +253,64 @@ fun AndroidAutoSettings(
                     }
                 }
             }
-        }
 
-        Spacer(Modifier.height(SettingsDimensions.SectionSpacing))
-
-        PreferenceGroup(title = stringResource(R.string.android_auto_target_playlist)) {
             item {
-                ListPreference(
-                    title = { Text(stringResource(R.string.android_auto_target_playlist)) },
-                    description = stringResource(R.string.android_auto_target_playlist_desc),
-                    icon = { Icon(painterResource(R.drawable.playlist_add), null) },
-                    selectedValue = targetPlaylist,
-                    values = playlistOptions,
-                    valueText = playlistLabel,
-                    onValueSelected = onTargetPlaylistChange,
-                )
+                Spacer(Modifier.height(SettingsDimensions.SectionSpacing))
+            }
+
+            item {
+                PreferenceGroup(title = stringResource(R.string.android_auto_target_playlist)) {
+                    item {
+                        ListPreference(
+                            title = { Text(stringResource(R.string.android_auto_target_playlist)) },
+                            description = stringResource(R.string.android_auto_target_playlist_desc),
+                            icon = { Icon(painterResource(R.drawable.playlist_add), null) },
+                            selectedValue = targetPlaylist,
+                            values = playlistOptions,
+                            valueText = playlistLabel,
+                            onValueSelected = onTargetPlaylistChange,
+                        )
+                    }
+                }
+            }
+
+            item {
+                Spacer(Modifier.height(SettingsDimensions.SectionSpacing))
+            }
+
+            item {
+                PreferenceGroup(title = stringResource(R.string.mixes)) {
+                    item {
+                        SwitchPreference(
+                            title = { Text(stringResource(R.string.android_auto_youtube_playlists)) },
+                            description = stringResource(R.string.android_auto_youtube_playlists_desc),
+                            icon = { Icon(painterResource(R.drawable.queue_music), null) },
+                            checked = youtubePlaylistsEnabled,
+                            onCheckedChange = onYoutubePlaylistsChange,
+                        )
+                    }
+                }
+            }
+
+            item {
+                Spacer(Modifier.height(SettingsDimensions.ScreenBottomPadding))
             }
         }
 
-        Spacer(Modifier.height(SettingsDimensions.SectionSpacing))
-
-        PreferenceGroup(title = stringResource(R.string.mixes)) {
-            item {
-                SwitchPreference(
-                    title = { Text(stringResource(R.string.android_auto_youtube_playlists)) },
-                    description = stringResource(R.string.android_auto_youtube_playlists_desc),
-                    icon = { Icon(painterResource(R.drawable.queue_music), null) },
-                    checked = youtubePlaylistsEnabled,
-                    onCheckedChange = onYoutubePlaylistsChange,
-                )
-            }
-        }
+        TopAppBar(
+            title = { Text(stringResource(R.string.android_auto)) },
+            navigationIcon = {
+                IconButton(
+                    onClick = navController::navigateUp,
+                    onLongClick = navController::backToMain,
+                ) {
+                    Icon(
+                        painterResource(R.drawable.arrow_back),
+                        contentDescription = null,
+                    )
+                }
+            },
+            scrollBehavior = scrollBehavior,
+        )
     }
-
-    TopAppBar(
-        title = { Text(stringResource(R.string.android_auto)) },
-        navigationIcon = {
-            IconButton(
-                onClick = navController::navigateUp,
-                onLongClick = navController::backToMain,
-            ) {
-                Icon(
-                    painterResource(R.drawable.arrow_back),
-                    contentDescription = null,
-                )
-            }
-        },
-        scrollBehavior = scrollBehavior,
-    )
 }

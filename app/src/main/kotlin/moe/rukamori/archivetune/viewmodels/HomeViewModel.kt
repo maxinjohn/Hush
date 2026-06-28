@@ -114,6 +114,7 @@ class HomeViewModel
         val homePage = MutableStateFlow<HomePage?>(null)
         val explorePage = MutableStateFlow<ExplorePage?>(null)
         val selectedChip = MutableStateFlow<HomePage.Chip?>(null)
+        val isChipLoading = MutableStateFlow(false)
         private val previousHomePage = MutableStateFlow<HomePage?>(null)
 
         val recentActivity = MutableStateFlow<List<YTItem>?>(null)
@@ -136,10 +137,7 @@ class HomeViewModel
         private var isProcessingAccountData = false
         private var wasLoggedIn = false
 
-        private fun filterHomeChips(chips: List<HomePage.Chip>?): List<HomePage.Chip>? =
-            chips?.filterNot {
-                it.title.contains("podcasts", ignoreCase = true)
-            }
+        private fun filterHomeChips(chips: List<HomePage.Chip>?): List<HomePage.Chip>? = chips
 
         private fun List<Song>.toQuickPickSample(): List<Song> = distinctBy { it.id }.shuffled().take(20)
 
@@ -327,8 +325,13 @@ class HomeViewModel
                                     page.copy(
                                         chips = filterHomeChips(page.chips),
                                         sections =
-                                            page.sections.map { section ->
-                                                section.copy(items = section.items.filterExplicit(hideExplicit).filterVideo(hideVideo))
+                                            page.sections.mapNotNull { section ->
+                                                val filteredItems =
+                                                    section.items
+                                                        .filterOutNulls()
+                                                        .filterExplicit(hideExplicit)
+                                                        .filterVideo(hideVideo)
+                                                if (filteredItems.isEmpty()) null else section.copy(items = filteredItems)
                                             },
                                     )
                             }.onFailure { reportException(it) }
@@ -354,6 +357,7 @@ class HomeViewModel
                                     page.copy(
                                         newReleaseAlbums =
                                             page.newReleaseAlbums
+                                                .filterOutNulls()
                                                 .sortedBy { album ->
                                                     val artistIds = album.artists.orEmpty().mapNotNull { it.id }
                                                     val firstArtistKey =
@@ -535,7 +539,10 @@ class HomeViewModel
                     .completed()
                     .onSuccess {
                         val lists =
-                            it.items.filterIsInstance<PlaylistItem>().filterNot { playlist ->
+                            it.items
+                                .filterIsInstance<PlaylistItem>()
+                                .filterOutNulls()
+                                .filterNot { playlist ->
                                 playlist.id == "SE"
                             }
                         accountPlaylists.value = lists
@@ -569,8 +576,13 @@ class HomeViewModel
                     nextSections.copy(
                         chips = homePage.value?.chips,
                         sections =
-                            (homePage.value?.sections.orEmpty() + nextSections.sections).map { section ->
-                                section.copy(items = section.items.filterExplicit(hideExplicit).filterVideo(hideVideo))
+                            (homePage.value?.sections.orEmpty() + nextSections.sections).mapNotNull { section ->
+                                val filteredItems =
+                                    section.items
+                                        .filterOutNulls()
+                                        .filterExplicit(hideExplicit)
+                                        .filterVideo(hideVideo)
+                                if (filteredItems.isEmpty()) null else section.copy(items = filteredItems)
                             },
                     )
                 _isLoadingMore.value = false
@@ -582,6 +594,7 @@ class HomeViewModel
                 homePage.value = previousHomePage.value
                 previousHomePage.value = null
                 selectedChip.value = null
+                isChipLoading.value = false
                 return
             }
 
@@ -590,24 +603,50 @@ class HomeViewModel
             }
 
             viewModelScope.launch(Dispatchers.IO) {
-                val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                val hideVideo = context.dataStore.get(HideVideoKey, false)
-                val nextSections = YouTube.home(params = chip?.endpoint?.params).getOrNull() ?: return@launch
+                isChipLoading.value = true
+                try {
+                    val endpoint = chip.endpoint
+                    if (endpoint == null) {
+                        Timber.w("Home chip '%s' has no browse endpoint", chip.title)
+                        return@launch
+                    }
+                    val hideExplicit = context.dataStore.get(HideExplicitKey, false)
+                    val hideVideo = context.dataStore.get(HideVideoKey, false)
+                    val nextSections =
+                        YouTube
+                            .home(
+                                browseId = endpoint.browseId,
+                                params = endpoint.params,
+                            ).getOrElse { error ->
+                                reportException(error)
+                                return@launch
+                            }
 
-                homePage.value =
-                    nextSections.copy(
-                        chips = homePage.value?.chips,
-                        sections =
-                            nextSections.sections.map { section ->
-                                section.copy(items = section.items.filterExplicit(hideExplicit).filterVideo(hideVideo))
-                            },
-                    )
-                selectedChip.value = chip
+                    homePage.value =
+                        nextSections.copy(
+                            chips = homePage.value?.chips ?: previousHomePage.value?.chips,
+                            sections =
+                                nextSections.sections.mapNotNull { section ->
+                                    val filteredItems =
+                                        section.items
+                                            .filterOutNulls()
+                                            .filterExplicit(hideExplicit)
+                                            .filterVideo(hideVideo)
+                                    if (filteredItems.isEmpty()) null else section.copy(items = filteredItems)
+                                },
+                        )
+                    selectedChip.value = chip
+                } finally {
+                    isChipLoading.value = false
+                }
             }
         }
 
         fun refresh() {
             if (isRefreshing.value) return
+            selectedChip.value = null
+            previousHomePage.value = null
+            isChipLoading.value = false
             viewModelScope.launch(Dispatchers.IO) {
                 isRefreshing.value = true
                 try {
@@ -792,4 +831,8 @@ class HomeViewModel
                     }
             }
         }
+
+        @Suppress("UNCHECKED_CAST")
+        private fun <T : Any> List<T>.filterOutNulls(): List<T> =
+            (this as List<T?>).filterNotNull()
     }

@@ -8,8 +8,6 @@
 package moe.rukamori.archivetune.ui.component
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +30,9 @@ import moe.rukamori.archivetune.ui.menu.AlbumMenu
 import moe.rukamori.archivetune.ui.menu.ArtistMenu
 import moe.rukamori.archivetune.ui.menu.PlaylistMenu
 import moe.rukamori.archivetune.ui.menu.YouTubePlaylistMenu
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.archiveTuneCombinedPressable
+import moe.rukamori.archivetune.ui.theme.archiveTunePressable
 
 @Composable
 fun LibraryArtistListItem(
@@ -63,9 +64,10 @@ fun LibraryArtistListItem(
     modifier =
         modifier
             .fillMaxWidth()
-            .clickable {
-                navController.navigate("artist/${artist.id}")
-            },
+            .archiveTunePressable(
+                onClick = { navController.navigate("artist/${artist.id}") },
+                pressScale = ArchiveTuneDesign.RowPressScale,
+            ),
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -82,7 +84,7 @@ fun LibraryArtistGridItem(
     modifier =
         modifier
             .fillMaxWidth()
-            .combinedClickable(
+            .archiveTuneCombinedPressable(
                 onClick = {
                     navController.navigate("artist/${artist.id}")
                 },
@@ -95,6 +97,7 @@ fun LibraryArtistGridItem(
                         )
                     }
                 },
+                pressScale = ArchiveTuneDesign.RowPressScale,
             ),
 )
 
@@ -131,9 +134,10 @@ fun LibraryAlbumListItem(
     modifier =
         modifier
             .fillMaxWidth()
-            .clickable {
-                navController.navigate("album/${album.id}")
-            },
+            .archiveTunePressable(
+                onClick = { navController.navigate("album/${album.id}") },
+                pressScale = ArchiveTuneDesign.RowPressScale,
+            ),
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -155,7 +159,7 @@ fun LibraryAlbumGridItem(
     modifier =
         modifier
             .fillMaxWidth()
-            .combinedClickable(
+            .archiveTuneCombinedPressable(
                 onClick = {
                     navController.navigate("album/${album.id}")
                 },
@@ -168,6 +172,7 @@ fun LibraryAlbumGridItem(
                         )
                     }
                 },
+                pressScale = ArchiveTuneDesign.RowPressScale,
             ),
 )
 
@@ -265,6 +270,9 @@ fun LibraryPlaylistListItem(
             modifier
                 .fillMaxWidth()
                 .focusable()
-                .clickable(onClick = openPlaylist),
+                .archiveTunePressable(
+                    onClick = openPlaylist,
+                    pressScale = ArchiveTuneDesign.RowPressScale,
+                ),
     )
 }

@@ -61,7 +61,6 @@ fun DraggableScrollbar(
     var isDragging by remember { mutableStateOf(false) }
     var smoothedY by remember { mutableFloatStateOf(0f) }
     var smoothedThumbY by remember { mutableFloatStateOf(0f) }
-    var lastThumbPosition by remember { mutableFloatStateOf(0f) }
     val animatedThumbY = remember { Animatable(0f) }
 
     val isUserScrolling by remember(scrollState) {
@@ -167,23 +166,18 @@ fun DraggableScrollbar(
             derivedStateOf {
                 val layoutInfo = scrollState.layoutInfo
                 val visibleItems = layoutInfo.visibleItemsInfo
-                if (visibleItems.isEmpty()) return@derivedStateOf lastThumbPosition
+                if (visibleItems.isEmpty()) return@derivedStateOf 0f
 
                 val totalContentItems = layoutInfo.totalItemsCount - headerItems
-                if (totalContentItems <= 0) return@derivedStateOf lastThumbPosition
+                if (totalContentItems <= 0) return@derivedStateOf 0f
 
                 val maxScrollIndex = max(1, totalContentItems - visibleItems.size)
-                if (maxScrollIndex <= minScrollRangeForDrag) return@derivedStateOf lastThumbPosition
+                if (maxScrollIndex <= minScrollRangeForDrag) return@derivedStateOf 0f
 
                 val rawIndex = (scrollState.firstVisibleItemIndex - headerItems).coerceAtLeast(0)
-
                 val scrollProgress = rawIndex.toFloat() / maxScrollIndex
-
                 val maxThumbY = viewportHeight - constThumbHeight
-                val newPosition = (scrollProgress * maxThumbY).coerceIn(0f, maxThumbY)
-
-                lastThumbPosition = newPosition
-                newPosition
+                (scrollProgress * maxThumbY).coerceIn(0f, maxThumbY)
             }
         }
 
@@ -201,11 +195,7 @@ fun DraggableScrollbar(
                 }
 
                 isUserScrolling -> {
-                    if (totalContentItems < 30) {
-                        animatedThumbY.snapTo(targetThumbY)
-                    } else {
-                        animatedThumbY.snapTo(targetThumbY)
-                    }
+                    animatedThumbY.snapTo(targetThumbY)
                 }
 
                 else -> {

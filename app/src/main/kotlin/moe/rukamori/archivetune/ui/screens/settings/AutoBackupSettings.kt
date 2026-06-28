@@ -28,8 +28,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,11 +47,17 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.constants.AutoBackupDayOfWeekKey
 import moe.rukamori.archivetune.constants.AutoBackupEnabledKey
+import moe.rukamori.archivetune.constants.AutoBackupFrequency
+import moe.rukamori.archivetune.constants.AutoBackupFrequencyKey
+import moe.rukamori.archivetune.constants.AutoBackupHourKey
+import moe.rukamori.archivetune.constants.AutoBackupMinuteKey
 import moe.rukamori.archivetune.constants.EnableBackupBeforeUpdateKey
 import moe.rukamori.archivetune.constants.EnableWeeklyAutoBackupKey
 import moe.rukamori.archivetune.ui.component.DefaultDialog
 import moe.rukamori.archivetune.ui.component.IconButton
+import moe.rukamori.archivetune.ui.component.ListPreference
 import moe.rukamori.archivetune.ui.component.PreferenceEntry
 import moe.rukamori.archivetune.ui.component.PreferenceGroup
 import moe.rukamori.archivetune.ui.component.SwitchPreference
@@ -61,6 +69,7 @@ import moe.rukamori.archivetune.viewmodels.BackupRestoreViewModel
 import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,17 +85,31 @@ fun AutoBackupSettings(
             AutoBackupEnabledKey,
             defaultValue = true,
         )
-    val (weeklyBackupEnabled, onWeeklyBackupEnabledChange) =
+    val (weeklyBackupEnabled) =
         rememberPreference(
             EnableWeeklyAutoBackupKey,
             defaultValue = false,
         )
+    val (backupFrequencyRaw, onBackupFrequencyChange) =
+        rememberPreference(
+            AutoBackupFrequencyKey,
+            defaultValue = AutoBackupFrequency.OFF.name,
+        )
+    val backupFrequency =
+        remember(backupFrequencyRaw, weeklyBackupEnabled) {
+            runCatching { AutoBackupFrequency.valueOf(backupFrequencyRaw) }.getOrNull()
+                ?: if (weeklyBackupEnabled) AutoBackupFrequency.WEEKLY else AutoBackupFrequency.OFF
+        }
+    val (backupHour, onBackupHourChange) = rememberPreference(AutoBackupHourKey, defaultValue = 2)
+    val (backupMinute, onBackupMinuteChange) = rememberPreference(AutoBackupMinuteKey, defaultValue = 0)
+    val (backupDayOfWeek, onBackupDayOfWeekChange) = rememberPreference(AutoBackupDayOfWeekKey, defaultValue = 1)
     val (backupBeforeUpdateEnabled, onBackupBeforeUpdateEnabledChange) =
         rememberPreference(
             EnableBackupBeforeUpdateKey,
             defaultValue = true,
         )
 
+    var showTimePicker by remember { mutableStateOf(false) }
     var backupsList by remember { mutableStateOf(emptyList<File>()) }
     var backupToDelete by remember { mutableStateOf<File?>(null) }
     var backupToRestore by remember { mutableStateOf<File?>(null) }
@@ -99,9 +122,42 @@ fun AutoBackupSettings(
         reloadBackups()
     }
 
-    LaunchedEffect(autoBackupEnabled, weeklyBackupEnabled) {
-        AutoBackupHelper.updateWeeklyBackupWork(context, autoBackupEnabled && weeklyBackupEnabled)
+    LaunchedEffect(autoBackupEnabled, backupFrequency, backupHour, backupMinute, backupDayOfWeek) {
+        val effectiveFrequency =
+            if (!autoBackupEnabled) {
+                AutoBackupFrequency.OFF
+            } else {
+                backupFrequency
+            }
+        AutoBackupHelper.updateScheduledBackupWork(
+            context = context,
+            enabled = autoBackupEnabled,
+            frequency = effectiveFrequency,
+            hour = backupHour,
+            minute = backupMinute,
+            dayOfWeek = backupDayOfWeek,
+        )
     }
+
+    val formattedBackupTime =
+        remember(backupHour, backupMinute) {
+            LocalDateTime
+                .now()
+                .withHour(backupHour.coerceIn(0, 23))
+                .withMinute(backupMinute.coerceIn(0, 59))
+                .format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))
+        }
+
+    val backupDays =
+        listOf(
+            1 to R.string.backup_schedule_day_monday,
+            2 to R.string.backup_schedule_day_tuesday,
+            3 to R.string.backup_schedule_day_wednesday,
+            4 to R.string.backup_schedule_day_thursday,
+            5 to R.string.backup_schedule_day_friday,
+            6 to R.string.backup_schedule_day_saturday,
+            7 to R.string.backup_schedule_day_sunday,
+        )
 
     Box(Modifier.fillMaxSize()) {
         Column(
@@ -139,13 +195,53 @@ fun AutoBackupSettings(
 
             PreferenceGroup(title = stringResource(R.string.options)) {
                 item {
-                    SwitchPreference(
-                        title = { Text(stringResource(R.string.weekly_backup)) },
+                    ListPreference(
+                        title = { Text(stringResource(R.string.backup_schedule_frequency)) },
                         description = stringResource(R.string.weekly_backup_desc),
-                        checked = weeklyBackupEnabled,
-                        onCheckedChange = onWeeklyBackupEnabledChange,
+                        selectedValue = backupFrequency,
+                        values =
+                            listOf(
+                                AutoBackupFrequency.OFF,
+                                AutoBackupFrequency.DAILY,
+                                AutoBackupFrequency.WEEKLY,
+                            ),
+                        onValueSelected = { selected ->
+                            onBackupFrequencyChange(selected.name)
+                        },
                         isEnabled = autoBackupEnabled,
+                        valueText = {
+                            when (it) {
+                                AutoBackupFrequency.OFF -> stringResource(R.string.backup_schedule_off)
+                                AutoBackupFrequency.DAILY -> stringResource(R.string.backup_schedule_daily)
+                                AutoBackupFrequency.WEEKLY -> stringResource(R.string.backup_schedule_weekly)
+                            }
+                        },
                     )
+                }
+                item {
+                    PreferenceEntry(
+                        title = { Text(stringResource(R.string.backup_schedule_time)) },
+                        description = stringResource(R.string.backup_schedule_time_desc),
+                        trailingContent = { Text(formattedBackupTime) },
+                        onClick = { showTimePicker = true },
+                        isEnabled = autoBackupEnabled && backupFrequency != AutoBackupFrequency.OFF,
+                    )
+                }
+                if (backupFrequency == AutoBackupFrequency.WEEKLY) {
+                    item {
+                        ListPreference(
+                            title = { Text(stringResource(R.string.backup_schedule_day)) },
+                            description = stringResource(R.string.backup_schedule_day_desc),
+                            selectedValue = backupDayOfWeek,
+                            values = backupDays.map { it.first },
+                            onValueSelected = onBackupDayOfWeekChange,
+                            isEnabled = autoBackupEnabled,
+                            valueText = { day ->
+                                backupDays.firstOrNull { it.first == day }?.second?.let { stringResource(it) }
+                                    ?: day.toString()
+                            },
+                        )
+                    }
                 }
                 item {
                     SwitchPreference(
@@ -209,6 +305,36 @@ fun AutoBackupSettings(
             },
             scrollBehavior = scrollBehavior,
         )
+    }
+
+    if (showTimePicker) {
+        val timePickerState =
+            rememberTimePickerState(
+                initialHour = backupHour.coerceIn(0, 23),
+                initialMinute = backupMinute.coerceIn(0, 59),
+                is24Hour = android.text.format.DateFormat.is24HourFormat(context),
+            )
+        DefaultDialog(
+            onDismiss = { showTimePicker = false },
+            title = { Text(stringResource(R.string.backup_schedule_time)) },
+            buttons = {
+                TextButton(onClick = { showTimePicker = false }, shapes = ButtonDefaults.shapes()) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+                TextButton(
+                    onClick = {
+                        onBackupHourChange(timePickerState.hour)
+                        onBackupMinuteChange(timePickerState.minute)
+                        showTimePicker = false
+                    },
+                    shapes = ButtonDefaults.shapes(),
+                ) {
+                    Text(stringResource(android.R.string.ok))
+                }
+            },
+        ) {
+            TimePicker(state = timePickerState)
+        }
     }
 
     backupToDelete?.let { file ->
@@ -309,6 +435,7 @@ private fun parseBackupFilename(
                     context.getString(R.string.backup_type_before_update)
                 }
             }
+            name.contains("_daily_") -> context.getString(R.string.backup_type_daily)
             else -> context.getString(R.string.backup_type_weekly)
         }
 

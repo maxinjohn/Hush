@@ -14,10 +14,11 @@ import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 import moe.rukamori.archivetune.LocalAnimationsDisabled
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
 
 object SettingsDimensions {
-    val GroupCardCornerRadius = 16.dp
-    val BannerCardCornerRadius = 20.dp
+    val GroupCardCornerRadius = ArchiveTuneDesign.ItemCornerRadius
+    val BannerCardCornerRadius = ArchiveTuneDesign.CardCornerRadius
 
     val ScreenHorizontalPadding = 16.dp
     val ScreenBottomPadding = 32.dp
@@ -42,7 +43,7 @@ object SettingsDimensions {
 }
 
 object SettingsAnimations {
-    val PressScale = 0.97f
+    val PressScale = ArchiveTuneDesign.PressScale
 
     @Composable
     fun <T> pressSpring(): FiniteAnimationSpec<T> =

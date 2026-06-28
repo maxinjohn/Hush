@@ -347,7 +347,7 @@ fun LyricsImageCard(
                                     fontSize = dynamicFontSize,
                                     lineHeight = dynamicFontSize.value.sp * 1.35f,
                                 ),
-                            overflow = TextOverflow.Ellipsis,
+                            softWrap = true,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -360,7 +360,7 @@ fun LyricsImageCard(
                         Box(
                             modifier =
                                 Modifier
-                                    .size(22.dp)
+                                    .size(44.dp)
                                     .clip(MaterialTheme.shapes.extraLarge)
                                     .background(colors.secondary.copy(alpha = 0.9f)),
                             contentAlignment = Alignment.Center,
@@ -368,7 +368,7 @@ fun LyricsImageCard(
                             Image(
                                 painter = painterResource(id = R.drawable.small_icon),
                                 contentDescription = null,
-                                modifier = Modifier.size(15.dp),
+                                modifier = Modifier.size(38.dp),
                                 colorFilter =
                                     ColorFilter.tint(
                                         if (glassStyle.isDark) Color.Black.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.9f),

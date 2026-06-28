@@ -127,13 +127,14 @@ import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.models.WatchEndpoint
 import moe.rukamori.archivetune.models.toMediaMetadata
+import moe.rukamori.archivetune.playback.queues.ListQueue
 import moe.rukamori.archivetune.playback.queues.YouTubeQueue
 import moe.rukamori.archivetune.ui.component.DraggableScrollbar
 import moe.rukamori.archivetune.ui.component.ExpressivePullToRefreshBox
-import moe.rukamori.archivetune.ui.component.PlaylistHeaderActionLayout
-import moe.rukamori.archivetune.ui.component.PlaylistPrimaryActionButton
+import moe.rukamori.archivetune.ui.component.StandardPlaylistHeaderActions
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.LocalMenuState
+import moe.rukamori.archivetune.ui.component.MetadataChip
 import moe.rukamori.archivetune.ui.component.YouTubeListItem
 import moe.rukamori.archivetune.ui.component.shimmer.ButtonPlaceholder
 import moe.rukamori.archivetune.ui.component.shimmer.ListItemPlaceHolder
@@ -711,201 +712,117 @@ fun OnlinePlaylistScreen(
 
                                 Spacer(modifier = Modifier.height(24.dp))
 
-                                // Action Buttons Row
-                                val hasLike = playlist.id != "LM"
-                                val hasPlay = playlist.playEndpoint != null
-                                val hasShuffle = playlist.shuffleEndpoint != null
-                                val hasRadio = playlist.radioEndpoint != null
-                                val activeIndices =
-                                    remember(hasLike, hasPlay, hasShuffle, hasRadio) {
-                                        listOf(hasLike, hasPlay, hasShuffle, hasRadio, true, true)
-                                            .withIndex()
-                                            .filter { it.value }
-                                            .map { it.index }
-                                    }
-
-                                @Composable
-                                fun shapeFor(slotIndex: Int) =
-                                    when {
-                                        activeIndices.first() == slotIndex && activeIndices.last() == slotIndex -> {
-                                            ButtonGroupDefaults.connectedLeadingButtonShapes()
-                                        }
-
-                                        activeIndices.first() == slotIndex -> {
-                                            ButtonGroupDefaults.connectedLeadingButtonShapes()
-                                        }
-
-                                        activeIndices.last() == slotIndex -> {
-                                            ButtonGroupDefaults.connectedTrailingButtonShapes()
-                                        }
-
-                                        else -> {
-                                            ButtonGroupDefaults.connectedMiddleButtonShapes()
-                                        }
-                                    }
-
-                                PlaylistHeaderActionLayout(
+                                val isBookmarked = dbPlaylist?.playlist?.bookmarkedAt != null
+                                StandardPlaylistHeaderActions(
                                     modifier = Modifier.padding(horizontal = 24.dp),
-                                    primaryActions = { showActionLabels ->
-                                        if (hasLike) {
-                                            val isBookmarked = dbPlaylist?.playlist?.bookmarkedAt != null
-                                            ToggleButton(
-                                                checked = isBookmarked,
-                                                onCheckedChange = {
-                                                    if (dbPlaylist?.playlist == null) {
-                                                        database.transaction {
-                                                            val existingPlaylist = playlistEntityByBrowseId(playlist.id)
-                                                            val targetPlaylistId =
-                                                                if (existingPlaylist == null) {
-                                                                    val playlistEntity =
-                                                                        PlaylistEntity(
-                                                                            name = playlist.title,
-                                                                            browseId = playlist.id,
-                                                                            thumbnailUrl = playlist.thumbnail,
-                                                                            isEditable = playlist.isEditable,
-                                                                            playEndpointParams = playlist.playEndpoint?.params,
-                                                                            shuffleEndpointParams = playlist.shuffleEndpoint?.params,
-                                                                            radioEndpointParams = playlist.radioEndpoint?.params,
-                                                                        ).toggleLike()
-                                                                    insert(playlistEntity)
-                                                                    playlistEntityByBrowseId(playlist.id)?.id ?: playlistEntity.id
-                                                                } else {
-                                                                    val refreshedPlaylist =
-                                                                        existingPlaylist.copy(
-                                                                            name = playlist.title,
-                                                                            browseId = playlist.id,
-                                                                            thumbnailUrl = playlist.thumbnail,
-                                                                            isEditable = playlist.isEditable,
-                                                                            playEndpointParams = playlist.playEndpoint?.params,
-                                                                            shuffleEndpointParams = playlist.shuffleEndpoint?.params,
-                                                                            radioEndpointParams = playlist.radioEndpoint?.params,
-                                                                        )
-                                                                    update(
-                                                                        if (existingPlaylist.bookmarkedAt == null) {
-                                                                            refreshedPlaylist.toggleLike()
-                                                                        } else {
-                                                                            refreshedPlaylist
-                                                                        },
+                                    liked = if (playlist.id != "LM") isBookmarked else null,
+                                    onToggleLike =
+                                        if (playlist.id != "LM") {
+                                            {
+                                                if (dbPlaylist?.playlist == null) {
+                                                    database.transaction {
+                                                        val existingPlaylist = playlistEntityByBrowseId(playlist.id)
+                                                        val targetPlaylistId =
+                                                            if (existingPlaylist == null) {
+                                                                val playlistEntity =
+                                                                    PlaylistEntity(
+                                                                        name = playlist.title,
+                                                                        browseId = playlist.id,
+                                                                        thumbnailUrl = playlist.thumbnail,
+                                                                        isEditable = playlist.isEditable,
+                                                                        playEndpointParams = playlist.playEndpoint?.params,
+                                                                        shuffleEndpointParams = playlist.shuffleEndpoint?.params,
+                                                                        radioEndpointParams = playlist.radioEndpoint?.params,
+                                                                    ).toggleLike()
+                                                                insert(playlistEntity)
+                                                                playlistEntityByBrowseId(playlist.id)?.id ?: playlistEntity.id
+                                                            } else {
+                                                                val refreshedPlaylist =
+                                                                    existingPlaylist.copy(
+                                                                        name = playlist.title,
+                                                                        browseId = playlist.id,
+                                                                        thumbnailUrl = playlist.thumbnail,
+                                                                        isEditable = playlist.isEditable,
+                                                                        playEndpointParams = playlist.playEndpoint?.params,
+                                                                        shuffleEndpointParams = playlist.shuffleEndpoint?.params,
+                                                                        radioEndpointParams = playlist.radioEndpoint?.params,
                                                                     )
-                                                                    existingPlaylist.id
-                                                                }
-                                                            if (songs.isNotEmpty()) {
-                                                                clearPlaylist(targetPlaylistId)
-                                                                songs
-                                                                    .onEach { song -> insert(song.toMediaMetadata()) }
-                                                                    .mapIndexed { index, song ->
-                                                                        PlaylistSongMap(
-                                                                            songId = song.id,
-                                                                            playlistId = targetPlaylistId,
-                                                                            position = index,
-                                                                            setVideoId = song.setVideoId,
-                                                                        )
-                                                                    }.forEach(::insert)
+                                                                update(
+                                                                    if (existingPlaylist.bookmarkedAt == null) {
+                                                                        refreshedPlaylist.toggleLike()
+                                                                    } else {
+                                                                        refreshedPlaylist
+                                                                    },
+                                                                )
+                                                                existingPlaylist.id
                                                             }
-                                                        }
-                                                    } else {
-                                                        database.transaction {
-                                                            val currentPlaylist = dbPlaylist!!.playlist
-                                                            update(currentPlaylist, playlist)
-                                                            update(currentPlaylist.toggleLike())
+                                                        if (songs.isNotEmpty()) {
+                                                            clearPlaylist(targetPlaylistId)
+                                                            songs
+                                                                .onEach { song -> insert(song.toMediaMetadata()) }
+                                                                .mapIndexed { index, song ->
+                                                                    PlaylistSongMap(
+                                                                        songId = song.id,
+                                                                        playlistId = targetPlaylistId,
+                                                                        position = index,
+                                                                        setVideoId = song.setVideoId,
+                                                                    )
+                                                                }.forEach(::insert)
                                                         }
                                                     }
-                                                },
-                                                modifier = Modifier.size(56.dp),
-                                                shapes = shapeFor(0),
-                                                colors =
-                                                    ToggleButtonDefaults.toggleButtonColors(
-                                                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        checkedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                        checkedContentColor = MaterialTheme.colorScheme.error,
-                                                    ),
-                                            ) {
-                                                Icon(
-                                                    painter =
-                                                        painterResource(
-                                                            if (isBookmarked) {
-                                                                R.drawable.favorite
-                                                            } else {
-                                                                R.drawable.favorite_border
-                                                            },
-                                                        ),
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(28.dp),
-                                                )
+                                                } else {
+                                                    database.transaction {
+                                                        val currentPlaylist = dbPlaylist!!.playlist
+                                                        update(currentPlaylist, playlist)
+                                                        update(currentPlaylist.toggleLike())
+                                                    }
+                                                }
                                             }
-                                        }
-
-                                        playlist.playEndpoint?.let { playEndpoint ->
-                                            PlaylistPrimaryActionButton(
-                                                checked = false,
-                                                onCheckedChange = {
+                                        } else {
+                                            null
+                                        },
+                                    onPlay =
+                                        if (playlist.playEndpoint != null || songs.isNotEmpty()) {
+                                            {
+                                                playlist.playEndpoint?.let { playEndpoint ->
                                                     playerConnection.playQueue(
                                                         YouTubeQueue.playlist(playEndpoint),
                                                     )
-                                                },
-                                                iconRes = R.drawable.play,
-                                                label = stringResource(R.string.play),
-                                                showLabel = showActionLabels,
-                                                shapes = shapeFor(1),
-                                                colors =
-                                                    ToggleButtonDefaults.toggleButtonColors(
-                                                        containerColor = MaterialTheme.colorScheme.primary,
-                                                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                                                        checkedContainerColor = MaterialTheme.colorScheme.primary,
-                                                        checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-                                                    ),
-                                            )
-                                        }
-
-                                        playlist.shuffleEndpoint?.let { shuffleEndpoint ->
-                                            PlaylistPrimaryActionButton(
-                                                checked = false,
-                                                onCheckedChange = {
+                                                } ?: run {
+                                                    playerConnection.playQueue(
+                                                        ListQueue(
+                                                            title = playlist.title,
+                                                            items = songs.map { it.toMediaItem() },
+                                                        ),
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            null
+                                        },
+                                    onShuffle =
+                                        if (playlist.shuffleEndpoint != null || songs.isNotEmpty()) {
+                                            {
+                                                playlist.shuffleEndpoint?.let { shuffleEndpoint ->
                                                     playerConnection.playQueue(
                                                         YouTubeQueue.playlist(shuffleEndpoint),
                                                     )
-                                                },
-                                                iconRes = R.drawable.shuffle,
-                                                label = stringResource(R.string.shuffle),
-                                                showLabel = showActionLabels,
-                                                shapes = shapeFor(2),
-                                                colors =
-                                                    ToggleButtonDefaults.toggleButtonColors(
-                                                        containerColor = MaterialTheme.colorScheme.primary,
-                                                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                                                        checkedContainerColor = MaterialTheme.colorScheme.primary,
-                                                        checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-                                                    ),
-                                            )
-                                        }
-
-                                        playlist.radioEndpoint?.let { radioEndpoint ->
-                                            PlaylistPrimaryActionButton(
-                                                checked = false,
-                                                onCheckedChange = {
+                                                } ?: run {
                                                     playerConnection.playQueue(
-                                                        YouTubeQueue(radioEndpoint),
+                                                        ListQueue(
+                                                            title = playlist.title,
+                                                            items = songs.shuffled().map { it.toMediaItem() },
+                                                        ),
                                                     )
-                                                },
-                                                iconRes = R.drawable.radio,
-                                                label = stringResource(R.string.radio),
-                                                showLabel = showActionLabels,
-                                                shapes = shapeFor(3),
-                                                colors =
-                                                    ToggleButtonDefaults.toggleButtonColors(
-                                                        containerColor = MaterialTheme.colorScheme.primary,
-                                                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                                                        checkedContainerColor = MaterialTheme.colorScheme.primary,
-                                                        checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-                                                    ),
-                                            )
-                                        }
-                                    },
-                                    utilityActions = {
-                                        ToggleButton(
-                                            checked = downloadState == HeaderDownloadState.Completed,
-                                            onCheckedChange = {
+                                                }
+                                            }
+                                        } else {
+                                            null
+                                        },
+                                    downloadState = if (songs.isNotEmpty()) downloadState else null,
+                                    onDownloadClick =
+                                        if (songs.isNotEmpty()) {
+                                            {
                                                 when (downloadState) {
                                                     HeaderDownloadState.Completed -> {
                                                         sendRemoveDownloads(
@@ -929,121 +846,24 @@ fun OnlinePlaylistScreen(
                                                         )
                                                     }
                                                 }
-                                            },
-                                            modifier = Modifier.size(56.dp),
-                                            shapes = shapeFor(4),
-                                            colors =
-                                                ToggleButtonDefaults.toggleButtonColors(
-                                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    checkedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                    checkedContentColor = MaterialTheme.colorScheme.primary,
-                                                ),
-                                        ) {
-                                            val state = downloadState
-                                            when (state) {
-                                                HeaderDownloadState.Completed -> {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.offline),
-                                                        contentDescription = null,
-                                                        modifier = Modifier.size(28.dp),
-                                                    )
-                                                }
-
-                                                is HeaderDownloadState.Partial -> {
-                                                    HeaderDownloadProgressIndicator(progress = state.progress)
-                                                }
-
-                                                HeaderDownloadState.None -> {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.download),
-                                                        contentDescription = null,
-                                                        modifier = Modifier.size(28.dp),
-                                                    )
-                                                }
                                             }
-                                        }
-
-                                        ToggleButton(
-                                            checked = false,
-                                            onCheckedChange = {
-                                                menuState.show {
-                                                    YouTubePlaylistMenu(
-                                                        playlist = playlist,
-                                                        songs = songs,
-                                                        coroutineScope = coroutineScope,
-                                                        onDismiss = menuState::dismiss,
-                                                        selectAction = { selection = true },
-                                                        canSelect = true,
-                                                        snackbarHostState = snackbarHostState,
-                                                    )
-                                                }
-                                            },
-                                            modifier = Modifier.size(56.dp),
-                                            shapes = shapeFor(5),
-                                            colors =
-                                                ToggleButtonDefaults.toggleButtonColors(
-                                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    checkedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                                    checkedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                ),
-                                        ) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.more_vert),
-                                                contentDescription = null,
-                                                modifier = Modifier.size(28.dp),
+                                        } else {
+                                            null
+                                        },
+                                    onMoreClick = {
+                                        menuState.show {
+                                            YouTubePlaylistMenu(
+                                                playlist = playlist,
+                                                songs = songs,
+                                                coroutineScope = coroutineScope,
+                                                onDismiss = menuState::dismiss,
+                                                selectAction = { selection = true },
+                                                canSelect = true,
+                                                snackbarHostState = snackbarHostState,
                                             )
                                         }
                                     },
                                 )
-
-                                Row(
-                                    modifier =
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 20.dp, vertical = 20.dp),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    val mixEndpoint = playlist.shuffleEndpoint ?: playlist.radioEndpoint
-                                    if (mixEndpoint != null) {
-                                        Button(
-                                            onClick = {
-                                                playerConnection.playQueue(
-                                                    if (mixEndpoint == playlist.shuffleEndpoint) {
-                                                        YouTubeQueue.playlist(mixEndpoint)
-                                                    } else {
-                                                        YouTubeQueue(mixEndpoint)
-                                                    },
-                                                )
-                                            },
-                                            modifier =
-                                                Modifier
-                                                    .height(48.dp)
-                                                    .defaultMinSize(minWidth = 120.dp),
-                                            shapes = ButtonDefaults.shapes(),
-                                        ) {
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.padding(horizontal = 16.dp),
-                                            ) {
-                                                Icon(
-                                                    painter = painterResource(R.drawable.mix),
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(24.dp),
-                                                )
-                                                Text(
-                                                    text = stringResource(R.string.start_radio),
-                                                    style = MaterialTheme.typography.labelLarge,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
 
                                 Spacer(modifier = Modifier.height(24.dp))
                             }
@@ -1415,38 +1235,6 @@ fun OnlinePlaylistScreen(
                         LocalPlayerAwareWindowInsets.current.union(WindowInsets.ime),
                     ).align(Alignment.BottomCenter),
         )
-    }
-}
-
-@Composable
-private fun MetadataChip(
-    icon: Int,
-    text: String,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                painter = painterResource(icon),
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = text,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-        }
     }
 }
 

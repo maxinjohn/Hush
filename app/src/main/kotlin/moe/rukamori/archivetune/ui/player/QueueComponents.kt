@@ -10,6 +10,8 @@
 package moe.rukamori.archivetune.ui.player
 
 import androidx.compose.animation.AnimatedContent
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import moe.rukamori.archivetune.LocalPlayerConnection
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
@@ -491,7 +493,14 @@ fun CodecInfoRow(
     fileSize: String,
     textColor: Color,
     modifier: Modifier = Modifier,
+    playbackClient: String? = null,
 ) {
+    val activeClientLabel by (
+        LocalPlayerConnection.current?.activePlaybackClientLabel
+            ?: kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    ).collectAsStateWithLifecycle(initialValue = null)
+    val resolvedPlaybackClient = playbackClient ?: activeClientLabel
+
     Row(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -511,6 +520,10 @@ fun CodecInfoRow(
                     if (fileSize.isNotEmpty()) {
                         append(" • ")
                         append(fileSize)
+                    }
+                    if (!resolvedPlaybackClient.isNullOrBlank()) {
+                        append(" • ")
+                        append(resolvedPlaybackClient)
                     }
                 },
             style = MaterialTheme.typography.labelSmall,

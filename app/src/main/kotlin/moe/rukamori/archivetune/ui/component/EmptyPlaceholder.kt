@@ -10,6 +10,7 @@ package moe.rukamori.archivetune.ui.component
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import moe.rukamori.archivetune.ui.theme.rememberHushAccentGradient
 
 @Composable
 fun EmptyPlaceholder(
@@ -37,6 +39,9 @@ fun EmptyPlaceholder(
     text: String,
     modifier: Modifier = Modifier,
 ) {
+    val accentGradient = rememberHushAccentGradient()
+    val ringColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+
     Box(
         contentAlignment = Alignment.Center,
         modifier =
@@ -52,14 +57,15 @@ fun EmptyPlaceholder(
                 contentAlignment = Alignment.Center,
                 modifier =
                     Modifier
-                        .size(96.dp)
+                        .size(104.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)),
+                        .background(accentGradient, CircleShape)
+                        .border(0.5.dp, ringColor, CircleShape),
             ) {
                 Image(
                     painter = painterResource(icon),
                     contentDescription = null,
-                    colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                    colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.92f)),
                     modifier = Modifier.size(48.dp),
                 )
             }
@@ -69,8 +75,8 @@ fun EmptyPlaceholder(
             Text(
                 text = text,
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
         }
