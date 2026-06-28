@@ -165,7 +165,7 @@ append_section() {
 
   echo "## Upstream credits"
   echo ""
-  echo "Hush is based on [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) and may cherry-pick from other open-source clients over time."
+  echo "Hush is built on [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) and combines features, fixes, and UI from several open-source YouTube Music clients—including Metrolist, Vivi Music, and Echo Music. Those projects are credited below; their licenses and copyright notices are preserved in source."
   echo ""
   echo "| Project | Repository |"
   echo "| --- | --- |"
@@ -174,7 +174,7 @@ append_section() {
   echo "| [Vivi Music](https://github.com/vivizzz007/vivi-music) | [vivizzz007/vivi-music](https://github.com/vivizzz007/vivi-music) |"
   echo "| [Echo Music](https://github.com/EchoMusicApp/Echo-Music) | [EchoMusicApp/Echo-Music](https://github.com/EchoMusicApp/Echo-Music) |"
   echo ""
-  echo "Thank you to all upstream maintainers and contributors."
+  echo "Thank you to the maintainers and contributors of every project listed above."
 } > "$OUTPUT_FILE"
 
 if [ ! -s "$OUTPUT_FILE" ]; then

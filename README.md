@@ -1,6 +1,6 @@
 # Hush
 
-Personal Android fork for my own devices (phones and car head unit). Based on [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune); may cherry-pick from other GPL clients in the same space over time.
+Personal Android fork for my own devices (phones and car head unit). Built on [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) and updated with features, fixes, and UI from Metrolist, Vivi Music, Echo Music, and other GPL clients in this space—not a one-off cherry-pick, but an ongoing merge of the best from those codebases.
 
 **Package:** `app.hush.music` (debug: `app.hush.music.debug`)
 
@@ -12,6 +12,8 @@ Personal Android fork for my own devices (phones and car head unit). Based on [A
 | [Privacy](PRIVACY.md) | What the app stores and sends |
 
 ## Upstream projects
+
+Hush integrates code and ideas from multiple open-source YouTube Music clients. Each project keeps its license and copyright notices in source; support and bug reports for shared features should go to the upstream that owns that area when possible.
 
 | Project | Issues | Support |
 | --- | --- | --- |
