@@ -232,7 +232,11 @@ class SyncUtils
                 }
                 val gen = syncGeneration.get()
                 if (!isSyncStillEnabled(gen)) return@launch
-                YouTube.likeVideo(s.id, s.liked)
+                YouTube
+                    .likeVideo(s.id, s.liked)
+                    .onFailure { error ->
+                        Timber.w(error, "likeSong: Failed to sync like for ${s.id}")
+                    }
             }
         }
 

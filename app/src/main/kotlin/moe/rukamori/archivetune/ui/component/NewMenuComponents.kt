@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -37,10 +38,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import moe.rukamori.archivetune.constants.EnableHapticFeedbackKey
+import moe.rukamori.archivetune.utils.rememberPreference
+
+private val MenuActionButtonShape = RoundedCornerShape(12.dp)
 
 @Composable
 fun NewActionButton(
@@ -54,15 +61,22 @@ fun NewActionButton(
 ) {
     val containerColor = if (backgroundColor.isSpecified) backgroundColor else MaterialTheme.colorScheme.surfaceContainerHigh
     val actionContentColor = if (contentColor.isSpecified) contentColor else MaterialTheme.colorScheme.onSurfaceVariant
+    val haptic = LocalHapticFeedback.current
+    val (enableHapticFeedback) = rememberPreference(EnableHapticFeedbackKey, true)
 
     FilledTonalButton(
-        onClick = onClick,
+        onClick = {
+            if (enableHapticFeedback) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+            onClick()
+        },
         modifier =
             modifier
                 .fillMaxWidth()
-                .heightIn(min = 96.dp),
+                .heightIn(min = 100.dp),
         enabled = enabled,
-        shape = ButtonDefaults.squareShape,
+        shape = MenuActionButtonShape,
         colors =
             ButtonDefaults.filledTonalButtonColors(
                 containerColor = containerColor,

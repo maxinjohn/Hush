@@ -439,49 +439,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          MAX_ENTRIES=100
+          chmod +x scripts/generate-release-notes.sh
           LAST_TAG="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
-
-          {
-            echo "# Changelog"
-            echo ""
-            if [ -n "$LAST_TAG" ]; then
-              TOTAL="$(git rev-list --count "${LAST_TAG}..HEAD" 2>/dev/null || echo 0)"
-              echo "Changes since ${LAST_TAG}:"
-              echo ""
-              git log "${LAST_TAG}..HEAD" \
-                --pretty=format:'- %s (%h)' \
-                --no-merges \
-                --max-count="$MAX_ENTRIES" \
-                | grep -viE 'bump (the )?version|version bump|bump to new version|\([0-9]+\.[0-9]+\.[0-9]+\)$' || true
-              if [ "${TOTAL:-0}" -gt "$MAX_ENTRIES" ]; then
-                echo ""
-                echo "_Showing the latest ${MAX_ENTRIES} of ${TOTAL} commits._"
-              fi
-            else
-              echo "Recent changes:"
-              echo ""
-              git log \
-                --pretty=format:'- %s (%h)' \
-                --no-merges \
-                --max-count="$MAX_ENTRIES" \
-                | grep -viE 'bump (the )?version|version bump|bump to new version|\([0-9]+\.[0-9]+\.[0-9]+\)$' || true
-            fi
-            echo ""
-            echo "## Upstream credits"
-            echo ""
-            echo "Hush is based on [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) and may cherry-pick from other open-source clients over time. Code and donations belong with the upstream projects:"
-            echo ""
-            echo "| Project | Repository |"
-            echo "| --- | --- |"
-            echo "| [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) | [ArchiveTuneApp/ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) |"
-            echo "| [Metrolist](https://github.com/metrolistgroup/metrolist) | [metrolistgroup/metrolist](https://github.com/metrolistgroup/metrolist) |"
-            echo "| [Vivi Music](https://github.com/vivizzz007/vivi-music) | [vivizzz007/vivi-music](https://github.com/vivizzz007/vivi-music) |"
-            echo "| [Echo Music](https://github.com/EchoMusicApp/Echo-Music) | [EchoMusicApp/Echo-Music](https://github.com/EchoMusicApp/Echo-Music) |"
-            echo ""
-            echo "Thank you to all upstream maintainers and contributors."
-          } > release_notes.md
-
+          if [ -n "$LAST_TAG" ]; then
+            echo "Generating release notes for commits since ${LAST_TAG}"
+            export RELEASE_RANGE="${LAST_TAG}..HEAD"
+          else
+            echo "Generating release notes from recent commits (no prior tag found)"
+          fi
+          bash scripts/generate-release-notes.sh release_notes.md
+          echo "--- Release notes preview ---"
+          head -n 60 release_notes.md
           if [ ! -s release_notes.md ]; then
             echo "release_notes.md is empty."
             exit 1

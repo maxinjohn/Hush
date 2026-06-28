@@ -12,8 +12,10 @@ import java.lang.Character.UnicodeScript
 import java.util.Locale
 
 /**
- * Rejects lyrics whose dominant writing system does not match the song metadata
- * or the user's content language — e.g. Arabic/Japanese lyrics for a Malayalam track.
+ * Reject-only filter for mismatched lyric languages.
+ *
+ * Malayalam and other regional Indian lyrics are always accepted when they are not
+ * clearly the wrong script (e.g. Arabic or Japanese on an Indian track).
  */
 object LyricsLanguageFilter {
     private enum class LyricsScript {
@@ -135,7 +137,7 @@ object LyricsLanguageFilter {
         artist: String,
         contentLanguage: String? = null,
         contentCountry: String? = null,
-    ): Boolean = relevanceScore(lyrics, title, artist, contentLanguage, contentCountry) > 0
+    ): Boolean = relevanceScore(lyrics, title, artist, contentLanguage, contentCountry) >= 0
 
     fun relevanceScore(
         lyrics: String,
@@ -190,6 +192,10 @@ object LyricsLanguageFilter {
             if (expected.any { it in INDIAN_SCRIPTS }) {
                 score += 40
             }
+        }
+
+        if (score <= 0 && dominant.any { it in INDIAN_SCRIPTS }) {
+            return 50
         }
 
         if (score == 0 && dominant.all { it == LyricsScript.LATIN || it == LyricsScript.OTHER }) {
