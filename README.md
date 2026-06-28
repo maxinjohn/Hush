@@ -28,6 +28,22 @@ Playback, lyrics, and UI bugs usually belong on whichever upstream project owns 
 
 Other GPL dependencies (InnerTune, ViMusic, OuterTune, BetterLyrics, …) are listed under **About → Licenses** in the app.
 
+## Adapted features by source
+
+Hush is not a single upstream clone. It merges the base app from **ArchiveTune** with settings, playback, and UI work drawn from **Metrolist**, **Vivi Music**, **Echo Music**, and shared libraries used across this ecosystem. The table below is the honest map of what came from where—updated as new ports land.
+
+| Source | Features integrated into Hush |
+| --- | --- |
+| **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** | Core app shell, YouTube Music login & library sync, playback engine, queue & downloads, crossfade, tempo/pitch, Chromecast, Music Together, Last.fm / ListenBrainz, local files, backup & restore, multi-provider lyrics, podcasts, Android Auto playback, dynamic theme & canvas artwork, onboarding, stream-source picker, custom extractor, hi-res / lossless playback paths |
+| **[Metrolist](https://github.com/metrolistgroup/metrolist)** | Wake-up **music alarms** (playlist alarms), **loudness level** presets, **playlist export** (CSV / M3U), **Android Auto** settings (sections, YT playlists) |
+| **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | Playlist **view-count prefetch**, **auto-backup before in-app update** install |
+| **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)** | **Settings search** across preference screens, **IPv4 / IPv6 / Auto** network mode for InnerTube |
+| **ViMusic** ([vfsfitvnm/ViMusic](https://github.com/vfsfitvnm/ViMusic)) | InnerTube client foundations, bottom-sheet patterns, KuGou lyrics client (see file headers & licenses) |
+| **OuterTune** ([OuterTune/OuterTune](https://github.com/OuterTune/OuterTune)) | Player carousel snap / parallax behaviour, network connectivity observer |
+| **BetterLyrics** ([boidu-dev/BetterLyrics](https://github.com/boidu-dev/BetterLyrics)) | Word-synced TTML lyrics provider module |
+
+This table is not exhaustive—many small UI and playback fixes are blended across sources. When reporting bugs, use the upstream project that owns the feature area when you can.
+
 ## Download
 
 CI publishes **universal** release APKs (all CPU architectures in one file).

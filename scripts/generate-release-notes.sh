@@ -175,6 +175,18 @@ append_section() {
   echo "| [Echo Music](https://github.com/EchoMusicApp/Echo-Music) | [EchoMusicApp/Echo-Music](https://github.com/EchoMusicApp/Echo-Music) |"
   echo ""
   echo "Thank you to the maintainers and contributors of every project listed above."
+  echo ""
+  echo "### Feature attribution"
+  echo ""
+  echo "See the full table in [README — Adapted features by source](https://github.com/maxinjohn/Hush/blob/main/README.md#adapted-features-by-source)."
+  echo ""
+  echo "| Source | Examples integrated into Hush |"
+  echo "| --- | --- |"
+  echo "| ArchiveTune | Core playback, YT sync, lyrics, Cast, Together, local files |"
+  echo "| Metrolist | Music alarms, loudness levels, playlist export, Android Auto settings |"
+  echo "| Vivi Music | Playlist prefetch, auto-backup before update |"
+  echo "| Echo Music | Settings search, IPv4/IPv6 network mode |"
+  echo "| ViMusic / OuterTune / BetterLyrics | InnerTube base, UI patterns, synced lyrics |"
 } > "$OUTPUT_FILE"
 
 if [ ! -s "$OUTPUT_FILE" ]; then
