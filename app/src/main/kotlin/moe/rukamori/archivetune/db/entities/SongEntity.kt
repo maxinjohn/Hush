@@ -12,11 +12,6 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
-import moe.rukamori.archivetune.innertube.YouTube
 import java.time.LocalDateTime
 
 @Immutable
@@ -56,7 +51,7 @@ data class SongEntity(
             likedDate = if (!liked) LocalDateTime.now() else null,
         )
 
-    fun toggleLike() =
+  fun toggleLike(): SongEntity =
         if (isLocal) {
             localToggleLike()
         } else {
@@ -64,12 +59,7 @@ data class SongEntity(
                 liked = !liked,
                 likedDate = if (!liked) LocalDateTime.now() else null,
                 inLibrary = if (!liked) inLibrary ?: LocalDateTime.now() else inLibrary,
-            ).also {
-                CoroutineScope(Dispatchers.IO).launch {
-                    YouTube.likeVideo(id, !liked)
-                    this.cancel()
-                }
-            }
+            )
         }
 
     fun toggleLibrary() =

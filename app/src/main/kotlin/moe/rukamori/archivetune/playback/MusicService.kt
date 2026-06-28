@@ -1084,7 +1084,9 @@ class MusicService :
                         )
                 } == true
 
-            if (existing != null && !hasInvalidStoredLyrics) return@collectLatest
+            if (existing != null && existing.lyrics != LyricsEntity.LYRICS_NOT_FOUND && !hasInvalidStoredLyrics) {
+                return@collectLatest
+            }
 
             val lyrics = lyricsHelper.getLyrics(mediaMetadata)
             database.query {
@@ -2922,23 +2924,33 @@ class MusicService :
         return true
     }
 
+    private fun currentPlaybackSongLiked(): Boolean {
+        val mediaId =
+            currentMediaMetadata.value?.id?.takeIf { it.isNotBlank() }
+                ?: player.currentMediaItem?.mediaId?.takeIf { it.isNotBlank() }
+                ?: return currentSong.value?.song?.liked == true
+
+        return database.getSongByIdBlocking(mediaId)?.song?.liked == true
+    }
+
     private fun updateNotification() {
         try {
+            val liked = currentPlaybackSongLiked()
             val customLayout =
                 listOf(
                     CommandButton
                         .Builder()
                         .setDisplayName(
                             getString(
-                                if (currentSong.value?.song?.liked == true) {
+                                if (liked) {
                                     R.string.action_remove_like
                                 } else {
                                     R.string.action_like
                                 },
                             ),
-                        ).setIconResId(if (currentSong.value?.song?.liked == true) R.drawable.favorite else R.drawable.favorite_border)
+                        ).setIconResId(if (liked) R.drawable.favorite else R.drawable.favorite_border)
                         .setSessionCommand(CommandToggleLike)
-                        .setEnabled(currentSong.value != null)
+                        .setEnabled(currentMediaMetadata.value != null)
                         .build(),
                     CommandButton
                         .Builder()
@@ -2967,13 +2979,6 @@ class MusicService :
                         ).setIconResId(if (player.shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle)
                         .setSessionCommand(CommandToggleShuffle)
                         .build(),
-                    CommandButton
-                        .Builder()
-                        .setDisplayName(getString(R.string.start_radio))
-                        .setIconResId(R.drawable.radio)
-                        .setSessionCommand(CommandToggleStartRadio)
-                        .setEnabled(currentSong.value != null)
-                        .build(),
                 )
             mediaSession.setCustomLayout(customLayout)
         } catch (e: Exception) {
@@ -2994,6 +2999,8 @@ class MusicService :
         val mediaMetadata =
             withContext(Dispatchers.Main) {
                 player.findNextMediaItemById(mediaId)?.metadata
+                    ?: player.currentMediaItem?.takeIf { it.mediaId == mediaId }?.metadata
+                    ?: currentMediaMetadata.value?.takeIf { it.id == mediaId }
             } ?: return
         val duration =
             song?.song?.duration?.takeIf { it != -1 }
@@ -4901,28 +4908,51 @@ class MusicService :
     }
 
     fun toggleLike() {
-        database.query {
-            currentSong.value?.let {
-                val song = it.song.toggleLike()
-                update(song)
-                syncUtils.likeSong(song)
+        val metadata = currentMediaMetadata.value ?: return
+        val mediaId = metadata.id.trim()
+        if (mediaId.isBlank()) return
 
-                // Check if auto-download on like is enabled and the song is now liked
-                if (!song.isLocal && dataStore.get(AutoDownloadOnLikeKey, false) && song.liked) {
-                    // Trigger download for the liked song
-                    val downloadRequest =
-                        androidx.media3.exoplayer.offline.DownloadRequest
-                            .Builder(song.id, song.id.toUri())
-                            .setCustomCacheKey(song.id)
-                            .setData(song.title.toByteArray())
-                            .build()
-                    androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
-                        this@MusicService,
-                        ExoDownloadService::class.java,
-                        downloadRequest,
-                        false,
-                    )
-                }
+        ioScope.launch {
+            val updatedSong =
+                database.withTransaction {
+                    val existing = getSongById(mediaId)?.song
+                    val baseSong =
+                        existing
+                            ?: run {
+                                insert(metadata.copy(duration = metadata.duration.takeIf { it > 0 } ?: -1))
+                                getSongById(mediaId)?.song
+                            }
+                            ?: return@withTransaction null
+
+                    val toggled = baseSong.toggleLike()
+                    update(toggled)
+                    toggled
+                } ?: return@launch
+
+            withContext(Dispatchers.Main.immediate) {
+                updateNotification()
+            }
+
+            syncUtils.likeSong(updatedSong)
+
+            if (!mediaId.isLocalMediaId()) {
+                ioScope.launch { recoverSong(mediaId) }
+            }
+
+            val autoDownloadOnLike = dataStore.get(AutoDownloadOnLikeKey, false)
+            if (!updatedSong.isLocal && autoDownloadOnLike && updatedSong.liked) {
+                val downloadRequest =
+                    androidx.media3.exoplayer.offline.DownloadRequest
+                        .Builder(updatedSong.id, updatedSong.id.toUri())
+                        .setCustomCacheKey(updatedSong.id)
+                        .setData(updatedSong.title.toByteArray())
+                        .build()
+                androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
+                    this@MusicService,
+                    ExoDownloadService::class.java,
+                    downloadRequest,
+                    false,
+                )
             }
         }
     }
@@ -5563,6 +5593,7 @@ class MusicService :
         currentMediaMetadata.value = if (timelineEmpty) null else (mediaItem?.metadata ?: player.currentMetadata)
 
         mediaItem?.let { item ->
+            ensureNotificationArtworkUri(item)
             scope.launch(SilentHandler) {
                 hydrateNotificationArtwork(item)
             }
@@ -5650,8 +5681,33 @@ class MusicService :
         }
     }
 
+    private fun ensureNotificationArtworkUri(mediaItem: MediaItem) {
+        if (mediaItem.mediaMetadata.artworkUri != null) return
+        val artworkUrl =
+            mediaItem.resolveNotificationArtworkUrl()
+                ?: NotificationArtworkLoader.resolveArtworkUrl(mediaItem)
+                ?: return
+
+        val index = player.currentMediaItemIndex
+        if (index == C.INDEX_UNSET || index >= player.mediaItemCount) return
+        val currentItem = player.getMediaItemAt(index)
+        if (currentItem.mediaId != mediaItem.mediaId) return
+
+        val updatedItem =
+            currentItem.buildUpon()
+                .setMediaMetadata(
+                    currentItem.mediaMetadata.buildUpon()
+                        .setArtworkUri(artworkUrl.toUri())
+                        .build(),
+                ).build()
+        player.replaceMediaItem(index, updatedItem)
+    }
+
     private suspend fun hydrateNotificationArtwork(mediaItem: MediaItem) {
-        val artworkUrl = mediaItem.resolveNotificationArtworkUrl() ?: return
+        val artworkUrl =
+            mediaItem.resolveNotificationArtworkUrl()
+                ?: NotificationArtworkLoader.resolveArtworkUrl(mediaItem)
+                ?: return
         val targetMediaId = mediaItem.mediaId
         val bitmap =
             withContext(Dispatchers.IO) {
@@ -5675,7 +5731,7 @@ class MusicService :
                 )
             if (updatedItem.mediaMetadata != currentItem.mediaMetadata) {
                 player.replaceMediaItem(index, updatedItem)
-                updateNotification()
+                refreshPlaybackNotification()
             }
         }
     }

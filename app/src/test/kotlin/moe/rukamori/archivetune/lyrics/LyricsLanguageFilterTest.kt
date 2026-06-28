@@ -85,6 +85,47 @@ class LyricsLanguageFilterTest {
   }
 
   @Test
+  fun acceptsMalayalamLyricsForLatinTitleIndianSong() {
+    val title = "Chirimanimumulle"
+    val artist = "Deepak Dev, Afsal"
+    val lyrics =
+      """
+      [00:12.00]കാതിരുന്ന നീളം നിറഞ്ഞു
+      [00:18.00]എന്റെ ഹൃദയം പൂത്തു
+      """.trimIndent()
+
+    assertTrue(
+      LyricsLanguageFilter.isAcceptableLyrics(
+        lyrics,
+        title,
+        artist,
+        contentLanguage = "ml",
+        contentCountry = "IN",
+      ),
+    )
+  }
+
+  @Test
+  fun acceptsMalayalamLyricsForLatinTitleWithoutExplicitLanguage() {
+    val title = "Jaalakaari"
+    val artist = "Sublahshini, Vinayak"
+    val lyrics =
+      """
+      [00:12.00]കാതിരുന്ന നീളം നിറഞ്ഞു
+      [00:18.00]എന്റെ ഹൃദയം പൂത്തു
+      """.trimIndent()
+
+    assertTrue(
+      LyricsLanguageFilter.isAcceptableLyrics(
+        lyrics,
+        title,
+        artist,
+        contentCountry = "IN",
+      ),
+    )
+  }
+
+  @Test
   fun rejectsArabicLyricsForEnglishTitleIndianCountry() {
     val title = "Local Sigma"
     val artist = "Bibin Ashok"

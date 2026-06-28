@@ -254,13 +254,14 @@ class LyricsHelper
                             contentLanguage = contentLanguage,
                             contentCountry = contentCountry,
                         )
+                    if (score < 0) return@forEach
                     if (score > bestScore) {
                         bestScore = score
                         bestLyrics = lyrics
                     }
                 }
 
-                bestLyrics.takeIf { bestScore > 0 } ?: LYRICS_NOT_FOUND
+                bestLyrics.takeIf { bestScore >= 0 } ?: LYRICS_NOT_FOUND
             }
 
         private suspend fun fetchProviderLyrics(

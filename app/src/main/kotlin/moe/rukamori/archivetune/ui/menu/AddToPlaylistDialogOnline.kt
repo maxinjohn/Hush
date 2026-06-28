@@ -54,6 +54,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.LocalDatabase
+import moe.rukamori.archivetune.LocalSyncUtils
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.ListThumbnailSize
 import moe.rukamori.archivetune.db.entities.Playlist
@@ -84,6 +85,7 @@ fun AddToPlaylistDialogOnline(
     onStatusChange: (String) -> Unit = {},
 ) {
     val database = LocalDatabase.current
+    val syncUtils = LocalSyncUtils.current
     val coroutineScope = rememberCoroutineScope()
     var allPlaylists by remember { mutableStateOf(emptyList<Playlist>()) }
     val playlists = remember(allPlaylists) { playlistsForAddToPlaylist(allPlaylists).asReversed() }
@@ -176,9 +178,13 @@ fun AddToPlaylistDialogOnline(
                                                     }
                                                     if (addToLiked) {
                                                         val entity = media.toSongEntity()
-                                                        database.query {
-                                                            update(entity.toggleLike())
-                                                        }
+                                                        val likedSong =
+                                                            database.withTransaction {
+                                                                val toggled = entity.toggleLike()
+                                                                update(toggled)
+                                                                toggled
+                                                            }
+                                                        syncUtils.likeSong(likedSong)
                                                     }
                                                     success = true
                                                 } catch (e: Exception) {

@@ -90,6 +90,7 @@ import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.playback.ExoDownloadService
+import moe.rukamori.archivetune.playback.queues.ListQueue
 import moe.rukamori.archivetune.playback.queues.YouTubeQueue
 import moe.rukamori.archivetune.ui.component.ListDialog
 import moe.rukamori.archivetune.ui.component.LocalBottomSheetPageState
@@ -324,7 +325,7 @@ fun YouTubeSongMenu(
 
     val bottomSheetPageState = LocalBottomSheetPageState.current
     val dividerModifier = Modifier.padding(start = 56.dp)
-    val startRadioText = stringResource(R.string.start_radio)
+    val playText = stringResource(R.string.play)
     val playNextText = stringResource(R.string.play_next)
     val addToQueueText = stringResource(R.string.add_to_queue)
     val addToPlaylistText = stringResource(R.string.add_to_playlist)
@@ -333,7 +334,7 @@ fun YouTubeSongMenu(
     val primaryActions =
         remember(
             song,
-            startRadioText,
+            playText,
             playNextText,
             addToQueueText,
             addToPlaylistText,
@@ -345,16 +346,21 @@ fun YouTubeSongMenu(
                 NewAction(
                     icon = {
                         Icon(
-                            painter = painterResource(R.drawable.radio),
+                            painter = painterResource(R.drawable.play),
                             contentDescription = null,
                             modifier = Modifier.size(28.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     },
-                    text = startRadioText,
+                    text = playText,
                     onClick = {
                         onDismiss()
-                        playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
+                        playerConnection.playQueue(
+                            ListQueue(
+                                title = song.title,
+                                items = listOf(song.toMediaItem()),
+                            ),
+                        )
                     },
                 ),
                 NewAction(
