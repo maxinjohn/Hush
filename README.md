@@ -1,5 +1,11 @@
 # Hush
 
+<!-- hush-release-docs-start -->
+**Current version:** 13.8.5 (143) · [Release notes](release_notes/v13.8.5.md) · [All releases](https://github.com/maxinjohn/Hush/releases/latest)
+
+_Auto-updated on push to `dev`/`main` and when **Bump to new version** runs in GitHub Actions._
+<!-- hush-release-docs-end -->
+
 Personal Android fork for my own devices (phones and car head unit). Built on [ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune) and updated with features, fixes, and UI from Metrolist, Vivi Music, Echo Music, and other GPL clients in this space—not a one-off cherry-pick, but an ongoing merge of the best from those codebases.
 
 **Package:** `app.hush.music` (debug: `app.hush.music.debug`)

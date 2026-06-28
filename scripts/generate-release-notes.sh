@@ -7,11 +7,6 @@ MAX_ENTRIES="${MAX_ENTRIES:-250}"
 RANGE="${RELEASE_RANGE:-}"
 NEW_VERSION="${RELEASE_VERSION:-}"
 
-if [ -n "$NEW_VERSION" ] && [ -f "release_notes/v${NEW_VERSION}.md" ]; then
-  cp "release_notes/v${NEW_VERSION}.md" "$OUTPUT_FILE"
-  exit 0
-fi
-
 resolve_previous_tag() {
   local current_tag="${1:-}"
   if [ -n "$current_tag" ]; then
@@ -28,13 +23,20 @@ resolve_previous_tag() {
 
 if [ -z "$RANGE" ]; then
   if [ -n "$NEW_VERSION" ]; then
-  PREVIOUS_TAG="$(resolve_previous_tag "v${NEW_VERSION}")"
+    CURRENT_TAG="v${NEW_VERSION}"
+    if git rev-parse "$CURRENT_TAG" >/dev/null 2>&1; then
+      RANGE="${CURRENT_TAG}..HEAD"
+    else
+      PREVIOUS_TAG="$(resolve_previous_tag "$CURRENT_TAG")"
+      if [ -n "$PREVIOUS_TAG" ]; then
+        RANGE="${PREVIOUS_TAG}..HEAD"
+      fi
+    fi
   else
     PREVIOUS_TAG="$(resolve_previous_tag "")"
-  fi
-
-  if [ -n "$PREVIOUS_TAG" ]; then
-    RANGE="${PREVIOUS_TAG}..HEAD"
+    if [ -n "$PREVIOUS_TAG" ]; then
+      RANGE="${PREVIOUS_TAG}..HEAD"
+    fi
   fi
 fi
 

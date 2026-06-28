@@ -49,6 +49,35 @@ jobs:
           echo "version_changed: ${{ steps.check_version.outputs.version_changed }}"
           echo "new_version: ${{ steps.check_version.outputs.new_version }}"
 
+  sync-release-docs:
+    if: contains(github.ref, 'refs/tags') == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Regenerate README, CHANGELOG, and release notes
+        run: |
+          chmod +x scripts/sync-release-docs.sh scripts/generate-release-notes.sh
+          bash scripts/sync-release-docs.sh
+
+      - name: Commit and push doc updates
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md CHANGELOG.md release_notes/
+          if git diff --staged --quiet; then
+            echo "Release docs already up to date."
+            exit 0
+          fi
+          git commit -m "chore: sync release docs for bump workflow [skip ci]"
+          git push
+
   reproducibility:
     needs: check-version
     if: needs.check-version.outputs.version_changed == 'true'
@@ -435,22 +464,22 @@ jobs:
         with:
           path: downloaded_artifacts/
 
-      - name: Write release notes
+      - name: Sync release notes for GitHub release
         shell: bash
         env:
           RELEASE_VERSION: ${{ needs.check-version.outputs.new_version }}
         run: |
           set -euo pipefail
-          chmod +x scripts/generate-release-notes.sh
-          export RELEASE_VERSION
-          echo "Generating release notes for v${RELEASE_VERSION}"
-          bash scripts/generate-release-notes.sh release_notes.md
-          echo "--- Release notes preview ---"
-          head -n 80 release_notes.md
-          if [ ! -s release_notes.md ]; then
-            echo "release_notes.md is empty."
+          chmod +x scripts/sync-release-docs.sh scripts/generate-release-notes.sh
+          bash scripts/sync-release-docs.sh
+          NOTES_FILE="release_notes/v${RELEASE_VERSION}.md"
+          if [ ! -s "$NOTES_FILE" ]; then
+            echo "${NOTES_FILE} is missing or empty."
             exit 1
           fi
+          cp "$NOTES_FILE" release_notes.md
+          echo "--- Release notes preview ---"
+          head -n 80 release_notes.md
           if ! grep -q '^- ' release_notes.md; then
             echo "release_notes.md has no bullet entries."
             exit 1

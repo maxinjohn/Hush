@@ -1,0 +1,41 @@
+name: Sync release docs
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+    paths-ignore:
+      - 'release_notes/**'
+      - 'README.md'
+      - 'CHANGELOG.md'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Regenerate README, CHANGELOG, and release notes
+        run: |
+          chmod +x scripts/sync-release-docs.sh scripts/generate-release-notes.sh
+          bash scripts/sync-release-docs.sh
+
+      - name: Commit and push doc updates
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md CHANGELOG.md release_notes/
+          if git diff --staged --quiet; then
+            echo "Release docs already up to date."
+            exit 0
+          fi
+          git commit -m "chore: sync release docs [skip ci]"
+          git push
