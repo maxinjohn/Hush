@@ -98,6 +98,7 @@ import moe.rukamori.archivetune.ui.screens.settings.AlarmSettings
 import moe.rukamori.archivetune.ui.screens.settings.LyricsSettings
 import moe.rukamori.archivetune.ui.screens.settings.MusicTogetherScreen
 import moe.rukamori.archivetune.ui.screens.settings.PalettePickerScreen
+import moe.rukamori.archivetune.ui.screens.settings.JioSaavnSettings
 import moe.rukamori.archivetune.ui.screens.settings.PlayerSettings
 import moe.rukamori.archivetune.ui.screens.settings.StreamSourcesSettings
 import moe.rukamori.archivetune.ui.screens.settings.PoTokenScreen
@@ -431,6 +432,9 @@ fun NavGraphBuilder.navigationBuilder(
     }
     composable("settings/player/stream_sources") {
         StreamSourcesSettings(navController, scrollBehavior)
+    }
+    composable("settings/player/jiosaavn") {
+        JioSaavnSettings(navController, scrollBehavior)
     }
     composable("settings/android_auto") {
         AndroidAutoSettings(navController, scrollBehavior)

@@ -423,6 +423,12 @@
     <string name="error_extractor_token_missing">ArchiveTune Extractor is not available in this build. Use Android VR or Web Remix in Settings → Playback.</string>
     <string name="stream_sources">Stream sources</string>
     <string name="stream_sources_desc">Choose which YouTube clients are used when resolving playback streams.</string>
+    <string name="jiosaavn_settings">JioSaavn settings</string>
+    <string name="jiosaavn_settings_off">Off — YouTube only</string>
+    <string name="enable_saavn_streaming">Enable JioSaavn streaming</string>
+    <string name="enable_saavn_streaming_desc">Stream audio from JioSaavn when a match is found. Your library, likes, playlists, and sync stay on YouTube Music — only playback uses JioSaavn first, then falls back to YouTube.</string>
+    <string name="saavn_audio_quality">JioSaavn audio quality</string>
+    <string name="jiosaavn_beta_info">Beta feature. Best for the Indian catalog. If a song is not on JioSaavn, Hush uses YouTube automatically. Downloads use the same quality when JioSaavn matches.</string>
     <string name="stream_source_order">Playback fallback order</string>
     <string name="stream_source_order_desc">Matches the order used when resolving streams. Your preferred client in Player settings is tried first.</string>
     <string name="stream_source_none_enabled">All optional sources are off. Only your preferred playback client will be used.</string>

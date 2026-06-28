@@ -36,7 +36,7 @@ Real talk on what got ported from where. This table only moves when I add someth
 | --- | --- |
 | **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** | Core app, YT login & sync, playback engine, queue & downloads, crossfade, tempo/pitch, Chromecast, Music Together, Last.fm / ListenBrainz, local files, backup & restore, multi-provider lyrics, podcasts, Android Auto, dynamic theme & canvas art, onboarding, stream-source picker, custom extractor, hi-res / lossless |
 | **[Metrolist](https://github.com/metrolistgroup/metrolist)** | Wake-up **music alarms**, **loudness** presets, **playlist export** (CSV / M3U), **Android Auto** settings |
-| **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | Playlist **view-count prefetch**, **auto-backup before in-app update** |
+| **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | Playlist **view-count prefetch**, **auto-backup before in-app update**, **JioSaavn streaming** (320 kbps primary, YT fallback) |
 | **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)** | **Settings search**, **IPv4 / IPv6 / Auto** network mode |
 | **[ViMusic](https://github.com/vfsfitvnm/ViMusic)** | InnerTube foundations, bottom-sheet UI patterns, KuGou lyrics client |
 | **[OuterTune](https://github.com/OuterTune/OuterTune)** | Player carousel snap / parallax, network connectivity observer |

@@ -55,6 +55,7 @@ import moe.rukamori.archivetune.constants.ExternalDownloaderEnabledKey
 import moe.rukamori.archivetune.constants.ExternalDownloaderPackageKey
 import moe.rukamori.archivetune.constants.HISTORY_DURATION_DEFAULT
 import moe.rukamori.archivetune.constants.HistoryDuration
+import moe.rukamori.archivetune.constants.EnableSaavnStreamingKey
 import moe.rukamori.archivetune.constants.LoudnessLevel
 import moe.rukamori.archivetune.constants.LoudnessLevelKey
 import moe.rukamori.archivetune.constants.LowDataModeKey
@@ -63,6 +64,8 @@ import moe.rukamori.archivetune.constants.PermanentShuffleKey
 import moe.rukamori.archivetune.constants.PersistentQueueKey
 import moe.rukamori.archivetune.constants.PlayerStreamClient
 import moe.rukamori.archivetune.constants.PlayerStreamClientKey
+import moe.rukamori.archivetune.constants.SaavnAudioQuality
+import moe.rukamori.archivetune.constants.SaavnAudioQualityKey
 import moe.rukamori.archivetune.constants.SeekExtraSeconds
 import moe.rukamori.archivetune.constants.SkipSilenceKey
 import moe.rukamori.archivetune.constants.StopMusicOnTaskClearKey
@@ -106,6 +109,9 @@ fun PlayerSettings(
             LowDataModeKey,
             defaultValue = false,
         )
+    val (saavnEnabled, _) = rememberPreference(EnableSaavnStreamingKey, defaultValue = false)
+    val (saavnQuality, _) =
+        rememberEnumPreference(SaavnAudioQualityKey, defaultValue = SaavnAudioQuality.QUALITY_320)
     val (persistentQueue, onPersistentQueueChange) =
         rememberPreference(
             PersistentQueueKey,
@@ -324,6 +330,20 @@ fun PlayerSettings(
                             AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
                         }
                     },
+                )
+            }
+
+            item {
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.jiosaavn_settings)) },
+                    description =
+                        if (saavnEnabled) {
+                            saavnQuality.toLabel()
+                        } else {
+                            stringResource(R.string.jiosaavn_settings_off)
+                        },
+                    icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
+                    onClick = { navController.navigate("settings/player/jiosaavn") },
                 )
             }
 

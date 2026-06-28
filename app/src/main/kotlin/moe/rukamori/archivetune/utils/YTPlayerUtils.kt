@@ -7,10 +7,12 @@
 
 package moe.rukamori.archivetune.utils
 
+import android.content.Context
 import android.net.ConnectivityManager
 import androidx.media3.common.PlaybackException
 import io.ktor.client.plugins.ClientRequestException
 import io.ktor.http.HttpStatusCode
+import moe.rukamori.archivetune.playback.SaavnPlaybackResolver
 import moe.rukamori.archivetune.constants.AudioQuality
 import moe.rukamori.archivetune.constants.PlayerStreamClient
 import moe.rukamori.archivetune.constants.StreamSourcePreferences
@@ -477,6 +479,8 @@ object YTPlayerUtils {
         val streamExpiresInSeconds: Int,
         val authFingerprint: String,
         val playbackClientLabel: String? = null,
+        /** Audio bytes come from JioSaavn; YT metadata/history/likes still use [videoDetails]. */
+        val isSaavnStream: Boolean = false,
     )
 
     /**
@@ -493,8 +497,14 @@ object YTPlayerUtils {
         // if provided, this preference overrides ConnectivityManager.isActiveNetworkMetered
         networkMetered: Boolean? = null,
         fastResolution: Boolean = true,
+        context: Context? = null,
+        trySaavnFirst: Boolean = true,
     ): Result<PlaybackData> =
         runCatching {
+            if (context != null && trySaavnFirst) {
+                SaavnPlaybackResolver.tryResolve(context, videoId, playlistId)?.let { return@runCatching it }
+            }
+
             val attempts =
                 when (audioQuality) {
                     AudioQuality.HIGHEST -> listOf(AudioQuality.HIGHEST, AudioQuality.HIGH, AudioQuality.LOW)
@@ -552,9 +562,13 @@ object YTPlayerUtils {
         audioQuality: AudioQuality,
         connectivityManager: ConnectivityManager,
         networkMetered: Boolean? = null,
+        context: Context? = null,
     ): Result<PlaybackData> =
         runCatching {
             Timber.tag(logTag).i("Fetching download response for videoId: $videoId, playlistId: $playlistId")
+            if (context != null) {
+                SaavnPlaybackResolver.tryResolve(context, videoId, playlistId)?.let { return@runCatching it }
+            }
             var lastError: Throwable? = null
 
             for (preferredStreamClient in downloadPreferredStreamClientAttempts) {
@@ -566,6 +580,8 @@ object YTPlayerUtils {
                         connectivityManager = connectivityManager,
                         preferredStreamClient = preferredStreamClient,
                         networkMetered = networkMetered,
+                        context = context,
+                        trySaavnFirst = false,
                     )
 
                 if (attemptResult.isSuccess) return@runCatching attemptResult.getOrThrow()

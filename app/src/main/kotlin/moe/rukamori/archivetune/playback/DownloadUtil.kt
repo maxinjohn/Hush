@@ -163,6 +163,7 @@ class DownloadUtil
                                 audioQuality = requestedAudioQuality,
                                 connectivityManager = connectivityManager,
                                 networkMetered = lowDataModeActive,
+                                context = context,
                             )
                         }
                     }.getOrThrow()

@@ -2305,6 +2305,8 @@ class MusicService :
                                 connectivityManager = connectivityManager,
                                 preferredStreamClient = PlayerStreamClient.WEB_REMIX,
                                 networkMetered = networkMeteredHint,
+                                context = this@MusicService,
+                                trySaavnFirst = false,
                             )
                         }.getOrThrow()
                     }.getOrThrow()
@@ -2316,6 +2318,7 @@ class MusicService :
                             connectivityManager = connectivityManager,
                             preferredStreamClient = activeStreamClient,
                             networkMetered = networkMeteredHint,
+                            context = this@MusicService,
                         )
                     }.getOrThrow()
                 }
@@ -6480,6 +6483,7 @@ class MusicService :
                                 preferredStreamClient = activeStreamClient,
                                 networkMetered = networkMeteredHint,
                                 fastResolution = true,
+                                context = this@MusicService,
                             )
                         }.getOrThrow()
                     }
@@ -6511,6 +6515,7 @@ class MusicService :
             streamUrl = playbackData.streamUrl,
             knownContentLength = knownContentLength ?: playbackData.format.contentLength,
             mimeType = playbackData.format.mimeType,
+            isSaavnStream = playbackData.isSaavnStream,
         )
     }
 
@@ -6519,8 +6524,10 @@ class MusicService :
         streamUrl: String,
         knownContentLength: Long?,
         mimeType: String?,
+        isSaavnStream: Boolean = false,
     ): DataSpec {
         val resolvedDataSpec = dataSpec.withUri(streamUrl.toUri())
+        if (isSaavnStream) return resolvedDataSpec
         val length =
             resolveStreamChunkLength(
                 requestedLength = dataSpec.length,

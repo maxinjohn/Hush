@@ -24,6 +24,7 @@ fun getAllSearchableSettings(): List<SearchableSettingEntry> =
         SearchableSettingEntry(stringResource(R.string.appearance), stringResource(R.string.appearance), "settings/appearance"),
         SearchableSettingEntry(stringResource(R.string.settings_playback_title), stringResource(R.string.settings_playback_title), "settings/player"),
         SearchableSettingEntry(stringResource(R.string.stream_sources), stringResource(R.string.settings_playback_title), "settings/player/stream_sources"),
+        SearchableSettingEntry(stringResource(R.string.jiosaavn_settings), stringResource(R.string.settings_playback_title), "settings/player/jiosaavn"),
         SearchableSettingEntry(stringResource(R.string.stream_source_android_vr), stringResource(R.string.stream_sources), "settings/player/stream_sources"),
         SearchableSettingEntry(stringResource(R.string.stream_source_web_remix), stringResource(R.string.stream_sources), "settings/player/stream_sources"),
         SearchableSettingEntry(stringResource(R.string.stream_source_tvhtml5), stringResource(R.string.stream_sources), "settings/player/stream_sources"),

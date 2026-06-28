@@ -254,6 +254,9 @@ enum class AudioQuality {
 
 val PlayerStreamClientKey = stringPreferencesKey("playerStreamClient")
 
+val EnableSaavnStreamingKey = booleanPreferencesKey("enableSaavnStreaming")
+val SaavnAudioQualityKey = stringPreferencesKey("saavnAudioQuality")
+
 enum class PlayerStreamClient {
     ANDROID_VR,
     WEB_REMIX,
