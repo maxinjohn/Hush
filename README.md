@@ -24,7 +24,7 @@ Personal fork. I build it for me. You're welcome to the APKs.
 
 Think: YT library sync, queue, downloads, lyrics (multi-provider), Android Auto, Cast on GMS builds, local files, backups, podcasts, dynamic themes, canvas art, crossfade, tempo/pitch — the full session, not a demo.
 
-Not a PR factory. Not taking donations. If something's broken in code that came from Metrolist or ArchiveTune, hit *their* issues when you can.
+Not a PR factory. Not taking donations. If something's broken in code that came from Metrolist or ArchiveTune, hit *their* issues when you can. **Hush-specific bugs** — weird on *this* build, this fork, your install — [open an issue here](https://github.com/maxinjohn/Hush/issues); I'll see what I can do.
 
 ---
 
