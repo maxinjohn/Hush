@@ -4214,6 +4214,8 @@ fun PlayerBackground(
 ) {
     val effectiveBlurRadius = blurRadius.coerceIn(0f, PlayerBackgroundMaxBlurRadius)
     val shouldApplyBlur = !disableBlur && effectiveBlurRadius > 0f
+    val styleAppliesBlur =
+        effectiveBlurRadius > 0f && effectiveBlurRadius >= 0.5f
     Box(modifier = Modifier.fillMaxSize()) {
         when (playerBackground) {
             PlayerBackgroundStyle.BLUR -> {
@@ -4232,7 +4234,7 @@ fun PlayerBackground(
                                 contentScale = ContentScale.Crop,
                                 modifier =
                                     Modifier.fillMaxSize().let {
-                                        if (shouldApplyBlur) it.blur(radius = effectiveBlurRadius.dp) else it
+                                        if (styleAppliesBlur) it.blur(radius = effectiveBlurRadius.dp) else it
                                     },
                             )
                             val overlayStops = PlayerBackgroundColorUtils.buildBlurOverlayStops(gradientColors)
@@ -4341,7 +4343,7 @@ fun PlayerBackground(
                                 contentScale = ContentScale.Crop,
                                 modifier =
                                     Modifier.fillMaxSize().let {
-                                        if (shouldApplyBlur) it.blur(radius = effectiveBlurRadius.dp) else it
+                                        if (styleAppliesBlur) it.blur(radius = effectiveBlurRadius.dp) else it
                                     },
                             )
                             val gradientColorStops =
