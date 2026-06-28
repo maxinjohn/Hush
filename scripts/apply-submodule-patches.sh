@@ -25,4 +25,4 @@ apply_patch() {
   exit 1
 }
 
-apply_patch "$ROOT_DIR/patches/core-innertube-ip-version.patch"
+apply_patch "$ROOT_DIR/patches/core-hush-innertube.patch"

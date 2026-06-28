@@ -46,8 +46,8 @@ android {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 141
-        versionName = "13.8.3"
+        versionCode = 142
+        versionName = "13.8.4"
 
         ndk {
             // ABI filters are set per product flavor (arm64, universal, etc.).
