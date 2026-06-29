@@ -21,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
@@ -36,6 +37,11 @@ object ArchiveTuneDesign {
     val NavItemCornerRadius = 28.dp
     val MiniButtonCornerRadius = 50.dp
     val ToolbarCornerRadius = 32.dp
+    val HeaderActionCornerRadius = 14.dp
+    val HeaderActionSize = 56.dp
+    val HeaderActionIconSize = 26.dp
+
+    const val HeaderActionPressScale = 0.82f
 
     val ScreenHorizontalPadding = 16.dp
     val ScreenCompactHorizontalPadding = 12.dp
@@ -50,6 +56,7 @@ object ArchiveTuneDesign {
     const val SelectedChipScale = 1.05f
 
     val chipShape: Shape get() = RoundedCornerShape(ChipCornerRadius)
+    val headerActionShape: Shape get() = RoundedCornerShape(HeaderActionCornerRadius)
     val itemShape: Shape get() = RoundedCornerShape(ItemCornerRadius)
     val cardShape: Shape get() = RoundedCornerShape(CardCornerRadius)
     val navItemShape: Shape get() = RoundedCornerShape(NavItemCornerRadius)
@@ -90,6 +97,26 @@ fun rememberArchiveTunePressScale(
     return scale
 }
 
+@Composable
+fun rememberArchiveTunePressFeedback(
+    interactionSource: MutableInteractionSource,
+    pressScale: Float = ArchiveTuneDesign.PressScale,
+): Pair<Float, Float> {
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val animationsDisabled = LocalAnimationsDisabled.current
+    val scale by animateFloatAsState(
+        targetValue = if (!animationsDisabled && isPressed) pressScale else 1f,
+        animationSpec = ArchiveTuneMotion.gentleSpring(),
+        label = "archiveTunePressFeedbackScale",
+    )
+    val alpha by animateFloatAsState(
+        targetValue = if (!animationsDisabled && isPressed) 0.88f else 1f,
+        animationSpec = ArchiveTuneMotion.fastSpring(),
+        label = "archiveTunePressFeedbackAlpha",
+    )
+    return scale to alpha
+}
+
 fun Modifier.graphicsLayerPressScale(scale: Float): Modifier =
     graphicsLayer {
         scaleX = scale
@@ -107,6 +134,30 @@ fun Modifier.archiveTunePressable(
         val scale = rememberArchiveTunePressScale(interactionSource, pressScale)
         this
             .graphicsLayerPressScale(scale)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                role = role,
+                onClick = onClick,
+            )
+    }
+
+fun Modifier.archiveTuneHeaderActionPressable(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    role: Role? = null,
+): Modifier =
+    composed {
+        val interactionSource = remember { MutableInteractionSource() }
+        val (scale, alpha) =
+            rememberArchiveTunePressFeedback(
+                interactionSource = interactionSource,
+                pressScale = ArchiveTuneDesign.HeaderActionPressScale,
+            )
+        this
+            .graphicsLayerPressScale(scale)
+            .alpha(alpha)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,

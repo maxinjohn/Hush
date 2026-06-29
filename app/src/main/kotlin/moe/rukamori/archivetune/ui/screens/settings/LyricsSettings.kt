@@ -78,6 +78,8 @@ import moe.rukamori.archivetune.constants.EnablePaxsenixYouTubeLyricsKey
 import moe.rukamori.archivetune.constants.EnableSimpMusicLyricsKey
 import moe.rukamori.archivetune.constants.EnableUnisonLyricsKey
 import moe.rukamori.archivetune.constants.EnableYouLyPlusLyricsKey
+import moe.rukamori.archivetune.constants.LyricsAnimationStyle
+import moe.rukamori.archivetune.constants.LyricsAnimationStyleKey
 import moe.rukamori.archivetune.constants.LyricsClickKey
 import moe.rukamori.archivetune.constants.LyricsLineBlurKey
 import moe.rukamori.archivetune.constants.LyricsLineSpacingKey
@@ -98,6 +100,10 @@ import moe.rukamori.archivetune.constants.deserializeLyricsProviderOrder
 import moe.rukamori.archivetune.paxsenix.models.PaxsenixStats
 import moe.rukamori.archivetune.paxsenix.models.ProviderStats
 import moe.rukamori.archivetune.ui.component.ActionPromptDialog
+import moe.rukamori.archivetune.ui.component.LyricsProviderEnableState
+import moe.rukamori.archivetune.ui.component.LyricsProviderPriorityDialog
+import moe.rukamori.archivetune.ui.component.displayName
+import moe.rukamori.archivetune.ui.component.lyricsAnimationStyleLabel
 import moe.rukamori.archivetune.ui.component.DefaultDialog
 import moe.rukamori.archivetune.ui.component.EnumListPreference
 import moe.rukamori.archivetune.ui.component.IconButton
@@ -155,6 +161,8 @@ fun LyricsSettings(
     val (lyricsTextSize, onLyricsTextSizeChange) = rememberPreference(LyricsTextSizeKey, defaultValue = 26f)
     val (lyricsLineSpacing, onLyricsLineSpacingChange) = rememberPreference(LyricsLineSpacingKey, defaultValue = 1.3f)
     val (lyricsMode, onLyricsModeChange) = rememberEnumPreference(LyricsModeKey, defaultValue = LyricsMode.ENHANCED)
+    val (lyricsAnimationStyle, onLyricsAnimationStyleChange) =
+        rememberEnumPreference(LyricsAnimationStyleKey, defaultValue = LyricsAnimationStyle.LYRICS_V2)
     val (enableLrclib, onEnableLrclibChange) = rememberPreference(key = EnableLrcLibKey, defaultValue = true)
     val (enableKugou, onEnableKugouChange) = rememberPreference(key = EnableKugouKey, defaultValue = true)
     val (enableBetterLyrics, onEnableBetterLyricsChange) = rememberPreference(key = EnableBetterLyricsKey, defaultValue = true)
@@ -217,13 +225,27 @@ fun LyricsSettings(
     var showProviderOrderDialog by rememberSaveable { mutableStateOf(false) }
 
     if (showProviderOrderDialog) {
-        LyricsProviderOrderDialog(
-            initialOrder = providerOrder,
+        LyricsProviderPriorityDialog(
+            providerOrderStr = providerOrderStr,
+            enableState =
+                LyricsProviderEnableState(
+                    enableBetterLyrics = enableBetterLyrics,
+                    enableYouLyPlus = enableYouLyPlusLyrics,
+                    enableLrcLib = enableLrclib,
+                    enableKugou = enableKugou,
+                    enableSimpMusic = enableSimpMusicLyrics,
+                    enableUnison = enableUnisonLyrics,
+                    enablePaxsenix = enablePaxsenixLyrics,
+                    enablePaxsenixAppleMusic = enablePaxsenixAppleMusicLyrics,
+                    enablePaxsenixNetease = enablePaxsenixNeteaseLyrics,
+                    enablePaxsenixSpotify = enablePaxsenixSpotifyLyrics,
+                    enablePaxsenixMusixmatch = enablePaxsenixMusixmatchLyrics,
+                    enablePaxsenixYouTube = enablePaxsenixYouTubeLyrics,
+                ),
             onDismiss = { showProviderOrderDialog = false },
-            onConfirm = { newOrder ->
-                onProviderOrderStrChange(newOrder.joinToString(",") { it.name })
+            onOrderChange = { newOrder ->
+                onProviderOrderStrChange(newOrder)
                 viewModel.clearLyricsCache()
-                showProviderOrderDialog = false
             },
         )
     }
@@ -385,14 +407,21 @@ fun LyricsSettings(
             }
 
             item {
-                val animationSettingsEnabled = lyricsMode == LyricsMode.V2
-
-                PreferenceEntry(
+                EnumListPreference(
                     title = { Text(stringResource(R.string.lyrics_animation_style)) },
-                    description = if (animationSettingsEnabled) null else stringResource(R.string.lyrics_animation_style_v2_only),
+                    icon = { Icon(painterResource(R.drawable.animation), null) },
+                    selectedValue = lyricsAnimationStyle,
+                    onValueSelected = onLyricsAnimationStyleChange,
+                    valueText = { lyricsAnimationStyleLabel(it) },
+                )
+            }
+
+            item(visible = lyricsAnimationStyle == LyricsAnimationStyle.LYRICS_V2) {
+                PreferenceEntry(
+                    title = { Text("Animation tuning") },
+                    description = "Bounce, glow, and fill transition settings",
                     icon = { Icon(painterResource(R.drawable.animation), null) },
                     onClick = { navController.navigate("settings/appearance/lyrics_animations") },
-                    isEnabled = animationSettingsEnabled,
                 )
             }
 
@@ -564,8 +593,24 @@ fun LyricsSettings(
 
             item {
                 PreferenceEntry(
-                    title = { Text(stringResource(R.string.set_first_lyrics_provider)) },
-                    description = providerOrder.firstOrNull()?.displayName(),
+                    title = { Text(stringResource(R.string.lyrics_provider_priority)) },
+                    description = providerOrder.filter { provider ->
+                        provider in
+                            LyricsProviderEnableState(
+                                enableBetterLyrics = enableBetterLyrics,
+                                enableYouLyPlus = enableYouLyPlusLyrics,
+                                enableLrcLib = enableLrclib,
+                                enableKugou = enableKugou,
+                                enableSimpMusic = enableSimpMusicLyrics,
+                                enableUnison = enableUnisonLyrics,
+                                enablePaxsenix = enablePaxsenixLyrics,
+                                enablePaxsenixAppleMusic = enablePaxsenixAppleMusicLyrics,
+                                enablePaxsenixNetease = enablePaxsenixNeteaseLyrics,
+                                enablePaxsenixSpotify = enablePaxsenixSpotifyLyrics,
+                                enablePaxsenixMusixmatch = enablePaxsenixMusixmatchLyrics,
+                                enablePaxsenixYouTube = enablePaxsenixYouTubeLyrics,
+                            ).enabledProviders()
+                    }.firstOrNull()?.displayName(),
                     icon = { Icon(painterResource(R.drawable.lyrics), null) },
                     onClick = { showProviderOrderDialog = true },
                 )
@@ -670,122 +715,6 @@ fun LyricsSettings(
 }
 
 private enum class PaxsenixServerStatus { Operational, Degraded, Down }
-
-private fun PreferredLyricsProvider.displayName(): String =
-    when (this) {
-        PreferredLyricsProvider.LRCLIB -> "LrcLib"
-        PreferredLyricsProvider.KUGOU -> "KuGou"
-        PreferredLyricsProvider.BETTER_LYRICS -> "BetterLyrics"
-        PreferredLyricsProvider.YOULY_PLUS -> "YouLyPlus"
-        PreferredLyricsProvider.SIMPMUSIC -> "SimpMusic"
-        PreferredLyricsProvider.PAXSENIX_APPLE_MUSIC -> "Paxsenix: Apple Music"
-        PreferredLyricsProvider.PAXSENIX_NETEASE -> "Paxsenix: NetEase"
-        PreferredLyricsProvider.PAXSENIX_SPOTIFY -> "Paxsenix: Spotify"
-        PreferredLyricsProvider.PAXSENIX_MUSIXMATCH -> "Paxsenix: Musixmatch"
-        PreferredLyricsProvider.PAXSENIX_YOUTUBE -> "Paxsenix: YouTube"
-        PreferredLyricsProvider.UNISON -> "Unison"
-    }
-
-@Composable
-private fun LyricsProviderOrderDialog(
-    initialOrder: List<PreferredLyricsProvider>,
-    onDismiss: () -> Unit,
-    onConfirm: (List<PreferredLyricsProvider>) -> Unit,
-) {
-    val providers = remember { mutableStateListOf(*initialOrder.toTypedArray()) }
-    val lazyListState = rememberLazyListState()
-    val reorderableState =
-        rememberReorderableLazyListState(lazyListState) { from, to ->
-            val item = providers.removeAt(from.index)
-            providers.add(to.index, item)
-        }
-
-    DefaultDialog(
-        onDismiss = onDismiss,
-        buttons = {
-            TextButton(
-                onClick = onDismiss,
-                shapes = ButtonDefaults.shapes(),
-            ) {
-                Text(stringResource(android.R.string.cancel))
-            }
-            Spacer(Modifier.weight(1f))
-            TextButton(
-                onClick = { onConfirm(providers.toList()) },
-                shapes = ButtonDefaults.shapes(),
-            ) {
-                Text(stringResource(android.R.string.ok))
-            }
-        },
-    ) {
-        Column(modifier = Modifier.padding(top = 4.dp)) {
-            Text(
-                text = stringResource(R.string.set_first_lyrics_provider),
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(bottom = 12.dp),
-            )
-            LazyColumn(
-                state = lazyListState,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 440.dp),
-            ) {
-                itemsIndexed(providers, key = { _, item -> item.name }) { index, provider ->
-                    ReorderableItem(reorderableState, key = provider.name) {
-                        val isFirst = index == 0
-                        val containerColor =
-                            if (isFirst) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHigh
-                            }
-                        val contentColor =
-                            if (isFirst) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            }
-
-                        Row(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = if (index < providers.size - 1) 4.dp else 0.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(containerColor)
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Text(
-                                text = "${index + 1}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = contentColor.copy(alpha = 0.7f),
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Text(
-                                text = provider.displayName(),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = contentColor,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Icon(
-                                painter = painterResource(R.drawable.drag_handle),
-                                contentDescription = null,
-                                tint = contentColor.copy(alpha = 0.6f),
-                                modifier =
-                                    Modifier
-                                        .size(20.dp)
-                                        .draggableHandle(),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 private fun successRateToStatus(rate: Float): PaxsenixServerStatus =
     when {

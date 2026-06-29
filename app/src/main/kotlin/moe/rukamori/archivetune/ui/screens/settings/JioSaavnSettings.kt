@@ -7,6 +7,9 @@ package moe.rukamori.archivetune.ui.screens.settings
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,6 +30,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -41,10 +46,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
+import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.EnableSaavnStreamingKey
 import moe.rukamori.archivetune.constants.SaavnAudioQuality
 import moe.rukamori.archivetune.constants.SaavnAudioQualityKey
+import moe.rukamori.archivetune.ui.component.FeatureBetaBadge
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.PreferenceEntry
 import moe.rukamori.archivetune.ui.component.PreferenceGroup
@@ -52,7 +59,6 @@ import moe.rukamori.archivetune.ui.theme.HushAmbientBackground
 import moe.rukamori.archivetune.ui.utils.backToMain
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberPreference
-import androidx.compose.material3.Switch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +67,13 @@ fun JioSaavnSettings(
     scrollBehavior: TopAppBarScrollBehavior,
 ) {
     val (saavnEnabled, onSaavnEnabledChange) = rememberPreference(EnableSaavnStreamingKey, defaultValue = false)
+    val playerConnection = LocalPlayerConnection.current
+    val onSaavnToggle: (Boolean) -> Unit = { enabled ->
+        onSaavnEnabledChange(enabled)
+        if (enabled) {
+            playerConnection?.service?.clearSaavnIncompatiblePlaybackCache()
+        }
+    }
     val (saavnQuality, onSaavnQualityChange) =
         rememberEnumPreference(SaavnAudioQualityKey, defaultValue = SaavnAudioQuality.QUALITY_320)
 
@@ -87,7 +100,7 @@ fun JioSaavnSettings(
             Text(
                 text = stringResource(R.string.enable_saavn_streaming_desc),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(bottom = 20.dp),
             )
 
@@ -96,7 +109,7 @@ fun JioSaavnSettings(
                     if (saavnEnabled) {
                         MaterialTheme.colorScheme.primaryContainer
                     } else {
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        MaterialTheme.colorScheme.surfaceContainerHigh
                     },
                 label = "saavnToggleContainer",
             )
@@ -104,11 +117,11 @@ fun JioSaavnSettings(
                 if (saavnEnabled) {
                     MaterialTheme.colorScheme.onPrimaryContainer
                 } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                    MaterialTheme.colorScheme.onSurface
                 }
 
             Card(
-                onClick = { onSaavnEnabledChange(!saavnEnabled) },
+                onClick = { onSaavnToggle(!saavnEnabled) },
                 shape = RoundedCornerShape(50),
                 colors = CardDefaults.cardColors(containerColor = containerColor),
                 modifier = Modifier.fillMaxWidth(),
@@ -128,7 +141,7 @@ fun JioSaavnSettings(
                     )
                     Switch(
                         checked = saavnEnabled,
-                        onCheckedChange = onSaavnEnabledChange,
+                        onCheckedChange = onSaavnToggle,
                     )
                 }
             }
@@ -138,16 +151,10 @@ fun JioSaavnSettings(
             PreferenceGroup(title = stringResource(R.string.saavn_audio_quality)) {
                 SaavnAudioQuality.entries.forEach { quality ->
                     item {
-                        PreferenceEntry(
-                            title = { Text(quality.toLabel()) },
-                            icon = {
-                                RadioButton(
-                                    selected = saavnQuality == quality,
-                                    onClick = null,
-                                    enabled = saavnEnabled,
-                                )
-                            },
-                            isEnabled = saavnEnabled,
+                        SaavnQualityOption(
+                            title = quality.toLabel(),
+                            selected = saavnQuality == quality,
+                            enabled = saavnEnabled,
                             onClick = { onSaavnQualityChange(quality) },
                         )
                     }
@@ -173,7 +180,18 @@ fun JioSaavnSettings(
         }
 
         TopAppBar(
-            title = { Text(stringResource(R.string.jiosaavn_settings)) },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.jiosaavn_settings),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    FeatureBetaBadge()
+                }
+            },
             navigationIcon = {
                 IconButton(
                     onClick = navController::navigateUp,
@@ -182,14 +200,69 @@ fun JioSaavnSettings(
                     Icon(
                         painterResource(R.drawable.arrow_back),
                         contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface,
                     )
                 }
             },
             scrollBehavior = scrollBehavior,
             colors =
                 TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                 ),
         )
     }
+}
+
+@Composable
+private fun SaavnQualityOption(
+    title: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val radioColors =
+        RadioButtonDefaults.colors(
+            selectedColor = MaterialTheme.colorScheme.primary,
+            unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            disabledSelectedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+            disabledUnselectedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+        )
+
+    PreferenceEntry(
+        title = {
+            Text(
+                text = title,
+                color =
+                    if (enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                    },
+            )
+        },
+        icon = {
+            Icon(
+                painter = painterResource(R.drawable.graphic_eq),
+                contentDescription = null,
+                tint =
+                    if (enabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                    },
+            )
+        },
+        trailingContent = {
+            RadioButton(
+                selected = selected,
+                onClick = onClick,
+                enabled = enabled,
+                colors = radioColors,
+            )
+        },
+        isEnabled = enabled,
+        onClick = onClick,
+    )
 }

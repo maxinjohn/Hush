@@ -19,102 +19,143 @@ import moe.rukamori.archivetune.innertube.models.WatchEndpoint
 import moe.rukamori.archivetune.innertube.models.response.PlayerResponse
 import moe.rukamori.archivetune.jiosaavn.SaavnService
 import moe.rukamori.archivetune.jiosaavn.SaavnSong
+import moe.rukamori.archivetune.models.MediaMetadata
+import moe.rukamori.archivetune.utils.PreferenceStore
 import moe.rukamori.archivetune.utils.YTPlayerUtils
 import moe.rukamori.archivetune.utils.dataStore
-import moe.rukamori.archivetune.utils.get
+import moe.rukamori.archivetune.utils.getAsync
 import timber.log.Timber
 import java.util.Locale
-import kotlin.math.abs
+import androidx.media3.common.MediaMetadata as ExoMediaMetadata
 
 object SaavnPlaybackResolver {
     private const val TAG = "SaavnPlayback"
-    private const val MIN_MATCH_SCORE = 6
-    private const val DURATION_TOLERANCE_SEC = 4
+
+    data class PlaybackHints(
+        val title: String? = null,
+        val artists: List<String> = emptyList(),
+        val album: String? = null,
+        val durationSec: Int? = null,
+    )
+
+    suspend fun isEnabled(context: Context): Boolean =
+        readSaavnEnabled(context)
 
     suspend fun tryResolve(
         context: Context,
         videoId: String,
         playlistId: String? = null,
+        hints: PlaybackHints? = null,
     ): YTPlayerUtils.PlaybackData? {
-        if (!context.dataStore.get(EnableSaavnStreamingKey, false)) return null
+        if (!readSaavnEnabled(context)) {
+            Timber.tag(TAG).i("JioSaavn streaming disabled — using YouTube for %s", videoId)
+            return null
+        }
 
         return runCatching {
-            val qualityKey = context.dataStore.get(SaavnAudioQualityKey, SaavnAudioQuality.QUALITY_320.name)
+            val qualityKey =
+                context.dataStore.getAsync(SaavnAudioQualityKey)
+                    ?: SaavnAudioQuality.QUALITY_320.name
             val quality =
                 runCatching { SaavnAudioQuality.valueOf(qualityKey) }
                     .getOrDefault(SaavnAudioQuality.QUALITY_320)
 
-            val (trackContext, metadata) =
-                coroutineScope {
-                    val nextDeferred = async {
-                        YouTube.next(WatchEndpoint(videoId = videoId)).getOrNull()
+            var metadata: PlayerResponse? = null
+            var title =
+                hints?.title
+                    ?.let(::cleanTitleForSearch)
+                    ?.takeIf { it.isNotBlank() }
+            var artistNames =
+                hints
+                    ?.artists
+                    ?.map(::cleanArtistForSearch)
+                    ?.filter { it.isNotBlank() }
+                    .orEmpty()
+            var albumName = hints?.album?.trim().orEmpty()
+
+            if (title.isNullOrBlank()) {
+                val (trackContext, fetchedMetadata) =
+                    coroutineScope {
+                        val nextDeferred = async {
+                            YouTube.next(WatchEndpoint(videoId = videoId)).getOrNull()
+                        }
+                        val metaDeferred = async {
+                            YTPlayerUtils.playerResponseForMetadata(videoId, playlistId).getOrNull()
+                        }
+                        nextDeferred.await() to metaDeferred.await()
                     }
-                    val metaDeferred = async {
-                        YTPlayerUtils.playerResponseForMetadata(videoId, playlistId).getOrNull()
-                    }
-                    nextDeferred.await() to metaDeferred.await()
+                metadata = fetchedMetadata
+
+                val currentSong =
+                    trackContext?.items?.getOrNull(trackContext.currentIndex ?: 0)
+                        ?: trackContext?.items?.firstOrNull()
+
+                title =
+                    cleanTitleForSearch(
+                        currentSong?.title?.takeIf { it.isNotBlank() }
+                            ?: metadata?.videoDetails?.title.orEmpty(),
+                    ).takeIf { it.isNotBlank() }
+
+                if (artistNames.isEmpty()) {
+                    artistNames =
+                        if (currentSong?.artists?.isNotEmpty() == true) {
+                            currentSong.artists.map { cleanArtistForSearch(it.name) }
+                        } else {
+                            listOfNotNull(
+                                metadata
+                                    ?.videoDetails
+                                    ?.author
+                                    ?.let(::cleanArtistForSearch)
+                                    ?.takeIf { it.isNotBlank() },
+                            )
+                        }
                 }
 
-            val currentSong =
-                trackContext?.items?.getOrNull(trackContext.currentIndex ?: 0)
-                    ?: trackContext?.items?.firstOrNull()
-
-            val title =
-                currentSong?.title?.takeIf { it.isNotBlank() }
-                    ?: metadata?.videoDetails?.title.orEmpty()
-            if (title.isBlank()) return@runCatching null
-
-            val artistNames: List<String> =
-                if (currentSong?.artists?.isNotEmpty() == true) {
-                    currentSong.artists.map { it.name }
-                } else {
-                    listOfNotNull(
-                        metadata
-                            ?.videoDetails
-                            ?.author
-                            ?.replace(Regex("(?i)\\s*-\\s*topic\\b"), "")
-                            ?.replace(Regex("(?i)\\s*vevo\\b"), "")
-                            ?.trim()
-                            ?.takeIf { it.isNotBlank() },
-                    )
+                if (albumName.isBlank()) {
+                    albumName = currentSong?.album?.name.orEmpty()
                 }
-
-            val albumName = currentSong?.album?.name.orEmpty()
-            val wantedDurationSec =
-                currentSong?.duration?.takeIf { it > 0 }
-                    ?: metadata?.videoDetails?.lengthSeconds?.toIntOrNull()?.takeIf { it > 0 }
-
-            Timber.tag(TAG).d("Resolving Saavn for videoId=%s title=\"%s\" artists=%s", videoId, title, artistNames)
-
-            val queries = buildSearchQueries(title, artistNames, albumName)
-            var bestSong: SaavnSong? = null
-            var bestScore = 0
-
-            for (query in queries) {
-                val candidates = SaavnService.searchSongs(query).getOrNull().orEmpty()
-                for (candidate in candidates) {
-                    val score = scoreCandidate(candidate, title, artistNames, albumName, wantedDurationSec)
-                    if (score > bestScore) {
-                        bestScore = score
-                        bestSong = candidate
-                    }
-                }
-                if (bestScore >= MIN_MATCH_SCORE + 2) break
             }
 
-            if (bestSong == null || bestScore < MIN_MATCH_SCORE) {
-                Timber.tag(TAG).d("No confident Saavn match for videoId=%s (bestScore=%d)", videoId, bestScore)
+            if (title.isNullOrBlank()) {
+                Timber.tag(TAG).w("No title for Saavn lookup (videoId=%s hints=%s)", videoId, hints)
                 return@runCatching null
             }
 
-            val streamUrl =
-                SaavnService.resolveStreamUrl(bestSong, quality.toApiValue())
-                    ?: return@runCatching null
+            if (metadata == null) {
+                metadata = YTPlayerUtils.playerResponseForMetadata(videoId, playlistId).getOrNull()
+            }
 
             Timber.tag(TAG).i(
-                "Streaming from JioSaavn: \"%s\" (score=%d, quality=%s) for YT videoId=%s",
+                "Resolving Saavn for videoId=%s title=\"%s\" artists=%s album=\"%s\"",
+                videoId,
+                title,
+                artistNames,
+                albumName,
+            )
+
+            val bestSong =
+                findBestMatch(
+                    title = title,
+                    artistNames = artistNames,
+                    albumName = albumName,
+                    expectedDurationSec =
+                        hints?.durationSec?.takeIf { it > 0 }
+                            ?: metadata?.videoDetails?.lengthSeconds?.toIntOrNull()?.takeIf { it > 0 },
+                ) ?: run {
+                    Timber.tag(TAG).w("No Saavn match for videoId=%s title=\"%s\"", videoId, title)
+                    return@runCatching null
+                }
+
+            val streamUrl =
+                SaavnService.resolveStreamUrl(bestSong, quality.toApiValue())
+                    ?: run {
+                        Timber.tag(TAG).w("Saavn match found but stream URL missing for id=%s", bestSong.id)
+                        return@runCatching null
+                    }
+
+            Timber.tag(TAG).i(
+                "Streaming from JioSaavn: \"%s\" (quality=%s) for YT videoId=%s",
                 bestSong.name,
-                bestScore,
                 quality.toApiValue(),
                 videoId,
             )
@@ -125,27 +166,166 @@ object SaavnPlaybackResolver {
                 quality = quality,
             )
         }.onFailure {
-            Timber.tag(TAG).w(it, "Saavn resolve failed for videoId=%s — will use YouTube", videoId)
+            Timber.tag(TAG).e(it, "Saavn resolve failed for videoId=%s — using YouTube", videoId)
         }.getOrNull()
     }
 
-    private fun buildSearchQueries(
-        title: String,
-        artists: List<String>,
-        album: String,
-    ): List<String> {
-        val artist = artists.joinToString(" ")
-        val normalizedTitle = normalizeQuery(title)
-        val normalizedArtist = normalizeQuery(artist)
-        val normalizedAlbum = normalizeQuery(album)
+    fun hintsFrom(mediaMetadata: MediaMetadata?): PlaybackHints? {
+        if (mediaMetadata == null) return null
+        return PlaybackHints(
+            title = mediaMetadata.title,
+            artists = mediaMetadata.artists.map { it.name }.filter { it.isNotBlank() },
+            album = mediaMetadata.album?.title,
+            durationSec = mediaMetadata.duration.takeIf { it > 0 },
+        )
+    }
 
-        return buildList {
-            if (normalizedAlbum.isNotBlank()) {
-                add("$normalizedAlbum $normalizedTitle $normalizedArtist".trim())
+    fun hintsFrom(mediaMetadata: ExoMediaMetadata?): PlaybackHints? {
+        if (mediaMetadata == null) return null
+        val title = mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() } ?: return null
+        val artistField = mediaMetadata.artist?.toString().orEmpty()
+        val artists =
+            artistField
+                .split(',', '&', '·', ';')
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+        return PlaybackHints(
+            title = title,
+            artists = artists,
+            album = mediaMetadata.albumTitle?.toString(),
+            durationSec = null,
+        )
+    }
+
+    private suspend fun readSaavnEnabled(context: Context): Boolean {
+        val fromStore = context.dataStore.getAsync(EnableSaavnStreamingKey)
+        if (fromStore != null) return fromStore
+        return PreferenceStore.get(EnableSaavnStreamingKey) ?: false
+    }
+
+    private suspend fun findBestMatch(
+        title: String,
+        artistNames: List<String>,
+        albumName: String,
+        expectedDurationSec: Int? = null,
+    ): SaavnSong? {
+        val wantedTitleLower = cleanTitleForSearch(title).lowercase(Locale.US)
+        if (wantedTitleLower.isBlank()) return null
+        val wantedArtistsLower =
+            artistNames
+                .map { cleanArtistForSearch(it).lowercase(Locale.US) }
+                .filter { it.isNotBlank() }
+        val artistQuery = artistNames.joinToString(" ")
+
+        val queries =
+            buildList {
+                if (albumName.isNotBlank()) {
+                    add(normalizeQuery("$albumName $title $artistQuery"))
+                }
+                add(normalizeQuery("$title $artistQuery"))
+                add(normalizeQuery(title))
+                if (artistQuery.isNotBlank()) {
+                    add(normalizeQuery(artistQuery))
+                }
+            }.distinct().filter { it.isNotBlank() }
+
+        var bestLooseMatch: SaavnSong? = null
+
+        for (query in queries) {
+            val candidates = SaavnService.searchSongs(query, limit = 15).getOrNull().orEmpty()
+            Timber.tag(TAG).d("Saavn search \"%s\" -> %d candidates", query, candidates.size)
+
+            candidates.firstOrNull { candidate ->
+                matchesCandidate(
+                    candidate = candidate,
+                    wantedTitleLower = wantedTitleLower,
+                    wantedArtistsLower = wantedArtistsLower,
+                    expectedDurationSec = expectedDurationSec,
+                    strict = true,
+                )
+            }?.let { return it }
+
+            candidates.firstOrNull { candidate ->
+                matchesCandidate(
+                    candidate = candidate,
+                    wantedTitleLower = wantedTitleLower,
+                    wantedArtistsLower = wantedArtistsLower,
+                    expectedDurationSec = expectedDurationSec,
+                    strict = false,
+                )
+            }?.let { loose ->
+                if (bestLooseMatch == null) bestLooseMatch = loose
             }
-            add("$normalizedTitle $normalizedArtist".trim())
-            add(normalizedTitle)
-        }.distinct().filter { it.isNotBlank() }
+
+            if (bestLooseMatch == null) {
+                candidates.firstOrNull { candidate ->
+                    cleanTitleForSearch(candidate.name).lowercase(Locale.US) ==
+                        wantedTitleLower
+                }?.let { bestLooseMatch = it }
+            }
+        }
+
+        return bestLooseMatch
+    }
+
+    private fun cleanTitleForSearch(title: String): String =
+        title
+            .replace(Regex("(?i)\\(.*?official.*?\\)"), "")
+            .replace(Regex("(?i)\\[.*?\\]"), "")
+            .replace(Regex("(?i)\\(.*?\\)"), "")
+            .replace(Regex("(?i)\\s*-\\s*topic\\b"), "")
+            .replace(Regex("(?i)\\s*\\|\\s*.*$"), "")
+            .replace(Regex("(?i)\\s+(ft\\.?|feat\\.?).*$"), "")
+            .replace(Regex("(?i)\\s+lyrics\\s+video\\b"), "")
+            .replace(Regex("(?i)\\s+video\\s*$"), "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+    private fun cleanArtistForSearch(artist: String): String =
+        artist
+            .replace(Regex("(?i)\\s*-\\s*topic\\b"), "")
+            .replace(Regex("(?i)\\s*vevo\\b"), "")
+            .replace(Regex("(?i)\\s+(ft\\.?|feat\\.?).*$"), "")
+            .trim()
+
+    private fun matchesCandidate(
+        candidate: SaavnSong,
+        wantedTitleLower: String,
+        wantedArtistsLower: List<String>,
+        expectedDurationSec: Int? = null,
+        strict: Boolean,
+    ): Boolean {
+        val candidateTitleLower = cleanTitleForSearch(candidate.name).lowercase(Locale.US)
+        val normalizedWantedTitle = cleanTitleForSearch(wantedTitleLower).lowercase(Locale.US)
+        val titleMatches =
+            candidateTitleLower == normalizedWantedTitle ||
+                candidateTitleLower.contains(normalizedWantedTitle) ||
+                normalizedWantedTitle.contains(candidateTitleLower)
+        if (!titleMatches) return false
+
+        if (expectedDurationSec != null) {
+            val candidateDuration = candidate.duration ?: return false
+            val durationDelta = kotlin.math.abs(expectedDurationSec - candidateDuration)
+            if (durationDelta > if (strict) 12 else 20) return false
+        }
+
+        if (wantedArtistsLower.isEmpty()) return true
+
+        val candidateArtists =
+            candidate.artists.primary
+                .map { cleanArtistForSearch(it.name).lowercase(Locale.US) }
+                .filter { it.isNotBlank() }
+
+        if (candidateArtists.isEmpty()) return !strict
+
+        val artistMatches =
+            wantedArtistsLower.any { wanted ->
+                candidateArtists.any { candidateArtist ->
+                    candidateArtist.contains(wanted) || wanted.contains(candidateArtist)
+                }
+            }
+
+        return artistMatches || !strict
     }
 
     private fun normalizeQuery(value: String): String =
@@ -154,71 +334,6 @@ object SaavnPlaybackResolver {
             .replace(",", " ")
             .replace(Regex("\\s+"), " ")
             .trim()
-
-    private fun normalizeMatch(value: String): String =
-        value
-            .lowercase(Locale.US)
-            .replace(Regex("[^a-z0-9\\s]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-
-    private fun scoreCandidate(
-        candidate: SaavnSong,
-        wantedTitle: String,
-        wantedArtists: List<String>,
-        wantedAlbum: String,
-        wantedDurationSec: Int?,
-    ): Int {
-        var score = 0
-        val candidateTitle = normalizeMatch(candidate.name)
-        val wantedTitleNorm = normalizeMatch(wantedTitle)
-        if (candidateTitle.isBlank() || wantedTitleNorm.isBlank()) return 0
-
-        if (candidateTitle == wantedTitleNorm) {
-            score += 5
-        } else if (candidateTitle.contains(wantedTitleNorm) || wantedTitleNorm.contains(candidateTitle)) {
-            score += 3
-        } else {
-            return 0
-        }
-
-        val candidateArtists = candidate.artists.primary.map { normalizeMatch(it.name) }.filter { it.isNotBlank() }
-        val wantedArtistNorms = wantedArtists.map { normalizeMatch(it) }.filter { it.isNotBlank() }
-        if (wantedArtistNorms.isEmpty()) {
-            score += 1
-        } else {
-            val artistHits =
-                wantedArtistNorms.count { wanted ->
-                    candidateArtists.any { candidateArtist ->
-                        candidateArtist.contains(wanted) || wanted.contains(candidateArtist)
-                    }
-                }
-            if (artistHits == 0) return 0
-            score += artistHits.coerceAtMost(2) * 2
-        }
-
-        val wantedAlbumNorm = normalizeMatch(wantedAlbum)
-        val candidateAlbumNorm = normalizeMatch(candidate.album?.name.orEmpty())
-        if (wantedAlbumNorm.isNotBlank() && candidateAlbumNorm.isNotBlank()) {
-            if (candidateAlbumNorm == wantedAlbumNorm ||
-                candidateAlbumNorm.contains(wantedAlbumNorm) ||
-                wantedAlbumNorm.contains(candidateAlbumNorm)
-            ) {
-                score += 2
-            }
-        }
-
-        val candidateDuration = candidate.duration
-        if (wantedDurationSec != null && candidateDuration != null && candidateDuration > 0) {
-            if (abs(candidateDuration - wantedDurationSec) <= DURATION_TOLERANCE_SEC) {
-                score += 2
-            } else if (abs(candidateDuration - wantedDurationSec) > 12) {
-                score -= 2
-            }
-        }
-
-        return score
-    }
 
     private fun buildPlaybackData(
         metadata: PlayerResponse?,

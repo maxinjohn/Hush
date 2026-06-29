@@ -9,8 +9,12 @@ package moe.rukamori.archivetune.ui.player
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import moe.rukamori.archivetune.canvas.AppleMusicProvider
 import moe.rukamori.archivetune.canvas.ArchiveTuneCanvas
+import moe.rukamori.archivetune.canvas.HushMusicCanvasProvider
+import moe.rukamori.archivetune.canvas.TidalCanvasProvider
 import moe.rukamori.archivetune.canvas.models.CanvasArtwork
+import moe.rukamori.archivetune.constants.CanvasSource
 import timber.log.Timber
 
 internal suspend fun resolveCanvasArtworkForPlayback(
@@ -22,10 +26,13 @@ internal suspend fun resolveCanvasArtworkForPlayback(
     storefront: String,
     requireVertical: Boolean,
     allowNetwork: Boolean,
+    canvasSource: CanvasSource = CanvasSource.AUTO,
 ): CanvasArtwork? {
+    val cacheKey = "$mediaId:${canvasSource.name}"
+
     withContext(Dispatchers.IO) {
         CanvasArtworkPlaybackCache.get(
-            mediaId = mediaId,
+            mediaId = cacheKey,
             preferCachedOnly = !allowNetwork,
         )
     }
@@ -42,14 +49,17 @@ internal suspend fun resolveCanvasArtworkForPlayback(
             fetchCanvasArtworkForPlayback(
                 songTitleRaw = songTitleRaw,
                 artistNameRaw = artistNameRaw,
+                albumTitleRaw = albumTitleRaw,
                 storefront = storefront,
                 requireVertical = requireVertical,
+                canvasSource = canvasSource,
             ) ?: fetchCanvasArtworkByAlbumFallback(
                 albumId = albumId,
                 albumTitleRaw = albumTitleRaw,
                 artistNameRaw = artistNameRaw,
                 storefront = storefront,
                 requireVertical = requireVertical,
+                canvasSource = canvasSource,
             )
 
         if (fetched == null) {
@@ -57,18 +67,21 @@ internal suspend fun resolveCanvasArtworkForPlayback(
             return@withContext null
         }
 
-        CanvasArtworkPlaybackCache.put(mediaId, fetched)
+        CanvasArtworkPlaybackCache.put(cacheKey, fetched)
     }
 }
 
 internal suspend fun fetchCanvasArtworkForPlayback(
     songTitleRaw: String,
     artistNameRaw: String,
+    albumTitleRaw: String? = null,
     storefront: String,
     requireVertical: Boolean,
+    canvasSource: CanvasSource,
 ): CanvasArtwork? {
     val songTitle = normalizeCanvasSongTitle(songTitleRaw)
     val artistName = normalizeCanvasArtistName(artistNameRaw)
+    val albumName = albumTitleRaw?.trim().orEmpty()
     val candidates =
         linkedSetOf(
             songTitle to artistName,
@@ -80,18 +93,89 @@ internal suspend fun fetchCanvasArtworkForPlayback(
         }
 
     return candidates.firstNotNullOfOrNull { (song, artist) ->
-        ArchiveTuneCanvas
-            .getBySongArtist(
-                song = song,
-                artist = artist,
-                storefront = storefront,
-            )?.takeIf { artwork ->
-                if (requireVertical) {
-                    !artwork.preferredVerticalAnimationUrl.isNullOrBlank()
-                } else {
-                    !artwork.preferredAnimationUrl.isNullOrBlank()
-                }
+        fetchFromSource(
+            canvasSource = canvasSource,
+            song = song,
+            artist = artist,
+            albumName = albumName,
+            storefront = storefront,
+            requireVertical = requireVertical,
+        )
+    }
+}
+
+private suspend fun fetchFromSource(
+    canvasSource: CanvasSource,
+    song: String,
+    artist: String,
+    albumName: String,
+    storefront: String,
+    requireVertical: Boolean,
+): CanvasArtwork? {
+    fun CanvasArtwork?.validated(): CanvasArtwork? =
+        this?.takeIf { artwork ->
+            if (requireVertical) {
+                !artwork.preferredVerticalAnimationUrl.isNullOrBlank()
+            } else {
+                !artwork.preferredAnimationUrl.isNullOrBlank()
             }
+        }
+
+    return when (canvasSource) {
+        CanvasSource.AUTO -> {
+            AppleMusicProvider
+                .getBySongArtist(
+                    song = song,
+                    artist = artist,
+                    album = albumName.takeIf { it.isNotBlank() },
+                    storefront = storefront,
+                ).validated() ?: HushMusicCanvasProvider
+                .getBySongArtist(
+                    song = song,
+                    artist = artist,
+                    album = albumName,
+                ).validated() ?: TidalCanvasProvider
+                .getBySongArtist(
+                    song = song,
+                    artist = artist,
+                    album = albumName.takeIf { it.isNotBlank() },
+                ).validated() ?: ArchiveTuneCanvas
+                .getBySongArtist(
+                    song = song,
+                    artist = artist,
+                    storefront = storefront,
+                ).validated()
+        }
+
+        CanvasSource.APPLE_MUSIC ->
+            AppleMusicProvider
+                .getBySongArtist(
+                    song = song,
+                    artist = artist,
+                    album = albumName.takeIf { it.isNotBlank() },
+                    storefront = storefront,
+                ).validated()
+
+        CanvasSource.HUSH_CANVAS ->
+            HushMusicCanvasProvider
+                .getBySongArtist(
+                    song = song,
+                    artist = artist,
+                    album = albumName,
+                ).validated() ?: ArchiveTuneCanvas
+                .getBySongArtist(
+                    song = song,
+                    artist = artist,
+                    storefront = storefront,
+                ).validated()
+
+        CanvasSource.TIDAL ->
+            TidalCanvasProvider
+                .getBySongArtist(
+                    song = song,
+                    artist = artist,
+                    album = albumName.takeIf { it.isNotBlank() },
+                ).validated()
     }
 }
 
@@ -101,7 +185,12 @@ private suspend fun fetchCanvasArtworkByAlbumFallback(
     artistNameRaw: String,
     storefront: String,
     requireVertical: Boolean,
+    canvasSource: CanvasSource,
 ): CanvasArtwork? {
+    if (canvasSource == CanvasSource.TIDAL || canvasSource == CanvasSource.HUSH_CANVAS) {
+        return null
+    }
+
     albumId
         ?.trim()
         ?.takeIf { it.isNotBlank() }

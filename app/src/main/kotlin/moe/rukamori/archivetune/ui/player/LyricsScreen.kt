@@ -100,11 +100,14 @@ import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.EnableHapticFeedbackKey
+import moe.rukamori.archivetune.constants.LyricsAnimationStyle
+import moe.rukamori.archivetune.constants.LyricsAnimationStyleKey
 import moe.rukamori.archivetune.constants.LyricsMode
 import moe.rukamori.archivetune.constants.LyricsModeKey
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.ui.component.LocalMenuState
+import moe.rukamori.archivetune.ui.component.Lyrics
 import moe.rukamori.archivetune.ui.component.LyricsEnhanced
 import moe.rukamori.archivetune.ui.component.LyricsV2
 import moe.rukamori.archivetune.ui.component.PlayerSliderTrack
@@ -874,15 +877,24 @@ private fun LyricsContent(
     textColor: Color,
     modifier: Modifier = Modifier,
 ) {
+    val lyricsAnimationStyle by rememberEnumPreference(LyricsAnimationStyleKey, LyricsAnimationStyle.LYRICS_V2)
     val lyricsModifier = modifier.fillMaxSize()
     when (lyricsMode) {
         LyricsMode.V2 -> {
-            LyricsV2(
-                sliderPositionProvider = sliderPositionProvider,
-                lyricsSyncOffset = lyricsSyncOffset,
-                modifier = lyricsModifier,
-                textColorOverride = textColor,
-            )
+            if (lyricsAnimationStyle == LyricsAnimationStyle.LYRICS_V2) {
+                LyricsV2(
+                    sliderPositionProvider = sliderPositionProvider,
+                    lyricsSyncOffset = lyricsSyncOffset,
+                    modifier = lyricsModifier,
+                    textColorOverride = textColor,
+                )
+            } else {
+                Lyrics(
+                    sliderPositionProvider = sliderPositionProvider,
+                    lyricsSyncOffset = lyricsSyncOffset,
+                    modifier = lyricsModifier,
+                )
+            }
         }
 
         LyricsMode.ENHANCED -> {

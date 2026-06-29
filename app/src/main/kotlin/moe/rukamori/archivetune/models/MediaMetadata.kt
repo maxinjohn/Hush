@@ -68,6 +68,9 @@ data class MediaMetadata(
         )
 }
 
+val MediaMetadata.artistsDisplayText: String
+    get() = artists.map { it.name.trim() }.filter { it.isNotBlank() }.joinToString(", ")
+
 fun Song.toMediaMetadata() =
     MediaMetadata(
         id = song.id,

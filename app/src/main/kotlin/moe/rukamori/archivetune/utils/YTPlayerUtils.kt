@@ -499,10 +499,20 @@ object YTPlayerUtils {
         fastResolution: Boolean = true,
         context: Context? = null,
         trySaavnFirst: Boolean = true,
+        saavnHints: SaavnPlaybackResolver.PlaybackHints? = null,
     ): Result<PlaybackData> =
         runCatching {
             if (context != null && trySaavnFirst) {
-                SaavnPlaybackResolver.tryResolve(context, videoId, playlistId)?.let { return@runCatching it }
+                SaavnPlaybackResolver.tryResolve(
+                    context = context,
+                    videoId = videoId,
+                    playlistId = playlistId,
+                    hints = saavnHints,
+                )?.let {
+                    Timber.tag(logTag).i("Using JioSaavn stream for %s", videoId)
+                    return@runCatching it
+                }
+                Timber.tag(logTag).d("JioSaavn did not match %s — falling back to YouTube", videoId)
             }
 
             val attempts =
@@ -1088,7 +1098,7 @@ object YTPlayerUtils {
             streamUrl,
             streamExpiresInSeconds,
             authState.fingerprint,
-            describeClient(resolvedStreamClient),
+            "YouTube",
         )
     }
 

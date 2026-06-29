@@ -647,6 +647,19 @@ enum class LyricsAnimationStyle {
     SLIDE,
     KARAOKE,
     APPLE,
+    APPLE_V2,
+    HUSH_FLUID,
+    LYRICS_V2,
+    METRO_LYRICS,
+}
+
+val CanvasSourceKey = stringPreferencesKey("canvasSource")
+
+enum class CanvasSource {
+    AUTO,
+    APPLE_MUSIC,
+    HUSH_CANVAS,
+    TIDAL,
 }
 
 val LyricsTextSizeKey = floatPreferencesKey("lyricsTextSize")

@@ -308,7 +308,7 @@ fun RowScope.MiniPlayerInfo(
             label = "artist",
         ) { artists ->
             Text(
-                text = artists.joinToString { it.name },
+                text = artists.map { it.name.trim() }.filter { it.isNotBlank() }.joinToString(", "),
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.secondary,
                 maxLines = 1,
@@ -321,7 +321,7 @@ fun RowScope.MiniPlayerInfo(
 
 @Composable
 private fun MiniPlayerArtwork(
-    mediaMetadata: MediaMetadata?,
+    artworkUrl: String?,
     position: Long,
     duration: Long,
     isLoading: Boolean,
@@ -363,7 +363,6 @@ private fun MiniPlayerArtwork(
                         shape = CircleShape,
                     ),
         ) {
-            val artworkUrl = mediaMetadata.resolvePlaybackArtworkUrl()
             Crossfade(
                 targetState = artworkUrl,
                 animationSpec = tween(220),
@@ -561,7 +560,9 @@ fun NewMiniPlayerContent(
                 .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
         MiniPlayerArtwork(
-            mediaMetadata = mediaMetadata,
+            artworkUrl =
+                mediaMetadata.resolvePlaybackArtworkUrl()
+                    ?: playerConnection.player.currentMediaItem.resolvePlaybackArtworkUrl(),
             position = position,
             duration = duration,
             isLoading = isLoading,

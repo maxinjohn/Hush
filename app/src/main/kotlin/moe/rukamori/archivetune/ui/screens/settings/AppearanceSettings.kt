@@ -73,6 +73,8 @@ import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.AppFontPreference
 import moe.rukamori.archivetune.constants.ArchiveTuneCanvasKey
+import moe.rukamori.archivetune.constants.CanvasSource
+import moe.rukamori.archivetune.constants.CanvasSourceKey
 import moe.rukamori.archivetune.constants.BackdropBlurAmountKey
 import moe.rukamori.archivetune.constants.BackdropEnabledKey
 import moe.rukamori.archivetune.constants.BlurRadiusKey
@@ -193,6 +195,11 @@ fun AppearanceSettings(
         rememberPreference(
             ArchiveTuneCanvasKey,
             defaultValue = false,
+        )
+    val (canvasSource) =
+        rememberEnumPreference(
+            CanvasSourceKey,
+            defaultValue = CanvasSource.AUTO,
         )
     val (thumbnailCornerRadius, onThumbnailCornerRadiusChange) =
         rememberPreference(
@@ -692,6 +699,22 @@ fun AppearanceSettings(
                     icon = { Icon(painterResource(R.drawable.motion_photos_on), null) },
                     checked = archiveTuneCanvasEnabled,
                     onCheckedChange = onArchiveTuneCanvasEnabledChange,
+                )
+            }
+
+            item(visible = archiveTuneCanvasEnabled) {
+                val canvasSourceLabel =
+                    when (canvasSource) {
+                        CanvasSource.AUTO -> stringResource(R.string.canvas_source_auto)
+                        CanvasSource.APPLE_MUSIC -> stringResource(R.string.canvas_source_apple_music)
+                        CanvasSource.HUSH_CANVAS -> stringResource(R.string.canvas_source_hush_canvas)
+                        CanvasSource.TIDAL -> stringResource(R.string.canvas_source_tidal)
+                    }
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.canvas_source)) },
+                    description = canvasSourceLabel,
+                    icon = { Icon(painterResource(R.drawable.motion_photos_on), null) },
+                    onClick = { navController.navigate("settings/appearance/canvas") },
                 )
             }
 

@@ -1,4 +1,6 @@
-# Add project specific ProGuard rules here.
+# JioSaavn native API models (release playback resolution)
+-keep class moe.rukamori.archivetune.jiosaavn.** { *; }
+
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.kts.
 #

@@ -50,6 +50,7 @@ import moe.rukamori.archivetune.ui.player.CanvasArtworkPlaybackCache
 import moe.rukamori.archivetune.ui.screens.settings.ThemePalettes
 import moe.rukamori.archivetune.ui.theme.ThemeSeedPalette
 import moe.rukamori.archivetune.ui.theme.ThemeSeedPaletteCodec
+import moe.rukamori.archivetune.utils.ArtworkNetworkUtils
 import moe.rukamori.archivetune.utils.AutoBackupHelper
 import moe.rukamori.archivetune.utils.IconUtils
 import moe.rukamori.archivetune.utils.PreferenceStore
@@ -95,6 +96,7 @@ class App :
             readTimeout(15, TimeUnit.SECONDS)
             followRedirects(true)
             followSslRedirects(true)
+            addInterceptor(ArtworkNetworkUtils.artworkInterceptor())
         }
 
     private fun currentProcessName(): String? =

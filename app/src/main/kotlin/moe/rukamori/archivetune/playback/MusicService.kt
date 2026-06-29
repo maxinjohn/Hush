@@ -141,6 +141,7 @@ import moe.rukamori.archivetune.constants.CrossfadeEnabledKey
 import moe.rukamori.archivetune.constants.CrossfadeGaplessKey
 import moe.rukamori.archivetune.constants.DeviceMutePlaybackRecoveryVolumeKey
 import moe.rukamori.archivetune.constants.EnableLastFMScrobblingKey
+import moe.rukamori.archivetune.constants.EnableSaavnStreamingKey
 import moe.rukamori.archivetune.constants.EqualizerBandLevelsMbKey
 import moe.rukamori.archivetune.constants.EqualizerBassBoostEnabledKey
 import moe.rukamori.archivetune.constants.EqualizerBassBoostStrengthKey
@@ -247,6 +248,7 @@ import moe.rukamori.archivetune.storage.StorageFolderKind
 import moe.rukamori.archivetune.storage.StorageLocationRepository
 import moe.rukamori.archivetune.together.TogetherPlaybackSync
 import moe.rukamori.archivetune.ui.screens.settings.ListenBrainzManager
+import moe.rukamori.archivetune.utils.PreferenceStore
 import moe.rukamori.archivetune.utils.AuthScopedCacheValue
 import moe.rukamori.archivetune.utils.CoilBitmapLoader
 import moe.rukamori.archivetune.utils.NotificationArtworkLoader
@@ -620,7 +622,7 @@ class MusicService :
         return false
     }
 
-    lateinit var sleepTimer: SleepTimer
+    var sleepTimer: SleepTimer? = null
 
     @Inject
     @PlayerCache
@@ -958,8 +960,10 @@ class MusicService :
                     mediaItemResolver = CastMediaItemResolver(::resolveMediaItemForCast),
                 ).apply {
                     addListener(this@MusicService)
-                    sleepTimer = SleepTimer(scope, this)
-                    addListener(sleepTimer)
+                    SleepTimer(scope, this).also { timer ->
+                        sleepTimer = timer
+                        addListener(timer)
+                    }
                 }
         playerInitialized.value = true
         widgetUpdater =
@@ -1142,6 +1146,17 @@ class MusicService :
                     registerBluetoothReceiver()
                 } else {
                     unregisterBluetoothReceiver()
+                }
+            }
+
+        dataStore.data
+            .map { it[EnableSaavnStreamingKey] ?: false }
+            .distinctUntilChanged()
+            .collectLatest(scope) { enabled ->
+                val wasEnabled = saavnStreamingEnabled
+                saavnStreamingEnabled = enabled
+                if (enabled && !wasEnabled) {
+                    clearSaavnIncompatiblePlaybackCache()
                 }
             }
 
@@ -2255,13 +2270,33 @@ class MusicService :
     @Volatile
     private var lastPublishedPlaybackClient: Pair<String, String>? = null
 
+    @Volatile
+    private var saavnStreamingEnabled = false
+
+    private fun isSaavnStreamingEnabled(): Boolean =
+        PreferenceStore.get(EnableSaavnStreamingKey) ?: saavnStreamingEnabled
+
+    private suspend fun saavnHintsFor(mediaId: String): SaavnPlaybackResolver.PlaybackHints? {
+        currentMediaMetadata.value?.takeIf { it.id == mediaId }?.let {
+            return SaavnPlaybackResolver.hintsFrom(it)
+        }
+        return withContext(Dispatchers.Main) {
+            val mediaItem =
+                player.findNextMediaItemById(mediaId)
+                    ?: player.currentMediaItem?.takeIf { it.mediaId == mediaId }
+            mediaItem?.metadata?.let { SaavnPlaybackResolver.hintsFrom(it) }
+                ?: mediaItem?.mediaMetadata?.let { SaavnPlaybackResolver.hintsFrom(it) }
+        }
+    }
+
     private fun cachedPlaybackUrl(mediaId: String): AuthScopedCacheValue? {
         val authFingerprint = playbackAuthFingerprint()
-        return playbackUrlCache[mediaId]?.takeIf {
-            it.isValidFor(
+        val saavnEnabled = isSaavnStreamingEnabled()
+        return playbackUrlCache[mediaId]?.takeIf { cached ->
+            cached.isValidFor(
                 authFingerprint = authFingerprint,
                 minimumRemainingMs = YTPlayerUtils.STREAM_URL_EXPIRY_SAFETY_MS,
-            )
+            ) && (!saavnEnabled || cached.isSaavnStream)
         }?.also { cached ->
             publishPlaybackClientLabel(mediaId, cached.playbackClientLabel)
         }
@@ -2274,11 +2309,15 @@ class MusicService :
         if (label.isNullOrBlank()) return
         val published = mediaId to label
         if (lastPublishedPlaybackClient == published) return
-        lastPublishedPlaybackClient = published
         scope.launch {
-            if (currentMediaMetadata.value?.id == mediaId) {
-                activePlaybackClientLabel.value = label
-            }
+            val isCurrentTrack =
+                withContext(Dispatchers.Main) {
+                    currentMediaMetadata.value?.id == mediaId ||
+                        player.currentMediaItem?.mediaId == mediaId
+                }
+            if (!isCurrentTrack) return@launch
+            lastPublishedPlaybackClient = published
+            activePlaybackClientLabel.value = label
         }
     }
 
@@ -2319,6 +2358,7 @@ class MusicService :
                             preferredStreamClient = activeStreamClient,
                             networkMetered = networkMeteredHint,
                             context = this@MusicService,
+                            saavnHints = saavnHintsFor(mediaId),
                         )
                     }.getOrThrow()
                 }
@@ -2331,6 +2371,7 @@ class MusicService :
                     expiresAtMs = System.currentTimeMillis() + (playbackData.streamExpiresInSeconds * 1000L),
                     authFingerprint = playbackData.authFingerprint,
                     playbackClientLabel = playbackData.playbackClientLabel,
+                    isSaavnStream = playbackData.isSaavnStream,
                 )
             playbackUrlCache[mediaId] = cacheValue
             cacheValue
@@ -2384,18 +2425,14 @@ class MusicService :
             recoverSong(mediaId, playbackData)
         }
         playbackData.playbackClientLabel?.let { clientLabel ->
-            scope.launch {
-                if (currentMediaMetadata.value?.id == mediaId) {
-                    activePlaybackClientLabel.value = clientLabel
-                }
-            }
+            publishPlaybackClientLabel(mediaId, clientLabel)
         }
     }
 
     private fun startPlaybackUrlPrefetch(mediaId: String) {
         if (mediaId.isBlank() || mediaId.isLocalMediaId()) return
         if (cachedPlaybackUrl(mediaId) != null) return
-        if (hasFullyDownloadedLocalPlayback(mediaId)) return
+        if (!isSaavnStreamingEnabled() && hasFullyDownloadedLocalPlayback(mediaId)) return
 
         playbackUrlPrefetchInFlight.computeIfAbsent(mediaId) { mediaIdKey ->
             ioScope.async(Dispatchers.IO + SilentHandler) {
@@ -2432,6 +2469,12 @@ class MusicService :
         if (maxWaitMs > 0L) {
             awaitPlaybackUrlPrefetch(mediaId, maxWaitMs)
         }
+    }
+
+    fun clearSaavnIncompatiblePlaybackCache() {
+        playbackUrlCache.clear()
+        playbackUrlPrefetchInFlight.clear()
+        lastPublishedPlaybackClient = null
     }
 
     private fun prefetchNextTrack() {
@@ -5595,8 +5638,19 @@ class MusicService :
         val timelineEmpty = player.currentTimeline.isEmpty || player.mediaItemCount == 0 || player.currentMediaItem == null
         currentMediaMetadata.value = if (timelineEmpty) null else (mediaItem?.metadata ?: player.currentMetadata)
 
+        mediaItem?.mediaId?.takeIf { it.isNotBlank() && !it.isLocalMediaId() }?.let { mediaId ->
+            cachedPlaybackUrl(mediaId)?.playbackClientLabel?.let { label ->
+                publishPlaybackClientLabel(mediaId, label)
+            }
+        }
+
         mediaItem?.let { item ->
             ensureNotificationArtworkUri(item)
+            if (isSaavnStreamingEnabled()) {
+                playbackUrlCache[item.mediaId]?.takeIf { !it.isSaavnStream }?.let {
+                    playbackUrlCache.remove(item.mediaId)
+                }
+            }
             scope.launch(SilentHandler) {
                 hydrateNotificationArtwork(item)
             }
@@ -5685,16 +5739,22 @@ class MusicService :
     }
 
     private fun ensureNotificationArtworkUri(mediaItem: MediaItem) {
-        if (mediaItem.mediaMetadata.artworkUri != null) return
-        val artworkUrl =
-            mediaItem.resolveNotificationArtworkUrl()
-                ?: NotificationArtworkLoader.resolveArtworkUrl(mediaItem)
-                ?: return
-
         val index = player.currentMediaItemIndex
         if (index == C.INDEX_UNSET || index >= player.mediaItemCount) return
         val currentItem = player.getMediaItemAt(index)
         if (currentItem.mediaId != mediaItem.mediaId) return
+        if (currentItem.mediaMetadata.artworkData != null) return
+
+        val artworkUrl =
+            currentItem.resolveNotificationArtworkUrl()
+                ?: NotificationArtworkLoader.resolveArtworkUrl(currentItem)
+                ?: return
+
+        val existingUri = currentItem.mediaMetadata.artworkUri?.toString()?.trim().orEmpty()
+        if (existingUri == artworkUrl) {
+            refreshPlaybackNotification()
+            return
+        }
 
         val updatedItem =
             currentItem.buildUpon()
@@ -5704,14 +5764,27 @@ class MusicService :
                         .build(),
                 ).build()
         player.replaceMediaItem(index, updatedItem)
+        refreshPlaybackNotification()
     }
 
     private suspend fun hydrateNotificationArtwork(mediaItem: MediaItem) {
-        val artworkUrl =
-            mediaItem.resolveNotificationArtworkUrl()
-                ?: NotificationArtworkLoader.resolveArtworkUrl(mediaItem)
-                ?: return
         val targetMediaId = mediaItem.mediaId
+        val currentItem =
+            withContext(Dispatchers.Main.immediate) {
+                val index = player.currentMediaItemIndex
+                if (index == C.INDEX_UNSET || index >= player.mediaItemCount) return@withContext null
+                val item = player.getMediaItemAt(index)
+                if (item.mediaId != targetMediaId) return@withContext null
+                item
+            } ?: return
+
+        if (currentItem.mediaMetadata.artworkData != null) return
+
+        val artworkUrl =
+            currentItem.resolveNotificationArtworkUrl()
+                ?: NotificationArtworkLoader.resolveArtworkUrl(currentItem)
+                ?: return
+
         val bitmap =
             withContext(Dispatchers.IO) {
                 NotificationArtworkLoader.loadBitmap(
@@ -5723,19 +5796,18 @@ class MusicService :
         withContext(Dispatchers.Main.immediate) {
             val index = player.currentMediaItemIndex
             if (index == C.INDEX_UNSET || index >= player.mediaItemCount) return@withContext
-            val currentItem = player.getMediaItemAt(index)
-            if (currentItem.mediaId != targetMediaId) return@withContext
+            val latestItem = player.getMediaItemAt(index)
+            if (latestItem.mediaId != targetMediaId) return@withContext
+            if (latestItem.mediaMetadata.artworkData != null) return@withContext
 
             val updatedItem =
                 NotificationArtworkLoader.mediaItemWithEmbeddedArtwork(
-                    mediaItem = currentItem,
+                    mediaItem = latestItem,
                     bitmap = bitmap,
                     artworkUrl = artworkUrl,
                 )
-            if (updatedItem.mediaMetadata != currentItem.mediaMetadata) {
-                player.replaceMediaItem(index, updatedItem)
-                refreshPlaybackNotification()
-            }
+            player.replaceMediaItem(index, updatedItem)
+            refreshPlaybackNotification()
         }
     }
 
@@ -5762,6 +5834,7 @@ class MusicService :
             scheduleCrossfade()
             player.currentMediaItem?.let { item ->
                 if (item.mediaMetadata.artworkData == null) {
+                    ensureNotificationArtworkUri(item)
                     scope.launch(SilentHandler) {
                         hydrateNotificationArtwork(item)
                     }
@@ -6418,13 +6491,15 @@ class MusicService :
 
         knownContentLength?.takeIf { it > 0L }?.let { contentLengthCache[mediaId] = it }
 
-        resolveLocalPlaybackDataSpecIfAvailable(
-            dataSpec = dataSpec,
-            mediaId = mediaId,
-            knownContentLength = knownContentLength,
-        )?.let { localDataSpec ->
-            scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
-            return localDataSpec
+        if (!isSaavnStreamingEnabled()) {
+            resolveLocalPlaybackDataSpecIfAvailable(
+                dataSpec = dataSpec,
+                mediaId = mediaId,
+                knownContentLength = knownContentLength,
+            )?.let { localDataSpec ->
+                scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
+                return localDataSpec
+            }
         }
 
         val lowDataModeActive = isLowDataModeActive()
@@ -6448,6 +6523,7 @@ class MusicService :
                 streamUrl = cached.url,
                 knownContentLength = knownContentLength,
                 mimeType = storedFormat?.mimeType,
+                isSaavnStream = cached.isSaavnStream,
             )
         }
 
@@ -6461,6 +6537,7 @@ class MusicService :
                 streamUrl = cached.url,
                 knownContentLength = knownContentLength,
                 mimeType = storedFormat?.mimeType,
+                isSaavnStream = cached.isSaavnStream,
             )
         }
 
@@ -6484,6 +6561,7 @@ class MusicService :
                                 networkMetered = networkMeteredHint,
                                 fastResolution = true,
                                 context = this@MusicService,
+                                saavnHints = saavnHintsFor(mediaId),
                             )
                         }.getOrThrow()
                     }
@@ -6507,6 +6585,7 @@ class MusicService :
                     expiresAtMs = System.currentTimeMillis() + (playbackData.streamExpiresInSeconds * 1000L),
                     authFingerprint = playbackData.authFingerprint,
                     playbackClientLabel = playbackData.playbackClientLabel,
+                    isSaavnStream = playbackData.isSaavnStream,
                 )
         }
         scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
@@ -7472,7 +7551,7 @@ class MusicService :
         }
         try {
             player.removeListener(this)
-            player.removeListener(sleepTimer)
+            sleepTimer?.let { player.removeListener(it) }
             player.release()
         } catch (_: Exception) {
         }

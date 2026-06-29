@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -40,17 +41,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import moe.rukamori.archivetune.R
-import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import moe.rukamori.archivetune.constants.EnableHapticFeedbackKey
-import moe.rukamori.archivetune.utils.rememberPreference
-import moe.rukamori.archivetune.ui.theme.archiveTunePressable
+import moe.rukamori.archivetune.ui.theme.ArchiveTuneDesign
+import moe.rukamori.archivetune.ui.theme.archiveTuneHeaderActionPressable
 import moe.rukamori.archivetune.ui.utils.HeaderDownloadProgressIndicator
 import moe.rukamori.archivetune.ui.utils.HeaderDownloadState
+import moe.rukamori.archivetune.utils.rememberPreference
 
-private val HeaderActionHeight = 48.dp
-private val HeaderIconSize = 22.dp
+private val HeaderActionSize = ArchiveTuneDesign.HeaderActionSize
+private val HeaderIconSize = ArchiveTuneDesign.HeaderActionIconSize
+private val HeaderActionShape = ArchiveTuneDesign.headerActionShape
 private val CompactWidthThreshold = 360.dp
 
 @Composable
@@ -67,7 +67,7 @@ fun PlaylistHeaderActionLayout(
                 Modifier
                     .horizontalScroll(rememberScrollState())
                     .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             content()
@@ -221,10 +221,10 @@ private fun HeaderPlayAction(
     Surface(
         modifier =
             modifier
-                .height(HeaderActionHeight)
-                .widthIn(min = if (showLabel) 112.dp else HeaderActionHeight)
-                .clip(ArchiveTuneDesign.chipShape)
-                .archiveTunePressable(
+                .height(HeaderActionSize)
+                .widthIn(min = if (showLabel) 124.dp else HeaderActionSize)
+                .clip(HeaderActionShape)
+                .archiveTuneHeaderActionPressable(
                     onClick = {
                         if (enableHapticFeedback) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -232,17 +232,16 @@ private fun HeaderPlayAction(
                         onClick()
                     },
                     enabled = enabled,
-                    pressScale = ArchiveTuneDesign.ChipPressScale,
                 )
                 .semantics { contentDescription = playLabel },
         color = Color.Transparent,
-        shape = ArchiveTuneDesign.chipShape,
+        shape = HeaderActionShape,
     ) {
         Box(
             modifier =
                 Modifier
-                    .background(gradient, ArchiveTuneDesign.chipShape)
-                    .padding(horizontal = if (showLabel) 18.dp else 0.dp),
+                    .background(gradient, HeaderActionShape)
+                    .padding(horizontal = if (showLabel) 20.dp else 0.dp),
             contentAlignment = Alignment.Center,
         ) {
             Row(
@@ -278,25 +277,25 @@ private fun HeaderIconAction(
     enabled: Boolean = true,
     active: Boolean = false,
     activeTint: Color = MaterialTheme.colorScheme.primary,
-    iconSize: Dp = HeaderActionHeight,
+    buttonSize: Dp = HeaderActionSize,
     content: @Composable () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
     val (enableHapticFeedback) = rememberPreference(EnableHapticFeedbackKey, true)
     val containerColor =
         if (active) {
-            activeTint.copy(alpha = 0.14f)
+            activeTint.copy(alpha = 0.16f)
         } else {
             MaterialTheme.colorScheme.surfaceContainerHigh
         }
-    val borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+    val borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
 
     Surface(
         modifier =
             modifier
-                .size(iconSize)
-                .clip(CircleShape)
-                .archiveTunePressable(
+                .size(buttonSize)
+                .clip(HeaderActionShape)
+                .archiveTuneHeaderActionPressable(
                     onClick = {
                         if (enableHapticFeedback) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -304,15 +303,14 @@ private fun HeaderIconAction(
                         onClick()
                     },
                     enabled = enabled,
-                    pressScale = ArchiveTuneDesign.ChipPressScale,
                 ).semantics { this.contentDescription = contentDescription },
         color = containerColor,
-        shape = CircleShape,
+        shape = HeaderActionShape,
     ) {
         Box(
             modifier =
                 Modifier
-                    .border(0.5.dp, borderColor, CircleShape)
+                    .border(0.75.dp, borderColor, HeaderActionShape)
                     .padding(1.dp),
             contentAlignment = Alignment.Center,
         ) {
@@ -325,7 +323,7 @@ private fun HeaderIconAction(
 fun PlaylistDownloadButtonContent(
     downloadState: HeaderDownloadState,
     modifier: Modifier = Modifier,
-    iconSize: Dp = 24.dp,
+    iconSize: Dp = HeaderIconSize,
 ) {
     when (downloadState) {
         HeaderDownloadState.Completed -> {
@@ -364,8 +362,8 @@ fun PlaylistPrimaryActionButton(
     colors: androidx.compose.material3.ToggleButtonColors,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    buttonHeight: Dp = 48.dp,
-    iconSize: Dp = 20.dp,
+    buttonHeight: Dp = HeaderActionSize,
+    iconSize: Dp = HeaderIconSize,
 ) {
     HeaderPlayAction(onClick = { onCheckedChange(!checked) }, enabled = enabled, showLabel = true, modifier = modifier)
 }
@@ -380,8 +378,8 @@ fun PlaylistIconActionButton(
     shapes: androidx.compose.material3.ToggleButtonShapes,
     colors: androidx.compose.material3.ToggleButtonColors,
     modifier: Modifier = Modifier,
-    buttonSize: Dp = 48.dp,
-    iconSize: Dp = 24.dp,
+    buttonSize: Dp = HeaderActionSize,
+    iconSize: Dp = HeaderIconSize,
     content: (@Composable () -> Unit)? = null,
 ) {
     HeaderIconAction(
@@ -389,6 +387,7 @@ fun PlaylistIconActionButton(
         contentDescription = contentDescription,
         modifier = modifier,
         active = checked,
+        buttonSize = buttonSize,
     ) {
         if (content != null) {
             content()

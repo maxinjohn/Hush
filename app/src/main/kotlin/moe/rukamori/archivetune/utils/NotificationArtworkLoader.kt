@@ -94,13 +94,22 @@ object NotificationArtworkLoader {
         maxSizePx: Int,
     ): Bitmap? {
         return runCatching {
-            val request =
+            val httpUrl =
                 Request
                     .Builder()
                     .url(url)
-                    .header("User-Agent", NotificationArtworkUserAgent)
-                    .header("Accept", "image/*,*/*;q=0.8")
                     .build()
+                    .url
+            val request =
+                ArtworkNetworkUtils
+                    .applyRequestHeaders(
+                        Request
+                            .Builder()
+                            .url(url)
+                            .header("User-Agent", NotificationArtworkUserAgent)
+                            .header("Accept", "image/*,*/*;q=0.8"),
+                        httpUrl,
+                    ).build()
             httpClientHolder
                 .get {
                     connectTimeout(12, TimeUnit.SECONDS)

@@ -93,6 +93,7 @@ import moe.rukamori.archivetune.ui.screens.settings.HiddenPlaylistsScreen
 import moe.rukamori.archivetune.ui.screens.settings.IntegrationScreen
 import moe.rukamori.archivetune.ui.screens.settings.InternetSettings
 import moe.rukamori.archivetune.ui.screens.settings.LastFMSettings
+import moe.rukamori.archivetune.ui.screens.settings.CanvasSelection
 import moe.rukamori.archivetune.ui.screens.settings.LyricsAnimationSettings
 import moe.rukamori.archivetune.ui.screens.settings.AlarmSettings
 import moe.rukamori.archivetune.ui.screens.settings.LyricsSettings
@@ -414,6 +415,9 @@ fun NavGraphBuilder.navigationBuilder(
     }
     composable("settings/appearance/lyrics_animations") {
         LyricsAnimationSettings(navController, scrollBehavior)
+    }
+    composable("settings/appearance/canvas") {
+        CanvasSelection(navController, scrollBehavior)
     }
     composable("settings/appearance/theme_creator") {
         ThemeCreatorScreen(navController)

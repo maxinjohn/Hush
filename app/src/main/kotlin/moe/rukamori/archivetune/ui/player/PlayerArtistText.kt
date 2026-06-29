@@ -47,14 +47,20 @@ fun ClickableArtists(
     textAlign: TextAlign? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
-    val annotatedString =
+    val visibleArtists =
         remember(artists) {
+            artists.filter { it.name.isNotBlank() }
+        }
+    if (visibleArtists.isEmpty()) return
+
+    val annotatedString =
+        remember(visibleArtists) {
             buildAnnotatedString {
-                artists.forEachIndexed { index, artist ->
+                visibleArtists.forEachIndexed { index, artist ->
                     pushStringAnnotation(tag = "artist_${artist.id.orEmpty()}", annotation = artist.id.orEmpty())
                     append(artist.name)
                     pop()
-                    if (index != artists.lastIndex) append(", ")
+                    if (index != visibleArtists.lastIndex) append(", ")
                 }
             }
         }

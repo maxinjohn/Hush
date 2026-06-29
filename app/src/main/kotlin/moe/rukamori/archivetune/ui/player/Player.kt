@@ -626,10 +626,10 @@ fun BottomSheetPlayer(
 
     val sleepTimerEnabled =
         remember(
-            playerConnection.service.sleepTimer.triggerTime,
-            playerConnection.service.sleepTimer.pauseWhenSongEnd,
+            playerConnection.service.sleepTimer?.triggerTime,
+            playerConnection.service.sleepTimer?.pauseWhenSongEnd,
         ) {
-            playerConnection.service.sleepTimer.isActive
+            playerConnection.service.sleepTimer?.isActive == true
         }
 
     var sleepTimerTimeLeft by remember {
@@ -640,10 +640,10 @@ fun BottomSheetPlayer(
         if (sleepTimerEnabled) {
             while (isActive) {
                 sleepTimerTimeLeft =
-                    if (playerConnection.service.sleepTimer.pauseWhenSongEnd) {
+                    if (playerConnection.service.sleepTimer?.pauseWhenSongEnd == true) {
                         playerConnection.player.duration - playerConnection.player.currentPosition
                     } else {
-                        playerConnection.service.sleepTimer.triggerTime - System.currentTimeMillis()
+                        (playerConnection.service.sleepTimer?.triggerTime ?: 0L) - System.currentTimeMillis()
                     }
                 delay(1000L)
             }
@@ -672,7 +672,7 @@ fun BottomSheetPlayer(
                 TextButton(
                     onClick = {
                         showSleepTimerDialog = false
-                        playerConnection.service.sleepTimer.start(sleepTimerValue.roundToInt())
+                        playerConnection.service.sleepTimer?.start(sleepTimerValue.roundToInt())
                     },
                     shapes = ButtonDefaults.shapes(),
                 ) {
@@ -709,7 +709,7 @@ fun BottomSheetPlayer(
                     OutlinedIconButton(
                         onClick = {
                             showSleepTimerDialog = false
-                            playerConnection.service.sleepTimer.start(-1)
+                            playerConnection.service.sleepTimer?.start(-1)
                         },
                     ) {
                         Text(stringResource(R.string.end_of_song))

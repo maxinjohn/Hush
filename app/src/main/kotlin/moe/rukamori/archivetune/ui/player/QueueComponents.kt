@@ -77,6 +77,7 @@ import androidx.media3.common.Player
 import coil3.compose.AsyncImage
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.EnableHapticFeedbackKey
+import moe.rukamori.archivetune.constants.EnableSaavnStreamingKey
 import moe.rukamori.archivetune.db.entities.FormatEntity
 import moe.rukamori.archivetune.db.entities.containerLabel
 import moe.rukamori.archivetune.db.entities.formattedBitrate
@@ -499,7 +500,14 @@ fun CodecInfoRow(
         LocalPlayerConnection.current?.activePlaybackClientLabel
             ?: kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     ).collectAsStateWithLifecycle(initialValue = null)
-    val resolvedPlaybackClient = playbackClient ?: activeClientLabel
+    val isPlaying by (
+        LocalPlayerConnection.current?.isPlaying
+            ?: kotlinx.coroutines.flow.MutableStateFlow(false)
+    ).collectAsStateWithLifecycle(initialValue = false)
+    val resolvedPlaybackClient =
+        playbackClient
+            ?: activeClientLabel
+            ?: if (isPlaying) "YouTube" else null
 
     Row(
         horizontalArrangement = Arrangement.Center,
@@ -523,7 +531,7 @@ fun CodecInfoRow(
                     }
                     if (!resolvedPlaybackClient.isNullOrBlank()) {
                         append(" • ")
-                        append(resolvedPlaybackClient)
+                        append(formatPlaybackClientLabel(resolvedPlaybackClient))
                     }
                 },
             style = MaterialTheme.typography.labelSmall,
@@ -532,6 +540,72 @@ fun CodecInfoRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+private fun formatPlaybackClientLabel(label: String): String =
+    when {
+        label.contains("JioSaavn", ignoreCase = true) -> "JioSaavn"
+        label.contains("Hi-Res", ignoreCase = true) -> label
+        else -> "YouTube"
+    }
+
+/**
+ * Shows the active playback source when JioSaavn streaming is enabled.
+ */
+@Composable
+fun PlaybackSourceRow(
+    textColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    val playerConnection = LocalPlayerConnection.current ?: return
+    val (saavnEnabled) = rememberPreference(EnableSaavnStreamingKey, defaultValue = false)
+    if (!saavnEnabled) return
+
+    val clientLabel by playerConnection.activePlaybackClientLabel.collectAsStateWithLifecycle()
+    val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
+    val sourceLabel =
+        when {
+            clientLabel?.contains("JioSaavn", ignoreCase = true) == true ->
+                stringResource(R.string.playback_source_jiosaavn)
+            !clientLabel.isNullOrBlank() ->
+                stringResource(R.string.playback_source_youtube)
+            isPlaying ->
+                stringResource(R.string.playback_source_youtube)
+            else -> return
+        }
+    val isSaavn = clientLabel?.contains("JioSaavn", ignoreCase = true) == true
+    val badgeColor =
+        if (isSaavn) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            textColor.copy(alpha = 0.72f)
+        }
+
+    Row(
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .padding(start = 30.dp, end = 30.dp, top = 4.dp, bottom = 2.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = badgeColor.copy(alpha = if (isSaavn) 0.18f else 0.1f),
+            border =
+                androidx.compose.foundation.BorderStroke(
+                    width = 1.dp,
+                    color = badgeColor.copy(alpha = 0.35f),
+                ),
+        ) {
+            Text(
+                text = sourceLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = badgeColor,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+        }
     }
 }
 
@@ -564,6 +638,7 @@ fun QueueCollapsedContentV2(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
+        PlaybackSourceRow(textColor = textBackgroundColor)
         if (showCodecOnPlayer && currentFormat != null) {
             val codec =
                 currentFormat.codecs
@@ -794,6 +869,7 @@ fun QueueCollapsedContentV3(
     val (enableHapticFeedback) = rememberPreference(EnableHapticFeedbackKey, true)
 
     Column(modifier = modifier.fillMaxWidth()) {
+        PlaybackSourceRow(textColor = textBackgroundColor)
         if (showCodecOnPlayer && currentFormat != null) {
             val container = currentFormat.containerLabel()
             val bitrate = currentFormat.formattedBitrate()
@@ -942,6 +1018,7 @@ fun QueueCollapsedContentV1(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
+        PlaybackSourceRow(textColor = textBackgroundColor)
         if (showCodecOnPlayer && currentFormat != null) {
             val container = currentFormat.containerLabel()
             val bitrate = currentFormat.formattedBitrate()
@@ -1089,6 +1166,7 @@ fun QueueCollapsedContentV4(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
+        PlaybackSourceRow(textColor = textBackgroundColor)
         if (showCodecOnPlayer && currentFormat != null) {
             val container = currentFormat.containerLabel()
             val bitrate = currentFormat.formattedBitrate()
@@ -1247,6 +1325,7 @@ fun QueueCollapsedContentV7(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
+        PlaybackSourceRow(textColor = textBackgroundColor)
         if (showCodecOnPlayer && currentFormat != null) {
             val container = currentFormat.containerLabel()
             val bitrate = currentFormat.formattedBitrate()

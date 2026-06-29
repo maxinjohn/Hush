@@ -92,6 +92,8 @@ import moe.rukamori.archivetune.canvas.models.CanvasArtwork
 import moe.rukamori.archivetune.constants.ArchiveTuneCanvasKey
 import moe.rukamori.archivetune.constants.BackdropBlurAmountKey
 import moe.rukamori.archivetune.constants.BackdropEnabledKey
+import moe.rukamori.archivetune.constants.CanvasSource
+import moe.rukamori.archivetune.constants.CanvasSourceKey
 import moe.rukamori.archivetune.constants.CropThumbnailToSquareKey
 import moe.rukamori.archivetune.constants.DisableBlurKey
 import moe.rukamori.archivetune.constants.EnableHapticFeedbackKey
@@ -144,6 +146,7 @@ fun Thumbnail(
 
     val hidePlayerThumbnail by rememberPreference(HidePlayerThumbnailKey, false)
     val archiveTuneCanvasEnabled by rememberPreference(ArchiveTuneCanvasKey, false)
+    val canvasSource by rememberEnumPreference(CanvasSourceKey, CanvasSource.AUTO)
     val lowDataModeActive = rememberLowDataModeActive()
     val playerDesignStyle by rememberEnumPreference(
         key = PlayerDesignStyleKey,
@@ -433,7 +436,7 @@ fun Thumbnail(
                                 }
                             }
 
-                            LaunchedEffect(shouldUseCanvas, shouldFetchCanvas, item.mediaId) {
+                            LaunchedEffect(shouldUseCanvas, shouldFetchCanvas, item.mediaId, canvasSource) {
                                 if (!shouldUseCanvas) return@LaunchedEffect
 
                                 val songTitleRaw =
@@ -467,6 +470,7 @@ fun Thumbnail(
                                             storefront = storefront,
                                             requireVertical = false,
                                             allowNetwork = shouldFetchCanvas,
+                                            canvasSource = canvasSource,
                                         )
                                 } finally {
                                     canvasFetchInFlight = false

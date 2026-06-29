@@ -376,10 +376,10 @@ fun Queue(
     var sleepTimerValue by remember { mutableStateOf(30f) }
     val sleepTimerEnabled =
         remember(
-            playerConnection.service.sleepTimer.triggerTime,
-            playerConnection.service.sleepTimer.pauseWhenSongEnd,
+            playerConnection.service.sleepTimer?.triggerTime,
+            playerConnection.service.sleepTimer?.pauseWhenSongEnd,
         ) {
-            playerConnection.service.sleepTimer.isActive
+            playerConnection.service.sleepTimer?.isActive == true
         }
     var sleepTimerTimeLeft by remember { mutableStateOf(0L) }
 
@@ -393,10 +393,10 @@ fun Queue(
         if (sleepTimerEnabled) {
             while (isActive) {
                 sleepTimerTimeLeft =
-                    if (playerConnection.service.sleepTimer.pauseWhenSongEnd) {
+                    if (playerConnection.service.sleepTimer?.pauseWhenSongEnd == true) {
                         playerConnection.player.duration - playerConnection.player.currentPosition
                     } else {
-                        playerConnection.service.sleepTimer.triggerTime - System.currentTimeMillis()
+                        (playerConnection.service.sleepTimer?.triggerTime ?: 0L) - System.currentTimeMillis()
                     }
                 delay(1000L)
             }
@@ -435,7 +435,7 @@ fun Queue(
                         onExpandQueue = openQueue,
                         onSleepTimerClick = {
                             if (sleepTimerEnabled) {
-                                playerConnection.service.sleepTimer.clear()
+                                playerConnection.service.sleepTimer?.clear()
                             } else {
                                 showSleepTimerDialog = true
                             }
@@ -472,7 +472,7 @@ fun Queue(
                         onExpandQueue = openQueue,
                         onSleepTimerClick = {
                             if (sleepTimerEnabled) {
-                                playerConnection.service.sleepTimer.clear()
+                                playerConnection.service.sleepTimer?.clear()
                             } else {
                                 showSleepTimerDialog = true
                             }
@@ -508,7 +508,7 @@ fun Queue(
                         onExpandQueue = openQueue,
                         onSleepTimerClick = {
                             if (sleepTimerEnabled) {
-                                playerConnection.service.sleepTimer.clear()
+                                playerConnection.service.sleepTimer?.clear()
                             } else {
                                 showSleepTimerDialog = true
                             }
@@ -547,7 +547,7 @@ fun Queue(
                         onExpandQueue = openQueue,
                         onSleepTimerClick = {
                             if (sleepTimerEnabled) {
-                                playerConnection.service.sleepTimer.clear()
+                                playerConnection.service.sleepTimer?.clear()
                             } else {
                                 showSleepTimerDialog = true
                             }
@@ -566,7 +566,7 @@ fun Queue(
                         onExpandQueue = openQueue,
                         onSleepTimerClick = {
                             if (sleepTimerEnabled) {
-                                playerConnection.service.sleepTimer.clear()
+                                playerConnection.service.sleepTimer?.clear()
                             } else {
                                 showSleepTimerDialog = true
                             }
@@ -588,7 +588,7 @@ fun Queue(
                         onExpandQueue = openQueue,
                         onSleepTimerClick = {
                             if (sleepTimerEnabled) {
-                                playerConnection.service.sleepTimer.clear()
+                                playerConnection.service.sleepTimer?.clear()
                             } else {
                                 showSleepTimerDialog = true
                             }
@@ -630,7 +630,7 @@ fun Queue(
                         },
                         onSleepTimerClick = {
                             if (sleepTimerEnabled) {
-                                playerConnection.service.sleepTimer.clear()
+                                playerConnection.service.sleepTimer?.clear()
                             } else {
                                 showSleepTimerDialog = true
                             }
@@ -662,7 +662,7 @@ fun Queue(
                         onShowLyrics = onShowLyrics,
                         onSleepTimerClick = {
                             if (sleepTimerEnabled) {
-                                playerConnection.service.sleepTimer.clear()
+                                playerConnection.service.sleepTimer?.clear()
                             } else {
                                 showSleepTimerDialog = true
                             }
@@ -682,11 +682,11 @@ fun Queue(
                     onDismiss = { showSleepTimerDialog = false },
                     onConfirm = { minutes ->
                         showSleepTimerDialog = false
-                        playerConnection.service.sleepTimer.start(minutes)
+                        playerConnection.service.sleepTimer?.start(minutes)
                     },
                     onEndOfSong = {
                         showSleepTimerDialog = false
-                        playerConnection.service.sleepTimer.start(-1)
+                        playerConnection.service.sleepTimer?.start(-1)
                     },
                     initialValue = sleepTimerValue,
                 )

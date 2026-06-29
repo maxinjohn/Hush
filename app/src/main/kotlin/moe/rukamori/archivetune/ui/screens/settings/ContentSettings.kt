@@ -23,6 +23,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -36,6 +41,8 @@ import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.ui.component.EditTextPreference
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.ListPreference
+import moe.rukamori.archivetune.ui.component.LyricsProviderEnableState
+import moe.rukamori.archivetune.ui.component.LyricsProviderPriorityDialog
 import moe.rukamori.archivetune.ui.component.PreferenceEntry
 import moe.rukamori.archivetune.ui.component.PreferenceGroup
 import moe.rukamori.archivetune.ui.component.SwitchPreference
@@ -68,6 +75,46 @@ fun ContentSettings(navController: NavController) {
     val (hideVideo, onHideVideoChange) = rememberPreference(key = HideVideoKey, defaultValue = false)
     val (lengthTop, onLengthTopChange) = rememberPreference(key = TopSize, defaultValue = "50")
     val (quickPicks, onQuickPicksChange) = rememberEnumPreference(key = QuickPicksKey, defaultValue = QuickPicks.QUICK_PICKS)
+
+    val (enableBetterLyrics, _) = rememberPreference(key = EnableBetterLyricsKey, defaultValue = true)
+    val (enableYouLyPlus, _) = rememberPreference(key = EnableYouLyPlusLyricsKey, defaultValue = true)
+    val (enableLrcLib, _) = rememberPreference(key = EnableLrcLibKey, defaultValue = true)
+    val (enableKugou, _) = rememberPreference(key = EnableKugouKey, defaultValue = true)
+    val (enableSimpMusic, _) = rememberPreference(key = EnableSimpMusicLyricsKey, defaultValue = true)
+    val (enableUnison, _) = rememberPreference(key = EnableUnisonLyricsKey, defaultValue = true)
+    val (enablePaxsenix, _) = rememberPreference(key = EnablePaxsenixLyricsKey, defaultValue = true)
+    val (enablePaxsenixAppleMusic, _) = rememberPreference(key = EnablePaxsenixAppleMusicLyricsKey, defaultValue = true)
+    val (enablePaxsenixNetease, _) = rememberPreference(key = EnablePaxsenixNeteaseLyricsKey, defaultValue = true)
+    val (enablePaxsenixSpotify, _) = rememberPreference(key = EnablePaxsenixSpotifyLyricsKey, defaultValue = true)
+    val (enablePaxsenixMusixmatch, _) = rememberPreference(key = EnablePaxsenixMusixmatchLyricsKey, defaultValue = true)
+    val (enablePaxsenixYouTube, _) = rememberPreference(key = EnablePaxsenixYouTubeLyricsKey, defaultValue = true)
+    val (providerOrderStr, onProviderOrderStrChange) =
+        rememberPreference(key = LyricsProviderOrderKey, defaultValue = "")
+
+    var showProviderPriorityDialog by rememberSaveable { mutableStateOf(false) }
+
+    if (showProviderPriorityDialog) {
+        LyricsProviderPriorityDialog(
+            providerOrderStr = providerOrderStr,
+            enableState =
+                LyricsProviderEnableState(
+                    enableBetterLyrics = enableBetterLyrics,
+                    enableYouLyPlus = enableYouLyPlus,
+                    enableLrcLib = enableLrcLib,
+                    enableKugou = enableKugou,
+                    enableSimpMusic = enableSimpMusic,
+                    enableUnison = enableUnison,
+                    enablePaxsenix = enablePaxsenix,
+                    enablePaxsenixAppleMusic = enablePaxsenixAppleMusic,
+                    enablePaxsenixNetease = enablePaxsenixNetease,
+                    enablePaxsenixSpotify = enablePaxsenixSpotify,
+                    enablePaxsenixMusixmatch = enablePaxsenixMusixmatch,
+                    enablePaxsenixYouTube = enablePaxsenixYouTube,
+                ),
+            onDismiss = { showProviderPriorityDialog = false },
+            onOrderChange = onProviderOrderStrChange,
+        )
+    }
 
     Column(
         Modifier
@@ -228,6 +275,17 @@ fun ContentSettings(navController: NavController) {
                         },
                     )
                 }
+            }
+        }
+
+        PreferenceGroup(title = stringResource(R.string.lyrics)) {
+            item {
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.lyrics_provider_priority)) },
+                    description = stringResource(R.string.lyrics_provider_priority_desc),
+                    icon = { Icon(painterResource(R.drawable.lyrics), null) },
+                    onClick = { showProviderPriorityDialog = true },
+                )
             }
         }
 

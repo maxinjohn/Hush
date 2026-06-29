@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.extensions.SilentHandler
+import moe.rukamori.archivetune.utils.NotificationArtworkLoader
 import moe.rukamori.archivetune.utils.reportException
 import moe.rukamori.archivetune.widget.AlbumArtWidget
 import moe.rukamori.archivetune.widget.ListeningInsightsWidget
@@ -78,7 +79,14 @@ internal class MusicServiceWidgetUpdater(
     private suspend fun pushState() {
         val mediaItem = player.currentMediaItem
         val meta = mediaItem?.mediaMetadata
-        val artFile = meta?.artworkUri?.let { cacheAlbumArt(it) }
+        val artFile =
+            meta?.artworkData?.takeIf { it.isNotEmpty() }?.let { cacheAlbumArtFromBytes(it) }
+                ?: meta?.artworkUri?.let { cacheAlbumArt(it) }
+                ?: mediaItem?.let { item ->
+                    NotificationArtworkLoader.resolveArtworkUrl(item)?.let { url ->
+                        cacheAlbumArtFromUrl(url)
+                    }
+                }
         val dominantColor = artFile?.let { extractDominantColor(it) }
         val snapshot =
             WidgetSnapshot(
@@ -218,6 +226,32 @@ internal class MusicServiceWidgetUpdater(
         } catch (error: Exception) {
             reportException(error)
             WidgetInsightsSnapshot.Empty
+        }
+
+    private suspend fun cacheAlbumArtFromBytes(data: ByteArray): File? =
+        withContext(Dispatchers.IO) {
+            val dest = File(service.cacheDir, "widget_art_${Integer.toHexString(data.contentHashCode())}.jpg")
+            try {
+                dest.outputStream().use { out -> out.write(data) }
+                if (dest.exists() && dest.length() > 0) dest else null
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    private suspend fun cacheAlbumArtFromUrl(url: String): File? =
+        withContext(Dispatchers.IO) {
+            val dest = File(service.cacheDir, "widget_art_${Integer.toHexString(url.hashCode())}.jpg")
+            try {
+                NotificationArtworkLoader.loadBitmap(url, 512)?.let { bitmap ->
+                    dest.outputStream().use { out ->
+                        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, out)
+                    }
+                }
+                if (dest.exists() && dest.length() > 0) dest else null
+            } catch (_: Exception) {
+                null
+            }
         }
 
     private suspend fun cacheAlbumArt(uri: Uri): File? =
