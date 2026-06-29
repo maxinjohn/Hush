@@ -22,7 +22,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -437,8 +439,10 @@ fun NavGraphBuilder.navigationBuilder(
     composable("settings/player/stream_sources") {
         StreamSourcesSettings(navController, scrollBehavior)
     }
-    composable("settings/player/jiosaavn") {
-        JioSaavnSettings(navController, scrollBehavior)
+    composable("settings/misc/jiosaavn") {
+        val nestedScrollBehavior =
+            TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+        JioSaavnSettings(navController, nestedScrollBehavior)
     }
     composable("settings/android_auto") {
         AndroidAutoSettings(navController, scrollBehavior)

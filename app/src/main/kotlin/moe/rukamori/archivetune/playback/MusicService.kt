@@ -2350,6 +2350,7 @@ class MusicService :
                         }.getOrThrow()
                     }.getOrThrow()
                 } else {
+                    val saavnEnabled = isSaavnStreamingEnabled()
                     retryWithoutPlaybackLoginContext {
                         YTPlayerUtils.playerResponseForPlayback(
                             videoId = mediaId,
@@ -2358,7 +2359,8 @@ class MusicService :
                             preferredStreamClient = activeStreamClient,
                             networkMetered = networkMeteredHint,
                             context = this@MusicService,
-                            saavnHints = saavnHintsFor(mediaId),
+                            trySaavnFirst = saavnEnabled,
+                            saavnHints = if (saavnEnabled) saavnHintsFor(mediaId) else null,
                         )
                     }.getOrThrow()
                 }
@@ -6548,6 +6550,7 @@ class MusicService :
                 null
             }
 
+        val saavnEnabled = isSaavnStreamingEnabled()
         val playbackData =
             try {
                 runBlocking(Dispatchers.IO) {
@@ -6561,7 +6564,8 @@ class MusicService :
                                 networkMetered = networkMeteredHint,
                                 fastResolution = true,
                                 context = this@MusicService,
-                                saavnHints = saavnHintsFor(mediaId),
+                                trySaavnFirst = saavnEnabled,
+                                saavnHints = if (saavnEnabled) saavnHintsFor(mediaId) else null,
                             )
                         }.getOrThrow()
                     }

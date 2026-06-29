@@ -58,7 +58,6 @@ import moe.rukamori.archivetune.constants.ExternalDownloaderEnabledKey
 import moe.rukamori.archivetune.constants.ExternalDownloaderPackageKey
 import moe.rukamori.archivetune.constants.HISTORY_DURATION_DEFAULT
 import moe.rukamori.archivetune.constants.HistoryDuration
-import moe.rukamori.archivetune.constants.EnableSaavnStreamingKey
 import moe.rukamori.archivetune.constants.LoudnessLevel
 import moe.rukamori.archivetune.constants.LoudnessLevelKey
 import moe.rukamori.archivetune.constants.LowDataModeKey
@@ -67,8 +66,6 @@ import moe.rukamori.archivetune.constants.PermanentShuffleKey
 import moe.rukamori.archivetune.constants.PersistentQueueKey
 import moe.rukamori.archivetune.constants.PlayerStreamClient
 import moe.rukamori.archivetune.constants.PlayerStreamClientKey
-import moe.rukamori.archivetune.constants.SaavnAudioQuality
-import moe.rukamori.archivetune.constants.SaavnAudioQualityKey
 import moe.rukamori.archivetune.constants.SeekExtraSeconds
 import moe.rukamori.archivetune.constants.SkipSilenceKey
 import moe.rukamori.archivetune.constants.StopMusicOnTaskClearKey
@@ -76,7 +73,6 @@ import moe.rukamori.archivetune.constants.WakelockKey
 import moe.rukamori.archivetune.ui.component.ArtistSeparatorsDialog
 import moe.rukamori.archivetune.ui.component.CrossfadeSliderPreference
 import moe.rukamori.archivetune.ui.component.EnumListPreference
-import moe.rukamori.archivetune.ui.component.FeatureBetaBadge
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.ListPreference
 import moe.rukamori.archivetune.ui.component.NumberPickerPreference
@@ -113,9 +109,6 @@ fun PlayerSettings(
             LowDataModeKey,
             defaultValue = false,
         )
-    val (saavnEnabled, _) = rememberPreference(EnableSaavnStreamingKey, defaultValue = false)
-    val (saavnQuality, _) =
-        rememberEnumPreference(SaavnAudioQualityKey, defaultValue = SaavnAudioQuality.QUALITY_320)
     val (persistentQueue, onPersistentQueueChange) =
         rememberPreference(
             PersistentQueueKey,
@@ -334,28 +327,6 @@ fun PlayerSettings(
                             AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
                         }
                     },
-                )
-            }
-
-            item {
-                PreferenceEntry(
-                    title = {
-                        Row(
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(stringResource(R.string.jiosaavn_settings))
-                            FeatureBetaBadge()
-                        }
-                    },
-                    description =
-                        if (saavnEnabled) {
-                            saavnQuality.toLabel()
-                        } else {
-                            stringResource(R.string.jiosaavn_settings_off)
-                        },
-                    icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
-                    onClick = { navController.navigate("settings/player/jiosaavn") },
                 )
             }
 

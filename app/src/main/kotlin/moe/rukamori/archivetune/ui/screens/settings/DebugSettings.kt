@@ -73,10 +73,16 @@ import kotlinx.coroutines.isActive
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.constants.EnableSaavnStreamingKey
+import moe.rukamori.archivetune.constants.SaavnAudioQuality
+import moe.rukamori.archivetune.constants.SaavnAudioQualityKey
+import moe.rukamori.archivetune.ui.component.FeatureBetaBadge
 import moe.rukamori.archivetune.ui.component.IconButton
+import moe.rukamori.archivetune.ui.component.PreferenceEntry
 import moe.rukamori.archivetune.ui.component.PreferenceGroup
 import moe.rukamori.archivetune.ui.component.SwitchPreference
 import moe.rukamori.archivetune.ui.utils.backToMain
+import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberPreference
 import kotlin.math.roundToInt
 
@@ -94,6 +100,10 @@ fun DebugSettings(navController: NavController) {
             key = booleanPreferencesKey("show_codec_on_player"),
             defaultValue = false,
         )
+
+    val (saavnEnabled, _) = rememberPreference(EnableSaavnStreamingKey, defaultValue = false)
+    val (saavnQuality, _) =
+        rememberEnumPreference(SaavnAudioQualityKey, defaultValue = SaavnAudioQuality.QUALITY_320)
 
     val playerConnection = LocalPlayerConnection.current
 
@@ -149,6 +159,28 @@ fun DebugSettings(navController: NavController) {
                         icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
                         checked = showCodecOnPlayer,
                         onCheckedChange = onShowCodecOnPlayerChange,
+                    )
+                }
+
+                item {
+                    PreferenceEntry(
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(stringResource(R.string.jiosaavn_settings))
+                                FeatureBetaBadge()
+                            }
+                        },
+                        description =
+                            if (saavnEnabled) {
+                                saavnQuality.toLabel()
+                            } else {
+                                stringResource(R.string.jiosaavn_settings_off)
+                            },
+                        icon = { Icon(painterResource(R.drawable.music_note), null) },
+                        onClick = { navController.navigate("settings/misc/jiosaavn") },
                     )
                 }
             }
