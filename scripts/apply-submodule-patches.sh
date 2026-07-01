@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply Hush-only patches on top of the upstream core submodule checkout.
+# Apply Hush-only patches and package overlays on top of upstream submodule checkouts.
 # CI runs this after checkout on GitHub Actions runners.
 set -euo pipefail
 
@@ -20,9 +20,31 @@ apply_patch() {
   fi
 }
 
+apply_overlays() {
+  if [ -d "$ROOT_DIR/overlays/core" ]; then
+    echo "Applying core package overlays..."
+    rsync -a "$ROOT_DIR/overlays/core/" "core/"
+  fi
+
+  if [ -d "$ROOT_DIR/overlays/lyrics" ]; then
+    echo "Applying lyrics package overlays..."
+    for module in betterlyrics kugou lrclib paxsenix simpmusic unison youlyplus; do
+      if [ -d "$ROOT_DIR/overlays/lyrics/$module" ]; then
+        rsync -a "$ROOT_DIR/overlays/lyrics/$module/" "lyrics/$module/"
+      fi
+    done
+  fi
+}
+
 [ -e core/.git ] || git -C core rev-parse HEAD >/dev/null 2>&1 || {
   echo "core submodule is not initialized. Run: git submodule update --init --recursive"
   exit 1
 }
 
+[ -e lyrics/.git ] || git -C lyrics rev-parse HEAD >/dev/null 2>&1 || {
+  echo "lyrics submodule is not initialized. Run: git submodule update --init --recursive"
+  exit 1
+}
+
 apply_patch "$ROOT_DIR/patches/core-hush-innertube.patch"
+apply_overlays

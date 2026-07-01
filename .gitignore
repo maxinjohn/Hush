@@ -95,6 +95,7 @@ output-metadata.json
 core
 core.*
 !/core/
+!/overlays/core/
 *.so
 *.bin
 /.trae
