@@ -39,15 +39,15 @@ val hasReleaseSigningConfig =
         releaseKeyPassword != null
 
 android {
-    namespace = "moe.rukamori.archivetune"
+    namespace = "app.hush.music"
     compileSdk = 37
 
     defaultConfig {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 144
-        versionName = "13.8.6"
+        versionCode = 145
+        versionName = "13.8.7"
 
         ndk {
             // ABI filters are set per product flavor (arm64, universal, etc.).
@@ -467,4 +467,13 @@ configurations.configureEach {
         "androidx.compose.animation:animation-graphics:${libs.versions.compose.get()}",
         "org.jetbrains.kotlin:kotlin-metadata-jvm:${libs.versions.kotlinMetadata.get()}",
     )
+}
+
+// R8 can start before Hilt's Java codegen on a cold build; force ordering.
+afterEvaluate {
+    tasks.matching { task -> task.name.startsWith("minify") && task.name.endsWith("WithR8") }.configureEach {
+        val variantName = name.removePrefix("minify").removeSuffix("WithR8")
+        tasks.findByName("hiltJavaCompile$variantName")?.let { dependsOn(it) }
+        tasks.findByName("transform${variantName}ClassesWithAsm")?.let { dependsOn(it) }
+    }
 }

@@ -1,5 +1,5 @@
 # JioSaavn native API models (release playback resolution)
--keep class moe.rukamori.archivetune.jiosaavn.** { *; }
+-keep class app.hush.music.jiosaavn.** { *; }
 
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.kts.
@@ -102,11 +102,11 @@
 
 ## Queue Persistence Rules
 # Keep queue-related classes to prevent serialization issues in release builds
--keep class moe.rukamori.archivetune.models.PersistQueue { *; }
--keep class moe.rukamori.archivetune.models.PersistPlayerState { *; }
--keep class moe.rukamori.archivetune.models.QueueData { *; }
--keep class moe.rukamori.archivetune.models.QueueType { *; }
--keep class moe.rukamori.archivetune.playback.queues.** { *; }
+-keep class app.hush.music.models.PersistQueue { *; }
+-keep class app.hush.music.models.PersistPlayerState { *; }
+-keep class app.hush.music.models.QueueData { *; }
+-keep class app.hush.music.models.QueueType { *; }
+-keep class app.hush.music.playback.queues.** { *; }
 
 # Keep serialization methods for queue persistence
 -keepclassmembers class * implements java.io.Serializable {
@@ -154,15 +154,15 @@
 # internal Ktor HTTP Client
 -keep class io.ktor.** { *; }
 -dontwarn io.ktor.**
--keep class moe.rukamori.archivetune.moriextractor.BackendExtractorResponse { *; }
+-keep class app.hush.music.moriextractor.BackendExtractorResponse { *; }
 
 ## Kotlin singletons (object / companion) — required for navigation Screens, etc.
 -keepclassmembers class * {
     public static ** INSTANCE;
 }
--keep class moe.rukamori.archivetune.ui.screens.Screens { *; }
--keep class moe.rukamori.archivetune.ui.screens.Screens$* { *; }
--keep class moe.rukamori.archivetune.ui.screens.** { *; }
+-keep class app.hush.music.ui.screens.Screens { *; }
+-keep class app.hush.music.ui.screens.Screens$* { *; }
+-keep class app.hush.music.ui.screens.** { *; }
 
 # engine HTTP Android/OkHttp Ktor + Coil
 -dontwarn kotlinx.coroutines.**

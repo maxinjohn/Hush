@@ -56,6 +56,9 @@ Examples:
 Wrappers (same script):
   scripts/build-foss-mobile-release.sh [abi]
   scripts/build-gms-mobile-release.sh [abi]
+
+Clean before build (use instead of ./gradlew clean, which can hang on macOS):
+  bash scripts/clean-build-safe.sh
 EOF
 }
 
@@ -76,10 +79,11 @@ print_variants() {
 run_gradle() {
   local abi="$1"
   local task="$2"
+  local gradle_args=(--no-daemon --max-workers=2)
   if [ "$abi" = "armeabi" ] || [ "$abi" = "x86" ]; then
-    ./gradlew "$task" --no-daemon --max-workers=2 2>&1 | python3 -c "import re,sys;p=re.compile(r'^(WARNING: )?\[CXX5202\] This app only has 32-bit \[(armeabi-v7a|x86)\] native libraries\. Beginning August 1, 2019 Google Play store requires that all apps that include native libraries must provide 64-bit versions\. For more information, visit https://g\.co/64-bit-requirement\$');[sys.stdout.write(l) for l in sys.stdin if not p.match(l.rstrip())]"
+    ./gradlew "$task" "${gradle_args[@]}" 2>&1 | python3 -c "import re,sys;p=re.compile(r'^(WARNING: )?\[CXX5202\] This app only has 32-bit \[(armeabi-v7a|x86)\] native libraries\. Beginning August 1, 2019 Google Play store requires that all apps that include native libraries must provide 64-bit versions\. For more information, visit https://g\.co/64-bit-requirement\$');[sys.stdout.write(l) for l in sys.stdin if not p.match(l.rstrip())]"
   else
-    ./gradlew "$task" --no-daemon --max-workers=2
+    ./gradlew "$task" "${gradle_args[@]}"
   fi
 }
 

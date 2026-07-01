@@ -54,6 +54,23 @@ is_version_only_commit() {
   return 1
 }
 
+is_internal_rename_commit() {
+  local subject="$1"
+  local lower
+  lower="$(printf '%s' "$subject" | tr '[:upper:]' '[:lower:]')"
+
+  if [[ "$lower" =~ rename ]] && [[ "$lower" =~ (package|rebrand|hush|archivetune|moe\.rukamori) ]]; then
+    return 0
+  fi
+  if [[ "$lower" =~ ^(chore|refactor):.*(package|namespace|rebrand) ]]; then
+    return 0
+  fi
+  if [[ "$lower" =~ full\ package\ rename ]]; then
+    return 0
+  fi
+  return 1
+}
+
 normalize_subject() {
   local subject="$1"
   subject="${subject%; bump to *}"
@@ -103,6 +120,9 @@ while IFS= read -r line || [ -n "${line:-}" ]; do
   subject="${line#"$hash "}"
   [ -z "$subject" ] && continue
   if is_version_only_commit "$subject"; then
+    continue
+  fi
+  if is_internal_rename_commit "$subject"; then
     continue
   fi
 
