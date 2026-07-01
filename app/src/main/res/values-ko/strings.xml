@@ -280,8 +280,8 @@
     <string name="contrast">대비</string>
     <string name="brightness">밝기</string>
     <string name="custom_value">사용자 지정 값</string>
-    <string name="archivetune_canvas">Hush 캔버스</string>
-    <string name="archivetune_canvas_desc">음악이 재생되는 동안 움직이는 앨범 아트워크 표시 (BetterLyrics 지원)</string>
+    <string name="hush_canvas">Hush 캔버스</string>
+    <string name="hush_canvas_desc">음악이 재생되는 동안 움직이는 앨범 아트워크 표시 (BetterLyrics 지원)</string>
 
     <string name="dark_theme_follow_system">시스템 테마 적용</string>
     <string name="pure_black">트루 블랙</string>

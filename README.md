@@ -78,8 +78,6 @@ Same Hush. Different sauce in the APK.
 | In-app updater | — | ✓ |
 | Google Play Services | **Nah** | **Only for Cast** |
 
-Play Store ArchiveTune = `moe.rukamori.archivetune`. Hush = `app.hush.music`. Different package. Both can vibe on one phone if you're into that.
-
 ### Install said "nah"?
 
 Package conflict / invalid APK — the usual sideload ritual:

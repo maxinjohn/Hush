@@ -372,8 +372,8 @@
     <string name="blur">模糊</string>
     <string name="contrast">对比</string>
     <string name="brightness">亮度</string>
-    <string name="archivetune_canvas">Hush画布</string>
-    <string name="archivetune_canvas_desc">播放时动画化专辑封面（由BetterLyrics提供）</string>
+    <string name="hush_canvas">Hush画布</string>
+    <string name="hush_canvas_desc">播放时动画化专辑封面（由BetterLyrics提供）</string>
 
     <string name="dark_theme_follow_system">跟随系统</string>
     <string name="pure_black">纯黑色</string>

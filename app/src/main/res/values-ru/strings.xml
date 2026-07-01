@@ -292,8 +292,8 @@
     <string name="contrast">Контраст</string>
     <string name="brightness">Яркость</string>
     <string name="custom_value">Пользовательское</string>
-    <string name="archivetune_canvas">Hush Canvas</string>
-    <string name="archivetune_canvas_desc">Анимировать обложку альбома при воспроизведении (С помощью BetterLyrics)</string>
+    <string name="hush_canvas">Hush Canvas</string>
+    <string name="hush_canvas_desc">Анимировать обложку альбома при воспроизведении (С помощью BetterLyrics)</string>
 
     <string name="dark_theme_follow_system">Следовать системе</string>
     <string name="pure_black">Чистый чёрный</string>

@@ -415,8 +415,8 @@
     <string name="contrast">コントラスト</string>
     <string name="brightness">明るさ</string>
     <string name="custom_value">カスタム値</string>
-    <string name="archivetune_canvas">Hush Canvas</string>
-    <string name="archivetune_canvas_desc">再生中にアルバムアートワークをアニメーション表示します（BetterLyrics提供）</string>
+    <string name="hush_canvas">Hush Canvas</string>
+    <string name="hush_canvas_desc">再生中にアルバムアートワークをアニメーション表示します（BetterLyrics提供）</string>
     <string name="player_background_style_v8_v9_desc">V8およびV9プレイヤースタイルでは利用できません</string>
 
     <string name="dark_theme_follow_system">システムに従う</string>
