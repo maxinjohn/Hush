@@ -450,7 +450,7 @@ fun AppearanceSettings(
                 PreferenceEntry(
                     title = { Text(stringResource(R.string.app_icon)) },
                     description = stringResource(R.string.app_icon_description),
-                    icon = { Icon(painterResource(R.drawable.app_icon_small), null) },
+                    icon = { Icon(painterResource(R.drawable.hush_app_icon), null) },
                     onClick = { navController.navigate("settings/appearance/icon") },
                 )
             }

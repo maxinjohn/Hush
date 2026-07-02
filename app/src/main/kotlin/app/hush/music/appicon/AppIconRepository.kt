@@ -119,7 +119,7 @@ class AppIconRepository
                         name = null,
                         author = null,
                         githubAuthorUrl = null,
-                        previewDrawableResId = R.drawable.app_icon_small,
+                        previewDrawableResId = R.drawable.hush_app_icon,
                         aliasClassName = "${context.packageName}.MainActivityAlias",
                         isDefault = true,
                     ),
