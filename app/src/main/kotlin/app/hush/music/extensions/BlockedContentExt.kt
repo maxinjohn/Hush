@@ -9,7 +9,9 @@ package app.hush.music.extensions
 
 import app.hush.music.innertube.models.AlbumItem
 import app.hush.music.innertube.models.ArtistItem
+import app.hush.music.innertube.models.EpisodeItem
 import app.hush.music.innertube.models.PlaylistItem
+import app.hush.music.innertube.models.PodcastItem
 import app.hush.music.innertube.models.SongItem
 import app.hush.music.innertube.models.YTItem
 import app.hush.music.innertube.pages.BrowseResult
@@ -23,6 +25,8 @@ fun <T : YTItem> List<T>.filterBlockedArtists(blockedArtistIds: Set<String>): Li
             is SongItem -> item.artists.none { it.id in blockedArtistIds }
             is AlbumItem -> item.artists.orEmpty().none { it.id in blockedArtistIds }
             is PlaylistItem -> item.author?.id !in blockedArtistIds
+            is PodcastItem -> item.author?.id !in blockedArtistIds
+            is EpisodeItem -> item.author?.id !in blockedArtistIds
         }
     }
 }

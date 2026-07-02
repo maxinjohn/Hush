@@ -24,8 +24,8 @@ NOTES_FILE="release_notes/v${VERSION_NAME}.md"
 CURRENT_TAG="v${VERSION_NAME}"
 
 chmod +x scripts/generate-release-notes.sh
-if git rev-parse "$CURRENT_TAG" >/dev/null 2>&1 && [ -f "$NOTES_FILE" ]; then
-  echo "Keeping published notes in $NOTES_FILE ($CURRENT_TAG already exists)"
+if [ -f "$NOTES_FILE" ]; then
+  echo "Keeping existing notes in $NOTES_FILE"
 else
   RELEASE_VERSION="$VERSION_NAME" bash scripts/generate-release-notes.sh "$NOTES_FILE"
 fi

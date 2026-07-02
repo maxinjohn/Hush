@@ -54,7 +54,23 @@ is_version_only_commit() {
   return 1
 }
 
-is_internal_rename_commit() {
+is_chore_commit() {
+  local subject="$1"
+  local lower
+  lower="$(printf '%s' "$subject" | tr '[:upper:]' '[:lower:]')"
+
+  if [[ "$lower" =~ ^chore: ]] || [[ "$lower" =~ ^chore\  ]] || [[ "$lower" =~ \[skip\ ci\] ]]; then
+    return 0
+  fi
+  if [[ "$lower" =~ sync\ release\ docs ]] || [[ "$lower" =~ release\ docs ]]; then
+    return 0
+  fi
+  if [[ "$lower" =~ ^merge\ dev ]] || [[ "$lower" =~ ^merge\ branch ]]; then
+    return 0
+  fi
+  return 1
+}
+
   local subject="$1"
   local lower
   lower="$(printf '%s' "$subject" | tr '[:upper:]' '[:lower:]')"
@@ -123,6 +139,9 @@ while IFS= read -r line || [ -n "${line:-}" ]; do
     continue
   fi
   if is_internal_rename_commit "$subject"; then
+    continue
+  fi
+  if is_chore_commit "$subject"; then
     continue
   fi
 

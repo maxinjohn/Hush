@@ -13,6 +13,9 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import app.hush.music.ui.theme.hushCombinedPressable
 import app.hush.music.ui.theme.hushCarouselContentParallax
 import app.hush.music.ui.theme.hushCarouselLiveParallax
@@ -35,6 +38,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -55,6 +59,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -153,13 +159,120 @@ import app.hush.music.ui.utils.rememberLazyRowCarouselScroll
 import app.hush.music.ui.utils.rememberSmoothPagerFlingBehavior
 import app.hush.music.ui.utils.rememberSmoothSnapFlingBehavior
 import app.hush.music.utils.rememberPreference
-import app.hush.music.viewmodels.HomeViewModel
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.random.Random
 import app.hush.music.ui.utils.SnapLayoutInfoProvider as buildSnapLayoutInfoProvider
 import app.hush.music.ui.utils.heroCarouselHeight
 import app.hush.music.ui.utils.rememberHeroCarouselMetrics
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun HomeCategoryChips(
+    chips: List<HomePage.Chip>,
+    selectedChip: HomePage.Chip?,
+    onChipSelected: (HomePage.Chip) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .heightIn(min = 68.dp)
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
+        chips.forEach { chip ->
+            val selected = chip == selectedChip
+            FilterChip(
+                selected = selected,
+                onClick = { onChipSelected(chip) },
+                label = {
+                    Text(
+                        text = chip.title,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                leadingIcon =
+                    if (selected) {
+                        {
+                            Icon(
+                                painter = painterResource(R.drawable.done),
+                                contentDescription = null,
+                                modifier = Modifier.size(FilterChipDefaults.IconSize),
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                shapes = FilterChipDefaults.shapes(),
+                colors =
+                    FilterChipDefaults.filterChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.78f),
+                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.94f),
+                        selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
+                border = null,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun HomeSectionHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    thumbnail: (@Composable () -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .heightIn(min = 64.dp)
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        thumbnail?.invoke()
+        Column(
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.weight(1f),
+        ) {
+            label?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLargeEmphasized,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (onClick != null) {
+            Icon(
+                painter = painterResource(R.drawable.arrow_forward),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -975,8 +1088,6 @@ fun ForgottenFavoritesSection(
 @Composable
 fun AccountPlaylistsSection(
     accountPlaylists: List<PlaylistItem>,
-    accountName: String,
-    accountImageUrl: String?,
     mediaMetadata: MediaMetadata?,
     isPlaying: Boolean,
     navController: NavController,
@@ -1507,48 +1618,6 @@ fun HomePageSectionTitle(
     )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-fun LazyListScope.AccountPlaylistsContainer(
-    viewModel: HomeViewModel,
-    accountName: String?,
-    accountImageUrl: String?,
-    mediaMetadata: MediaMetadata?,
-    isPlaying: Boolean,
-    navController: NavController,
-    playerConnection: PlayerConnection,
-    menuState: MenuState,
-    haptic: HapticFeedback,
-    scope: CoroutineScope,
-) {
-    item {
-        val accountPlaylists by viewModel.accountPlaylists.collectAsStateWithLifecycle()
-
-        val currentPlaylists = accountPlaylists
-        if (!currentPlaylists.isNullOrEmpty()) {
-            Column {
-                AccountPlaylistsTitle(
-                    accountName = accountName ?: "",
-                    accountImageUrl = accountImageUrl,
-                    onClick = { navController.navigate("account") },
-                    modifier = Modifier,
-                )
-                AccountPlaylistsSection(
-                    accountPlaylists = currentPlaylists,
-                    accountName = accountName ?: "",
-                    accountImageUrl = accountImageUrl,
-                    mediaMetadata = mediaMetadata,
-                    isPlaying = isPlaying,
-                    navController = navController,
-                    playerConnection = playerConnection,
-                    menuState = menuState,
-                    haptic = haptic,
-                    scope = scope,
-                )
-            }
-        }
-    }
-}
-
 /**
  * Spotify playlists section - horizontal row matching library carousel cards.
  */
@@ -1672,42 +1741,6 @@ fun LazyListScope.SpotifyPlaylistsContainer(
                 SpotifyPlaylistsSection(
                     playlists = spotifyPlaylists,
                     navController = navController,
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-fun LazyListScope.SimilarRecommendationsContainer(
-    viewModel: HomeViewModel,
-    mediaMetadata: MediaMetadata?,
-    isPlaying: Boolean,
-    navController: NavController,
-    playerConnection: PlayerConnection,
-    menuState: MenuState,
-    haptic: HapticFeedback,
-    scope: CoroutineScope,
-) {
-    item {
-        val similarRecommendations by viewModel.similarRecommendations.collectAsStateWithLifecycle()
-
-        Column {
-            similarRecommendations?.forEach { recommendation ->
-                SimilarRecommendationsTitle(
-                    recommendation = recommendation,
-                    navController = navController,
-                    modifier = Modifier,
-                )
-                SimilarRecommendationsSection(
-                    recommendation = recommendation,
-                    mediaMetadata = mediaMetadata,
-                    isPlaying = isPlaying,
-                    navController = navController,
-                    playerConnection = playerConnection,
-                    menuState = menuState,
-                    haptic = haptic,
-                    scope = scope,
                 )
             }
         }

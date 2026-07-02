@@ -1166,6 +1166,7 @@ fun ArtistScreen(
             // Block / unblock artist
             IconButton(
                 onClick = { viewModel.onAction(ArtistAction.ToggleBlock) },
+                onLongClick = {},
                 enabled = blockState !is ArtistBlockState.Loading,
             ) {
                 Icon(
