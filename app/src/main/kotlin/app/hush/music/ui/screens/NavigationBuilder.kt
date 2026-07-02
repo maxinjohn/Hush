@@ -92,6 +92,7 @@ import app.hush.music.ui.screens.settings.CustomizeBackground
 import app.hush.music.ui.screens.settings.DarkMode
 import app.hush.music.ui.screens.settings.DebugSettings
 import app.hush.music.ui.screens.settings.HiddenPlaylistsScreen
+import app.hush.music.ui.screens.settings.IconScreen
 import app.hush.music.ui.screens.settings.IntegrationScreen
 import app.hush.music.ui.screens.settings.InternetSettings
 import app.hush.music.ui.screens.settings.LastFMSettings
@@ -405,6 +406,9 @@ fun NavGraphBuilder.navigationBuilder(
     }
     composable("settings/appearance") {
         AppearanceSettings(navController, scrollBehavior)
+    }
+    composable("settings/appearance/icon") {
+        IconScreen(navController)
     }
     composable("settings/appearance/font_selection") {
         FontSelectionScreen(navController, scrollBehavior)

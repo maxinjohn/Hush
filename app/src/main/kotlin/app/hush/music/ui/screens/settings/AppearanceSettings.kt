@@ -446,6 +446,15 @@ fun AppearanceSettings(
                 )
             }
 
+            item {
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.app_icon)) },
+                    description = stringResource(R.string.app_icon_description),
+                    icon = { Icon(painterResource(R.drawable.app_icon_small), null) },
+                    onClick = { navController.navigate("settings/appearance/icon") },
+                )
+            }
+
             item(visible = !dynamicTheme || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                 SwitchPreference(
                     title = { Text(stringResource(R.string.random_theme_on_startup)) },

@@ -119,6 +119,7 @@ import app.hush.music.constants.LyricsRomanizeOtherLanguagesKey
 import app.hush.music.constants.LyricsTextSizeKey
 import app.hush.music.constants.PlayerBackgroundStyle
 import app.hush.music.constants.PlayerBackgroundStyleKey
+import app.hush.music.db.entities.LyricsEntity
 import app.hush.music.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import app.hush.music.lyrics.LyricsEntry
 import app.hush.music.lyrics.LyricsRomanizationPreferences
@@ -246,6 +247,10 @@ fun LyricsEnhanced(
                     ?.takeIf { lyricsEntity -> lyricsEntity.id == mediaMetadata?.id }
                     ?.lyrics
             }
+        }
+    val showTranslations =
+        remember(currentLyrics?.source) {
+            currentLyrics?.source == LyricsEntity.Source.AI_TRANSLATION.value
         }
     val lyricsSessionKey: Pair<String, String?> =
         remember(mediaMetadata?.id, crossfadeLyricsState.incomingMediaId, lyrics) {
@@ -800,7 +805,7 @@ fun LyricsEnhanced(
                             phoneticTextStyle = scaledPhoneticTextStyle,
                             blendMode = BlendMode.SrcOver,
                             useBlurEffect = lyricsLineBlur,
-                            showTranslation = true,
+                            showTranslation = showTranslations,
                             showPhonetic = romanizationPreferences.isEnabled,
                             offset = lyricsViewportOffset,
                             keepAliveZone = 120.dp,

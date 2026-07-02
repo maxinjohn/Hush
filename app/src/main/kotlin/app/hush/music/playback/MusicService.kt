@@ -2336,7 +2336,10 @@ class MusicService :
             val hiResLosslessSelected = activeStreamClient == PlayerStreamClient.HI_RES_LOSSLESS
             val playbackData =
                 if (hiResLosslessSelected) {
-                    resolveHiResLosslessPlayback(mediaId).recoverCatching {
+                    resolveHiResLosslessPlayback(mediaId).recoverCatching { youtubeFailure ->
+                        if (youtubeFailure is YTPlayerUtils.BotDetectionPlaybackException) {
+                            throw youtubeFailure
+                        }
                         retryWithoutPlaybackLoginContext {
                             YTPlayerUtils.playerResponseForPlayback(
                                 videoId = mediaId,
@@ -6571,7 +6574,9 @@ class MusicService :
                     }
                 }
             } catch (throwable: Throwable) {
-                if (activeStreamClient == PlayerStreamClient.ARCHIVETUNE_EXTRACTOR) {
+                if (activeStreamClient == PlayerStreamClient.ARCHIVETUNE_EXTRACTOR &&
+                    throwable !is YTPlayerUtils.BotDetectionPlaybackException
+                ) {
                     return resolveArchiveTuneExtractorDataSpec(
                         dataSpec = dataSpec,
                         mediaId = mediaId,

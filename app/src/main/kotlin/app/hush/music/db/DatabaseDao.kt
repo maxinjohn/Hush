@@ -1542,6 +1542,12 @@ interface DatabaseDao {
     @Query("SELECT * FROM artist WHERE id = :id LIMIT 1")
     fun getArtistById(id: String): ArtistEntity?
 
+    @Query("SELECT id FROM artist WHERE blockedAt IS NOT NULL")
+    fun blockedArtistIds(): Flow<List<String>>
+
+    @Query("SELECT id FROM artist WHERE blockedAt IS NOT NULL")
+    suspend fun getBlockedArtistIds(): List<String>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insert(song: SongEntity): Long
 

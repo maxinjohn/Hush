@@ -134,6 +134,7 @@ import app.hush.music.constants.LyricsV2GlowFactorKey
 import app.hush.music.constants.LyricsV2LrcBounceEnabledKey
 import app.hush.music.constants.PlayerBackgroundStyle
 import app.hush.music.constants.PlayerBackgroundStyleKey
+import app.hush.music.db.entities.LyricsEntity
 import app.hush.music.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import app.hush.music.lyrics.LyricsEntry
 import app.hush.music.lyrics.LyricsRomanizationPreferences
@@ -274,6 +275,10 @@ fun LyricsV2(
     // ── Lyrics data ──
     val currentLyrics by playerConnection.currentLyrics.collectAsState(initial = null)
     val lyrics = currentLyrics?.lyrics
+    val showTranslations =
+        remember(currentLyrics?.source) {
+            currentLyrics?.source == LyricsEntity.Source.AI_TRANSLATION.value
+        }
 
     // ── Parse lyrics into entries ──
     val isSynced = remember(lyrics) { lyrics != null && (isLineSyncedLrc(lyrics!!) || isTtml(lyrics!!)) }
@@ -864,7 +869,10 @@ fun LyricsV2(
                             } else {
                                 null
                             }
-                        val translationText = remember(item.providerTranslationText, item.text) { providedTranslationTextForEntry(item) }
+                        val translationText =
+                            remember(showTranslations, item.providerTranslationText, item.text) {
+                                if (showTranslations) providedTranslationTextForEntry(item) else null
+                            }
                         val supplementaryBaseTextStyle = MaterialTheme.typography.bodyMedium
                         val supplementaryTextStyle =
                             remember(supplementaryBaseTextStyle, scaledLyricsTextSize, lyricsFontFamily, isAllBackground) {

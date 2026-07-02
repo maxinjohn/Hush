@@ -20,6 +20,7 @@ import app.hush.music.constants.HideExplicitKey
 import app.hush.music.constants.HideVideoKey
 import app.hush.music.db.MusicDatabase
 import app.hush.music.innertube.YouTube
+import app.hush.music.extensions.filterBlockedArtists
 import app.hush.music.innertube.models.filterExplicit
 import app.hush.music.innertube.models.filterVideo
 import app.hush.music.innertube.pages.ExplorePage
@@ -53,6 +54,7 @@ class ExploreViewModel
                             }
                         }
                     }
+                    val blockedArtistIds = database.getBlockedArtistIds().toSet()
                     explorePage.value =
                         page.copy(
                             newReleaseAlbums =
@@ -70,7 +72,8 @@ class ExploreViewModel
                                         firstArtistKey
                                     }.filterExplicit(
                                         context.dataStore.get(HideExplicitKey, false),
-                                    ).filterVideo(context.dataStore.get(HideVideoKey, false)),
+                                    ).filterVideo(context.dataStore.get(HideVideoKey, false))
+                                    .filterBlockedArtists(blockedArtistIds),
                         )
                 }.onFailure {
                     reportException(it)

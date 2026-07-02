@@ -60,7 +60,7 @@ import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 
 private const val TAG = "MusicDatabase"
-private const val CURRENT_VERSION = 32
+private const val CURRENT_VERSION = 33
 
 class MusicDatabase(
     private val delegate: InternalDatabase,
@@ -138,6 +138,7 @@ class MusicDatabase(
     version = CURRENT_VERSION,
     exportSchema = true,
     autoMigrations = [
+        AutoMigration(from = 32, to = 33),
         AutoMigration(from = 2, to = 3),
         AutoMigration(from = 3, to = 4),
         AutoMigration(from = 4, to = 5),

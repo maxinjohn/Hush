@@ -168,6 +168,8 @@ import app.hush.music.ui.utils.backToMain
 import app.hush.music.ui.utils.formatCompactCount
 import app.hush.music.ui.utils.resize
 import app.hush.music.utils.rememberPreference
+import app.hush.music.viewmodels.ArtistBlockState
+import app.hush.music.viewmodels.ArtistAction
 import app.hush.music.viewmodels.ArtistViewModel
 import java.util.Locale
 
@@ -190,6 +192,10 @@ fun ArtistScreen(
     val libraryArtist by viewModel.libraryArtist.collectAsStateWithLifecycle()
     val librarySongs by viewModel.librarySongs.collectAsStateWithLifecycle()
     val libraryAlbums by viewModel.libraryAlbums.collectAsStateWithLifecycle()
+    val blockState by viewModel.blockState.collectAsStateWithLifecycle()
+    val isArtistBlocked = (blockState as? ArtistBlockState.Success)?.isBlocked == true
+    val visibleLibrarySongs = remember(librarySongs, isArtistBlocked) { librarySongs.takeUnless { isArtistBlocked }.orEmpty() }
+    val visibleLibraryAlbums = remember(libraryAlbums, isArtistBlocked) { libraryAlbums.takeUnless { isArtistBlocked }.orEmpty() }
     val hideExplicit by rememberPreference(key = HideExplicitKey, defaultValue = false)
 
     val lazyListState = rememberLazyListState()
@@ -599,8 +605,8 @@ fun ArtistScreen(
                             remember(
                                 showLocal,
                                 artistPage,
-                                librarySongs.size,
-                                libraryAlbums.size,
+                                visibleLibrarySongs.size,
+                                visibleLibraryAlbums.size,
                                 songsLabel,
                                 albumsLabel,
                                 monthlyListenersLabel,
@@ -609,8 +615,8 @@ fun ArtistScreen(
                                 buildArtistStats(
                                     showLocal = showLocal,
                                     artistPage = artistPage,
-                                    librarySongCount = librarySongs.size,
-                                    libraryAlbumCount = libraryAlbums.size,
+                                    librarySongCount = visibleLibrarySongs.size,
+                                    libraryAlbumCount = visibleLibraryAlbums.size,
                                     songsLabel = songsLabel,
                                     albumsLabel = albumsLabel,
                                     monthlyListenersLabel = monthlyListenersLabel,
@@ -624,9 +630,9 @@ fun ArtistScreen(
 
                         val isSubscribed = libraryArtist?.artist?.bookmarkedAt != null
                         val canPlayOnline = artistPage?.artist?.playEndpoint != null
-                        val canPlayLocal = showLocal && librarySongs.isNotEmpty()
+                        val canPlayLocal = showLocal && visibleLibrarySongs.isNotEmpty()
                         val canShuffleOnline = artistPage?.artist?.shuffleEndpoint != null
-                        val canShuffleLocal = showLocal && librarySongs.isNotEmpty()
+                        val canShuffleLocal = showLocal && visibleLibrarySongs.isNotEmpty()
 
                         StandardPlaylistHeaderActions(
                             modifier =
@@ -663,7 +669,7 @@ fun ArtistScreen(
                                             playerConnection.playQueue(
                                                 ListQueue(
                                                     title = libraryArtist?.artist?.name ?: "Unknown Artist",
-                                                    items = librarySongs.map { it.toMediaItem() },
+                                                    items = visibleLibrarySongs.map { it.toMediaItem() },
                                                 ),
                                             )
                                         }
@@ -682,7 +688,7 @@ fun ArtistScreen(
                                             playerConnection.playQueue(
                                                 ListQueue(
                                                     title = libraryArtist?.artist?.name ?: "Unknown Artist",
-                                                    items = librarySongs.shuffled().map { it.toMediaItem() },
+                                                    items = visibleLibrarySongs.shuffled().map { it.toMediaItem() },
                                                 ),
                                             )
                                         }
@@ -719,7 +725,7 @@ fun ArtistScreen(
                 // Content sections
                 if (showLocal) {
                     // Local Songs Section
-                    if (librarySongs.isNotEmpty()) {
+                    if (visibleLibrarySongs.isNotEmpty()) {
                         item {
                             NavigationTitle(
                                 title = stringResource(R.string.songs),
@@ -731,9 +737,9 @@ fun ArtistScreen(
 
                         val filteredLibrarySongs =
                             if (hideExplicit) {
-                                librarySongs.filter { !it.song.explicit }
+                                visibleLibrarySongs.filter { !it.song.explicit }
                             } else {
-                                librarySongs
+                                visibleLibrarySongs
                             }
 
                         itemsIndexed(
@@ -776,7 +782,7 @@ fun ArtistScreen(
                                                     playerConnection.playQueue(
                                                         ListQueue(
                                                             title = libraryArtist?.artist?.name ?: "Unknown Artist",
-                                                            items = librarySongs.map { it.toMediaItem() },
+                                                            items = visibleLibrarySongs.map { it.toMediaItem() },
                                                             startIndex = index,
                                                         ),
                                                     )
@@ -826,7 +832,7 @@ fun ArtistScreen(
                     }
 
                     // Local Albums Section
-                    if (libraryAlbums.isNotEmpty()) {
+                    if (visibleLibraryAlbums.isNotEmpty()) {
                         item {
                             NavigationTitle(
                                 title = stringResource(R.string.albums),
@@ -839,9 +845,9 @@ fun ArtistScreen(
                         item {
                             val filteredLibraryAlbums =
                                 if (hideExplicit) {
-                                    libraryAlbums.filter { !it.album.explicit }
+                                    visibleLibraryAlbums.filter { !it.album.explicit }
                                 } else {
-                                    libraryAlbums
+                                    visibleLibraryAlbums
                                 }
 
                             LazyRow(
@@ -1110,7 +1116,7 @@ fun ArtistScreen(
 
         // FAB for switching between local/remote view
         HideOnScrollFAB(
-            visible = librarySongs.isNotEmpty() && libraryArtist?.artist?.isLocal != true,
+            visible = visibleLibrarySongs.isNotEmpty() && libraryArtist?.artist?.isLocal != true,
             lazyListState = lazyListState,
             icon = if (showLocal) R.drawable.language else R.drawable.library_music,
             label = if (showLocal) stringResource(R.string.together_online) else stringResource(R.string.filter_library),
@@ -1157,6 +1163,17 @@ fun ArtistScreen(
             }
         },
         actions = {
+            // Block / unblock artist
+            IconButton(
+                onClick = { viewModel.onAction(ArtistAction.ToggleBlock) },
+                enabled = blockState !is ArtistBlockState.Loading,
+            ) {
+                Icon(
+                    painterResource(R.drawable.block),
+                    contentDescription = stringResource(if (isArtistBlocked) R.string.unblock_artist else R.string.block_artist),
+                )
+            }
+
             // Share/Copy link button
             IconButton(
                 onClick = {
