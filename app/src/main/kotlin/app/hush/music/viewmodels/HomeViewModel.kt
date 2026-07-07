@@ -769,9 +769,8 @@ class HomeViewModel
             val chipTitle = chip?.title ?: "null"
             val chipBrowseIdFromEndpoint = chip?.endpoint?.browseId ?: "null"
             val chipParamsFromEndpoint = chip?.endpoint?.params ?: "null"
-            val chipSearchParams = chip?.searchParams ?: "null"
-            Timber.e("[ChipClick] CLICKED: title=%s endpoint.browseId=%s endpoint.params=%s searchParams=%s",
-                chipTitle, chipBrowseIdFromEndpoint, chipParamsFromEndpoint, chipSearchParams)
+            Timber.e("[ChipClick] CLICKED: title=%s endpoint.browseId=%s endpoint.params=%s",
+                chipTitle, chipBrowseIdFromEndpoint, chipParamsFromEndpoint)
 
             chipLoadJob =
                 viewModelScope.launch(Dispatchers.IO) {
@@ -781,9 +780,8 @@ class HomeViewModel
                         val hideVideo = context.dataStore.get(HideVideoKey, false)
                         val blockedArtistIds = database.getBlockedArtistIds().toSet()
 
-                        // Guard: chips without browseId fall back to searchParams
-                        val chipBrowseId = chip?.endpoint?.browseId ?: chip?.searchParams?.takeIf { it.isNotBlank() }?.let { "FEmusic_home" }
-                        val chipParams = chip?.endpoint?.params ?: chip?.searchParams
+                        val chipBrowseId = chip?.endpoint?.browseId
+                        val chipParams = chip?.endpoint?.params
                         if (chipBrowseId == null) {
                             Timber.e("[ChipClick] FAILED: no browseId for chip '%s'", chip?.title)
                             homePage.value = previousHomePage.value
