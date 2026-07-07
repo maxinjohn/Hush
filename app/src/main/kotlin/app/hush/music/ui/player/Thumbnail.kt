@@ -39,10 +39,10 @@ import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.Image
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -89,6 +89,14 @@ import kotlinx.coroutines.withContext
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
 import app.hush.music.canvas.models.CanvasArtwork
+import app.hush.music.ui.player.visualizer.AudioSpectrumProvider
+import app.hush.music.ui.player.visualizer.Visualizer
+import app.hush.music.ui.player.visualizer.VisualizerStyle
+import app.hush.music.ui.player.visualizer.VisualizerColorTheme
+import app.hush.music.constants.VisualizerEnabledKey
+import app.hush.music.constants.VisualizerStyleKey
+import app.hush.music.constants.VisualizerColorThemeKey
+import app.hush.music.constants.VisualizerOpacityKey
 import app.hush.music.constants.HushCanvasKey
 import app.hush.music.constants.BackdropBlurAmountKey
 import app.hush.music.constants.BackdropEnabledKey
@@ -161,6 +169,26 @@ fun Thumbnail(
             defaultValue = 16f,
         )
     val cropThumbnailToSquare by rememberPreference(CropThumbnailToSquareKey, false)
+    val (visualizerEnabled) = rememberPreference(VisualizerEnabledKey, true)
+    val (visualizerStyle) = rememberEnumPreference(VisualizerStyleKey, VisualizerStyle.BOTTOM_BARS)
+    val (visualizerColorTheme) = rememberEnumPreference(VisualizerColorThemeKey, VisualizerColorTheme.THEME)
+    val (visualizerOpacity) = rememberPreference(VisualizerOpacityKey, 0.8f)
+
+    // Real-time spectrum data for SPECTRUM visualizer style
+    var spectrumData by remember { mutableStateOf<List<Float>?>(null) }
+    val audioSessionId = remember(playerConnection) { playerConnection.player.audioSessionId }
+    LaunchedEffect(audioSessionId, isPlaying) {
+        if (!isPlaying || audioSessionId <= 0) {
+            spectrumData = null
+            return@LaunchedEffect
+        }
+        AudioSpectrumProvider.spectrumFlow(audioSessionId).collect { data ->
+            spectrumData = data
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose { AudioSpectrumProvider.release() }
+    }
     val (disableBlur) = rememberPreference(DisableBlurKey, false)
     val (backdropEnabled) = rememberPreference(BackdropEnabledKey, defaultValue = true)
     val (backdropBlurAmount) = rememberPreference(BackdropBlurAmountKey, defaultValue = 60)
@@ -625,6 +653,18 @@ fun Thumbnail(
                                                 modifier = Modifier.fillMaxSize(),
                                             )
                                         }
+                                    }
+
+                                    // Visualizer on top of artwork
+                                    if (visualizerEnabled) {
+                                        Visualizer(
+                                            isPlaying = isPlaying,
+                                            style = visualizerStyle,
+                                            colorTheme = visualizerColorTheme,
+                                            opacity = visualizerOpacity,
+                                            modifier = Modifier.fillMaxSize(),
+                                            spectrumData = spectrumData,
+                                        )
                                     }
                                 }
                             }

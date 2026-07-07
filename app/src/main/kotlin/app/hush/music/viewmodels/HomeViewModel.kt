@@ -135,6 +135,7 @@ private data class HomeStateInputs(
     fun toScreenState(
         isRefreshing: Boolean,
         isLoadingMore: Boolean,
+        isChipLoading: Boolean,
     ): HomeScreenState {
         if (!content.hasContent) {
             if (loadError != null && isInitialLoadComplete) {
@@ -163,6 +164,7 @@ private data class HomeStateInputs(
                 showTonalBackdrop = preferences.showTonalBackdrop,
                 isRefreshing = isRefreshing,
                 isLoadingMore = isLoadingMore,
+                isChipLoading = isChipLoading,
             ),
         )
     }
@@ -183,6 +185,10 @@ class HomeViewModel
         private val isInitialLoadComplete = MutableStateFlow(false)
         private val loadError = MutableStateFlow<Int?>(null)
         private val isLoadingMore = MutableStateFlow(false)
+        private val isChipLoading = MutableStateFlow(false)
+
+        private val _chipLoadError = MutableSharedFlow<String>(extraBufferCapacity = 1)
+        val chipLoadError: SharedFlow<String> = _chipLoadError.asSharedFlow()
 
         private val quickPicksMode =
             context.dataStore.data
@@ -275,13 +281,14 @@ class HomeViewModel
                     loadError = loadError,
                 )
             }.combine(
-                combine(isRefreshing, isLoadingMore) { isRefreshing, isLoadingMore ->
-                    isRefreshing to isLoadingMore
+                combine(isRefreshing, isLoadingMore, isChipLoading) { isRefreshing, isLoadingMore, isChipLoading ->
+                    Triple(isRefreshing, isLoadingMore, isChipLoading)
                 },
             ) { inputs, loadingState ->
                 inputs.toScreenState(
                     isRefreshing = loadingState.first,
                     isLoadingMore = loadingState.second,
+                    isChipLoading = loadingState.third,
                 )
             }.stateIn(
                 scope = viewModelScope,
@@ -290,7 +297,11 @@ class HomeViewModel
             )
 
         private var wasLoggedIn = false
-        private var chipLoadJob: Job? = null
+        @Suppress("UNCHECKED_CAST")
+    private fun <T : Any> List<T>.filterOutNulls(): List<T> =
+        (this as List<T?>).filterNotNull()
+
+    private var chipLoadJob: Job? = null
 
         private fun filterHomeChips(chips: List<HomePage.Chip>?): List<HomePage.Chip>? =
             chips?.filterNot {
@@ -723,6 +734,7 @@ class HomeViewModel
                                     section.copy(
                                         items =
                                             section.items
+                                                .filterOutNulls()
                                                 .filterExplicit(hideExplicit)
                                                 .filterVideo(hideVideo)
                                                 .filterBlockedArtists(blockedArtistIds),
@@ -741,6 +753,7 @@ class HomeViewModel
                 homePage.value = previousHomePage.value
                 previousHomePage.value = null
                 selectedChip.value = null
+                isChipLoading.value = false
                 return
             }
 
@@ -748,28 +761,95 @@ class HomeViewModel
                 previousHomePage.value = homePage.value
             }
 
+            // Immediately show chip as selected for instant UI feedback
+            selectedChip.value = chip
+            isChipLoading.value = true
+
+            // ═══════ DIAGNOSTIC: Log chip click details ═══════
+            val chipTitle = chip?.title ?: "null"
+            val chipBrowseIdFromEndpoint = chip?.endpoint?.browseId ?: "null"
+            val chipParamsFromEndpoint = chip?.endpoint?.params ?: "null"
+            val chipSearchParams = chip?.searchParams ?: "null"
+            Timber.e("[ChipClick] CLICKED: title=%s endpoint.browseId=%s endpoint.params=%s searchParams=%s",
+                chipTitle, chipBrowseIdFromEndpoint, chipParamsFromEndpoint, chipSearchParams)
+
             chipLoadJob =
                 viewModelScope.launch(Dispatchers.IO) {
-                    val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                    val hideVideo = context.dataStore.get(HideVideoKey, false)
-                    val blockedArtistIds = database.getBlockedArtistIds().toSet()
-                    val nextSections = YouTube.home(params = chip?.endpoint?.params).getOrNull() ?: return@launch
+                    var wasCancelled = false
+                    try {
+                        val hideExplicit = context.dataStore.get(HideExplicitKey, false)
+                        val hideVideo = context.dataStore.get(HideVideoKey, false)
+                        val blockedArtistIds = database.getBlockedArtistIds().toSet()
 
-                    homePage.value =
-                        nextSections.copy(
-                            chips = homePage.value?.chips,
-                            sections =
-                                nextSections.sections.map { section ->
-                                    section.copy(
-                                        items =
-                                            section.items
-                                                .filterExplicit(hideExplicit)
-                                                .filterVideo(hideVideo)
-                                                .filterBlockedArtists(blockedArtistIds),
+                        // Guard: chips without browseId fall back to searchParams
+                        val chipBrowseId = chip?.endpoint?.browseId ?: chip?.searchParams?.takeIf { it.isNotBlank() }?.let { "FEmusic_home" }
+                        val chipParams = chip?.endpoint?.params ?: chip?.searchParams
+                        if (chipBrowseId == null) {
+                            Timber.e("[ChipClick] FAILED: no browseId for chip '%s'", chip?.title)
+                            homePage.value = previousHomePage.value
+                            previousHomePage.value = null
+                            selectedChip.value = null
+                            isChipLoading.value = false
+                            _chipLoadError.tryEmit(
+                                context.getString(R.string.error_unknown),
+                            )
+                            return@launch
+                        }
+
+                        Timber.e("[ChipClick] REQUEST: chip=%s browseId=%s params=%s", chip?.title ?: "null", chipBrowseId, chipParams ?: "null")
+                        val nextSections = YouTube.home(browseId = chipBrowseId, params = chipParams).getOrNull()
+
+                        if (nextSections == null) {
+                            Timber.e("[ChipClick] FAILED: YouTube.home returned null for chip '%s' (browseId=%s, params=%s)", chip?.title ?: "null", chipBrowseId, chipParams ?: "null")
+                            homePage.value = previousHomePage.value
+                            previousHomePage.value = null
+                            selectedChip.value = null
+                            isChipLoading.value = false
+                            _chipLoadError.tryEmit(
+                                context.getString(R.string.error_unknown),
+                            )
+                            return@launch
+                        }
+
+                        // Log section details so we know what content was returned
+                        val sectionDetails = nextSections.sections.mapIndexed { i, s ->
+                            "[$i] ${s.title} (${s.items.size} items)"
+                        }.joinToString(", ")
+                        Timber.e("[ChipClick] SUCCESS: chip=%s sections=%d details=[%s] continuation=%s",
+                            chip?.title ?: "null", nextSections.sections.size, sectionDetails, nextSections.continuation ?: "null")
+
+                        homePage.value =
+                            nextSections.copy(
+                                chips = homePage.value?.chips,
+                                sections =
+                                    nextSections.sections.map { section ->
+                                        section.copy(
+                                            items =
+                                                section.items
+                                                    .filterExplicit(hideExplicit)
+                                                    .filterVideo(hideVideo)
+                                                    .filterBlockedArtists(blockedArtistIds),
                                     )
                                 },
                         )
-                    selectedChip.value = chip
+                    } catch (e: CancellationException) {
+                        wasCancelled = true
+                        throw e
+                    } catch (e: Exception) {
+                        Timber.e(e, "Error loading chip content for: %s", chip?.title)
+                        reportException(e)
+                        homePage.value = previousHomePage.value
+                        previousHomePage.value = null
+                        selectedChip.value = null
+                        isChipLoading.value = false
+                        _chipLoadError.tryEmit(
+                            context.getString(R.string.error_unknown),
+                        )
+                    } finally {
+                        if (!wasCancelled) {
+                            isChipLoading.value = false
+                        }
+                    }
                 }
         }
 

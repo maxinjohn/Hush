@@ -63,12 +63,24 @@ internal object SaavnUrlDecryptor {
                 .replace("http://", "https://")
                 .replace("//preview.", "//aac.")
                 .replace("_96_p.mp4", "_96.mp4")
+                .replace("_12_p.mp4", "_96.mp4")
+                .replace("_48_p.mp4", "_96.mp4")
         if (!base.startsWith("http")) return emptyList()
         val urls = qualityUrlsFromBase(base).toMutableList()
+        if (urls.all { it.quality == "96kbps" } || urls.size < 2) {
+            // Try constructing from alternative base URL patterns
+            val altBase = base.replace("//aac.", "//sd.")
+            if (altBase != base) {
+                val altUrls = qualityUrlsFromBase(altBase)
+                if (altUrls.size > urls.size || altUrls.firstOrNull { it.quality == "320kbps" } != null) {
+                    urls.addAll(altUrls.filter { it.url.isNotBlank() })
+                }
+            }
+        }
         if (!supports320) {
             urls.removeAll { it.quality == "320kbps" }
         }
-        return urls.filter { it.url.isNotBlank() }
+        return urls.distinctBy { it.quality }.filter { it.url.isNotBlank() }
     }
 
     private fun qualityUrlsFromBase(base: String): List<SaavnDownloadUrl> =

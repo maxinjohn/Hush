@@ -46,8 +46,8 @@ android {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 147
-        versionName = "13.8.9"
+        versionCode = 148
+        versionName = "13.9.0"
 
         ndk {
             // ABI filters are set per product flavor (arm64, universal, etc.).
@@ -393,7 +393,6 @@ dependencies {
     implementation(libs.squigglyslider)
 
     implementation(libs.room.runtime)
-    implementation(libs.kuromoji.ipadic)
     ksp(libs.room.compiler)
     implementation(libs.room.ktx)
 

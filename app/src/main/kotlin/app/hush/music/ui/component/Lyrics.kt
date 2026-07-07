@@ -1017,6 +1017,51 @@ fun Lyrics(
                                 },
                             )
                             return@itemsIndexed
+                        } else if (lyricsAnimationStyle == LyricsAnimationStyle.OCEAN_WAVE) {
+                            OceanWaveLyricsLine(
+                                entry = item,
+                                nextEntryTime = lines.getOrNull(index + 1)?.time,
+                                effectivePlaybackPosition = effectivePlaybackPosition,
+                                isSynced = isSynced,
+                                isActive = isActiveLine,
+                                distanceFromCurrent = abs(index - displayedCurrentLineIndex),
+                                lyricsTextPosition = lyricsTextPosition,
+                                textColor = textColor,
+                                showRomanized = romanizationPreferences.isEnabled,
+                                showTranslated = false,
+                                textSize = lyricsTextSize,
+                                lineSpacing = lyricsLineSpacing,
+                                isSelectionModeActive = isSelectionModeActive,
+                                isSelected = isSelected,
+                                isAutoScrollActive = scrollLyrics,
+                                expressiveAccent = textColor,
+                                onClick = {
+                                    if (isSelectionModeActive) {
+                                        if (isSelected) {
+                                            selectedIndices.remove(index)
+                                            if (selectedIndices.isEmpty()) isSelectionModeActive = false
+                                        } else if (selectedIndices.size < maxSelectionLimit) {
+                                            selectedIndices.add(index)
+                                        } else {
+                                            showMaxSelectionToast = true
+                                        }
+                                    } else if (isSynced && changeLyrics) {
+                                        playerConnection.player.seekTo(item.time)
+                                        lastPreviewTime = 0L
+                                    }
+                                },
+                                onLongClick = {
+                                    if (!isSelectionModeActive) {
+                                        isSelectionModeActive = true
+                                        selectedIndices.add(index)
+                                    } else if (!isSelected && selectedIndices.size < maxSelectionLimit) {
+                                        selectedIndices.add(index)
+                                    } else if (!isSelected) {
+                                        showMaxSelectionToast = true
+                                    }
+                                },
+                            )
+                            return@itemsIndexed
                         }
 
                         val distance = abs(index - displayedCurrentLineIndex)

@@ -2341,6 +2341,7 @@ private fun V7PlayerBackdrop(
                         .background(backdropPalette.top),
                 contentAlignment = Alignment.Center,
             ) {
+
                 if (sharpArtworkModel != null) {
                     AsyncImage(
                         model = sharpArtworkRequest,

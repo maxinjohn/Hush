@@ -72,6 +72,11 @@ import androidx.navigation.NavController
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.constants.AppFontPreference
+import app.hush.music.constants.VisualizerEnabledKey
+import app.hush.music.constants.VisualizerStyleKey
+import app.hush.music.constants.VisualizerColorThemeKey
+import app.hush.music.constants.VisualizerMiniPlayerKey
+import app.hush.music.constants.VisualizerOpacityKey
 import app.hush.music.constants.HushCanvasKey
 import app.hush.music.constants.CanvasSource
 import app.hush.music.constants.CanvasSourceKey
@@ -125,6 +130,8 @@ import app.hush.music.ui.component.PreferenceGroup
 import app.hush.music.ui.component.SwitchPreference
 import app.hush.music.ui.component.ThumbnailCornerRadiusSelectorButton
 import app.hush.music.ui.player.StyledPlaybackSlider
+import app.hush.music.ui.player.visualizer.VisualizerStyle
+import app.hush.music.ui.player.visualizer.VisualizerColorTheme
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import app.hush.music.ui.theme.CustomFontLoader
 import app.hush.music.ui.theme.HushAmbientBackground
@@ -186,6 +193,31 @@ fun AppearanceSettings(
         rememberPreference(
             HidePlayerThumbnailKey,
             defaultValue = false,
+        )
+    val (visualizerEnabled, onVisualizerEnabledChange) =
+        rememberPreference(
+            VisualizerEnabledKey,
+            defaultValue = true,
+        )
+    val (visualizerStyle, onVisualizerStyleChange) =
+        rememberEnumPreference(
+            VisualizerStyleKey,
+            defaultValue = VisualizerStyle.BOTTOM_BARS,
+        )
+    val (visualizerColorTheme, onVisualizerColorThemeChange) =
+        rememberEnumPreference(
+            VisualizerColorThemeKey,
+            defaultValue = VisualizerColorTheme.THEME,
+        )
+    val (visualizerMiniPlayer, onVisualizerMiniPlayerChange) =
+        rememberPreference(
+            VisualizerMiniPlayerKey,
+            defaultValue = false,
+        )
+    val (visualizerOpacity, onVisualizerOpacityChange) =
+        rememberPreference(
+            VisualizerOpacityKey,
+            defaultValue = 0.8f,
         )
     val (hushCanvasEnabled, onHushCanvasEnabledChange) =
         rememberPreference(
@@ -325,14 +357,7 @@ fun AppearanceSettings(
         PlayerBackgroundStyle.entries.filter {
             it != PlayerBackgroundStyle.BLUR || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         }
-    val isPlayerStyleCustomizationEnabled =
-        when (playerDesignStyle) {
-            PlayerDesignStyle.V7,
-            PlayerDesignStyle.V8,
-            PlayerDesignStyle.V9 -> false
-
-            else -> true
-        }
+    val isPlayerStyleCustomizationEnabled = true
     val isSystemInDarkTheme = isSystemInDarkTheme()
     val useDarkTheme =
         remember(darkMode, isSystemInDarkTheme) {
@@ -349,17 +374,7 @@ fun AppearanceSettings(
         mutableStateOf(false)
     }
 
-    LaunchedEffect(isPlayerStyleCustomizationEnabled, playerBackground) {
-        if (!isPlayerStyleCustomizationEnabled && playerBackground != PlayerBackgroundStyle.DEFAULT) {
-            onPlayerBackgroundChange(PlayerBackgroundStyle.DEFAULT)
-        }
-    }
-
-    LaunchedEffect(isPlayerStyleCustomizationEnabled) {
-        if (!isPlayerStyleCustomizationEnabled) {
-            showSliderOptionDialog = false
-        }
-    }
+    // Customization is always enabled (V7/V8/V9 are no longer selectable)
 
     if (showSliderOptionDialog && isPlayerStyleCustomizationEnabled) {
         val sliderStyles =
@@ -583,9 +598,8 @@ fun AppearanceSettings(
                                     AppFontPreference.SYSTEM -> stringResource(R.string.font_preference_system)
                                     AppFontPreference.OUTFIT -> stringResource(R.string.font_option_outfit)
                                     AppFontPreference.PLUS_JAKARTA -> stringResource(R.string.font_option_plus_jakarta)
-                                    AppFontPreference.SANS_FLEX -> stringResource(R.string.font_option_sans_flex)
-                                    AppFontPreference.GOOGLE_SANS -> stringResource(R.string.font_option_google_sans)
                                     AppFontPreference.CUSTOM -> stringResource(R.string.font_preference_custom)
+                                    else -> stringResource(R.string.font_preference_default)
                                 },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -626,9 +640,6 @@ fun AppearanceSettings(
                                 PlayerDesignStyle.V2 -> stringResource(R.string.player_design_v2)
                                 PlayerDesignStyle.V4 -> stringResource(R.string.player_design_v4)
                                 PlayerDesignStyle.V6 -> stringResource(R.string.player_design_v6)
-                                PlayerDesignStyle.V7 -> stringResource(R.string.player_design_v7)
-                                PlayerDesignStyle.V8 -> stringResource(R.string.player_design_v8)
-                                PlayerDesignStyle.V9 -> stringResource(R.string.player_design_v9)
                                 else -> stringResource(R.string.player_design_v6)
                             }
                         },
@@ -639,16 +650,9 @@ fun AppearanceSettings(
             item {
                 EnumListPreference(
                     title = { Text(stringResource(R.string.player_background_style)) },
-                    description =
-                        if (isPlayerStyleCustomizationEnabled) {
-                            null
-                        } else {
-                            stringResource(R.string.player_background_style_v8_v9_desc)
-                        },
                     icon = { Icon(painterResource(R.drawable.gradient), null) },
                     selectedValue = playerBackground,
                     onValueSelected = onPlayerBackgroundChange,
-                    isEnabled = isPlayerStyleCustomizationEnabled,
                     valueText = {
                         when (it) {
                             PlayerBackgroundStyle.DEFAULT -> stringResource(R.string.follow_theme)
@@ -695,6 +699,82 @@ fun AppearanceSettings(
                     icon = { Icon(painterResource(R.drawable.hide_image), null) },
                     checked = hidePlayerThumbnail,
                     onCheckedChange = onHidePlayerThumbnailChange,
+                )
+            }
+
+            item {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.visualizer_enabled)) },
+                    description = stringResource(R.string.visualizer_enabled_desc),
+                    icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
+                    checked = visualizerEnabled,
+                    onCheckedChange = onVisualizerEnabledChange,
+                )
+            }
+
+            item {
+                EnumListPreference(
+                    title = { Text(stringResource(R.string.visualizer_style)) },
+                    icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
+                    selectedValue = visualizerStyle,
+                    onValueSelected = onVisualizerStyleChange,
+                    valueText = {
+                        when (it) {
+                            VisualizerStyle.BOTTOM_BARS -> "Bottom Bars"
+                            VisualizerStyle.COLOR_WAVE -> "Color Wave"
+                            VisualizerStyle.GLOW_BARS -> "Glow Bars"
+                            VisualizerStyle.DUAL_BARS -> "Dual Bars"
+                            VisualizerStyle.PULSE_BARS -> "Pulse Bars"
+                            VisualizerStyle.JUMPING_BARS -> stringResource(R.string.visualizer_jumping_bars)
+                            VisualizerStyle.SPECTRUM -> stringResource(R.string.visualizer_spectrum)
+                        }
+                    },
+                )
+            }
+
+            item {
+                EnumListPreference(
+                    title = { Text(stringResource(R.string.visualizer_color_theme)) },
+                    icon = { Icon(painterResource(R.drawable.palette), null) },
+                    selectedValue = visualizerColorTheme,
+                    onValueSelected = onVisualizerColorThemeChange,
+                    valueText = {
+                        when (it) {
+                            VisualizerColorTheme.THEME -> stringResource(R.string.visualizer_theme_theme)
+                            VisualizerColorTheme.RAINBOW -> stringResource(R.string.visualizer_theme_rainbow)
+                            VisualizerColorTheme.NEON -> stringResource(R.string.visualizer_theme_neon)
+                            VisualizerColorTheme.MONOCHROME -> stringResource(R.string.visualizer_theme_monochrome)
+                            VisualizerColorTheme.FIRE -> stringResource(R.string.visualizer_theme_fire)
+                        }
+                    },
+                )
+            }
+
+            item {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.visualizer_mini_player)) },
+                    description = stringResource(R.string.visualizer_mini_player_desc),
+                    icon = { Icon(painterResource(R.drawable.vibration), null) },
+                    checked = visualizerMiniPlayer,
+                    onCheckedChange = onVisualizerMiniPlayerChange,
+                )
+            }
+
+            item {
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.visualizer_opacity)) },
+                    description = stringResource(R.string.visualizer_opacity_value, (visualizerOpacity * 100).roundToInt()),
+                    icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
+                    content = {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Slider(
+                            value = visualizerOpacity,
+                            onValueChange = onVisualizerOpacityChange,
+                            valueRange = 0.05f..1f,
+                            steps = 18,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
                 )
             }
 
@@ -752,16 +832,9 @@ fun AppearanceSettings(
             item {
                 EnumListPreference(
                     title = { Text(stringResource(R.string.player_buttons_style)) },
-                    description =
-                        if (isPlayerStyleCustomizationEnabled) {
-                            null
-                        } else {
-                            stringResource(R.string.player_background_style_v8_v9_desc)
-                        },
                     icon = { Icon(painterResource(R.drawable.palette), null) },
                     selectedValue = playerButtonsStyle,
                     onValueSelected = onPlayerButtonsStyleChange,
-                    isEnabled = isPlayerStyleCustomizationEnabled,
                     valueText = {
                         when (it) {
                             PlayerButtonsStyle.DEFAULT -> stringResource(R.string.default_style)

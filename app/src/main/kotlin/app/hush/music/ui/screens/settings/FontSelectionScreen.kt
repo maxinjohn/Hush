@@ -49,11 +49,9 @@ import app.hush.music.constants.FontPreferenceKey
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.PreferenceEntry
 import app.hush.music.ui.component.PreferenceGroup
-import app.hush.music.ui.theme.GoogleSansFontFamily
 import app.hush.music.ui.theme.HushAmbientBackground
 import app.hush.music.ui.theme.OutfitFontFamily
 import app.hush.music.ui.theme.PlusJakartaSansFontFamily
-import app.hush.music.ui.theme.SansFlexFontFamily
 import app.hush.music.ui.theme.fontFamilyFor
 import app.hush.music.ui.utils.backToMain
 import app.hush.music.utils.rememberEnumPreference
@@ -216,18 +214,7 @@ private val fontOptions =
             descriptionRes = R.string.font_option_plus_jakarta_desc,
             previewFamily = PlusJakartaSansFontFamily,
         ),
-        FontOption(
-            preference = AppFontPreference.SANS_FLEX,
-            titleRes = R.string.font_option_sans_flex,
-            descriptionRes = R.string.font_option_sans_flex_desc,
-            previewFamily = SansFlexFontFamily,
-        ),
-        FontOption(
-            preference = AppFontPreference.GOOGLE_SANS,
-            titleRes = R.string.font_option_google_sans,
-            descriptionRes = R.string.font_option_google_sans_desc,
-            previewFamily = GoogleSansFontFamily,
-        ),
+
     )
 
 @Composable

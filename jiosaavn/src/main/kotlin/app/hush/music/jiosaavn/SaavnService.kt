@@ -1,6 +1,7 @@
 /*
  * Hush — GPL-3.0
  * JioSaavn client using the public jiosaavn.com API (search + encrypted stream URLs).
+ * Multi-format resilient parsing with DES decryption + auth token fallback.
  */
 
 package app.hush.music.jiosaavn
@@ -14,15 +15,22 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.ContentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import io.ktor.client.statement.bodyAsText
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.jsonPrimitive
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
 
 @Serializable
 data class SaavnDownloadUrl(
@@ -83,9 +91,14 @@ private data class NativeSongResult(
     @SerialName("primary_artists") val primaryArtists: String = "",
     @SerialName("encrypted_media_url") val encryptedMediaUrl: String = "",
     @SerialName("media_preview_url") val mediaPreviewUrl: String = "",
-    @SerialName("320kbps") val supports320: String = "false",
+    @SerialName("320kbps") val supports320Raw: JsonElement? = null,
     @SerialName("image") val image: String = "",
-)
+) {
+    val supports320: Boolean get() = when (supports320Raw?.jsonPrimitive) {
+        is JsonPrimitive -> supports320Raw.jsonPrimitive.content == "true" || supports320Raw.jsonPrimitive.content == "1"
+        null -> false
+    }
+}
 
 @Serializable
 private data class NativeSongDetailsResponse(
@@ -103,15 +116,26 @@ private data class NativeSongDetails(
     @SerialName("encrypted_media_url") val encryptedMediaUrl: String = "",
     @SerialName("media_preview_url") val mediaPreviewUrl: String = "",
     @SerialName("more_info") val moreInfo: NativeSongMoreInfo? = null,
-    @SerialName("320kbps") val supports320: String = "false",
-)
+    @SerialName("320kbps") val supports320Raw: JsonElement? = null,
+) {
+    val supports320: Boolean get() = when (supports320Raw?.jsonPrimitive) {
+        is JsonPrimitive -> supports320Raw.jsonPrimitive.content == "true" || supports320Raw.jsonPrimitive.content == "1"
+        null -> false
+    }
+}
 
 @Serializable
 private data class NativeSongMoreInfo(
     @SerialName("encrypted_media_url") val encryptedMediaUrl: String = "",
     @SerialName("media_preview_url") val mediaPreviewUrl: String = "",
     @SerialName("duration") val duration: String = "",
-)
+    @SerialName("320kbps") val supports320Raw: JsonElement? = null,
+) {
+    val supports320: Boolean get() = when (supports320Raw?.jsonPrimitive) {
+        is JsonPrimitive -> supports320Raw.jsonPrimitive.content == "true" || supports320Raw.jsonPrimitive.content == "1"
+        null -> false
+    }
+}
 
 object SaavnService {
     private const val TAG = "SaavnService"
@@ -131,9 +155,9 @@ object SaavnService {
         HttpClient(OkHttp) {
             install(ContentNegotiation) { json(json) }
             install(HttpTimeout) {
-                requestTimeoutMillis = 12_000
-                connectTimeoutMillis = 8_000
-                socketTimeoutMillis = 12_000
+                requestTimeoutMillis = 30_000
+                connectTimeoutMillis = 15_000
+                socketTimeoutMillis = 30_000
             }
             defaultRequest {
                 headers.append(HttpHeaders.Accept, "application/json, text/plain, */*")
@@ -145,88 +169,315 @@ object SaavnService {
         }
     }
 
+    private suspend fun apiCall(
+        block: suspend (String) -> io.ktor.client.statement.HttpResponse,
+    ): io.ktor.client.statement.HttpResponse {
+        val servers = buildList {
+            add(API_BASE)
+            add(API_BASE)
+            add(API_BASE)
+        }
+        var lastError: Throwable? = null
+        for ((attempt, server) in servers.withIndex()) {
+            try {
+                val response = block(server)
+                val status = response.status
+                if (status.value in 500..599) {
+                    Log.w(TAG, "apiCall attempt $attempt: HTTP ${status.value} on $server")
+                    lastError = Exception("Server ${status.value}")
+                    continue
+                }
+                if (status.value != HttpStatusCode.OK.value) {
+                    Log.w(TAG, "apiCall attempt $attempt: non-OK status ${status.value}")
+                }
+                return response
+            } catch (e: Exception) {
+                lastError = e
+                Log.w(TAG, "apiCall attempt $attempt failed: ${e.message}")
+            }
+        }
+        throw lastError ?: Exception("All API attempts failed")
+    }
+
+    // ── Search ────────────────────────────────────────────────────────────────
+
     suspend fun searchSongs(
         query: String,
-        limit: Int = 12,
+        limit: Int = 15,
     ): Result<List<SaavnSong>> =
         runCatching {
-            val trimmedQuery = query.trim()
-            if (trimmedQuery.isBlank()) error("Empty Saavn search query")
+            val q = query.trim()
+            if (q.isBlank()) error("Empty query")
+            Log.i(TAG, "searchSongs \"$q\"")
 
-            val response =
-                client.get(API_BASE) {
-                    parameter("__call", "search.getResults")
-                    parameter("_format", "json")
-                    parameter("_marker", "0")
-                    parameter("cc", "in")
-                    parameter("q", trimmedQuery)
-                    parameter("p", 1)
-                    parameter("n", limit)
+            // Try v4 format first, fallback to no-api_version
+            val paramSets = listOf(
+                mapOf(
+                    "__call" to "search.getResults", "_format" to "json", "_marker" to "0",
+                    "cc" to "in", "q" to q, "p" to "1", "n" to limit.toString(),
+                    "api_version" to "4", "ctx" to "web6dot0",
+                ),
+                mapOf(
+                    "__call" to "search.getResults", "_format" to "json", "_marker" to "0",
+                    "cc" to "in", "q" to q, "p" to "1", "n" to limit.toString(),
+                ),
+            )
+
+            for (params in paramSets) {
+                try {
+                    val response = apiCall { baseUrl ->
+                        client.get(baseUrl) { params.forEach { (k, v) -> parameter(k, v) } }
+                    }
+                    if (response.status != HttpStatusCode.OK) {
+                        Log.w(TAG, "searchSongs params=$params: HTTP ${response.status.value}")
+                        continue
+                    }
+                    val rawBody = response.bodyAsText()
+                    val results = parseSearchResults(rawBody)
+                    if (results.isNotEmpty()) {
+                        Log.i(TAG, "searchSongs \"$q\" -> ${results.size} results (fmt=${params["api_version"] ?: "legacy"})")
+                        return@runCatching results
+                    }
+                    Log.w(TAG, "searchSongs \"$q\": 0 results with params=$params raw=${rawBody.take(150)}")
+                } catch (e: Exception) {
+                    Log.w(TAG, "searchSongs params=$params error: ${e.message}")
                 }
-            if (response.status != HttpStatusCode.OK) {
-                error("Saavn search failed: HTTP ${response.status.value} for \"$trimmedQuery\"")
             }
-            val rawBody = response.bodyAsText()
-            val results = parseSearchResults(rawBody)
-            if (results.isEmpty()) {
-                error("No playable JioSaavn results for \"$trimmedQuery\" (body=${rawBody.take(120)})")
-            }
-            Log.i(TAG, "searchSongs query=\"$trimmedQuery\" -> ${results.size} playable results")
-            results
+            error("No results for \"$q\"")
         }.onFailure {
-            Log.w(TAG, "searchSongs failed for query=\"$query\"", it)
+            Log.w(TAG, "searchSongs failed for \"$query\"", it)
         }
 
     fun selectBestUrl(
         urls: List<SaavnDownloadUrl>,
         quality: String,
     ): String? {
-        val filtered = urls.filter { it.url.isNotBlank() }
-        if (filtered.isEmpty()) return null
-
-        filtered.firstOrNull { it.quality.equals(quality, ignoreCase = true) }?.url?.let { return it }
-        filtered.firstOrNull { it.quality.equals("320kbps", ignoreCase = true) }?.url?.let { return it }
-        filtered.firstOrNull { it.quality.equals("160kbps", ignoreCase = true) }?.url?.let { return it }
-        filtered.firstOrNull { it.quality.equals("96kbps", ignoreCase = true) }?.url?.let { return it }
-        return filtered.lastOrNull()?.url
+        val valid = urls.filter { it.url.isNotBlank() }
+        if (valid.isEmpty()) return null
+        valid.firstOrNull { it.quality.equals(quality, ignoreCase = true) }?.url?.let { return it }
+        valid.firstOrNull { it.quality.equals("320kbps", ignoreCase = true) }?.url?.let { return it }
+        valid.firstOrNull { it.quality.equals("160kbps", ignoreCase = true) }?.url?.let { return it }
+        valid.firstOrNull { it.quality.equals("96kbps", ignoreCase = true) }?.url?.let { return it }
+        return valid.lastOrNull()?.url
     }
 
-    suspend fun getBestStreamUrl(
-        saavnSongId: String,
-        quality: String,
-    ): String? =
-        runCatching {
-            val response =
-                client.get(API_BASE) {
-                    parameter("__call", "song.getDetails")
-                    parameter("pids", saavnSongId)
-                    parameter("api_version", "4")
-                    parameter("_format", "json")
-                    parameter("ctx", "web6dot0")
-                    parameter("_marker", "0")
-                }
-            if (response.status != HttpStatusCode.OK) return@runCatching null
-            val body = response.body<NativeSongDetailsResponse>()
-            val song = body.songs.firstOrNull() ?: return@runCatching null
-            buildDownloadUrls(
-                encryptedMediaUrl =
-                    song.moreInfo?.encryptedMediaUrl?.takeIf { it.isNotBlank() }
-                        ?: song.encryptedMediaUrl,
-                mediaPreviewUrl =
-                    song.moreInfo?.mediaPreviewUrl?.takeIf { it.isNotBlank() }
-                        ?: song.mediaPreviewUrl,
-                supports320 = song.supports320,
-            )
-        }.onFailure {
-            Log.w(TAG, "getBestStreamUrl failed for id=$saavnSongId", it)
-        }.getOrNull()?.let { selectBestUrl(it, quality) }
+    // ── Stream URL Resolution ─────────────────────────────────────────────────
 
     suspend fun resolveStreamUrl(
         song: SaavnSong,
         quality: String,
     ): String? {
-        selectBestUrl(song.downloadUrl, quality)?.let { return it }
-        return getBestStreamUrl(song.id, quality)
+        Log.i(TAG, "resolveStreamUrl id=${song.id} name=\"${song.name}\" quality=$quality")
+        val qualityOrder = listOf(quality, "320kbps", "160kbps", "96kbps").distinct()
+        val url = resolveStreamFresh(song.id, qualityOrder)
+        if (url != null) {
+            Log.i(TAG, "resolveStreamUrl SUCCESS for id=${song.id} -> ${url.take(80)}")
+        } else {
+            Log.w(TAG, "resolveStreamUrl FAILED for id=${song.id} quality=$quality")
+        }
+        return url
+    }
+
+    private suspend fun resolveStreamFresh(
+        saavnSongId: String,
+        qualityOrder: List<String>,
+    ): String? {
+        // Path A: auth token
+        Log.d(TAG, "resolveStreamFresh: trying auth token path for $saavnSongId")
+        val tokenUrl = tryGenerateAuthToken(saavnSongId, qualityOrder.first())
+        if (tokenUrl != null) return tokenUrl
+
+        // Path B: DES decrypt from song details (v4 format)
+        Log.d(TAG, "resolveStreamFresh: trying DES decrypt v4 for $saavnSongId")
+        val v4Url = tryDecrypt(saavnSongId, qualityOrder, apiV4 = true)
+        if (v4Url != null) return v4Url
+
+        // Path C: DES decrypt from song details (flat format)
+        Log.d(TAG, "resolveStreamFresh: trying DES decrypt flat for $saavnSongId")
+        return tryDecrypt(saavnSongId, qualityOrder, apiV4 = false)
+    }
+
+    private suspend fun tryGenerateAuthToken(
+        saavnSongId: String,
+        quality: String,
+    ): String? {
+        return runCatching {
+            val encryptedUrl = fetchAnyEncryptedUrl(saavnSongId)
+                ?: return@runCatching null.also { Log.w(TAG, "tryGenerateAuthToken: no encrypted URL for $saavnSongId") }
+
+            val bitrate = when {
+                quality.contains("320") -> "320"
+                quality.contains("160") -> "160"
+                else -> "96"
+            }
+
+            val resp = apiCall { baseUrl ->
+                client.post(baseUrl) {
+                    parameter("__call", "song.generateAuthToken")
+                    parameter("_format", "json")
+                    parameter("_marker", "0")
+                    setBody("bitrate=$bitrate&url=${URLEncoder.encode(encryptedUrl, "UTF-8")}")
+                    headers.append(HttpHeaders.ContentType, ContentType.Application.FormUrlEncoded.toString())
+                }
+            }
+            if (resp.status != HttpStatusCode.OK) {
+                Log.w(TAG, "tryGenerateAuthToken: HTTP ${resp.status.value}")
+                return@runCatching null
+            }
+            val raw = resp.bodyAsText()
+            val root = JSONObject(raw)
+            val authUrl = root.optString("auth_url", "")
+            if (authUrl.startsWith("http")) {
+                Log.i(TAG, "tryGenerateAuthToken SUCCESS for $saavnSongId")
+                authUrl
+            } else {
+                Log.w(TAG, "tryGenerateAuthToken: no auth_url — ${raw.take(150)}")
+                null
+            }
+        }.getOrNull()
+    }
+
+    private suspend fun fetchAnyEncryptedUrl(saavnSongId: String): String? {
+        val v4 = runCatching {
+            val resp = apiCall { baseUrl ->
+                client.get(baseUrl) {
+                    parameter("__call", "song.getDetails")
+                    parameter("pids", saavnSongId)
+                    parameter("_format", "json")
+                    parameter("_marker", "0")
+                    parameter("api_version", "4")
+                    parameter("ctx", "web6dot0")
+                }
+            }
+            if (resp.status != HttpStatusCode.OK) return@runCatching null
+            val raw = resp.bodyAsText()
+            runCatching {
+                val body = json.decodeFromString<NativeSongDetailsResponse>(raw)
+                val s = body.songs.firstOrNull() ?: return@runCatching null
+                s.moreInfo?.encryptedMediaUrl?.takeIf { it.isNotBlank() }
+                    ?: s.encryptedMediaUrl.takeIf { it.isNotBlank() }
+            }.getOrNull() ?: runCatching {
+                val root = JSONObject(raw)
+                val arr = root.optJSONArray("songs")
+                if (arr != null && arr.length() > 0) {
+                    arr.getJSONObject(0).optString("encrypted_media_url", "").takeIf { it.isNotBlank() }
+                } else {
+                    root.optString("encrypted_media_url", "").takeIf { it.isNotBlank() }
+                }
+            }.getOrNull()
+        }.getOrNull()
+        if (v4 != null) return v4
+
+        return runCatching {
+            val resp = apiCall { baseUrl ->
+                client.get(baseUrl) {
+                    parameter("__call", "song.getDetails")
+                    parameter("pids", saavnSongId)
+                    parameter("_format", "json")
+                    parameter("_marker", "0")
+                }
+            }
+            if (resp.status != HttpStatusCode.OK) return@runCatching null
+            val raw = resp.bodyAsText()
+            val root = JSONObject(raw)
+            // Try keyed by song ID
+            root.optJSONObject(saavnSongId)?.optString("encrypted_media_url", "")?.takeIf { it.isNotBlank() }
+                ?: root.optString("encrypted_media_url", "").takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
+    private suspend fun tryDecrypt(
+        saavnSongId: String,
+        qualityOrder: List<String>,
+        apiV4: Boolean,
+    ): String? {
+        return runCatching {
+            val resp = apiCall { baseUrl ->
+                client.get(baseUrl) {
+                    parameter("__call", "song.getDetails")
+                    parameter("pids", saavnSongId)
+                    parameter("_format", "json")
+                    parameter("_marker", "0")
+                    if (apiV4) {
+                        parameter("api_version", "4")
+                        parameter("ctx", "web6dot0")
+                    }
+                }
+            }
+            if (resp.status != HttpStatusCode.OK) {
+                Log.w(TAG, "tryDecrypt(apiV4=$apiV4): HTTP ${resp.status.value}")
+                return@runCatching null
+            }
+            val raw = resp.bodyAsText()
+            Log.d(TAG, "tryDecrypt(apiV4=$apiV4) raw=${raw.take(200)}")
+
+            var encUrl = ""
+            var prevUrl = ""
+            var sup320 = "false"
+
+            if (apiV4) {
+                // Try structured parse first
+                val structured = runCatching {
+                    val body = json.decodeFromString<NativeSongDetailsResponse>(raw)
+                    val s = body.songs.firstOrNull()
+                    if (s != null) {
+                        encUrl = s.moreInfo?.encryptedMediaUrl?.takeIf { it.isNotBlank() } ?: s.encryptedMediaUrl
+                        prevUrl = s.moreInfo?.mediaPreviewUrl?.takeIf { it.isNotBlank() } ?: s.mediaPreviewUrl
+                        sup320 = if (s.moreInfo?.supports320 ?: s.supports320) "true" else "false"
+                    }
+                }
+                if (structured.isFailure) {
+                    // Fallback: manual JSONObject parse
+                    runCatching {
+                        val root = JSONObject(raw)
+                        val arr = root.optJSONArray("songs")
+                        if (arr != null && arr.length() > 0) {
+                            val item = arr.getJSONObject(0)
+                            val mi = item.optJSONObject("more_info")
+                            encUrl = mi?.optString("encrypted_media_url", "")?.takeIf { it.isNotBlank() }
+                                ?: item.optString("encrypted_media_url", "")
+                            prevUrl = mi?.optString("media_preview_url", "")?.takeIf { it.isNotBlank() }
+                                ?: item.optString("media_preview_url", "")
+                            sup320 = if (item.optString("320kbps", "0") in listOf("1", "true")) "true" else "false"
+                        }
+                    }
+                }
+            } else {
+                runCatching {
+                    val root = JSONObject(raw)
+                    val item = root.optJSONObject(saavnSongId)
+                        ?: root.optJSONObject("result")?.optJSONObject(saavnSongId)
+                        ?: root.optJSONArray("songs")?.optJSONObject(0)
+                    if (item != null) {
+                        encUrl = item.optString("encrypted_media_url", "")
+                        prevUrl = item.optString("media_preview_url", "")
+                        sup320 = if (item.optString("320kbps", "0") in listOf("1", "true")) "true" else "false"
+                    }
+                }
+            }
+
+            if (encUrl.isBlank() && prevUrl.isBlank()) {
+                Log.w(TAG, "tryDecrypt(apiV4=$apiV4): no URLs found in response")
+                return@runCatching null
+            }
+
+            val urls = buildDownloadUrls(
+                encryptedMediaUrl = encUrl,
+                mediaPreviewUrl = prevUrl,
+                supports320 = sup320,
+            )
+            Log.d(TAG, "tryDecrypt(apiV4=$apiV4): got ${urls.size} URLs (enc=${encUrl.take(40)} prev=${prevUrl.take(40)})")
+
+            for (q in qualityOrder) {
+                val u = urls.firstOrNull { it.quality == q }?.url?.takeIf { it.isNotBlank() }
+                if (u != null) {
+                    Log.i(TAG, "tryDecrypt(apiV4=$apiV4) SUCCESS quality=$q for $saavnSongId")
+                    return@runCatching u
+                }
+            }
+            Log.w(TAG, "tryDecrypt(apiV4=$apiV4): no quality match from $qualityOrder")
+            null
+        }.getOrNull()
     }
 
     private fun buildDownloadUrls(
@@ -241,26 +492,40 @@ object SaavnService {
     }
 
     private fun parseSearchResults(rawBody: String): List<SaavnSong> {
+        // 1) NativeSearchResponse: {"total":..., "results":[...]}
         runCatching {
             json.decodeFromString<NativeSearchResponse>(rawBody).results
         }.getOrNull()?.let { nativeResults ->
-            return nativeResults
+            val songs = nativeResults
                 .asSequence()
                 .filter { it.type.isBlank() || it.type.equals("song", ignoreCase = true) }
                 .mapNotNull { it.toSaavnSong() }
-                .filter { it.downloadUrl.isNotEmpty() }
                 .toList()
+            if (songs.isNotEmpty()) return songs
         }
 
-        return runCatching {
+        // 2) JSON object with "results" array
+        runCatching {
             val root = JSONObject(rawBody)
-            val array = root.optJSONArray("results") ?: JSONArray()
-            buildList {
-                for (index in 0 until array.length()) {
-                    parseJSONObjectSong(array.optJSONObject(index))?.let(::add)
-                }
-            }
-        }.getOrDefault(emptyList())
+            val array = root.optJSONArray("results") ?: return@runCatching emptyList<SaavnSong>()
+            (0 until array.length()).mapNotNull { parseJSONObjectSong(array.optJSONObject(it)) }
+        }.getOrNull()?.let { if (it.isNotEmpty()) return it }
+
+        // 3) Raw JSON array
+        runCatching {
+            val array = JSONArray(rawBody)
+            (0 until array.length()).mapNotNull { parseJSONObjectSong(array.optJSONObject(it)) }
+        }.getOrNull()?.let { if (it.isNotEmpty()) return it }
+
+        // 4) JSON object with "songs" key
+        runCatching {
+            val root = JSONObject(rawBody)
+            val array = root.optJSONArray("songs") ?: return@runCatching emptyList<SaavnSong>()
+            (0 until array.length()).mapNotNull { parseJSONObjectSong(array.optJSONObject(it)) }
+        }.getOrNull()?.let { if (it.isNotEmpty()) return it }
+
+        Log.w(TAG, "parseSearchResults failed — raw=${rawBody.take(300)}")
+        return emptyList()
     }
 
     private fun parseJSONObjectSong(item: JSONObject?): SaavnSong? {
@@ -270,64 +535,52 @@ object SaavnService {
         val id = item.optString("id")
         val name = decodeHtmlEntities(item.optString("song"))
         if (id.isBlank() || name.isBlank()) return null
-        val downloadUrls =
-            buildDownloadUrls(
-                encryptedMediaUrl = item.optString("encrypted_media_url"),
-                mediaPreviewUrl = item.optString("media_preview_url"),
-                supports320 = item.optString("320kbps", "false"),
-            )
-        if (downloadUrls.isEmpty()) return null
+        val downloadUrls = buildDownloadUrls(
+            encryptedMediaUrl = item.optString("encrypted_media_url"),
+            mediaPreviewUrl = item.optString("media_preview_url"),
+            supports320 = item.optString("320kbps", "false"),
+        )
         return SaavnSong(
             id = id,
             name = name,
             duration = item.optString("duration").toIntOrNull(),
-            artists =
-                SaavnArtists(
-                    primary =
-                        decodeHtmlEntities(item.optString("primary_artists"))
-                            .split(',')
-                            .map { it.trim() }
-                            .filter { it.isNotBlank() }
-                            .map { SaavnArtistItem(name = it) },
-                ),
-            image =
-                item.optString("image")
-                    .takeIf { it.isNotBlank() }
-                    ?.let { listOf(SaavnImage(quality = "150x150", url = it.replace("150x150", "500x500"))) }
-                    ?: emptyList(),
+            artists = SaavnArtists(
+                primary = decodeHtmlEntities(item.optString("primary_artists"))
+                    .split(',', '&')
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .map { SaavnArtistItem(name = it) },
+            ),
+            image = item.optString("image").takeIf { it.isNotBlank() }
+                ?.let { listOf(SaavnImage(quality = "150x150", url = it.replace("150x150", "500x500"))) }
+                ?: emptyList(),
             downloadUrl = downloadUrls,
-            album = decodeHtmlEntities(item.optString("album")).takeIf { it.isNotBlank() }?.let { SaavnAlbum(name = it) },
+            album = decodeHtmlEntities(item.optString("album")).takeIf { it.isNotBlank() }
+                ?.let { SaavnAlbum(name = it) },
         )
     }
 
     private fun NativeSongResult.toSaavnSong(): SaavnSong? {
         if (id.isBlank() || song.isBlank()) return null
-        val downloadUrls =
-            buildDownloadUrls(
-                encryptedMediaUrl = encryptedMediaUrl,
-                mediaPreviewUrl = mediaPreviewUrl,
-                supports320 = supports320,
-            )
-        if (downloadUrls.isEmpty()) return null
+        val downloadUrls = buildDownloadUrls(
+            encryptedMediaUrl = encryptedMediaUrl,
+            mediaPreviewUrl = mediaPreviewUrl,
+            supports320 = if (supports320) "true" else "false",
+        )
         return SaavnSong(
             id = id,
             name = decodeHtmlEntities(song),
             duration = duration.toIntOrNull(),
-            artists =
-                SaavnArtists(
-                    primary =
-                        decodeHtmlEntities(primaryArtists)
-                            .split(',')
-                            .map { it.trim() }
-                            .filter { it.isNotBlank() }
-                            .map { SaavnArtistItem(name = it) },
-                ),
-            image =
-                if (image.isNotBlank()) {
-                    listOf(SaavnImage(quality = "150x150", url = image.replace("150x150", "500x500")))
-                } else {
-                    emptyList()
-                },
+            artists = SaavnArtists(
+                primary = decodeHtmlEntities(primaryArtists)
+                    .split(',', '&')
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .map { SaavnArtistItem(name = it) },
+            ),
+            image = if (image.isNotBlank()) {
+                listOf(SaavnImage(quality = "150x150", url = image.replace("150x150", "500x500")))
+            } else emptyList(),
             downloadUrl = downloadUrls,
             album = decodeHtmlEntities(album).takeIf { it.isNotBlank() }?.let { SaavnAlbum(name = it) },
         )

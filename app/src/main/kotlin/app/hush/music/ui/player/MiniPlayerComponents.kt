@@ -51,6 +51,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,11 +89,21 @@ import app.hush.music.constants.EnableHapticFeedbackKey
 import app.hush.music.constants.MiniPlayerArtworkInnerSize
 import app.hush.music.constants.MiniPlayerArtworkOuterSize
 import app.hush.music.constants.MiniPlayerHeight
+import app.hush.music.constants.VisualizerEnabledKey
+import app.hush.music.constants.VisualizerStyleKey
+import app.hush.music.constants.VisualizerColorThemeKey
+import app.hush.music.constants.VisualizerMiniPlayerKey
+import app.hush.music.constants.VisualizerOpacityKey
 import app.hush.music.extensions.togglePlayPause
 import app.hush.music.models.MediaMetadata
 import app.hush.music.playback.PlayerConnection
 import app.hush.music.together.TogetherSessionState
 import app.hush.music.utils.rememberPreference
+import app.hush.music.utils.rememberEnumPreference
+import app.hush.music.ui.player.visualizer.AudioSpectrumProvider
+import app.hush.music.ui.player.visualizer.Visualizer
+import app.hush.music.ui.player.visualizer.VisualizerStyle
+import app.hush.music.ui.player.visualizer.VisualizerColorTheme
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
@@ -321,11 +332,13 @@ fun RowScope.MiniPlayerInfo(
 
 @Composable
 private fun MiniPlayerArtwork(
+    isPlaying: Boolean,
     artworkUrl: String?,
     position: Long,
     duration: Long,
     isLoading: Boolean,
     colors: MiniPlayerContentColors,
+    playerConnection: PlayerConnection,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -363,6 +376,12 @@ private fun MiniPlayerArtwork(
                         shape = CircleShape,
                     ),
         ) {
+            val (visualizerEnabled) = rememberPreference(VisualizerEnabledKey, true)
+            val (visualizerMiniPlayer) = rememberPreference(VisualizerMiniPlayerKey, false)
+            val (visualizerStyle) = rememberEnumPreference(VisualizerStyleKey, VisualizerStyle.BOTTOM_BARS)
+            val (visualizerColorTheme) = rememberEnumPreference(VisualizerColorThemeKey, VisualizerColorTheme.THEME)
+            val (visualizerOpacity) = rememberPreference(VisualizerOpacityKey, 0.8f)
+
             Crossfade(
                 targetState = artworkUrl,
                 animationSpec = tween(220),
@@ -385,6 +404,32 @@ private fun MiniPlayerArtwork(
                         modifier = Modifier.size(18.dp),
                     )
                 }
+            }
+
+            var spectrumData by remember { mutableStateOf<List<Float>?>(null) }
+            val audioSessionId = remember(playerConnection) { playerConnection.player.audioSessionId }
+            LaunchedEffect(audioSessionId, isPlaying) {
+                if (!isPlaying || audioSessionId <= 0) {
+                    spectrumData = null
+                    return@LaunchedEffect
+                }
+                AudioSpectrumProvider.spectrumFlow(audioSessionId).collect { data ->
+                    spectrumData = data
+                }
+            }
+            DisposableEffect(Unit) {
+                onDispose { AudioSpectrumProvider.release() }
+            }
+
+            if (visualizerEnabled && visualizerMiniPlayer) {
+                Visualizer(
+                    isPlaying = isPlaying,
+                    style = visualizerStyle,
+                    colorTheme = visualizerColorTheme,
+                    opacity = visualizerOpacity,
+                    modifier = Modifier.fillMaxSize(),
+                    spectrumData = spectrumData,
+                )
             }
         }
     }
@@ -560,6 +605,7 @@ fun NewMiniPlayerContent(
                 .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
         MiniPlayerArtwork(
+            isPlaying = isPlaying,
             artworkUrl =
                 mediaMetadata.resolvePlaybackArtworkUrl()
                     ?: playerConnection.player.currentMediaItem.resolvePlaybackArtworkUrl(),
@@ -567,6 +613,7 @@ fun NewMiniPlayerContent(
             duration = duration,
             isLoading = isLoading,
             colors = colors,
+            playerConnection = playerConnection,
         )
 
         Spacer(modifier = Modifier.width(5.dp))

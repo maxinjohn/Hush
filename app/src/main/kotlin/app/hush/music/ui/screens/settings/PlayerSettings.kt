@@ -47,6 +47,7 @@ import app.hush.music.constants.AudioNormalizationKey
 import app.hush.music.constants.AudioOffload
 import app.hush.music.constants.AudioQuality
 import app.hush.music.constants.AudioQualityKey
+
 import app.hush.music.constants.AutoDownloadOnLikeKey
 import app.hush.music.constants.AutoSkipNextOnErrorKey
 import app.hush.music.constants.AutoStartOnBluetoothKey
@@ -240,7 +241,6 @@ fun PlayerSettings(
             PlayerStreamClient.ANDROID_VR
         }
     val audioQualityEnabled = true
-
     var showArtistSeparatorsDialog by remember { mutableStateOf(false) }
     var showTagsManagementDialog by remember { mutableStateOf(false) }
     var showExternalDownloaderPackageDialog by remember { mutableStateOf(false) }
@@ -327,6 +327,15 @@ fun PlayerSettings(
                             AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
                         }
                     },
+                )
+            }
+
+            item {
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.jiosaavn_settings)) },
+                    description = stringResource(R.string.enable_saavn_streaming_desc),
+                    icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
+                    onClick = { navController.navigate("settings/player/jiosaavn") },
                 )
             }
 

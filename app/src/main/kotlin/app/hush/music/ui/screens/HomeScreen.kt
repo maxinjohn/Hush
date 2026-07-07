@@ -29,8 +29,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,6 +72,7 @@ import app.hush.music.ui.component.LocalMenuState
 import app.hush.music.ui.component.MenuState
 import app.hush.music.ui.utils.SnapLayoutInfoProvider
 import app.hush.music.viewmodels.HomeViewModel
+import timber.log.Timber
 
 private val HomeFeedMaxWidth = 1_200.dp
 private val HomeSectionSpacing = 18.dp
@@ -136,6 +141,28 @@ fun HomeScreen(
     LaunchedEffect(uiState?.showCategoryChips, selectedChip) {
         if (uiState?.showCategoryChips == false && selectedChip != null) {
             viewModel.onAction(HomeAction.SelectChip(selectedChip))
+        }
+    }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) {
+        viewModel.chipLoadError.collect { msg ->
+            snackbarHostState.showSnackbar(
+                message = msg,
+                duration = SnackbarDuration.Short,
+            )
+        }
+    }
+
+    // DIAGNOSTIC: Log each recomposition with state details
+    LaunchedEffect(screenState) {
+        if (screenState is HomeScreenState.Success) {
+            val s = screenState as HomeScreenState.Success
+            Timber.e("[ChipClick] COMPOSE RENDER: sections=%d isChipLoading=%s chips=%d selChip=%s",
+                s.uiState.homePage?.sections?.size ?: -1,
+                s.uiState.isChipLoading,
+                s.uiState.homePage?.chips?.size ?: -1,
+                s.uiState.selectedChip?.title ?: "null")
         }
     }
 
@@ -319,6 +346,21 @@ private fun HomeContent(
                             .fillMaxWidth()
                             .align(Alignment.TopCenter),
                 ) {
+                    // Show a prominent progress indicator at the top when chips are loading
+                    if (uiState.isChipLoading) {
+                        item(
+                            key = "chip_loading_progress",
+                            contentType = "chip_loading_progress",
+                        ) {
+                            LinearProgressIndicator(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+
                     if (uiState.showCategoryChips) {
                         item(
                             key = "home_category_chips",
@@ -506,34 +548,52 @@ private fun HomeContent(
                         }
                     }
 
-                    uiState.homePage?.sections.orEmpty().forEachIndexed { index, section ->
-                        val sectionKey = "${section.endpoint?.browseId ?: section.title}_$index"
-                        sectionSpacer("remote_$sectionKey")
+                    if (uiState.isChipLoading) {
+                        // Show shimmer placeholders while chip content loads
                         item(
-                            key = "home_remote_header_$sectionKey",
-                            contentType = "section_header",
+                            key = "home_chip_shimmer_spacer",
+                            contentType = "section_spacer",
                         ) {
-                            HomePageSectionTitle(
-                                section = section,
-                                navController = navController,
-                                modifier = Modifier.animateItem(),
-                            )
+                            Spacer(Modifier.height(HomeSectionSpacing))
                         }
-                        item(
-                            key = "home_remote_$sectionKey",
-                            contentType = "media_shelf",
-                        ) {
-                            HomePageSectionContent(
-                                section = section,
-                                mediaMetadata = mediaMetadata,
-                                isPlaying = isPlaying,
-                                navController = navController,
-                                playerConnection = playerConnection,
-                                menuState = menuState,
-                                haptic = haptic,
-                                scope = scope,
-                                modifier = Modifier.animateItem(),
-                            )
+                        repeat(3) { shimmerIndex ->
+                            item(
+                                key = "home_chip_shimmer_$shimmerIndex",
+                                contentType = "shimmer_section",
+                            ) {
+                                HomeLoadingShimmer()
+                            }
+                        }
+                    } else {
+                        uiState.homePage?.sections.orEmpty().forEachIndexed { index, section ->
+                            val sectionKey = "${section.endpoint?.browseId ?: section.title}_$index"
+                            sectionSpacer("remote_$sectionKey")
+                            item(
+                                key = "home_remote_header_$sectionKey",
+                                contentType = "section_header",
+                            ) {
+                                HomePageSectionTitle(
+                                    section = section,
+                                    navController = navController,
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
+                            item(
+                                key = "home_remote_$sectionKey",
+                                contentType = "media_shelf",
+                            ) {
+                                HomePageSectionContent(
+                                    section = section,
+                                    mediaMetadata = mediaMetadata,
+                                    isPlaying = isPlaying,
+                                    navController = navController,
+                                    playerConnection = playerConnection,
+                                    menuState = menuState,
+                                    haptic = haptic,
+                                    scope = scope,
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
                         }
                     }
 

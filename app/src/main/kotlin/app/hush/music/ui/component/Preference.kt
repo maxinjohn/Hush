@@ -1129,7 +1129,11 @@ fun PreferenceGroup(
                     ).clip(RoundedCornerShape(PreferenceGroupLargeCorner)),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
-            scope.items.forEachIndexed { index, itemContent ->
+            // Defensive copy prevents ConcurrentModificationException
+            // when DataStore preference updates trigger composition changes
+            // during list iteration
+            val itemsSnapshot = scope.items.toList()
+            itemsSnapshot.forEachIndexed { index, itemContent ->
                 val position =
                     when {
                         itemCount == 1 -> PreferenceGroupPosition.Single

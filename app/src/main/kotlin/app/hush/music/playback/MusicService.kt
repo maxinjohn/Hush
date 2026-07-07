@@ -36,6 +36,8 @@ import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
 import android.net.ConnectivityManager
+import app.hush.music.eq.HushEqualizerService
+import app.hush.music.eq.audio.CustomEqualizerAudioProcessor
 import android.net.Uri
 import android.os.Binder
 import android.os.Build
@@ -661,6 +663,11 @@ class MusicService :
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
     private var loudnessEnhancer: LoudnessEnhancer? = null
+
+    val hushEqualizerService = HushEqualizerService()
+    private val eqProcessor = CustomEqualizerAudioProcessor().also {
+        hushEqualizerService.addAudioProcessor(it)
+    }
 
     private var scrobbleManager: app.hush.music.utils.ScrobbleManager? = null
 
@@ -2953,6 +2960,28 @@ class MusicService :
                         )
                     } == true
                 )
+
+        // Try alternate CDN host before marking the client as failed
+        val retryableCdn = responseException.responseCode in 403..530
+        val cdnAlternate = if (retryableCdn && app.hush.music.utils.CdnUrlRotator.isCdnUrl(failedUrl)) {
+            app.hush.music.utils.CdnUrlRotator.alternateCdnUrl(failedUrl)
+        } else null
+
+        if (cdnAlternate != null) {
+            Timber.tag("MusicService").w(
+                "CDN edge failed for %s (HTTP %d), trying alternate CDN host",
+                mediaId,
+                responseException.responseCode,
+            )
+            playbackUrlCache[mediaId]?.let { entry ->
+                playbackUrlCache[mediaId] = entry.copy(url = cdnAlternate)
+            }
+            extractorPlaybackUrlCache.remove(mediaId)
+            YTPlayerUtils.invalidateCachedStreamUrls(mediaId)
+            if (!playbackStreamRecoveryTracker.registerRetryAttempt(mediaId)) return false
+            player.prepare()
+            return true
+        }
 
         playbackUrlCache.remove(mediaId)
         extractorPlaybackUrlCache.remove(mediaId)
@@ -7174,6 +7203,7 @@ class MusicService :
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                 .setAudioProcessorChain(
                     DefaultAudioSink.DefaultAudioProcessorChain(
+                        eqProcessor,
                         SilenceSkippingAudioProcessor(
                             1_500_000L,
                             0.35f,
@@ -7759,7 +7789,15 @@ class MusicService :
                 }
             }
         }
-        super.onStartCommand(intent, flags, startId)
+        try {
+            super.onStartCommand(intent, flags, startId)
+        } catch (e: RuntimeException) {
+            if (Build.VERSION.SDK_INT >= 31 && e.javaClass.name == "android.app.ForegroundServiceStartNotAllowedException") {
+                Timber.w(e, "Foreground service start not allowed (user switch?)")
+            } else {
+                throw e
+            }
+        }
         return START_NOT_STICKY
     }
 

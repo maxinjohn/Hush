@@ -9,11 +9,10 @@ package app.hush.music.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import app.hush.music.R
+
 
 fun getTypography(
     brandFont: FontFamily,
@@ -142,12 +141,10 @@ fun getTypography(
             ),
     )
 
-val AppFontFamily = FontFamily(Font(R.font.poppins))
-val OutfitFontFamily = FontFamily(Font(R.font.outfit))
-val PlusJakartaSansFontFamily = FontFamily(Font(R.font.plus_jakarta_sans))
-val SansFlexFontFamily = FontFamily(Font(R.font.sans_flex))
-val GoogleSansFontFamily = FontFamily(Font(R.font.google_sans_flex))
-val LyricsFontFamily = FontFamily(Font(R.font.sfprodisplaybold))
+val AppFontFamily: FontFamily = FontFamily.Default
+val OutfitFontFamily: FontFamily = FontFamily.Default
+val PlusJakartaSansFontFamily: FontFamily = FontFamily.Default
+val LyricsFontFamily: FontFamily = FontFamily.Default
 val AppTypography = getTypography(brandFont = AppFontFamily, plainFont = FontFamily.Default)
 val SystemTypography = getTypography(brandFont = FontFamily.Default, plainFont = FontFamily.Default)
 
@@ -157,9 +154,8 @@ fun fontFamilyFor(preference: app.hush.music.constants.AppFontPreference): FontF
         app.hush.music.constants.AppFontPreference.SYSTEM -> FontFamily.Default
         app.hush.music.constants.AppFontPreference.OUTFIT -> OutfitFontFamily
         app.hush.music.constants.AppFontPreference.PLUS_JAKARTA -> PlusJakartaSansFontFamily
-        app.hush.music.constants.AppFontPreference.SANS_FLEX -> SansFlexFontFamily
-        app.hush.music.constants.AppFontPreference.GOOGLE_SANS -> GoogleSansFontFamily
         app.hush.music.constants.AppFontPreference.CUSTOM -> AppFontFamily
+        else -> AppFontFamily
     }
 
 fun plainFontFamilyFor(preference: app.hush.music.constants.AppFontPreference): FontFamily =

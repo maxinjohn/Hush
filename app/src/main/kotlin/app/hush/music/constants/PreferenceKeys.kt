@@ -173,6 +173,12 @@ val ProxyPasswordKey = stringPreferencesKey("proxyPassword")
 val ProxyTypeKey = stringPreferencesKey("proxyType")
 val EnableDnsOverHttpsKey = booleanPreferencesKey("enableDnsOverHttps")
 val DnsOverHttpsProviderKey = stringPreferencesKey("dnsOverHttpsProvider")
+
+// SponsorBlock
+val EnableSponsorBlockKey = booleanPreferencesKey("enableSponsorBlock")
+val SponsorBlockCategoriesKey = stringPreferencesKey("sponsorBlockCategories")
+val SponsorBlockAutoSkipKey = booleanPreferencesKey("sponsorBlockAutoSkip")
+val SponsorBlockShowSkipButtonKey = booleanPreferencesKey("sponsorBlockShowSkipButton")
 val StreamBypassProxyKey = booleanPreferencesKey("streamBypassProxy")
 val IpRotationEnabledKey = booleanPreferencesKey("ipRotationEnabled")
 val YtmSyncKey = booleanPreferencesKey("ytmSync")
@@ -307,6 +313,11 @@ val PlaylistTagsFilterKey = stringPreferencesKey("playlistTagsFilter")
 val ShowHomeCategoryChipsKey = booleanPreferencesKey("showHomeCategoryChips")
 val ShowTagsInLibraryKey = booleanPreferencesKey("showTagsInLibrary")
 
+val VisualizerEnabledKey = booleanPreferencesKey("visualizerEnabled")
+val VisualizerStyleKey = stringPreferencesKey("visualizerStyle")
+val VisualizerColorThemeKey = stringPreferencesKey("visualizerColorTheme")
+val VisualizerMiniPlayerKey = booleanPreferencesKey("visualizerMiniPlayer")
+val VisualizerOpacityKey = floatPreferencesKey("visualizerOpacity")
 val EqualizerEnabledKey = booleanPreferencesKey("equalizerEnabled")
 val EqualizerBandLevelsMbKey = stringPreferencesKey("equalizerBandLevelsMb")
 val EqualizerOutputGainEnabledKey = booleanPreferencesKey("equalizerOutputGainEnabled")
@@ -616,12 +627,13 @@ enum class PlayerDesignStyle {
     V9,
     ;
 
-    /** Legacy styles hidden from settings; existing users are migrated to [DEFAULT]. */
+    /** Legacy/rationalized styles hidden from settings; existing users are migrated to [DEFAULT]. */
     val isDeprecated: Boolean
-        get() = this == V1 || this == V3 || this == V5
+        get() = this == V1 || this == V3 || this == V5 || this == V7 || this == V8 || this == V9
 
-    /** All installs use Expressive (V6); legacy values migrate here. */
-    fun normalized(): PlayerDesignStyle = V6
+    /** Only deprecated styles normalize to [DEFAULT]; active styles keep their identity. */
+    fun normalized(): PlayerDesignStyle =
+        if (isDeprecated) DEFAULT else this
 
     companion object {
         /** Default for new installs before the user picks a style in settings. */
@@ -629,7 +641,7 @@ enum class PlayerDesignStyle {
 
         /** Styles shown in Settings → Player design style. */
         val selectableValues: List<PlayerDesignStyle> =
-            listOf(V6)
+            listOf(V2, V4, V6)
     }
 }
 
@@ -669,6 +681,7 @@ enum class LyricsAnimationStyle {
     HUSH_FLUID,
     LYRICS_V2,
     METRO_LYRICS,
+    OCEAN_WAVE,
 }
 
 val CanvasSourceKey = stringPreferencesKey("canvasSource")

@@ -448,6 +448,11 @@ fun NavGraphBuilder.navigationBuilder(
             TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
         JioSaavnSettings(navController, nestedScrollBehavior)
     }
+    composable("settings/player/jiosaavn") {
+        val nestedScrollBehavior =
+            TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+        JioSaavnSettings(navController, nestedScrollBehavior)
+    }
     composable("settings/android_auto") {
         AndroidAutoSettings(navController, scrollBehavior)
     }

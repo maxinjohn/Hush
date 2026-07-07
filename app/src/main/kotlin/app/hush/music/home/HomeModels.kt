@@ -50,6 +50,7 @@ data class HomeUiState(
     val showTonalBackdrop: Boolean,
     val isRefreshing: Boolean,
     val isLoadingMore: Boolean,
+    val isChipLoading: Boolean,
 )
 
 sealed interface HomeAction {

@@ -270,15 +270,24 @@ object SaavnPlaybackResolver {
 
     private fun cleanTitleForSearch(title: String): String =
         title
-            .replace(Regex("(?i)\\(.*?official.*?\\)"), "")
-            .replace(Regex("(?i)\\[.*?\\]"), "")
-            .replace(Regex("(?i)\\(.*?\\)"), "")
-            .replace(Regex("(?i)\\s*-\\s*topic\\b"), "")
+            .replace(Regex("(?i)\\s*\\(.*?official.*?\\)\\s*"), " ")
+            .replace(Regex("(?i)\\s*\\[.*?official.*?\\]\\s*"), " ")
+            .replace(Regex("(?i)\\s*\\(.*?lyrics?\\)\\s*"), " ")
+            .replace(Regex("(?i)\\s*\\(.*?video\\)\\s*"), " ")
+            .replace(Regex("(?i)\\s*\\(.*?audio\\)\\s*"), " ")
+            .replace(Regex("(?i)\\s*\\(.*?music\\)\\s*"), " ")
+            .replace(Regex("(?i)\\s*\\(.*?explicit\\)\\s*"), " ")
+            .replace(Regex("(?i)\\s+\\(?ft\\.?\\s+.*$"), "")
+            .replace(Regex("(?i)\\s+\\(?feat\\.?\\s+.*$"), "")
+            .replace(Regex("(?i)\\s+-\\s+topic\\b"), "")
             .replace(Regex("(?i)\\s*\\|\\s*.*$"), "")
-            .replace(Regex("(?i)\\s+(ft\\.?|feat\\.?).*$"), "")
-            .replace(Regex("(?i)\\s+lyrics\\s+video\\b"), "")
+            .replace(Regex("(?i)\\s+lyrics\\s+video\\b"), " ")
             .replace(Regex("(?i)\\s+video\\s*$"), "")
             .replace(Regex("\\s+"), " ")
+            .trim()
+            .removeSuffix(",")
+            .trim()
+            .removeSuffix("-")
             .trim()
 
     private fun cleanArtistForSearch(artist: String): String =

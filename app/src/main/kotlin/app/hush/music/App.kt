@@ -64,6 +64,8 @@ import app.hush.music.utils.clearPlaybackWebAuthSession
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 import app.hush.music.utils.potoken.BotGuardTokenGenerator
+import app.hush.music.jiosaavn.DeviceRouter
+import app.hush.music.utils.CipherConfigFetcher
 import app.hush.music.utils.reportException
 import app.hush.music.utils.safeDataStoreEdit
 import app.hush.music.utils.refreshPlaybackLoginContext
@@ -164,6 +166,9 @@ class App :
             apiKey = BuildConfig.LASTFM_API_KEY,
             secret = BuildConfig.LASTFM_SECRET,
         )
+
+        DeviceRouter.init(this)
+        CipherConfigFetcher.init(this)
     }
 
     private fun initializeDeferredAsync() {

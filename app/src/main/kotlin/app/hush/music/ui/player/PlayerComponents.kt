@@ -2407,6 +2407,7 @@ fun V6LandscapeControlsPanel(
 ) {
     val currentSong by playerConnection.currentSong.collectAsState(initial = null)
     val currentSongLiked = currentSong?.song?.liked == true
+    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
 
     val playPauseRoundness by animateDpAsState(
         targetValue = if (isPlaying) 24.dp else 36.dp,
@@ -2487,6 +2488,15 @@ fun V6LandscapeControlsPanel(
                 bottomSheetPageState = bottomSheetPageState,
                 context = context,
                 currentSongLiked = currentSongLiked,
+                landscape = true,
+            )
+
+            V6ShuffleRepeatRow(
+                shuffleModeEnabled = shuffleModeEnabled,
+                repeatMode = repeatMode,
+                accent = MaterialTheme.colorScheme.primary,
+                foreground = textBackgroundColor,
+                playerConnection = playerConnection,
                 landscape = true,
             )
         }
@@ -6182,6 +6192,19 @@ private fun PlayerLandscapeSecondaryActions(
     compact: Boolean = false,
 ) {
     val context = LocalContext.current
+    val database = LocalDatabase.current
+    val download by LocalDownloadUtil.current
+        .getDownload(mediaMetadata.id)
+        .collectAsState(initial = null)
+    val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
+    val isLocalMedia =
+        remember(librarySong?.song?.isLocal, mediaMetadata.id) {
+            librarySong?.song?.isLocal == true || mediaMetadata.id.isLocalMediaId()
+        }
+    val isDownloading =
+        download?.state == Download.STATE_QUEUED ||
+            download?.state == Download.STATE_DOWNLOADING
+    val isDownloaded = download?.state == Download.STATE_COMPLETED
     val buttonSize = if (compact) 40.dp else 44.dp
     val iconSize = if (compact) 18.dp else 20.dp
     val repeatIcon =
@@ -6223,6 +6246,29 @@ private fun PlayerLandscapeSecondaryActions(
             iconSize = iconSize,
             onClick = { playerConnection.toggleLike() },
         )
+
+        if (!isLocalMedia) {
+            WideLandscapeActionButton(
+                iconRes =
+                    if (isDownloaded) R.drawable.offline
+                    else R.drawable.download,
+                contentDescription =
+                    stringResource(
+                        if (isDownloaded) R.string.remove_download else R.string.action_download,
+                    ),
+                foreground = foreground,
+                buttonSize = buttonSize,
+                iconSize = iconSize,
+                onClick = {
+                    handleV6PlayerDownloadClick(
+                        context = context,
+                        database = database,
+                        mediaMetadata = mediaMetadata,
+                        download = download,
+                    )
+                },
+            )
+        }
         onLyricsClick?.let { lyricsClick ->
             WideLandscapeActionButton(
                 iconRes = R.drawable.lyrics,

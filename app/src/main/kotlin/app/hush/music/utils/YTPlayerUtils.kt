@@ -20,6 +20,7 @@ import app.hush.music.constants.usesStrictYouTubeClient
 import app.hush.music.innertube.NewPipeUtils
 import app.hush.music.innertube.PlaybackAuthState
 import app.hush.music.innertube.YouTube
+import app.hush.music.innertube.config.RemoteCipherConfig
 import app.hush.music.innertube.models.YouTubeClient
 import app.hush.music.innertube.models.YouTubeClient.Companion.ANDROID_CREATOR
 import app.hush.music.innertube.models.YouTubeClient.Companion.ANDROID_MUSIC
@@ -42,6 +43,7 @@ import app.hush.music.innertube.models.response.PlayerResponse
 import app.hush.music.utils.potoken.BotGuardTokenGenerator
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl
 import timber.log.Timber
 import java.net.Proxy
 import java.util.Locale
@@ -481,6 +483,8 @@ object YTPlayerUtils {
         val playbackClientLabel: String? = null,
         /** Audio bytes come from JioSaavn; YT metadata/history/likes still use [videoDetails]. */
         val isSaavnStream: Boolean = false,
+        /** Alternate CDN hosts for the same stream, used for transparent CDN failover. */
+        val alternateCdnUrls: List<String> = emptyList(),
     )
 
     /**
@@ -801,6 +805,18 @@ object YTPlayerUtils {
                     )
                     return@filterNot true
                 }
+                val remoteDisabled = RemoteCipherConfig.disabledClientSet(
+                    CipherConfigFetcher.getConfigSync(),
+                ).let { disabled ->
+                    val name = client.clientName
+                    disabled.any { name.contains(it, ignoreCase = true) }
+                }
+                if (remoteDisabled) {
+                    Timber.tag(logTag).d(
+                        "Skipping ${describeClient(client)} — disabled by remote cipher config",
+                    )
+                    return@filterNot true
+                }
                 val blocked =
                     isStreamClientTemporarilyBlocked(
                         videoId = videoId,
@@ -1090,6 +1106,10 @@ object YTPlayerUtils {
                 authFingerprint = authState.fingerprint,
             )
 
+        val altCdnUrls = runCatching {
+            CdnUrlRotator.allAlternateCdnUrls(streamUrl)
+        }.getOrNull().orEmpty()
+
         return PlaybackData(
             metadataPlayerResponse.playerConfig?.audioConfig,
             metadataPlayerResponse.videoDetails,
@@ -1099,6 +1119,7 @@ object YTPlayerUtils {
             streamExpiresInSeconds,
             authState.fingerprint,
             "YouTube",
+            alternateCdnUrls = altCdnUrls,
         )
     }
 
@@ -1363,10 +1384,18 @@ object YTPlayerUtils {
     }
 
     /**
-     * Wrapper around the [NewPipeUtils.getSignatureTimestamp] function which reports exceptions
+     * Wrapper around the [NewPipeUtils.getSignatureTimestamp] function which reports exceptions.
+     * Checks remote cipher config first for a centrally-managed timestamp override.
      */
     private fun getSignatureTimestampOrNull(videoId: String): Int? {
-        Timber.tag(logTag).i("Getting signature timestamp for videoId: $videoId")
+        val remoteConfig = CipherConfigFetcher.getConfigSync()
+        val remoteTs = remoteConfig.signatureTimestamp
+        if (remoteTs != null && remoteTs > 0) {
+            Timber.tag(logTag).i("Using remote cipher config signature timestamp: $remoteTs")
+            return remoteTs
+        }
+
+        Timber.tag(logTag).i("Getting signature timestamp from NewPipe for videoId: $videoId")
         return NewPipeUtils
             .getSignatureTimestamp(videoId)
             .onSuccess { Timber.tag(logTag).i("Signature timestamp obtained: $it") }

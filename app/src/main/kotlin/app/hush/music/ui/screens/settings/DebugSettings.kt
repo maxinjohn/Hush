@@ -73,16 +73,11 @@ import kotlinx.coroutines.isActive
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
-import app.hush.music.constants.EnableSaavnStreamingKey
-import app.hush.music.constants.SaavnAudioQuality
-import app.hush.music.constants.SaavnAudioQualityKey
-import app.hush.music.ui.component.FeatureBetaBadge
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.PreferenceEntry
 import app.hush.music.ui.component.PreferenceGroup
 import app.hush.music.ui.component.SwitchPreference
 import app.hush.music.ui.utils.backToMain
-import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberPreference
 import kotlin.math.roundToInt
 
@@ -100,10 +95,6 @@ fun DebugSettings(navController: NavController) {
             key = booleanPreferencesKey("show_codec_on_player"),
             defaultValue = false,
         )
-
-    val (saavnEnabled, _) = rememberPreference(EnableSaavnStreamingKey, defaultValue = false)
-    val (saavnQuality, _) =
-        rememberEnumPreference(SaavnAudioQualityKey, defaultValue = SaavnAudioQuality.QUALITY_320)
 
     val playerConnection = LocalPlayerConnection.current
 
@@ -161,28 +152,6 @@ fun DebugSettings(navController: NavController) {
                         onCheckedChange = onShowCodecOnPlayerChange,
                     )
                 }
-
-                item {
-                    PreferenceEntry(
-                        title = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text(stringResource(R.string.jiosaavn_settings))
-                                FeatureBetaBadge()
-                            }
-                        },
-                        description =
-                            if (saavnEnabled) {
-                                saavnQuality.toLabel()
-                            } else {
-                                stringResource(R.string.jiosaavn_settings_off)
-                            },
-                        icon = { Icon(painterResource(R.drawable.music_note), null) },
-                        onClick = { navController.navigate("settings/misc/jiosaavn") },
-                    )
-                }
             }
 
             AnimatedVisibility(
@@ -226,6 +195,8 @@ private fun NerdStatsSection(playerConnection: app.hush.music.playback.PlayerCon
             delay(500)
         }
     }
+
+    val playbackSourceLabel by playerConnection.activePlaybackClientLabel.collectAsState()
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -276,6 +247,41 @@ private fun NerdStatsSection(playerConnection: app.hush.music.playback.PlayerCon
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // Playback source indicator
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                val sourceLabel = when {
+                    playbackSourceLabel?.contains("JioSaavn", ignoreCase = true) == true -> "JioSaavn"
+                    playbackSourceLabel?.contains("Hi-Res", ignoreCase = true) == true -> playbackSourceLabel ?: "Hi-Res"
+                    else -> "YouTube"
+                }
+                val isSaavn = playbackSourceLabel?.contains("JioSaavn", ignoreCase = true) == true
+                NerdStatChip(
+                    icon = R.drawable.graphic_eq,
+                    label = stringResource(R.string.player_info_source),
+                    value = sourceLabel,
+                    modifier = Modifier.weight(1f),
+                    valueColor = if (isSaavn) Color(0xFF43B581) else MaterialTheme.colorScheme.primary,
+                )
+
+                val formatLabel = when {
+                    playbackSourceLabel?.contains("JioSaavn", ignoreCase = true) == true -> {
+                        val quality = currentFormat?.bitrate?.let { "${it / 1000} kbps" } ?: "AAC"
+                        quality
+                    }
+                    currentFormat?.mimeType?.substringAfter("/")?.uppercase()?.startsWith("MP") == true -> "AAC"
+                    else -> currentFormat?.mimeType?.substringAfter("/")?.uppercase() ?: "N/A"
+                }
+                NerdStatChip(
+                    icon = R.drawable.music_note,
+                    label = stringResource(R.string.player_info_audio),
+                    value = formatLabel,
+                    modifier = Modifier.weight(1f),
+                )
+            }
 
             if (mediaMetadata != null) {
                 NerdStatCard(

@@ -19,7 +19,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.res.ResourcesCompat
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
@@ -29,7 +28,6 @@ import io.noties.markwon.image.ImagesPlugin
 import io.noties.markwon.image.network.OkHttpNetworkSchemeHandler
 import io.noties.markwon.linkify.LinkifyPlugin
 import io.noties.markwon.simple.ext.SimpleExtPlugin
-import app.hush.music.R
 
 @Composable
 fun MarkdownText(
@@ -41,11 +39,6 @@ fun MarkdownText(
     val context = LocalContext.current
     val colorArgb = color.toArgb()
     val fontSize = style.fontSize
-
-    val typeface =
-        remember(context) {
-            ResourcesCompat.getFont(context, R.font.poppins)
-        }
 
     val markwon =
         remember(context) {
@@ -80,8 +73,7 @@ fun MarkdownText(
             if (fontSize.isSp) {
                 textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize.value)
             }
-            typeface?.let { textView.typeface = it }
-            markwon.setParsedMarkdown(textView, spanned)
+markwon.setParsedMarkdown(textView, spanned)
         },
         modifier = modifier,
     )

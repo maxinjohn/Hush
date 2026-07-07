@@ -159,4 +159,5 @@ fun lyricsAnimationStyleLabel(style: app.hush.music.constants.LyricsAnimationSty
         app.hush.music.constants.LyricsAnimationStyle.HUSH_FLUID -> stringResource(R.string.hush_music_fluid)
         app.hush.music.constants.LyricsAnimationStyle.LYRICS_V2 -> stringResource(R.string.lyrics_v2_fluid)
         app.hush.music.constants.LyricsAnimationStyle.METRO_LYRICS -> stringResource(R.string.lyrics_animation_metro)
+        app.hush.music.constants.LyricsAnimationStyle.OCEAN_WAVE -> stringResource(R.string.lyrics_animation_ocean_wave)
     }
