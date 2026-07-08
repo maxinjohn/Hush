@@ -6602,14 +6602,21 @@ class MusicService :
 
         knownContentLength?.takeIf { it > 0L }?.let { contentLengthCache[mediaId] = it }
 
-        if (!isSaavnStreamingEnabled()) {
-            resolveLocalPlaybackDataSpecIfAvailable(
-                dataSpec = dataSpec,
-                mediaId = mediaId,
-                knownContentLength = knownContentLength,
-            )?.let { localDataSpec ->
+        // Always check local cache first, regardless of Saavn setting.
+        // If fully downloaded with acceptable quality (≥160kbps), play from cache.
+        // If quality is low, still prefer cache unless online can provide better quality.
+        val cachedDataSpec = resolveLocalPlaybackDataSpecIfAvailable(
+            dataSpec = dataSpec,
+            mediaId = mediaId,
+            knownContentLength = knownContentLength,
+        )
+        if (cachedDataSpec != null) {
+            val storedFormat = formatEntityCache[mediaId]
+            val cachedBitrate = storedFormat?.bitrate?.takeIf { it > 0 }
+            val qualityAcceptable = cachedBitrate == null || cachedBitrate >= 160_000
+            if (qualityAcceptable || !isSaavnStreamingEnabled()) {
                 scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
-                return localDataSpec
+                return cachedDataSpec
             }
         }
 

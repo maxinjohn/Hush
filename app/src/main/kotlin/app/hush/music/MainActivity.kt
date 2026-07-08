@@ -285,6 +285,7 @@ import app.hush.music.ui.utils.resetContentOffset
 import app.hush.music.ui.utils.resetHeightOffset
 import app.hush.music.utils.PreferenceStore
 import app.hush.music.utils.SyncUtils
+import app.hush.music.utils.AppUpdateInstaller
 import app.hush.music.utils.Updater
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
@@ -595,6 +596,17 @@ class MainActivity : ComponentActivity() {
                         .MenuState()
                 }
             val releaseNotesState = remember { mutableStateOf<String?>(null) }
+            var showUpdateDownloadDialog by remember { mutableStateOf(false) }
+            var updateDownloadProgress by remember { mutableStateOf<Float?>(null) }
+            var updateDownloadError by remember { mutableStateOf<String?>(null) }
+            val updateDownloadScope = rememberCoroutineScope()
+            val openUpdateUrl: (String) -> Unit = { url ->
+                try {
+                    android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).also {
+                        startActivity(it)
+                    }
+                } catch (_: Exception) {}
+            }
             val updateSheetContent: @Composable ColumnScope.() -> Unit = {
                 // receiver: ColumnScope
                 Text(
@@ -650,8 +662,29 @@ class MainActivity : ComponentActivity() {
                 androidx.compose.material3.Button(
                     onClick = {
                         bottomSheetPageState.dismiss()
-                        this@MainActivity.navController.navigate("settings/update") {
-                            launchSingleTop = true
+                        val url = Updater.getLatestDownloadUrl()
+                        if (url.isBlank()) {
+                            this@MainActivity.navController.navigate("settings/update") {
+                                launchSingleTop = true
+                            }
+                            return@Button
+                        }
+                        updateDownloadProgress = null
+                        updateDownloadError = null
+                        showUpdateDownloadDialog = true
+                        updateDownloadScope.launch {
+                            AppUpdateInstaller
+                                .downloadAndInstall(this@MainActivity, url) { progress ->
+                                    updateDownloadProgress = progress.fraction
+                                }.onSuccess {
+                                    showUpdateDownloadDialog = false
+                                }.onFailure { error ->
+                                    showUpdateDownloadDialog = false
+                                    updateDownloadError = error.message ?: "Download failed"
+                                    if (error.message?.contains("can't be installed", ignoreCase = true) != true) {
+                                        openUpdateUrl(url)
+                                    }
+                                }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -659,6 +692,31 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Text(text = stringResource(R.string.update_text))
                 }
+            }
+
+            if (showUpdateDownloadDialog) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { showUpdateDownloadDialog = false },
+                    title = { Text(stringResource(R.string.downloading)) },
+                    text = {
+                        Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                            if (updateDownloadProgress != null) {
+                                Text(
+                                    text = "${(updateDownloadProgress!! * 100).toInt()}%",
+                                    style = MaterialTheme.typography.titleLarge,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                CircularProgressIndicator(
+                                    progress = { updateDownloadProgress!! },
+                                    modifier = Modifier.size(64.dp),
+                                )
+                            } else {
+                                CircularProgressIndicator(modifier = Modifier.size(64.dp))
+                            }
+                        }
+                    },
+                    confirmButton = {},
+                )
             }
 
             // fetch release notes and show sheet when a new version is detected

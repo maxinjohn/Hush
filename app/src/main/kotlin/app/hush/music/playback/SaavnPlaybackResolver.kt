@@ -26,10 +26,20 @@ import app.hush.music.utils.dataStore
 import app.hush.music.utils.getAsync
 import timber.log.Timber
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import androidx.media3.common.MediaMetadata as ExoMediaMetadata
 
 object SaavnPlaybackResolver {
     private const val TAG = "SaavnPlayback"
+    private val matchCache = ConcurrentHashMap<String, SaavnSong?>()
+    private const val MATCH_CACHE_MAX_SIZE = 1000
+    private val streamUrlCache = ConcurrentHashMap<String, StreamUrlCacheEntry>()
+    private const val STREAM_URL_TTL_MS = 6 * 60 * 60 * 1000L // 6 hours
+
+    private data class StreamUrlCacheEntry(
+        val url: String,
+        val expiresAt: Long,
+    )
 
     data class PlaybackHints(
         val title: String? = null,
@@ -134,20 +144,34 @@ object SaavnPlaybackResolver {
             )
 
             val bestSong =
-                findBestMatch(
-                    title = title,
-                    artistNames = artistNames,
-                    albumName = albumName,
-                    expectedDurationSec =
-                        hints?.durationSec?.takeIf { it > 0 }
-                            ?: metadata?.videoDetails?.lengthSeconds?.toIntOrNull()?.takeIf { it > 0 },
-                ) ?: run {
-                    Timber.tag(TAG).w("No Saavn match for videoId=%s title=\"%s\"", videoId, title)
-                    return@runCatching null
-                }
+                matchCache[videoId]
+                    ?: findBestMatch(
+                        title = title,
+                        artistNames = artistNames,
+                        albumName = albumName,
+                        expectedDurationSec =
+                            hints?.durationSec?.takeIf { it > 0 }
+                                ?: metadata?.videoDetails?.lengthSeconds?.toIntOrNull()?.takeIf { it > 0 },
+                    ).also { result ->
+                        if (matchCache.size >= MATCH_CACHE_MAX_SIZE) matchCache.clear()
+                        matchCache[videoId] = result
+                    } ?: run {
+                        Timber.tag(TAG).w("No Saavn match for videoId=%s title=\"%s\"", videoId, title)
+                        return@runCatching null
+                    }
 
             val streamUrl =
-                SaavnService.resolveStreamUrl(bestSong, quality.toApiValue())
+                streamUrlCache[videoId]
+                    ?.takeIf { it.expiresAt > System.currentTimeMillis() }
+                    ?.url
+                    ?: SaavnService.resolveStreamUrl(bestSong, quality.toApiValue())
+                        ?.also { url ->
+                            if (streamUrlCache.size >= MATCH_CACHE_MAX_SIZE) streamUrlCache.clear()
+                            streamUrlCache[videoId] = StreamUrlCacheEntry(
+                                url = url,
+                                expiresAt = System.currentTimeMillis() + STREAM_URL_TTL_MS,
+                            )
+                        }
                     ?: run {
                         Timber.tag(TAG).w("Saavn match found but stream URL missing for id=%s", bestSong.id)
                         return@runCatching null

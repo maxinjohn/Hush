@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import app.hush.music.constants.AudioQuality
 import app.hush.music.constants.AudioQualityKey
 import app.hush.music.db.MusicDatabase
@@ -50,6 +51,7 @@ import app.hush.music.utils.isLowDataModeActive
 import app.hush.music.utils.resolveEffectiveAudioQuality
 import app.hush.music.utils.retryWithoutPlaybackLoginContext
 import okhttp3.ConnectionPool
+import timber.log.Timber
 import okhttp3.OkHttpClient
 import java.time.LocalDateTime
 import java.util.concurrent.ConcurrentHashMap
@@ -68,7 +70,9 @@ class DownloadUtil
         @DownloadCache val downloadCache: Cache,
         @PlayerCache val playerCache: Cache,
     ) {
-        private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
+        private val appContext = context
+        private val TAG = "DownloadUtil"
+        private val connectivityManager = appContext.getSystemService<ConnectivityManager>()!!
         private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
         private val downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val songUrlCache = ConcurrentHashMap<String, AuthScopedCacheValue>()
@@ -229,6 +233,46 @@ class DownloadUtil
                         }
                         previousFingerprint = fingerprint
                     }
+            }
+            // Pre-resolve pending download URLs immediately so ExoPlayer doesn't block
+            downloadScope.launch {
+                downloads.collect { currentDownloads ->
+                    for ((id, download) in currentDownloads) {
+                        if (download.state == Download.STATE_QUEUED || download.state == Download.STATE_DOWNLOADING) {
+                            val streamCacheKey = buildSongUrlCacheKey(id, resolveDownloadAudioQuality(false))
+                            if (!songUrlCache.containsKey(streamCacheKey)) {
+                                launch {
+                                    preResolveDownloadUrl(id)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private suspend fun preResolveDownloadUrl(mediaId: String) {
+            try {
+                val playbackData = withContext(Dispatchers.IO) {
+                    appContext.retryWithoutPlaybackLoginContext {
+                        YTPlayerUtils.playerResponseForDownload(
+                            mediaId,
+                            audioQuality = resolveDownloadAudioQuality(false),
+                            connectivityManager = connectivityManager,
+                            networkMetered = false,
+                            context = appContext,
+                        )
+                    }
+                }.getOrThrow()
+                persistPlaybackMetadata(mediaId, playbackData)
+                val streamCacheKey = buildSongUrlCacheKey(mediaId, resolveDownloadAudioQuality(false))
+                songUrlCache[streamCacheKey] = AuthScopedCacheValue(
+                    url = playbackData.streamUrl,
+                    expiresAtMs = System.currentTimeMillis() + (playbackData.streamExpiresInSeconds * 1000L),
+                    authFingerprint = playbackData.authFingerprint,
+                )
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "Pre-resolve failed for $mediaId")
             }
         }
 
