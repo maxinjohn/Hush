@@ -99,6 +99,17 @@ jobs:
             echo "value=" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Build Waze shim APKs (fresh for each CI run)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease --no-daemon
+          mkdir -p "${{ github.workspace }}/app/src/main/assets/"
+          cd waze-shim/build/outputs/apk
+          rm -f waze-shims.zip
+          zip -j waze-shims.zip spotify/release/waze-shim-spotify-release.apk youtubeMusic/release/waze-shim-youtubeMusic-release.apk
+          cp waze-shims.zip "${{ github.workspace }}/app/src/main/assets/"
+
       - name: Build Release APK
         shell: bash
         run: |

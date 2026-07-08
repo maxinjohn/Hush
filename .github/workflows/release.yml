@@ -222,6 +222,17 @@ jobs:
             return 1
           }
 
+          build_with_shims() {
+            ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease --no-daemon
+            mkdir -p "${{ github.workspace }}/app/src/main/assets/"
+            cd waze-shim/build/outputs/apk
+            rm -f waze-shims.zip
+            zip -j waze-shims.zip spotify/release/waze-shim-spotify-release.apk youtubeMusic/release/waze-shim-youtubeMusic-release.apk
+            cp waze-shims.zip "${{ github.workspace }}/app/src/main/assets/"
+            cd "${{ github.workspace }}"
+          }
+
+          build_with_shims
           ./gradlew clean assembleGmsMobileUniversalRelease
           APK_1="$(locate_universal_apk || true)"
           if [ -z "${APK_1:-}" ] || [ ! -f "$APK_1" ]; then
@@ -233,6 +244,7 @@ jobs:
           SHA_1="$(sha256sum "$APK_1" | awk '{print $1}')"
           cp "$APK_1" /tmp/universal-1.apk
 
+          build_with_shims
           ./gradlew clean assembleGmsMobileUniversalRelease
           APK_2="$(locate_universal_apk || true)"
           if [ -z "${APK_2:-}" ] || [ ! -f "$APK_2" ]; then
@@ -326,6 +338,17 @@ jobs:
           echo "artifact_name=hush-${DISTRIBUTION}-${DEVICE}-${ABI}-release" >> "$GITHUB_OUTPUT"
           echo "apk_name=hush-${DISTRIBUTION}-${DEVICE}-${ABI}-release.apk" >> "$GITHUB_OUTPUT"
  
+      - name: Build Waze shim APKs (fresh for each CI run)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease --no-daemon
+          mkdir -p "${{ github.workspace }}/app/src/main/assets/"
+          cd waze-shim/build/outputs/apk
+          rm -f waze-shims.zip
+          zip -j waze-shims.zip spotify/release/waze-shim-spotify-release.apk youtubeMusic/release/waze-shim-youtubeMusic-release.apk
+          cp waze-shims.zip "${{ github.workspace }}/app/src/main/assets/"
+
       - name: Build Release APK
         shell: bash
         run: |
