@@ -75,7 +75,7 @@ Same Hush. Different sauce in the APK.
 | --- | :---: | :---: |
 | Play music, sync library, lyrics, settings | ✓ | ✓ |
 | Chromecast | — | ✓ |
-| In-app updater | — | ✓ |
+| In-app updater | ✓ | ✓ |
 | Google Play Services | **Nah** | **Only for Cast** |
 
 ### Install said "nah"?
