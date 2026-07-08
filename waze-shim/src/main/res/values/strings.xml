@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="waze_shim_app_name">Hush</string>
+    <string name="waze_integration">Waze Bridge</string>
+    <string name="waze_integration_description">Control Hush from inside the Waze map</string>
+    <string name="waze_integration_enabled">Waze Bridge Active</string>
+    <string name="waze_integration_off">Toggle on to show Hush in Waze</string>
+    <string name="waze_integration_toggle_desc">Makes Waze see Hush as a music player you can control from the map</string>
+    <string name="waze_integration_spotify">Spotify</string>
+    <string name="waze_integration_youtube_music">YouTube Music</string>
+    <string name="waze_integration_installing">Installing…</string>
+    <string name="waze_integration_uninstalling">Uninstalling…</string>
+    <string name="waze_integration_installed">Installed. Open Waze to see Hush.</string>
+    <string name="waze_integration_uninstalled">Removed.</string>
+    <string name="waze_integration_conflict">Can\'t install — %s is already installed. Pick the other app.</string>
+    <string name="waze_integration_error">Error: %s</string>
+</resources>

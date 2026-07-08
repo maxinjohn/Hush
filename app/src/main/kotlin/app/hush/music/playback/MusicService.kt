@@ -188,6 +188,7 @@ import app.hush.music.constants.StreamSourcePreferences
 import app.hush.music.constants.StopMusicOnTaskClearKey
 import app.hush.music.constants.TogetherClientIdKey
 import app.hush.music.constants.WakelockKey
+import app.hush.music.constants.WazeTargetApp
 import app.hush.music.constants.YtmSyncKey
 import app.hush.music.db.MusicDatabase
 import app.hush.music.db.entities.AlbumEntity
@@ -204,6 +205,7 @@ import app.hush.music.extensions.SilentHandler
 import app.hush.music.extensions.collect
 import app.hush.music.extensions.collectLatest
 import app.hush.music.extensions.currentMetadata
+import app.hush.music.models.artistsDisplayText
 import app.hush.music.extensions.directorySizeBytes
 import app.hush.music.extensions.findNextMediaItemById
 import app.hush.music.extensions.mediaItems
@@ -330,6 +332,10 @@ class MusicService :
     private var hasAudioFocus = false
     private var autoStartOnBluetoothEnabled = false
     private var bluetoothReceiverRegistered = false
+    private val wazeCommandReceiver = WazeCommandReceiver()
+    private var wazeReceiverRegistered = false
+    private var pendingWazeCommand: Intent? = null
+    private var lastWazeMetadataUpdateTime = 0L
     private var wakeLock: PowerManager.WakeLock? = null
     private var wakelockEnabled = false
     private var audioDeviceCallbackRegistered = false
@@ -1025,6 +1031,15 @@ class MusicService :
         updateNotification()
         player.repeatMode = REPEAT_MODE_OFF
 
+        wazeCommandReceiver.attachService(this)
+        val wazeFilter = IntentFilter("app.hush.music.WAZE_COMMAND")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(wazeCommandReceiver, wazeFilter, RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(wazeCommandReceiver, wazeFilter)
+        }
+        wazeReceiverRegistered = true
+
         val sessionToken = SessionToken(this, ComponentName(this, MusicService::class.java))
         val controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
         controllerFuture.addListener({ controllerFuture.get() }, MoreExecutors.directExecutor())
@@ -1362,6 +1377,10 @@ class MusicService :
             }
             withContext(Dispatchers.Main) {
                 queueRestoreCompleted.value = true
+                pendingWazeCommand?.let {
+                    wazeCommandReceiver.onReceive(this@MusicService, it)
+                    pendingWazeCommand = null
+                }
             }
         }
 
@@ -2815,6 +2834,16 @@ class MusicService :
         } catch (_: Exception) {
         }
         bluetoothReceiverRegistered = false
+    }
+
+    private fun unregisterWazeCommandReceiver() {
+        if (!wazeReceiverRegistered) return
+        try {
+            wazeCommandReceiver.detachService()
+            unregisterReceiver(wazeCommandReceiver)
+        } catch (_: Exception) {
+        }
+        wazeReceiverRegistered = false
     }
 
     private fun waitOnNetworkError() {
@@ -5942,6 +5971,53 @@ class MusicService :
 
         widgetUpdater.update()
         widgetUpdater.updateProgressTracking()
+        sendWazeMetadataUpdate()
+    }
+
+    private fun sendWazeMetadataUpdate() {
+        val shimPackages = mutableListOf<String>()
+        for (app in WazeTargetApp.entries) {
+            try {
+                val pkgInfo = packageManager.getPackageInfo(app.packageName, 0)
+                if (pkgInfo.versionCode <= 2) {
+                    shimPackages.add(app.packageName)
+                }
+            } catch (_: PackageManager.NameNotFoundException) {}
+        }
+        if (shimPackages.isEmpty()) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastWazeMetadataUpdateTime < 300) return
+        lastWazeMetadataUpdateTime = now
+
+        val metadata = player.currentMetadata ?: return
+        val title = metadata.title?.toString() ?: "Unknown"
+        val state = when (player.playbackState) {
+            Player.STATE_READY -> if (player.isPlaying) 3 else 2
+            Player.STATE_BUFFERING -> 6
+            Player.STATE_ENDED -> 1
+            else -> 0
+        }
+
+        val artworkUrl = player.currentMediaItem?.mediaMetadata?.artworkUri?.toString()
+
+        for (shimPackage in shimPackages) {
+            try {
+                val intent = Intent("app.hush.music.WAZE_METADATA_UPDATE").apply {
+                    putExtra("title", title)
+                    putExtra("artist", metadata.artistsDisplayText)
+                    putExtra("album", metadata.album?.title ?: "")
+                    putExtra("duration", if (player.duration == C.TIME_UNSET) 0L else player.duration)
+                    putExtra("position", player.currentPosition)
+                    putExtra("state", state)
+                    putExtra("artwork_url", artworkUrl)
+                    setPackage(shimPackage)
+                }
+                sendBroadcast(intent)
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "Failed to send metadata to $shimPackage")
+            }
+        }
     }
 
     private fun onMediaItemTransitionInternal() {
@@ -5966,6 +6042,7 @@ class MusicService :
                 Timber.tag("MusicService").v(e, "ListenBrainz playing_now submit failed")
             }
         }
+        sendWazeMetadataUpdate()
     }
 
     override fun onEvents(
@@ -7558,6 +7635,7 @@ class MusicService :
             audioDeviceCallbackRegistered = false
         }
         unregisterBluetoothReceiver()
+        unregisterWazeCommandReceiver()
         unregisterMuteRecoveryObserver()
         try {
             scope.launch { stopTogetherInternal() }
@@ -7786,6 +7864,15 @@ class MusicService :
                     player.seekToPrevious()
                     player.prepare()
                     player.play()
+                }
+            }
+
+            "app.hush.music.WAZE_COMMAND" -> {
+                if (player.mediaItemCount == 0) {
+                    pendingWazeCommand = intent
+                    Timber.tag(TAG).d("Deferred Waze command: ${intent?.getStringExtra("command")}")
+                } else {
+                    wazeCommandReceiver.onReceive(this, intent)
                 }
             }
         }

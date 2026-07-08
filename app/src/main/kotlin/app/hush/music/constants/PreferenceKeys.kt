@@ -929,3 +929,11 @@ val AlarmPlaylistIdKey = stringPreferencesKey("alarmPlaylistId")
 val AlarmRandomSongKey = booleanPreferencesKey("alarmRandomSong")
 val AlarmNextTriggerAtKey = longPreferencesKey("alarmNextTriggerAt")
 val AlarmEntriesKey = stringPreferencesKey("alarmEntries")
+
+val WazeIntegrationEnabledKey = booleanPreferencesKey("wazeIntegrationEnabled")
+val WazeIntegrationPackageKey = stringPreferencesKey("wazeIntegrationPackage")
+
+enum class WazeTargetApp(val packageName: String) {
+    SPOTIFY("com.spotify.music"),
+    YOUTUBE_MUSIC("com.google.android.apps.youtube.music"),
+}

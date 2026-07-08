@@ -476,3 +476,17 @@ afterEvaluate {
         tasks.findByName("transform${variantName}ClassesWithAsm")?.let { dependsOn(it) }
     }
 }
+
+// Build Waze shim APKs and compress them into app assets
+// Run: ./gradlew :app:copyShimApks
+val shimFlavors = listOf("spotify", "youtubeMusic")
+tasks.register<Copy>("copyShimApks") {
+    description = "Copies Waze shim APKs zip into app assets"
+    group = "hush"
+    dependsOn(shimFlavors.map { ":waze-shim:assemble${it.replaceFirstChar { c -> c.uppercase() }}Release" })
+    from(rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip"))
+    into(rootProject.file("app/src/main/assets"))
+    doLast {
+        println("Copied waze-shims.zip to app/src/main/assets/")
+    }
+}

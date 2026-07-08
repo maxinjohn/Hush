@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <queries>
+        <package android:name="app.hush.music" />
+    </queries>
+
+    <application
+        android:label="@string/waze_shim_app_name"
+        android:icon="@android:drawable/ic_media_play"
+        android:allowBackup="false"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".ShimLauncherActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+        </activity>
+
+        <!-- Unified service: Waze connects via MediaBrowserService (primary)
+             AND via the Spotify App Protocol Messenger protocol. One service,
+             one MediaSession. -->
+        <service
+            android:name=".WazeIntegrationService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback"
+            android:label="@string/waze_shim_app_name"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.spotify.mobile.appprotocol.action.START_APP_PROTOCOL_SERVICE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.media.browse"
+                android:resource="@xml/automotive_app_desc" />
+        </service>
+
+        <receiver
+            android:name=".MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Waze discovers non-Spotify audio apps by querying for this broadcast receiver.
+             When Waze sends com.waze.sdk.audio.ACTION_INIT, it confirms the app is audio-capable,
+             then creates a MediaBrowserService handler to connect. -->
+        <receiver
+            android:name=".WazeInitReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.waze.sdk.audio.ACTION_INIT" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

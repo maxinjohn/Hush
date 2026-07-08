@@ -1,0 +1,15 @@
+-keep class app.hush.music.waze.WazeIntegrationService { *; }
+-keep class app.hush.music.waze.WazeInitReceiver { *; }
+-keep class app.hush.music.waze.WazeMetadataReceiver { *; }
+-keep class app.hush.music.waze.MediaButtonReceiver { *; }
+-keep class app.hush.music.waze.ShimLauncherActivity { *; }
+-keep class * extends android.support.v4.media.session.MediaSessionCompat$Callback { *; }
+-keep class android.support.v4.media.MediaBrowserCompat** { *; }
+-keep class android.support.v4.media.MediaDescriptionCompat** { *; }
+-keep class android.support.v4.media.MediaMetadataCompat** { *; }
+-keep class android.support.v4.media.session.MediaSessionCompat** { *; }
+-keep class android.support.v4.media.session.PlaybackStateCompat** { *; }
+-keep class androidx.media.MediaBrowserServiceCompat** { *; }
+-keep class androidx.media.app.NotificationCompat** { *; }
+-keepattributes Signature
+-keepattributes *Annotation*

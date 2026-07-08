@@ -49,6 +49,10 @@
         <package android:name="com.echo.music" />
         <package android:name="com.arturo254.opentune" />
         <package android:name="moe.rukamori.archivetune" />
+        <package android:name="com.spotify.music" />
+        <package android:name="deezer.android.app" />
+        <package android:name="com.amazon.mp3" />
+        <package android:name="com.aspiro.tidal" />
     </queries>
     <application
         android:name=".App"
