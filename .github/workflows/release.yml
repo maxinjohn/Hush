@@ -227,7 +227,7 @@ jobs:
             mkdir -p "${{ github.workspace }}/app/src/main/assets/"
             cd waze-shim/build/outputs/apk
             rm -f waze-shims.zip
-            zip -j waze-shims.zip spotify/release/waze-shim-spotify-release.apk youtubeMusic/release/waze-shim-youtubeMusic-release.apk
+            SOURCE_DATE_EPOCH=0 zip -j waze-shims.zip spotify/release/waze-shim-spotify-release.apk youtubeMusic/release/waze-shim-youtubeMusic-release.apk
             cp waze-shims.zip "${{ github.workspace }}/app/src/main/assets/"
             cd "${{ github.workspace }}"
           }

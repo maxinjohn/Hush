@@ -186,6 +186,7 @@ android {
                 }
             isMinifyEnabled = true
             isShrinkResources = true
+            isDeterministic = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
