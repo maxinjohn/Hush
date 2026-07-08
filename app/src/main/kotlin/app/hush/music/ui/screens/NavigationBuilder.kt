@@ -103,6 +103,7 @@ import app.hush.music.ui.screens.settings.LyricsSettings
 import app.hush.music.ui.screens.settings.MusicTogetherScreen
 import app.hush.music.ui.screens.settings.PalettePickerScreen
 import app.hush.music.ui.screens.settings.JioSaavnSettings
+import app.hush.music.ui.screens.settings.WazeIntegrationSettings
 import app.hush.music.ui.screens.settings.PlayerSettings
 import app.hush.music.ui.screens.settings.StreamSourcesSettings
 import app.hush.music.ui.screens.settings.PoTokenScreen
@@ -452,6 +453,11 @@ fun NavGraphBuilder.navigationBuilder(
         val nestedScrollBehavior =
             TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
         JioSaavnSettings(navController, nestedScrollBehavior)
+    }
+    composable("settings/waze") {
+        val nestedScrollBehavior =
+            TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+        WazeIntegrationSettings(navController, nestedScrollBehavior)
     }
     composable("settings/android_auto") {
         AndroidAutoSettings(navController, scrollBehavior)

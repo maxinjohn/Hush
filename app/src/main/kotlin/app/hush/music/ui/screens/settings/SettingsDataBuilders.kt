@@ -129,6 +129,16 @@ fun buildSettingsGroups(
                         )
                         add(
                             SettingsItem(
+                                key = "waze_integration",
+                                icon = painterResource(R.drawable.auto_awesome),
+                                title = stringResource(R.string.waze_integration),
+                                subtitle = stringResource(R.string.settings_waze_integration_subtitle),
+                                accentColor = MaterialTheme.colorScheme.tertiary,
+                                onClick = { navController.navigate("settings/waze") },
+                            ),
+                        )
+                        add(
+                            SettingsItem(
                                 key = "backup_restore",
                                 icon = painterResource(R.drawable.backup),
                                 title = stringResource(R.string.backup_restore),
