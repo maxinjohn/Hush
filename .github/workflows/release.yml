@@ -223,7 +223,7 @@ jobs:
           }
 
           build_with_shims() {
-            ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease --no-daemon
+            ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease --no-daemon --no-build-cache --no-configuration-cache
             mkdir -p "${{ github.workspace }}/app/src/main/assets/"
             cd waze-shim/build/outputs/apk
             rm -f waze-shims.zip
@@ -235,7 +235,7 @@ jobs:
           export SOURCE_DATE_EPOCH=0
 
           build_with_shims
-          ./gradlew clean assembleGmsMobileUniversalRelease
+          ./gradlew clean assembleGmsMobileUniversalRelease --no-build-cache --no-configuration-cache
           APK_1="$(locate_universal_apk || true)"
           if [ -z "${APK_1:-}" ] || [ ! -f "$APK_1" ]; then
             echo "Could not find unsigned universal release APK (first build)."
@@ -247,7 +247,7 @@ jobs:
           cp "$APK_1" /tmp/universal-1.apk
 
           build_with_shims
-          ./gradlew clean assembleGmsMobileUniversalRelease
+          ./gradlew clean assembleGmsMobileUniversalRelease --no-build-cache --no-configuration-cache
           APK_2="$(locate_universal_apk || true)"
           if [ -z "${APK_2:-}" ] || [ ! -f "$APK_2" ]; then
             echo "Could not find unsigned universal release APK (second build)."
