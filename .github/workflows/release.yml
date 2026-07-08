@@ -232,6 +232,8 @@ jobs:
             cd "${{ github.workspace }}"
           }
 
+          export SOURCE_DATE_EPOCH=0
+
           build_with_shims
           ./gradlew clean assembleGmsMobileUniversalRelease
           APK_1="$(locate_universal_apk || true)"
