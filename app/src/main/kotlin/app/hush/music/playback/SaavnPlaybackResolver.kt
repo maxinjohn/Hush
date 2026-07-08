@@ -283,8 +283,12 @@ object SaavnPlaybackResolver {
 
             if (bestLooseMatch == null) {
                 candidates.firstOrNull { candidate ->
+                    val dur = candidate.duration
                     cleanTitleForSearch(candidate.name).lowercase(Locale.US) ==
-                        wantedTitleLower
+                        wantedTitleLower &&
+                        (expectedDurationSec == null ||
+                            dur == null ||
+                            kotlin.math.abs(expectedDurationSec - dur) <= 10)
                 }?.let { bestLooseMatch = it }
             }
         }
@@ -339,7 +343,7 @@ object SaavnPlaybackResolver {
         if (expectedDurationSec != null) {
             val candidateDuration = candidate.duration ?: return false
             val durationDelta = kotlin.math.abs(expectedDurationSec - candidateDuration)
-            if (durationDelta > if (strict) 12 else 20) return false
+            if (durationDelta > if (strict) 12 else 10) return false
         }
 
         if (wantedArtistsLower.isEmpty()) return true
