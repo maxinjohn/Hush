@@ -114,6 +114,8 @@ jobs:
           TOGETHER_BEARER_TOKEN: ${{ secrets.TOGETHER_BEARER_TOKEN }}
           CANVAS_BEARER_TOKEN: ${{ secrets.CANVAS_BEARER_TOKEN }}
           EXTRACTOR_BEARER: ${{ secrets.EXTRACTOR_BEARER }}
+          GRADLE_ACTIONS_ADD_DEVELOCITY_INJECTION_INIT_SCRIPT: false
+          DEVELOCITY_INJECTION_INIT_SCRIPT_NAME: ""
         run: |
           set -euo pipefail
           DEVICE="mobile"
