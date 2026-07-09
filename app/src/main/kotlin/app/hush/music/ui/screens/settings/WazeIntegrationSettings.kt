@@ -65,8 +65,8 @@ import java.io.File
 import java.util.zip.ZipInputStream
 
 private fun getWazeAppLabel(app: WazeTargetApp): String = when (app) {
-    WazeTargetApp.SPOTIFY -> "Spotify"
-    WazeTargetApp.YOUTUBE_MUSIC -> "YouTube Music"
+    WazeTargetApp.SPOTIFY -> "Spotify Bridge"
+    WazeTargetApp.YOUTUBE_MUSIC -> "YouTube Music Bridge"
 }
 
 private fun isAppInstalled(context: android.content.Context, packageName: String): Boolean {
@@ -322,11 +322,6 @@ fun WazeIntegrationSettings(
                                     )
                                 }
                             }
-                            Text(
-                                text = app.packageName,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                             if (realAppInstalled) {
                                 Text(
                                     text = stringResource(R.string.waze_integration_conflict, appLabel),

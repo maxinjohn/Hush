@@ -428,9 +428,9 @@
     <string name="waze_integration">Waze Bridge</string>
     <string name="waze_integration_description">Control Hush from inside the Waze map</string>
     <string name="settings_waze_integration_subtitle">Control Hush from the Waze driving screen</string>
-    <string name="waze_integration_spotify">Spotify</string>
-    <string name="waze_integration_youtube_music">YouTube Music</string>
-    <string name="waze_integration_pick_app_desc">Waze only shows playback controls for official music apps like Spotify and YouTube Music. Each bridge makes Hush appear as that app so Waze lets you play, pause, and skip from the map. If the real app is installed, the bridge can\'t be installed (same package name) — choose one you don\'t already have. Both bridges can be active at once.</string>
+<string name="waze_integration_spotify">Spotify Bridge</string>
+<string name="waze_integration_youtube_music">YouTube Music Bridge</string>
+<string name="waze_integration_pick_app_desc">Waze only shows playback controls for official music apps like Spotify and YouTube Music. Each bridge makes Hush appear as that app so Waze lets you play, pause, and skip from the map. If the real app is installed, the bridge can\'t be installed (same package name) — choose one you don\'t already have. Multiple bridges can be active at once.</string>
     <string name="waze_integration_installing">Installing…</string>
     <string name="waze_integration_uninstalling">Uninstalling…</string>
     <string name="waze_integration_installed">Installed. Open Waze to see Hush.</string>

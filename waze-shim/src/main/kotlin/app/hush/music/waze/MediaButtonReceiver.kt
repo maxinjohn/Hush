@@ -48,6 +48,8 @@ class MediaButtonReceiver : BroadcastReceiver() {
             "app.hush.music.waze.ACTION_PAUSE" -> sendCommand(context, "pause")
             "app.hush.music.waze.ACTION_PLAY" -> sendCommand(context, "play")
             "app.hush.music.waze.ACTION_SKIP" -> sendCommand(context, "next")
+            "app.hush.music.waze.ACTION_LIKE" -> sendCommand(context, "like")
+            "app.hush.music.waze.ACTION_DOWNLOAD" -> sendCommand(context, "download")
         }
     }
 

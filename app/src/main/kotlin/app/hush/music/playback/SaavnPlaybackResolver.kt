@@ -32,9 +32,9 @@ import androidx.media3.common.MediaMetadata as ExoMediaMetadata
 object SaavnPlaybackResolver {
     private const val TAG = "SaavnPlayback"
     private val matchCache = ConcurrentHashMap<String, SaavnSong?>()
-    private const val MATCH_CACHE_MAX_SIZE = 1000
+    private const val MATCH_CACHE_MAX_SIZE = 5000
     private val streamUrlCache = ConcurrentHashMap<String, StreamUrlCacheEntry>()
-    private const val STREAM_URL_TTL_MS = 6 * 60 * 60 * 1000L // 6 hours
+    private const val STREAM_URL_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
 
     private data class StreamUrlCacheEntry(
         val url: String,
@@ -213,11 +213,13 @@ object SaavnPlaybackResolver {
                 .split(',', '&', '·', ';')
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
+        val durationMs = mediaMetadata.durationMs?.toLong()?.takeIf { it > 0 }
+        val durationSec = durationMs?.div(1000L)?.toInt()
         return PlaybackHints(
             title = title,
             artists = artists,
             album = mediaMetadata.albumTitle?.toString(),
-            durationSec = null,
+            durationSec = durationSec,
         )
     }
 

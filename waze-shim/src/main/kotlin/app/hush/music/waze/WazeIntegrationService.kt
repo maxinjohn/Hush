@@ -402,7 +402,15 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                         PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                         PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
                         PlaybackStateCompat.ACTION_SEEK_TO or
-                        PlaybackStateCompat.ACTION_STOP
+                        PlaybackStateCompat.ACTION_STOP or
+                        PlaybackStateCompat.ACTION_CUSTOM
+                )
+                .addCustomAction(
+                    PlaybackStateCompat.CustomAction.Builder(
+                        "THUMBS_UP",
+                        "Like",
+                        android.R.drawable.star_on,
+                    ).build()
                 )
                 .build(),
         )
@@ -456,7 +464,22 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                         PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                         PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
                         PlaybackStateCompat.ACTION_SEEK_TO or
-                        PlaybackStateCompat.ACTION_STOP
+                        PlaybackStateCompat.ACTION_STOP or
+                        PlaybackStateCompat.ACTION_CUSTOM
+                )
+                .addCustomAction(
+                    PlaybackStateCompat.CustomAction.Builder(
+                        "THUMBS_UP",
+                        "Like",
+                        android.R.drawable.star_on,
+                    ).build()
+                )
+                .addCustomAction(
+                    PlaybackStateCompat.CustomAction.Builder(
+                        "DOWNLOAD",
+                        "Download",
+                        android.R.drawable.ic_menu_upload,
+                    ).build()
                 )
                 .setState(state, position, 1f, SystemClock.elapsedRealtime())
                 .build()
