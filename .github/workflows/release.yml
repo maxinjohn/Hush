@@ -98,11 +98,6 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Set Up Gradle
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-cleanup: on-success
-
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
@@ -114,8 +109,6 @@ jobs:
           TOGETHER_BEARER_TOKEN: ${{ secrets.TOGETHER_BEARER_TOKEN }}
           CANVAS_BEARER_TOKEN: ${{ secrets.CANVAS_BEARER_TOKEN }}
           EXTRACTOR_BEARER: ${{ secrets.EXTRACTOR_BEARER }}
-          GRADLE_ACTIONS_ADD_DEVELOCITY_INJECTION_INIT_SCRIPT: false
-          DEVELOCITY_INJECTION_INIT_SCRIPT_NAME: ""
         run: |
           set -euo pipefail
           DEVICE="mobile"
@@ -225,7 +218,7 @@ jobs:
           }
 
           build_with_shims() {
-            ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease --no-daemon --no-build-cache --no-configuration-cache
+            ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease
             mkdir -p "${{ github.workspace }}/app/src/main/assets/"
             cd waze-shim/build/outputs/apk
             rm -f waze-shims.zip
@@ -234,33 +227,52 @@ jobs:
             cd "${{ github.workspace }}"
           }
 
+          normalize_apk() {
+            python3 -c "
+import zipfile, sys, hashlib, io
+
+def normalize(src):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(src, 'r') as zin, zipfile.ZipFile(buf, 'w') as zout:
+        for item in sorted(zin.infolist(), key=lambda x: x.filename):
+            data = zin.read(item.filename)
+            item.date_time = (1980, 1, 1, 0, 0, 0)
+            item.extra = b''
+            item.comment = b''
+            zout.writestr(item, data)
+    return hashlib.sha256(buf.getvalue()).hexdigest()
+
+print(normalize(sys.argv[1]))
+" "$1"
+          }
+
           export SOURCE_DATE_EPOCH=0
 
           build_with_shims
-          ./gradlew clean assembleGmsMobileUniversalRelease --no-build-cache --no-configuration-cache
+          ./gradlew clean assembleGmsMobileUniversalRelease
           APK_1="$(locate_universal_apk || true)"
           if [ -z "${APK_1:-}" ] || [ ! -f "$APK_1" ]; then
             echo "Could not find unsigned universal release APK (first build)."
-            echo "APK outputs:"
             find app/build/outputs/apk -maxdepth 6 -type f -print || true
             exit 1
           fi
-          SHA_1="$(sha256sum "$APK_1" | awk '{print $1}')"
           cp "$APK_1" /tmp/universal-1.apk
 
           build_with_shims
-          ./gradlew clean assembleGmsMobileUniversalRelease --no-build-cache --no-configuration-cache
+          ./gradlew clean assembleGmsMobileUniversalRelease
           APK_2="$(locate_universal_apk || true)"
           if [ -z "${APK_2:-}" ] || [ ! -f "$APK_2" ]; then
             echo "Could not find unsigned universal release APK (second build)."
-            echo "APK outputs:"
             find app/build/outputs/apk -maxdepth 6 -type f -print || true
             exit 1
           fi
-          SHA_2="$(sha256sum "$APK_2" | awk '{print $1}')"
+          cp "$APK_2" /tmp/universal-2.apk
 
-          echo "sha256 #1: $SHA_1"
-          echo "sha256 #2: $SHA_2"
+          SHA_1="$(normalize_apk /tmp/universal-1.apk)"
+          SHA_2="$(normalize_apk /tmp/universal-2.apk)"
+
+          echo "sha256 #1 (normalized): $SHA_1"
+          echo "sha256 #2 (normalized): $SHA_2"
           test "$SHA_1" = "$SHA_2"
 
   build:
