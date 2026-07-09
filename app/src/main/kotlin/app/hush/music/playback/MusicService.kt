@@ -336,6 +336,7 @@ class MusicService :
     private var wazeReceiverRegistered = false
     private var pendingWazeCommand: Intent? = null
     private var lastWazeMetadataUpdateTime = 0L
+    private var wazePositionJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wakelockEnabled = false
     private var audioDeviceCallbackRegistered = false
@@ -1378,8 +1379,12 @@ class MusicService :
             withContext(Dispatchers.Main) {
                 queueRestoreCompleted.value = true
                 pendingWazeCommand?.let {
+                    val cmd = it.getStringExtra("command")
                     wazeCommandReceiver.onReceive(this@MusicService, it)
                     pendingWazeCommand = null
+                    if (player.mediaItemCount == 0 && cmd in listOf("play", "play_pause", "next", "previous")) {
+                        wazeColdStartRecovery()
+                    }
                 }
             }
         }
@@ -5066,6 +5071,31 @@ class MusicService :
         }
     }
 
+    fun toggleDownload() {
+        val metadata = currentMediaMetadata.value ?: return
+        val mediaId = metadata.id.trim()
+        if (mediaId.isBlank()) return
+        ioScope.launch {
+            val song = database.getSongById(mediaId)?.song ?: run {
+                insert(metadata.copy(duration = metadata.duration.takeIf { it > 0 } ?: -1))
+                database.getSongById(mediaId)?.song
+            } ?: return@launch
+            if (!song.isLocal) {
+                val downloadRequest = androidx.media3.exoplayer.offline.DownloadRequest
+                    .Builder(song.id, song.id.toUri())
+                    .setCustomCacheKey(song.id)
+                    .setData(song.title.toByteArray())
+                    .build()
+                androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
+                    this@MusicService,
+                    ExoDownloadService::class.java,
+                    downloadRequest,
+                    false,
+                )
+            }
+        }
+    }
+
     fun toggleStartRadio() {
         startRadioSeamlessly()
     }
@@ -5972,6 +6002,7 @@ class MusicService :
         widgetUpdater.update()
         widgetUpdater.updateProgressTracking()
         sendWazeMetadataUpdate()
+        manageWazePositionUpdates(isPlaying)
     }
 
     private fun sendWazeMetadataUpdate() {
@@ -5987,11 +6018,19 @@ class MusicService :
         if (shimPackages.isEmpty()) return
 
         val now = System.currentTimeMillis()
-        if (now - lastWazeMetadataUpdateTime < 300) return
+        if (now - lastWazeMetadataUpdateTime < 200) return
         lastWazeMetadataUpdateTime = now
 
-        val metadata = player.currentMetadata ?: return
-        val title = metadata.title?.toString() ?: "Unknown"
+        val metadata = player.currentMetadata
+        if (metadata == null) {
+            scheduleDelayedWazeUpdate()
+            return
+        }
+        val title = metadata.title?.toString()
+        if (title.isNullOrBlank()) {
+            scheduleDelayedWazeUpdate()
+            return
+        }
         val state = when (player.playbackState) {
             Player.STATE_READY -> if (player.isPlaying) 3 else 2
             Player.STATE_BUFFERING -> 6
@@ -6020,6 +6059,44 @@ class MusicService :
         }
     }
 
+    private fun scheduleDelayedWazeUpdate() {
+        scope.launch {
+            delay(500)
+            sendWazeMetadataUpdate()
+        }
+    }
+
+    private fun manageWazePositionUpdates(isPlaying: Boolean) {
+        wazePositionJob?.cancel()
+        wazePositionJob = null
+        if (!isPlaying) return
+        wazePositionJob = scope.launch {
+            while (isActive) {
+                sendWazeMetadataUpdate()
+                delay(1000)
+            }
+        }
+    }
+
+    private fun wazeColdStartRecovery() {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val persistedQueue = readPersistentObject<PersistQueue>(PERSISTENT_QUEUE_FILE)
+                val persistedPlayerState = readPersistentObject<PersistPlayerState>(PERSISTENT_PLAYER_STATE_FILE)
+                if (persistedQueue != null) {
+                    withContext(Dispatchers.Main) {
+                        restorePersistentQueue(persistedQueue)
+                        persistedPlayerState?.let {
+                            restorePersistentPlayerState(it, restoredQueue = true)
+                        }
+                        player.playWhenReady = true
+                        player.play()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     private fun onMediaItemTransitionInternal() {
         if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
             scrobbleManager?.onSongStop()
@@ -6043,6 +6120,7 @@ class MusicService :
             }
         }
         sendWazeMetadataUpdate()
+        manageWazePositionUpdates(player.isPlaying)
     }
 
     override fun onEvents(

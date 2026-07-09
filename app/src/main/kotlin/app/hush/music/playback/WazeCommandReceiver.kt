@@ -65,6 +65,7 @@ class WazeCommandReceiver : BroadcastReceiver() {
                     Log.d(TAG, "Search query: $query")
                 }
                 "like" -> svc.toggleLike()
+                "download" -> svc.toggleDownload()
                 "shuffle" -> svc.toggleShuffleMode()
                 "repeat" -> svc.toggleRepeatMode()
                 else -> Log.w(TAG, "Unknown command: $command")

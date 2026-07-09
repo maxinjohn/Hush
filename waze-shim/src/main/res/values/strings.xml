@@ -6,8 +6,8 @@
     <string name="waze_integration_enabled">Waze Bridge Active</string>
     <string name="waze_integration_off">Toggle on to show Hush in Waze</string>
     <string name="waze_integration_toggle_desc">Makes Waze see Hush as a music player you can control from the map</string>
-    <string name="waze_integration_spotify">Spotify</string>
-    <string name="waze_integration_youtube_music">YouTube Music</string>
+    <string name="waze_integration_spotify">Spotify Bridge</string>
+    <string name="waze_integration_youtube_music">YouTube Music Bridge</string>
     <string name="waze_integration_installing">Installing…</string>
     <string name="waze_integration_uninstalling">Uninstalling…</string>
     <string name="waze_integration_installed">Installed. Open Waze to see Hush.</string>
