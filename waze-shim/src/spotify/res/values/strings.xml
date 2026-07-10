@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="waze_shim_app_name">Hush (Spotify)</string>
+    <string name="waze_bridge_app_name">Hush (Spotify Bridge)</string>
 </resources>

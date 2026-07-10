@@ -6,13 +6,17 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <permission
+        android:name="app.hush.music.permission.WAZE_BRIDGE_CONTROL"
+        android:protectionLevel="signature" />
+
     <queries>
         <package android:name="app.hush.music" />
     </queries>
 
     <application
-        android:label="@string/waze_shim_app_name"
-        android:icon="@android:drawable/ic_media_play"
+        android:label="@string/waze_bridge_app_name"
+        android:icon="@drawable/hush_bridge_icon"
         android:allowBackup="false"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
@@ -20,14 +24,19 @@
         <meta-data
             android:name="app.hush.music.waze.SHIM"
             android:value="true" />
+        <meta-data
+            android:name="app.hush.music.waze.PROTOCOL_VERSION"
+            android:value="2" />
 
         <activity
-            android:name=".ShimLauncherActivity"
+            android:name=".WazeRedirectActivity"
             android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.INFO" />
             </intent-filter>
         </activity>
 
@@ -38,7 +47,7 @@
             android:name=".WazeIntegrationService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback"
-            android:label="@string/waze_shim_app_name"
+            android:label="@string/waze_bridge_app_name"
             tools:ignore="ExportedService">
             <intent-filter>
                 <action android:name="android.media.browse.MediaBrowserService" />
@@ -67,6 +76,15 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="com.waze.sdk.audio.ACTION_INIT" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".WazeBridgeReconnectReceiver"
+            android:exported="true"
+            android:permission="app.hush.music.permission.WAZE_BRIDGE_CONTROL">
+            <intent-filter>
+                <action android:name="app.hush.music.waze.ACTION_RECONNECT" />
             </intent-filter>
         </receiver>
 

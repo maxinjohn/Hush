@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="waze_shim_app_name">Hush</string>
+    <string name="waze_bridge_app_name">Hush Bridge</string>
     <string name="waze_integration">Waze Bridge</string>
     <string name="waze_integration_description">Control Hush from inside the Waze map</string>
     <string name="waze_integration_enabled">Waze Bridge Active</string>

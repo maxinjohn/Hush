@@ -70,6 +70,7 @@ import app.hush.music.utils.reportException
 import app.hush.music.utils.safeDataStoreEdit
 import app.hush.music.utils.refreshPlaybackLoginContext
 import app.hush.music.utils.toPlaybackAuthState
+import app.hush.music.waze.WazeBridgeManager
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import timber.log.Timber
@@ -204,6 +205,14 @@ class App :
                             Timber.e(throwable, "Failed to create backup before app update")
                             reportException(throwable)
                         }
+                    }
+                    runCatching {
+                        WazeBridgeManager.inspectRelevantBridges(
+                            context = this@App,
+                            selectedPackageName = prefs[WazeIntegrationPackageKey],
+                        )
+                    }.onFailure { throwable ->
+                        Timber.w(throwable, "Failed to check Waze Bridge versions after app update")
                     }
                     safeDataStoreEdit { settings ->
                         settings[LastLaunchedVersionCodeKey] = currentVersionCode

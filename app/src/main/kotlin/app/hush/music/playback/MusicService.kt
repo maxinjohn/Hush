@@ -35,6 +35,7 @@ import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
+import android.media.session.PlaybackState
 import android.net.ConnectivityManager
 import app.hush.music.eq.HushEqualizerService
 import app.hush.music.eq.audio.CustomEqualizerAudioProcessor
@@ -43,6 +44,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.Handler
 import android.os.PowerManager
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
@@ -338,6 +340,7 @@ class MusicService :
     private var wazeColdStartRecoveryJob: Job? = null
     private var lastWazeMetadataUpdateTime = 0L
     private var wazePositionJob: Job? = null
+    private val wazeSnapshotSequence = AtomicLong(0L)
     private var wakeLock: PowerManager.WakeLock? = null
     private var wakelockEnabled = false
     private var audioDeviceCallbackRegistered = false
@@ -5727,6 +5730,7 @@ class MusicService :
 
         val timelineEmpty = player.currentTimeline.isEmpty || player.mediaItemCount == 0 || player.currentMediaItem == null
         currentMediaMetadata.value = if (timelineEmpty) null else (mediaItem?.metadata ?: player.currentMetadata)
+        publishWazePlaybackSnapshot(force = true)
 
         mediaItem?.mediaId?.takeIf { it.isNotBlank() && !it.isLocalMediaId() }?.let { mediaId ->
             cachedPlaybackUrl(mediaId)?.playbackClientLabel?.let { label ->
@@ -5934,6 +5938,7 @@ class MusicService :
 
         widgetUpdater.update()
         widgetUpdater.updateProgressTracking()
+        publishWazePlaybackSnapshot(force = true)
 
         scope.launch {
             val shouldSave = withContext(Dispatchers.IO) { dataStore.get(PersistentQueueKey, true) }
@@ -5973,11 +5978,13 @@ class MusicService :
             localPlayer.pauseAtEndOfMediaItems = false
             releaseSecondaryCrossfadePlayer()
         }
+        publishWazePlaybackSnapshot(force = true)
     }
 
     override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
         super.onPlaybackParametersChanged(playbackParameters)
         secondaryCrossfadePlayer?.playbackParameters = playbackParameters
+        publishWazePlaybackSnapshot(force = true)
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -5998,11 +6005,31 @@ class MusicService :
 
         widgetUpdater.update()
         widgetUpdater.updateProgressTracking()
-        sendWazeMetadataUpdate()
+        publishWazePlaybackSnapshot(force = true)
         manageWazePositionUpdates(isPlaying)
     }
 
-    private fun sendWazeMetadataUpdate() {
+    private data class WazePlaybackSnapshot(
+        val trackId: String,
+        val title: String,
+        val artist: String,
+        val album: String,
+        val artworkUrl: String?,
+        val duration: Long,
+        val position: Long,
+        val bufferedPosition: Long,
+        val isPlaying: Boolean,
+        val playWhenReady: Boolean,
+        val playerState: Int,
+        val playbackSpeed: Float,
+        val activeQueueItemId: Long,
+        val sequenceNumber: Long,
+        val timestampMs: Long,
+    )
+
+    private fun publishWazePlaybackSnapshot(
+        force: Boolean = false,
+    ) {
         val shimPackages = mutableListOf<String>()
         for (app in WazeTargetApp.entries) {
             try {
@@ -6022,8 +6049,8 @@ class MusicService :
         }
         if (shimPackages.isEmpty()) return
 
-        val now = System.currentTimeMillis()
-        if (now - lastWazeMetadataUpdateTime < 200) return
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastWazeMetadataUpdateTime < 200) return
         lastWazeMetadataUpdateTime = now
 
         val metadata = player.currentMetadata
@@ -6036,25 +6063,44 @@ class MusicService :
             scheduleDelayedWazeUpdate()
             return
         }
-        val state = when (player.playbackState) {
-            Player.STATE_READY -> if (player.isPlaying) 3 else 2
-            Player.STATE_BUFFERING -> 6
-            Player.STATE_ENDED -> 1
-            else -> 0
-        }
-
-        val artworkUrl = player.currentMediaItem?.mediaMetadata?.artworkUri?.toString()
+        val snapshot = WazePlaybackSnapshot(
+            trackId = player.currentMediaItem?.mediaId.orEmpty(),
+            title = title,
+            artist = metadata.artistsDisplayText,
+            album = metadata.album?.title.orEmpty(),
+            artworkUrl = player.currentMediaItem?.mediaMetadata?.artworkUri?.toString(),
+            duration = player.duration.takeUnless { it == C.TIME_UNSET }?.coerceAtLeast(0L) ?: 0L,
+            position = player.currentPosition.coerceAtLeast(0L),
+            bufferedPosition = player.bufferedPosition.coerceAtLeast(0L),
+            isPlaying = player.isPlaying,
+            playWhenReady = player.playWhenReady,
+            playerState = player.playbackState,
+            playbackSpeed = player.playbackParameters.speed,
+            activeQueueItemId = player.currentMediaItemIndex.toLong(),
+            sequenceNumber = wazeSnapshotSequence.incrementAndGet(),
+            timestampMs = now,
+        )
 
         for (shimPackage in shimPackages) {
             try {
                 val intent = Intent("app.hush.music.WAZE_METADATA_UPDATE").apply {
-                    putExtra("title", title)
-                    putExtra("artist", metadata.artistsDisplayText)
-                    putExtra("album", metadata.album?.title ?: "")
-                    putExtra("duration", if (player.duration == C.TIME_UNSET) 0L else player.duration)
-                    putExtra("position", player.currentPosition)
-                    putExtra("state", state)
-                    putExtra("artwork_url", artworkUrl)
+                    putExtra("title", snapshot.title)
+                    putExtra("artist", snapshot.artist)
+                    putExtra("album", snapshot.album)
+                    putExtra("duration", snapshot.duration)
+                    putExtra("position", snapshot.position)
+                    putExtra("buffered_position", snapshot.bufferedPosition)
+                    putExtra("is_playing", snapshot.isPlaying)
+                    putExtra("play_when_ready", snapshot.playWhenReady)
+                    putExtra("player_state", snapshot.playerState)
+                    putExtra("playback_speed", snapshot.playbackSpeed)
+                    putExtra("track_id", snapshot.trackId)
+                    putExtra("queue_item_id", snapshot.activeQueueItemId)
+                    putExtra("sequence_number", snapshot.sequenceNumber)
+                    putExtra("timestamp_elapsed_realtime", snapshot.timestampMs)
+                    // Retain the resolved state for older installed shims.
+                    putExtra("state", resolveWazePlaybackState(snapshot))
+                    putExtra("artwork_url", snapshot.artworkUrl)
                     setPackage(shimPackage)
                 }
                 sendBroadcast(intent)
@@ -6064,10 +6110,22 @@ class MusicService :
         }
     }
 
+    internal fun publishWazePausedTrackChange() {
+        publishWazePlaybackSnapshot(force = true)
+    }
+
+    private fun resolveWazePlaybackState(snapshot: WazePlaybackSnapshot): Int = when {
+        snapshot.playerState == Player.STATE_BUFFERING && snapshot.playWhenReady -> PlaybackState.STATE_BUFFERING
+        snapshot.isPlaying -> PlaybackState.STATE_PLAYING
+        snapshot.playerState == Player.STATE_READY && !snapshot.playWhenReady -> PlaybackState.STATE_PAUSED
+        snapshot.playerState == Player.STATE_ENDED -> PlaybackState.STATE_STOPPED
+        else -> PlaybackState.STATE_PAUSED
+    }
+
     private fun scheduleDelayedWazeUpdate() {
         scope.launch {
             delay(500)
-            sendWazeMetadataUpdate()
+            publishWazePlaybackSnapshot()
         }
     }
 
@@ -6077,7 +6135,7 @@ class MusicService :
         if (!isPlaying) return
         wazePositionJob = scope.launch {
             while (isActive) {
-                sendWazeMetadataUpdate()
+                publishWazePlaybackSnapshot()
                 delay(1000)
             }
         }
@@ -6143,7 +6201,7 @@ class MusicService :
                 Timber.tag("MusicService").v(e, "ListenBrainz playing_now submit failed")
             }
         }
-        sendWazeMetadataUpdate()
+        publishWazePlaybackSnapshot(force = true)
         manageWazePositionUpdates(player.isPlaying)
     }
 
@@ -6177,6 +6235,7 @@ class MusicService :
         }
         if (events.contains(Player.EVENT_MEDIA_METADATA_CHANGED)) {
             currentMediaMetadata.value = player.currentMetadata
+            publishWazePlaybackSnapshot(force = true)
         }
         if (events.containsAny(
                 Player.EVENT_PLAYBACK_STATE_CHANGED,
@@ -6318,6 +6377,7 @@ class MusicService :
         if (!isCrossfading && !crossfadeHandoffInProgress) {
             scheduleCrossfade()
         }
+        publishWazePlaybackSnapshot(force = true)
     }
 
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -6388,6 +6448,7 @@ class MusicService :
 
     override fun onPlayerError(error: PlaybackException) {
         super.onPlayerError(error)
+        publishWazePlaybackSnapshot(force = true)
 
         val currentMediaId = player.currentMediaItem?.mediaId ?: return
         val isLocalMedia = currentMediaId.isLocalMediaId()

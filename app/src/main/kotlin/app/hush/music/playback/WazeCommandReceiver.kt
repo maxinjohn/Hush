@@ -44,6 +44,9 @@ class WazeCommandReceiver : BroadcastReceiver() {
                     if (svc.player.mediaItemCount > 0) {
                         svc.player.seekToNext()
                         svc.player.prepare()
+                        if (!svc.player.playWhenReady) {
+                            svc.publishWazePausedTrackChange()
+                        }
                     } else {
                         svc.player.play()
                     }
@@ -52,6 +55,9 @@ class WazeCommandReceiver : BroadcastReceiver() {
                     if (svc.player.mediaItemCount > 0) {
                         svc.player.seekToPrevious()
                         svc.player.prepare()
+                        if (!svc.player.playWhenReady) {
+                            svc.publishWazePausedTrackChange()
+                        }
                     } else {
                         svc.player.play()
                     }

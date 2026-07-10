@@ -38,7 +38,7 @@ Real talk on what got ported from where. This table only moves when I add someth
 | **[Metrolist](https://github.com/metrolistgroup/metrolist)** | Wake-up **music alarms**, **loudness** presets, **playlist export** (CSV / M3U), **Android Auto** settings |
 | **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | Playlist **view-count prefetch**, **auto-backup before in-app update**, **JioSaavn streaming** (320 kbps primary, YT fallback) |
 | **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)** | **Settings search**, **IPv4 / IPv6 / Auto** network mode |
-| **Hush** | **Waze Bridge** (Spotify/YT Music shims), Audio Visualizer, Parametric EQ, SponsorBlock, JioSaavn overhaul, CDN failover, Cipher config, in-app update system, download pre-resolution |
+| **Hush** | **Waze Bridge** (Spotify/YT Music Bridges), Audio Visualizer, Parametric EQ, SponsorBlock, JioSaavn overhaul, CDN failover, Cipher config, in-app update system, download pre-resolution |
 | **[ViMusic](https://github.com/vfsfitvnm/ViMusic)** | InnerTube foundations, bottom-sheet UI patterns, KuGou lyrics client |
 | **[OuterTune](https://github.com/OuterTune/OuterTune)** | Player carousel snap / parallax, network connectivity observer |
 | **[BetterLyrics](https://github.com/boidu-dev/BetterLyrics)** | Word-synced TTML lyrics module |

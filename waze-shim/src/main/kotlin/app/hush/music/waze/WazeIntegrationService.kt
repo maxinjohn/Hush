@@ -33,16 +33,20 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
 
     companion object {
         private const val TAG = "WazeIntegration"
-        private const val NOTIFICATION_CHANNEL_ID = "hush_waze_shim"
+        private const val NOTIFICATION_CHANNEL_ID = "hush_waze_bridge"
         private const val NOTIFICATION_ID = 1
         private const val ROOT_ID = "__ROOT__"
         private const val START_APP_PROTOCOL_SERVICE =
             "com.spotify.mobile.appprotocol.action.START_APP_PROTOCOL_SERVICE"
         const val ACTION_INIT = "com.waze.sdk.audio.ACTION_INIT"
+        const val ACTION_RECONNECT = "app.hush.music.waze.ACTION_RECONNECT"
         private const val WAZE_PKG = "com.waze"
         private const val WAZE_SDK_SERVICE = "com.waze.sdk.SdkService"
         private const val AIDL_DESCRIPTOR = "com.waze.sdk.ISdkService"
         private const val TRANSACTION_CONNECT = 1
+        private const val PLAYER_STATE_BUFFERING = 2
+        private const val PLAYER_STATE_READY = 3
+        private const val PLAYER_STATE_ENDED = 4
     }
 
     @Volatile private var mediaSession: MediaSessionCompat? = null
@@ -58,6 +62,13 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
     private var notificationSubtitle = "Ready to play"
     private var wazeToken: String? = null
     private var reconnectScheduled = false
+    private var latestSnapshot: HushPlaybackSnapshot? = null
+    private var latestSnapshotSequence = -1L
+    private var latestSnapshotTimestampMs = Long.MIN_VALUE
+    private var pendingPlaybackState: Int? = null
+    private var pendingPlaybackStateAtMs = 0L
+    private var pendingSeekPositionMs: Long? = null
+    private var pendingSeekAtMs = 0L
 
     private val messenger = Messenger(Handler(Looper.getMainLooper()) { msg ->
         Log.d(TAG, "handleMessage: what=${msg.what} arg1=${msg.arg1} arg2=${msg.arg2}" +
@@ -173,13 +184,20 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand: intent=$intent action=${intent?.action}")
-        if (intent?.action == ACTION_INIT) {
-            Log.d(TAG, "  -> ACTION_INIT via onStartCommand")
-            ensureForeground()
-            startHushMusicService()
-            val token = intent.getStringExtra("token")
-            if (token != null) {
-                bindToWazeSdkService(token)
+        when (intent?.action) {
+            ACTION_INIT -> {
+                Log.d(TAG, "  -> ACTION_INIT via onStartCommand")
+                ensureForeground()
+                startHushMusicService()
+                val token = intent.getStringExtra("token")
+                if (token != null) {
+                    bindToWazeSdkService(token)
+                }
+            }
+            ACTION_RECONNECT -> {
+                Log.d(TAG, "  -> reconnect requested by Hush")
+                ensureForeground()
+                startHushMusicService()
             }
         }
         return START_REDELIVER_INTENT
@@ -291,21 +309,27 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
     }
 
     private fun setupMediaSession() {
-        val session = MediaSessionCompat(this, "HushWazeShim").apply {
+        val session = MediaSessionCompat(this, "HushWazeBridge").apply {
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay() {
                     Log.d(TAG, "onPlay")
-                    sendCommandToHush("play")
+                    if (sendCommandToHush("play")) {
+                        publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PLAYING)
+                    }
                 }
 
                 override fun onPause() {
                     Log.d(TAG, "onPause")
-                    sendCommandToHush("pause")
+                    if (sendCommandToHush("pause")) {
+                        publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PAUSED)
+                    }
                 }
 
                 override fun onStop() {
                     Log.d(TAG, "onStop")
-                    sendCommandToHush("pause")
+                    if (sendCommandToHush("pause")) {
+                        publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PAUSED)
+                    }
                 }
 
                 override fun onSkipToNext() {
@@ -320,7 +344,9 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
 
                 override fun onSeekTo(pos: Long) {
                     Log.d(TAG, "onSeekTo: $pos")
-                    sendSeekCommandToHush(pos)
+                    if (sendSeekCommandToHush(pos)) {
+                        publishOptimisticSeek(pos)
+                    }
                 }
 
                 override fun onCustomAction(action: String?, extras: Bundle?) {
@@ -339,7 +365,9 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
 
                 override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) {
                     Log.d(TAG, "onPlayFromMediaId: $mediaId")
-                    sendCommandToHush("play")
+                    if (sendCommandToHush("play")) {
+                        publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PLAYING)
+                    }
                 }
             })
             setRatingType(RatingCompat.RATING_HEART)
@@ -364,7 +392,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
 
         session.setPlaybackState(
             PlaybackStateCompat.Builder()
-                .setState(PlaybackStateCompat.STATE_PAUSED, 0, 1f)
+                .setState(PlaybackStateCompat.STATE_PAUSED, 0, 0f, SystemClock.elapsedRealtime())
                 .setActions(
                     PlaybackStateCompat.ACTION_PLAY or
                         PlaybackStateCompat.ACTION_PAUSE or
@@ -405,72 +433,189 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         Log.d(TAG, "MediaSession created (state=PAUSED)")
     }
 
-    override fun updateMetadata(
-        title: String,
-        artist: String,
-        album: String,
-        duration: Long,
-        position: Long,
-        state: Int,
-        artworkUrl: String?,
-    ) {
-        if (cleanedUp) return
+    override fun onPlaybackSnapshot(snapshot: HushPlaybackSnapshot) {
+        if (cleanedUp || isStaleSnapshot(snapshot)) return
+
+        val resolvedState = resolvePlaybackState(snapshot)
+        if (shouldIgnorePendingSnapshot(snapshot, resolvedState)) return
+
         val session = mediaSession ?: return
-        val displaySubtitle = if (album.isNotEmpty()) "$artist \u2014 $album" else artist
+        latestSnapshot = snapshot
+        latestSnapshotSequence = snapshot.sequenceNumber
+        latestSnapshotTimestampMs = snapshot.timestampMs
 
         try {
-            val metadata = MediaMetadataCompat.Builder()
-                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
-                .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, title)
-                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist)
-                .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, displaySubtitle)
-                .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, album)
-                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration)
-                .putRating(MediaMetadataCompat.METADATA_KEY_USER_RATING, RatingCompat.newHeartRating(false))
-                .apply {
-                    if (!artworkUrl.isNullOrEmpty()) {
-                        putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, artworkUrl)
-                        putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON_URI, artworkUrl)
+            val displaySubtitle = if (snapshot.album.isNotEmpty()) {
+                "${snapshot.artist} \u2014 ${snapshot.album}"
+            } else {
+                snapshot.artist
+            }
+            session.setMetadata(
+                MediaMetadataCompat.Builder()
+                    .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, snapshot.trackId)
+                    .putString(MediaMetadataCompat.METADATA_KEY_TITLE, snapshot.title)
+                    .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, snapshot.title)
+                    .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, snapshot.artist)
+                    .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, displaySubtitle)
+                    .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, snapshot.album)
+                    .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, snapshot.durationMs.coerceAtLeast(0L))
+                    .putRating(MediaMetadataCompat.METADATA_KEY_USER_RATING, RatingCompat.newHeartRating(false))
+                    .apply {
+                        if (!snapshot.artworkUrl.isNullOrEmpty()) {
+                            putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, snapshot.artworkUrl)
+                            putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON_URI, snapshot.artworkUrl)
+                        }
                     }
-                }
-                .build()
-
-            val playbackState = PlaybackStateCompat.Builder()
-                .setActions(
-                    PlaybackStateCompat.ACTION_PLAY or
-                        PlaybackStateCompat.ACTION_PAUSE or
-                        PlaybackStateCompat.ACTION_PLAY_PAUSE or
-                        PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
-                        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
-                        PlaybackStateCompat.ACTION_SEEK_TO or
-                        PlaybackStateCompat.ACTION_STOP or
-                        PlaybackStateCompat.ACTION_SET_RATING
-                )
-                .addCustomAction(
-                    PlaybackStateCompat.CustomAction.Builder(
-                        "THUMBS_UP",
-                        "Like",
-                        R.drawable.ic_heart,
-                    ).apply {
-                        setExtras(Bundle().apply {
-                            putInt(
-                                "androidx.media3.session.EXTRAS_KEY_COMMAND_BUTTON_ICON_COMPAT",
-                                3, // CommandButton.ICON_HEART
-                            )
-                        })
-                    }.build()
-                )
-                .setState(state, position, 1f, SystemClock.elapsedRealtime())
-                .build()
-
-            session.setMetadata(metadata)
-            session.setPlaybackState(playbackState)
-            notificationTitle = title
+                    .build(),
+            )
+            session.setPlaybackState(
+                buildPlaybackState(
+                    state = resolvedState,
+                    position = snapshot.positionMs,
+                    speed = playbackSpeedFor(resolvedState, snapshot.playbackSpeed),
+                    bufferedPosition = snapshot.bufferedPositionMs,
+                    activeQueueItemId = snapshot.activeQueueItemId,
+                    updateTimeMs = snapshot.timestampMs,
+                ),
+            )
+            notificationTitle = snapshot.title
             notificationSubtitle = displaySubtitle
             updateNotification()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to update metadata", e)
+            Log.e(TAG, "Failed to apply playback snapshot", e)
         }
+    }
+
+    private fun isStaleSnapshot(snapshot: HushPlaybackSnapshot): Boolean {
+        if (snapshot.sequenceNumber < 0L && latestSnapshotSequence >= 0L) return true
+        return snapshot.timestampMs < latestSnapshotTimestampMs ||
+            (
+                snapshot.timestampMs == latestSnapshotTimestampMs &&
+                    snapshot.sequenceNumber <= latestSnapshotSequence
+                )
+    }
+
+    private fun shouldIgnorePendingSnapshot(
+        snapshot: HushPlaybackSnapshot,
+        resolvedState: Int,
+    ): Boolean {
+        pendingPlaybackState?.let { expectedState ->
+            val elapsedMs = snapshot.timestampMs - pendingPlaybackStateAtMs
+            val isExpectedState =
+                resolvedState == expectedState ||
+                    (
+                        expectedState == PlaybackStateCompat.STATE_PLAYING &&
+                            resolvedState == PlaybackStateCompat.STATE_BUFFERING
+                        )
+            if (isExpectedState || elapsedMs >= 2000L) {
+                pendingPlaybackState = null
+            } else {
+                return true
+            }
+        }
+        pendingSeekPositionMs?.let { expectedPosition ->
+            val elapsedMs = snapshot.timestampMs - pendingSeekAtMs
+            if (kotlin.math.abs(snapshot.positionMs - expectedPosition) <= 1000L || elapsedMs >= 2000L) {
+                pendingSeekPositionMs = null
+            } else {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun resolvePlaybackState(snapshot: HushPlaybackSnapshot): Int = when {
+        snapshot.playerState == PLAYER_STATE_BUFFERING && snapshot.playWhenReady -> PlaybackStateCompat.STATE_BUFFERING
+        snapshot.isPlaying -> PlaybackStateCompat.STATE_PLAYING
+        snapshot.playerState == PLAYER_STATE_READY && !snapshot.playWhenReady -> PlaybackStateCompat.STATE_PAUSED
+        snapshot.playerState == PLAYER_STATE_ENDED -> PlaybackStateCompat.STATE_STOPPED
+        else -> PlaybackStateCompat.STATE_PAUSED
+    }
+
+    private fun playbackSpeedFor(state: Int, sourceSpeed: Float): Float =
+        if (state == PlaybackStateCompat.STATE_PLAYING) sourceSpeed.takeIf { it > 0f } ?: 1f else 0f
+
+    private fun publishOptimisticPlaybackState(state: Int) {
+        val snapshot = latestSnapshot
+        val now = SystemClock.elapsedRealtime()
+        pendingPlaybackState = state
+        pendingPlaybackStateAtMs = now
+        mediaSession?.setPlaybackState(
+            buildPlaybackState(
+                state = state,
+                position = snapshot?.positionMs ?: 0L,
+                speed = playbackSpeedFor(state, snapshot?.playbackSpeed ?: 1f),
+                bufferedPosition = snapshot?.bufferedPositionMs ?: 0L,
+                activeQueueItemId = snapshot?.activeQueueItemId ?: -1L,
+                updateTimeMs = now,
+            ),
+        )
+    }
+
+    private fun publishOptimisticSeek(position: Long) {
+        val snapshot = latestSnapshot
+        val now = SystemClock.elapsedRealtime()
+        val resolvedState = snapshot?.let(::resolvePlaybackState) ?: PlaybackStateCompat.STATE_PAUSED
+        val targetPosition = position.coerceAtLeast(0L)
+        pendingSeekPositionMs = targetPosition
+        pendingSeekAtMs = now
+        mediaSession?.setPlaybackState(
+            buildPlaybackState(
+                state = resolvedState,
+                position = targetPosition,
+                speed = playbackSpeedFor(resolvedState, snapshot?.playbackSpeed ?: 1f),
+                bufferedPosition = snapshot?.bufferedPositionMs ?: targetPosition,
+                activeQueueItemId = snapshot?.activeQueueItemId ?: -1L,
+                updateTimeMs = now,
+            ),
+        )
+    }
+
+    private fun buildPlaybackState(
+        state: Int,
+        position: Long,
+        speed: Float,
+        bufferedPosition: Long,
+        activeQueueItemId: Long,
+        updateTimeMs: Long,
+    ): PlaybackStateCompat {
+        val playbackState = PlaybackStateCompat.Builder()
+            .setActions(
+                PlaybackStateCompat.ACTION_PLAY or
+                    PlaybackStateCompat.ACTION_PAUSE or
+                    PlaybackStateCompat.ACTION_PLAY_PAUSE or
+                    PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+                    PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+                    PlaybackStateCompat.ACTION_SEEK_TO or
+                    PlaybackStateCompat.ACTION_STOP or
+                    PlaybackStateCompat.ACTION_SET_RATING,
+            )
+            .addCustomAction(
+                PlaybackStateCompat.CustomAction.Builder(
+                    "THUMBS_UP",
+                    "Like",
+                    R.drawable.ic_heart,
+                ).apply {
+                    setExtras(Bundle().apply {
+                        putInt(
+                            "androidx.media3.session.EXTRAS_KEY_COMMAND_BUTTON_ICON_COMPAT",
+                            3, // CommandButton.ICON_HEART
+                        )
+                    })
+                }.build(),
+            )
+            .setBufferedPosition(bufferedPosition.coerceAtLeast(0L))
+            .setState(
+                state,
+                position.coerceAtLeast(0L),
+                playbackSpeedFor(state, speed),
+                updateTimeMs,
+            )
+
+        if (activeQueueItemId >= 0L) {
+            playbackState.setActiveQueueItemId(activeQueueItemId)
+        }
+        return playbackState.build()
     }
 
     private fun buildNotification(): Notification {
@@ -559,9 +704,9 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         nm.createNotificationChannel(channel)
     }
 
-    private fun sendCommandToHush(command: String) {
-        val now = System.currentTimeMillis()
-        if (now - lastCommandTime < 300) return
+    private fun sendCommandToHush(command: String): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastCommandTime < 300) return false
         lastCommandTime = now
 
         try {
@@ -570,8 +715,10 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 component = ComponentName("app.hush.music", "app.hush.music.playback.MusicService")
             }
             startForegroundService(intent)
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send command to Hush", e)
+            return false
         }
     }
 
@@ -586,9 +733,9 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         }
     }
 
-    private fun sendSeekCommandToHush(position: Long) {
-        val now = System.currentTimeMillis()
-        if (now - lastSeekTime < 100) return
+    private fun sendSeekCommandToHush(position: Long): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastSeekTime < 100) return false
         lastSeekTime = now
 
         try {
@@ -598,8 +745,10 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 component = ComponentName("app.hush.music", "app.hush.music.playback.MusicService")
             }
             startForegroundService(intent)
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send seek command to Hush", e)
+            return false
         }
     }
 
