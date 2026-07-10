@@ -139,6 +139,21 @@ private fun getFlavorName(app: WazeTargetApp): String = when (app) {
     WazeTargetApp.YOUTUBE_MUSIC -> "youtubeMusic"
 }
 
+object ShimInstallCallback {
+    var onResult: ((Boolean) -> Unit)? = null
+}
+
+class ShimInstallReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: android.content.Context, intent: Intent) {
+        val status = intent.getIntExtra(
+            android.content.pm.PackageInstaller.EXTRA_STATUS,
+            -1,
+        )
+        ShimInstallCallback.onResult?.invoke(status == android.content.pm.PackageInstaller.STATUS_SUCCESS)
+        ShimInstallCallback.onResult = null
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WazeIntegrationSettings(
@@ -154,31 +169,6 @@ fun WazeIntegrationSettings(
     var uninstallTargetLabel by remember { mutableStateOf("") }
     var uninstallTargetPackage by remember { mutableStateOf("") }
     var refreshTrigger by remember { mutableIntStateOf(0) }
-    var installCallback by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
-
-    val installResultReceiver = remember {
-        object : android.content.BroadcastReceiver() {
-            override fun onReceive(context: android.content.Context, intent: Intent) {
-                val status = intent.getIntExtra(
-                    android.content.pm.PackageInstaller.EXTRA_STATUS,
-                    -1,
-                )
-                installCallback?.invoke(status == android.content.pm.PackageInstaller.STATUS_SUCCESS)
-                installCallback = null
-            }
-        }
-    }
-
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        val filter = android.content.IntentFilter("app.hush.music.INSTALL_RESULT")
-        androidx.core.content.ContextCompat.registerReceiver(
-            context,
-            installResultReceiver,
-            filter,
-            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
-        )
-        onDispose { context.unregisterReceiver(installResultReceiver) }
-    }
 
     fun refreshNow() { refreshTrigger++ }
 
@@ -279,11 +269,11 @@ fun WazeIntegrationSettings(
                         val pendingIntent = android.app.PendingIntent.getBroadcast(
                             context,
                             sessionId,
-                            Intent("app.hush.music.INSTALL_RESULT"),
+                            Intent(context, ShimInstallReceiver::class.java),
                             android.app.PendingIntent.FLAG_IMMUTABLE or
                                 android.app.PendingIntent.FLAG_UPDATE_CURRENT,
                         )
-                        installCallback = { success ->
+                        ShimInstallCallback.onResult = { success ->
                             isProcessing = false
                             if (success) {
                                 checkShimState(targetApp, expectedInstalled = true) {}
