@@ -67,6 +67,15 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Prepare stable Waze shim signing
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: bash .github/scripts/prepare-shim-signing.sh
+
       - name: Resolve variant names
         id: variant
         shell: bash
@@ -235,6 +244,13 @@ jobs:
         with:
           name: ${{ steps.variant.outputs.artifact_name }}
           path: ${{ steps.release_dir.outputs.release_dir }}/out/${{ steps.variant.outputs.apk_name }}
+
+      - name: Upload Waze shim APKs
+        if: matrix.distribution == 'gms' && matrix.device == 'mobile'
+        uses: actions/upload-artifact@v7
+        with:
+          name: waze-shim-apks
+          path: waze-shim/build/outputs/apk/*/release/*.apk
 
   notifyUser:
     name: Notify referenced issues

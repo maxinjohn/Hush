@@ -333,6 +333,15 @@ print(normalize(sys.argv[1]))
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Prepare stable Waze shim signing
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: bash .github/scripts/prepare-shim-signing.sh
+
       - name: Resolve variant names
         id: variant
         shell: bash
@@ -485,6 +494,13 @@ print(normalize(sys.argv[1]))
           name: ${{ steps.variant.outputs.artifact_name }}
           path: ${{ steps.release_dir.outputs.release_dir }}/out/${{ steps.variant.outputs.apk_name }}
 
+      - name: Upload Waze shim APKs
+        if: matrix.distribution == 'gms' && matrix.device == 'mobile'
+        uses: actions/upload-artifact@v7
+        with:
+          name: waze-shim-apks
+          path: waze-shim/build/outputs/apk/*/release/*.apk
+
   create-release:
     needs: [check-version, build]
     if: needs.check-version.outputs.version_changed == 'true'
@@ -534,6 +550,8 @@ print(normalize(sys.argv[1]))
           MOBILE_UNIVERSAL_APK="$(find downloaded_artifacts/hush-gms-mobile-universal-release -name "*.apk" | head -n 1)"
           TV_UNIVERSAL_APK="$(find downloaded_artifacts/hush-gms-tv-universal-release -name "*.apk" 2>/dev/null | head -n 1 || true)"
           FOSS_UNIVERSAL_APK="$(find downloaded_artifacts/hush-foss-mobile-universal-release -name "*.apk" 2>/dev/null | head -n 1 || true)"
+          WAZE_SPOTIFY_APK="$(find downloaded_artifacts/waze-shim-apks -name "*-spotify-*.apk" 2>/dev/null | head -n 1 || true)"
+          WAZE_YTM_APK="$(find downloaded_artifacts/waze-shim-apks -name "*-youtubeMusic-*.apk" 2>/dev/null | head -n 1 || true)"
 
           RELEASE_ASSETS=("$MOBILE_UNIVERSAL_APK")
           if [ -n "${TV_UNIVERSAL_APK:-}" ] && [ -f "$TV_UNIVERSAL_APK" ]; then
@@ -541,6 +559,12 @@ print(normalize(sys.argv[1]))
           fi
           if [ -n "${FOSS_UNIVERSAL_APK:-}" ] && [ -f "$FOSS_UNIVERSAL_APK" ]; then
             RELEASE_ASSETS+=("$FOSS_UNIVERSAL_APK")
+          fi
+          if [ -n "${WAZE_SPOTIFY_APK:-}" ] && [ -f "$WAZE_SPOTIFY_APK" ]; then
+            RELEASE_ASSETS+=("$WAZE_SPOTIFY_APK")
+          fi
+          if [ -n "${WAZE_YTM_APK:-}" ] && [ -f "$WAZE_YTM_APK" ]; then
+            RELEASE_ASSETS+=("$WAZE_YTM_APK")
           fi
 
           if [ -z "${MOBILE_UNIVERSAL_APK:-}" ] || [ ! -f "$MOBILE_UNIVERSAL_APK" ]; then

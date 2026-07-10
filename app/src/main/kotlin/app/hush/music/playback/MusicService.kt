@@ -335,6 +335,7 @@ class MusicService :
     private val wazeCommandReceiver = WazeCommandReceiver()
     private var wazeReceiverRegistered = false
     private var pendingWazeCommand: Intent? = null
+    private var wazeColdStartRecoveryJob: Job? = null
     private var lastWazeMetadataUpdateTime = 0L
     private var wazePositionJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -1379,12 +1380,8 @@ class MusicService :
             withContext(Dispatchers.Main) {
                 queueRestoreCompleted.value = true
                 pendingWazeCommand?.let {
-                    val cmd = it.getStringExtra("command")
-                    wazeCommandReceiver.onReceive(this@MusicService, it)
                     pendingWazeCommand = null
-                    if (player.mediaItemCount == 0 && cmd in listOf("play", "play_pause", "next", "previous")) {
-                        wazeColdStartRecovery()
-                    }
+                    handleWazeCommand(it)
                 }
             }
         }
@@ -5033,7 +5030,7 @@ class MusicService :
                     val baseSong =
                         existing
                             ?: run {
-                                insert(metadata.copy(duration = metadata.duration.takeIf { it > 0 } ?: -1))
+                                database.insert(metadata.copy(duration = metadata.duration.takeIf { it > 0 } ?: -1))
                                 getSongById(mediaId)?.song
                             }
                             ?: return@withTransaction null
@@ -5077,7 +5074,7 @@ class MusicService :
         if (mediaId.isBlank()) return
         ioScope.launch {
             val song = database.getSongById(mediaId)?.song ?: run {
-                insert(metadata.copy(duration = metadata.duration.takeIf { it > 0 } ?: -1))
+                database.insert(metadata.copy(duration = metadata.duration.takeIf { it > 0 } ?: -1))
                 database.getSongById(mediaId)?.song
             } ?: return@launch
             if (!song.isLocal) {
@@ -6009,8 +6006,7 @@ class MusicService :
         val shimPackages = mutableListOf<String>()
         for (app in WazeTargetApp.entries) {
             try {
-                val pkgInfo = packageManager.getPackageInfo(app.packageName, 0)
-                if (pkgInfo.versionCode <= 2) {
+                if (packageManager.checkSignatures(packageName, app.packageName) == PackageManager.SIGNATURE_MATCH) {
                     shimPackages.add(app.packageName)
                 }
             } catch (_: PackageManager.NameNotFoundException) {}
@@ -6078,22 +6074,41 @@ class MusicService :
         }
     }
 
-    private fun wazeColdStartRecovery() {
-        scope.launch(Dispatchers.IO) {
+    private fun handleWazeCommand(intent: Intent) {
+        if (player.mediaItemCount > 0) {
+            wazeCommandReceiver.onReceive(this, intent)
+        } else if (queueRestoreCompleted.value) {
+            wazeColdStartRecovery(intent)
+        } else {
+            pendingWazeCommand = intent
+            Timber.tag(TAG).d("Deferred Waze command: ${intent.getStringExtra("command")}")
+        }
+    }
+
+    private fun wazeColdStartRecovery(intent: Intent) {
+        pendingWazeCommand = intent
+        if (wazeColdStartRecoveryJob?.isActive == true) return
+
+        wazeColdStartRecoveryJob = scope.launch(Dispatchers.IO) {
             try {
                 val persistedQueue = readPersistentObject<PersistQueue>(PERSISTENT_QUEUE_FILE)
                 val persistedPlayerState = readPersistentObject<PersistPlayerState>(PERSISTENT_PLAYER_STATE_FILE)
-                if (persistedQueue != null) {
-                    withContext(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
+                    val pendingCommand = pendingWazeCommand
+                    pendingWazeCommand = null
+                    if (persistedQueue != null) {
                         restorePersistentQueue(persistedQueue)
                         persistedPlayerState?.let {
                             restorePersistentPlayerState(it, restoredQueue = true)
                         }
-                        player.playWhenReady = true
-                        player.play()
                     }
+                    pendingCommand?.let { wazeCommandReceiver.onReceive(this@MusicService, it) }
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Timber.tag(TAG).w(e, "Failed to restore queue for Waze command")
+            } finally {
+                wazeColdStartRecoveryJob = null
+            }
         }
     }
 
@@ -7953,12 +7968,7 @@ class MusicService :
             }
 
             "app.hush.music.WAZE_COMMAND" -> {
-                if (player.mediaItemCount == 0) {
-                    pendingWazeCommand = intent
-                    Timber.tag(TAG).d("Deferred Waze command: ${intent?.getStringExtra("command")}")
-                } else {
-                    wazeCommandReceiver.onReceive(this, intent)
-                }
+                handleWazeCommand(intent)
             }
         }
         try {
