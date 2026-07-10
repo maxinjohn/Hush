@@ -230,7 +230,8 @@ jobs:
               exit 1
             fi
             rm -f waze-shims.zip
-            SOURCE_DATE_EPOCH=0 zip -j waze-shims.zip "$SPOTIFY_SHIM" "$YOUTUBE_MUSIC_SHIM"
+            touch -t 198001010000 "$SPOTIFY_SHIM" "$YOUTUBE_MUSIC_SHIM"
+            zip -X -j waze-shims.zip "$SPOTIFY_SHIM" "$YOUTUBE_MUSIC_SHIM"
             cp waze-shims.zip "${{ github.workspace }}/app/src/main/assets/"
             cd "${{ github.workspace }}"
           }
