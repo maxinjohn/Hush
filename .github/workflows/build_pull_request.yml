@@ -80,3 +80,9 @@ jobs:
             app/build/outputs/apk/gmsMobileUniversal/debug/*.apk
             app/build/outputs/apk/mobile/universal/debug/*.apk
             app/build/outputs/apk/mobileUniversal/debug/*.apk
+
+      - name: Upload Waze shim APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: waze-shim-apks-pr-${{ github.event.number }}
+          path: waze-shim/build/outputs/apk/*/release/*.apk

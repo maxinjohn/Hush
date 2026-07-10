@@ -205,27 +205,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 items.add(
                     MediaItem(
                         MediaDescriptionCompat.Builder()
-                            .setMediaId("recent")
-                            .setTitle("Recently Played")
-                            .setSubtitle("Hush Music")
-                            .build(),
-                        MediaItem.FLAG_BROWSABLE,
-                    )
-                )
-                items.add(
-                    MediaItem(
-                        MediaDescriptionCompat.Builder()
-                            .setMediaId("playlists")
-                            .setTitle("Playlists")
-                            .setSubtitle("Hush Music")
-                            .build(),
-                        MediaItem.FLAG_BROWSABLE,
-                    )
-                )
-                items.add(
-                    MediaItem(
-                        MediaDescriptionCompat.Builder()
-                            .setMediaId("current")
+                            .setMediaId("play_hush")
                             .setTitle("Hush Music")
                             .setSubtitle("Tap to play")
                             .build(),
@@ -234,34 +214,8 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 )
                 result.sendResult(items)
             }
-            "recent" -> {
-                items.add(
-                    MediaItem(
-                        MediaDescriptionCompat.Builder()
-                            .setMediaId("track_1")
-                            .setTitle("Hush Music")
-                            .setSubtitle("Ready to play")
-                            .build(),
-                        MediaItem.FLAG_PLAYABLE,
-                    )
-                )
-                result.sendResult(items)
-            }
-            "playlists" -> {
-                items.add(
-                    MediaItem(
-                        MediaDescriptionCompat.Builder()
-                            .setMediaId("playlist_1")
-                            .setTitle("My Playlist")
-                            .setSubtitle("Hush Music")
-                            .build(),
-                        MediaItem.FLAG_PLAYABLE,
-                    )
-                )
-                result.sendResult(items)
-            }
             else -> {
-                result.sendResult(mutableListOf())
+                result.sendResult(items)
             }
         }
     }
@@ -368,9 +322,12 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                     Log.d(TAG, "onCustomAction: $action")
                     when (action) {
                         "THUMBS_UP" -> sendCommandToHush("like")
-                        "SHUFFLE" -> sendCommandToHush("shuffle")
-                        "REPEAT" -> sendCommandToHush("repeat")
                     }
+                }
+
+                override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) {
+                    Log.d(TAG, "onPlayFromMediaId: $mediaId")
+                    sendCommandToHush("play")
                 }
             })
             isActive = true
@@ -402,15 +359,21 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                         PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                         PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
                         PlaybackStateCompat.ACTION_SEEK_TO or
-                        PlaybackStateCompat.ACTION_STOP or
-                        PlaybackStateCompat.ACTION_CUSTOM
+                        PlaybackStateCompat.ACTION_STOP
                 )
                 .addCustomAction(
                     PlaybackStateCompat.CustomAction.Builder(
                         "THUMBS_UP",
                         "Like",
-                        android.R.drawable.star_on,
-                    ).build()
+                        R.drawable.ic_heart,
+                    ).apply {
+                        setExtras(Bundle().apply {
+                            putInt(
+                                "androidx.media3.session.EXTRAS_KEY_COMMAND_BUTTON_ICON_COMPAT",
+                                3, // CommandButton.ICON_HEART
+                            )
+                        })
+                    }.build()
                 )
                 .build(),
         )
@@ -464,22 +427,21 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                         PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                         PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
                         PlaybackStateCompat.ACTION_SEEK_TO or
-                        PlaybackStateCompat.ACTION_STOP or
-                        PlaybackStateCompat.ACTION_CUSTOM
+                        PlaybackStateCompat.ACTION_STOP
                 )
                 .addCustomAction(
                     PlaybackStateCompat.CustomAction.Builder(
                         "THUMBS_UP",
                         "Like",
-                        android.R.drawable.star_on,
-                    ).build()
-                )
-                .addCustomAction(
-                    PlaybackStateCompat.CustomAction.Builder(
-                        "DOWNLOAD",
-                        "Download",
-                        android.R.drawable.ic_menu_upload,
-                    ).build()
+                        R.drawable.ic_heart,
+                    ).apply {
+                        setExtras(Bundle().apply {
+                            putInt(
+                                "androidx.media3.session.EXTRAS_KEY_COMMAND_BUTTON_ICON_COMPAT",
+                                3, // CommandButton.ICON_HEART
+                            )
+                        })
+                    }.build()
                 )
                 .setState(state, position, 1f, SystemClock.elapsedRealtime())
                 .build()
@@ -590,7 +552,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 putExtra("command", command)
                 component = ComponentName("app.hush.music", "app.hush.music.playback.MusicService")
             }
-            startService(intent)
+            startForegroundService(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send command to Hush", e)
         }
@@ -601,7 +563,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             val intent = Intent().apply {
                 component = ComponentName("app.hush.music", "app.hush.music.playback.MusicService")
             }
-            startService(intent)
+            startForegroundService(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start Hush MusicService", e)
         }
@@ -618,7 +580,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 putExtra("position", position)
                 component = ComponentName("app.hush.music", "app.hush.music.playback.MusicService")
             }
-            startService(intent)
+            startForegroundService(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send seek command to Hush", e)
         }
