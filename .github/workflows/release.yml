@@ -228,22 +228,7 @@ jobs:
           }
 
           normalize_apk() {
-            python3 -c "
-import zipfile, sys, hashlib, io
-
-def normalize(src):
-    buf = io.BytesIO()
-    with zipfile.ZipFile(src, 'r') as zin, zipfile.ZipFile(buf, 'w') as zout:
-        for item in sorted(zin.infolist(), key=lambda x: x.filename):
-            data = zin.read(item.filename)
-            item.date_time = (1980, 1, 1, 0, 0, 0)
-            item.extra = b''
-            item.comment = b''
-            zout.writestr(item, data)
-    return hashlib.sha256(buf.getvalue()).hexdigest()
-
-print(normalize(sys.argv[1]))
-" "$1"
+            python3 -c "import hashlib, sys, zipfile; archive = zipfile.ZipFile(sys.argv[1]); print(hashlib.sha256(b''.join(archive.read(name) for name in sorted(archive.namelist()))).hexdigest())" "$1"
           }
 
           export SOURCE_DATE_EPOCH=0
