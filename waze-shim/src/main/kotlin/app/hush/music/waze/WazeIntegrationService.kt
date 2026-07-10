@@ -22,6 +22,7 @@ import android.os.SystemClock
 import android.support.v4.media.MediaBrowserCompat.MediaItem
 import android.support.v4.media.MediaDescriptionCompat
 import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.RatingCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
@@ -55,6 +56,8 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
     private var wazeMessenger: Messenger? = null
     private var notificationTitle = "Hush Music"
     private var notificationSubtitle = "Ready to play"
+    private var wazeToken: String? = null
+    private var reconnectScheduled = false
 
     private val messenger = Messenger(Handler(Looper.getMainLooper()) { msg ->
         Log.d(TAG, "handleMessage: what=${msg.what} arg1=${msg.arg1} arg2=${msg.arg2}" +
@@ -146,16 +149,19 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             START_APP_PROTOCOL_SERVICE -> {
                 Log.d(TAG, "  -> Returning Messenger binder for App Protocol")
                 ensureForeground()
+                startHushMusicService()
                 return messenger.binder
             }
             SERVICE_INTERFACE -> {
                 Log.d(TAG, "  -> Returning MediaBrowserService binder")
                 ensureForeground()
+                startHushMusicService()
                 return super.onBind(intent)
             }
             ACTION_INIT -> {
                 Log.d(TAG, "  -> ACTION_INIT received - returning MediaBrowserService binder")
                 ensureForeground()
+                startHushMusicService()
                 return super.onBind(intent)
             }
             else -> {
@@ -176,7 +182,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 bindToWazeSdkService(token)
             }
         }
-        return START_NOT_STICKY
+        return START_REDELIVER_INTENT
     }
 
     override fun onGetRoot(
@@ -246,7 +252,6 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        cleanup()
     }
 
     private fun ensureForeground() {
@@ -325,11 +330,19 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                     }
                 }
 
+                override fun onSetRating(rating: RatingCompat?) {
+                    if (rating?.rating == 1f) {
+                        Log.d(TAG, "onSetRating: thumbs up")
+                        sendCommandToHush("like")
+                    }
+                }
+
                 override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) {
                     Log.d(TAG, "onPlayFromMediaId: $mediaId")
                     sendCommandToHush("play")
                 }
             })
+            setRatingType(RatingCompat.RATING_HEART)
             isActive = true
         }
         mediaSession = session
@@ -359,7 +372,8 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                         PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                         PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
                         PlaybackStateCompat.ACTION_SEEK_TO or
-                        PlaybackStateCompat.ACTION_STOP
+                        PlaybackStateCompat.ACTION_STOP or
+                        PlaybackStateCompat.ACTION_SET_RATING
                 )
                 .addCustomAction(
                     PlaybackStateCompat.CustomAction.Builder(
@@ -384,6 +398,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Ready to play")
                 .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "")
                 .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, 0L)
+                .putRating(MediaMetadataCompat.METADATA_KEY_USER_RATING, RatingCompat.newHeartRating(false))
                 .build()
         )
 
@@ -411,6 +426,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, displaySubtitle)
                 .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, album)
                 .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration)
+                .putRating(MediaMetadataCompat.METADATA_KEY_USER_RATING, RatingCompat.newHeartRating(false))
                 .apply {
                     if (!artworkUrl.isNullOrEmpty()) {
                         putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, artworkUrl)
@@ -427,7 +443,8 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                         PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                         PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
                         PlaybackStateCompat.ACTION_SEEK_TO or
-                        PlaybackStateCompat.ACTION_STOP
+                        PlaybackStateCompat.ACTION_STOP or
+                        PlaybackStateCompat.ACTION_SET_RATING
                 )
                 .addCustomAction(
                     PlaybackStateCompat.CustomAction.Builder(
@@ -588,6 +605,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
 
     private fun bindToWazeSdkService(token: String) {
         if (cleanedUp) return
+        wazeToken = token
         Log.d(TAG, "Binding to Waze SdkService with token=present")
         val serviceIntent = Intent().apply {
             component = ComponentName(WAZE_PKG, WAZE_SDK_SERVICE)
@@ -603,6 +621,21 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 Log.d(TAG, "Disconnected from Waze SdkService")
                 wazeSdkConnection = null
                 wazeMessenger = null
+                scheduleWazeReconnect()
+            }
+
+            override fun onBindingDied(name: ComponentName) {
+                Log.w(TAG, "Waze SdkService binding died")
+                wazeSdkConnection = null
+                wazeMessenger = null
+                scheduleWazeReconnect()
+            }
+
+            override fun onNullBinding(name: ComponentName) {
+                Log.w(TAG, "Waze SdkService returned a null binding")
+                wazeSdkConnection = null
+                wazeMessenger = null
+                scheduleWazeReconnect()
             }
         }
 
@@ -615,6 +648,8 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             val bound = bindService(serviceIntent, conn, Context.BIND_AUTO_CREATE)
             if (bound) {
                 wazeSdkConnection = conn
+            } else {
+                scheduleWazeReconnect()
             }
             Log.d(TAG, "bindService result=$bound")
         }
@@ -650,6 +685,8 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 if (wazeMessengerSent) {
                     wazeMessenger = Messenger.CREATOR.createFromParcel(reply)
                     Log.d(TAG, "Got Waze Messenger, connection established!")
+                } else {
+                    scheduleWazeReconnect()
                 }
             } finally {
                 data.recycle()
@@ -657,15 +694,36 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             }
         } catch (e: RemoteException) {
             Log.e(TAG, "Failed to call connect()", e)
+            scheduleWazeReconnect()
         } catch (e: Exception) {
             Log.e(TAG, "Unexpected error calling connect()", e)
+            scheduleWazeReconnect()
         }
+    }
+
+    private fun scheduleWazeReconnect() {
+        synchronized(lock) {
+            if (cleanedUp || wazeToken == null || reconnectScheduled) return
+            reconnectScheduled = true
+        }
+        Handler(Looper.getMainLooper()).postDelayed({
+            val token = synchronized(lock) {
+                reconnectScheduled = false
+                wazeToken?.takeIf { !cleanedUp }
+            }
+            if (token != null) {
+                Log.d(TAG, "Retrying Waze SdkService connection")
+                bindToWazeSdkService(token)
+            }
+        }, 1000)
     }
 
     private fun cleanup() {
         if (cleanedUp) return
         cleanedUp = true
+        reconnectScheduled = false
         wazeMessenger = null
+        wazeToken = null
         wazeSdkConnection?.let {
             try {
                 unbindService(it)

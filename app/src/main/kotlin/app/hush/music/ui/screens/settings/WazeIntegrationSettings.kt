@@ -34,12 +34,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +49,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.navigation.NavController
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
@@ -64,9 +66,9 @@ import timber.log.Timber
 import java.io.File
 import java.util.zip.ZipInputStream
 
-private fun getWazeAppLabel(app: WazeTargetApp): String = when (app) {
-    WazeTargetApp.SPOTIFY -> "Spotify Bridge"
-    WazeTargetApp.YOUTUBE_MUSIC -> "YouTube Music Bridge"
+private fun getWazeAppLabel(context: android.content.Context, app: WazeTargetApp): String = when (app) {
+    WazeTargetApp.SPOTIFY -> context.getString(R.string.waze_integration_spotify)
+    WazeTargetApp.YOUTUBE_MUSIC -> context.getString(R.string.waze_integration_youtube_music)
 }
 
 private fun isAppInstalled(context: android.content.Context, packageName: String): Boolean {
@@ -81,11 +83,21 @@ private fun isAppInstalled(context: android.content.Context, packageName: String
 private fun isOurShim(context: android.content.Context, packageName: String): Boolean {
     if (!isAppInstalled(context, packageName)) return false
     return try {
-        val packageInfo = context.packageManager.getPackageInfo(packageName, 0)
-        packageInfo.versionCode <= 2
+        val appInfo = context.packageManager.getApplicationInfo(
+            packageName,
+            PackageManager.GET_META_DATA,
+        )
+        appInfo.metaData?.getBoolean("app.hush.music.waze.SHIM", false) == true ||
+            appInfo.loadLabel(context.packageManager).toString() == getLegacyShimLabel(packageName)
     } catch (_: Exception) {
         false
     }
+}
+
+private fun getLegacyShimLabel(packageName: String): String = when (packageName) {
+    WazeTargetApp.SPOTIFY.packageName -> "Hush (Spotify)"
+    WazeTargetApp.YOUTUBE_MUSIC.packageName -> "Hush (YouTube Music)"
+    else -> ""
 }
 
 private fun isRealAppInstalled(context: android.content.Context, packageName: String): Boolean {
@@ -142,8 +154,25 @@ fun WazeIntegrationSettings(
     var showUninstallConfirm by remember { mutableStateOf(false) }
     var uninstallTargetLabel by remember { mutableStateOf("") }
     var uninstallTargetPackage by remember { mutableStateOf("") }
-    var pendingInstallApp by remember { mutableStateOf<WazeTargetApp?>(null) }
+    var pendingInstallApp by rememberSaveable { mutableStateOf<WazeTargetApp?>(null) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
+
+    var tempApkFile by remember { mutableStateOf<File?>(null) }
+
+    fun refreshShimState(app: WazeTargetApp, installed: Boolean, onComplete: (Boolean) -> Unit) {
+        scope.launch {
+            repeat(30) {
+                if (isOurShim(context, app.packageName) == installed) {
+                    refreshTrigger++
+                    onComplete(true)
+                    return@launch
+                }
+                delay(500)
+            }
+            refreshTrigger++
+            onComplete(false)
+        }
+    }
 
     fun installedShimPackages(): Set<String> {
         return WazeTargetApp.entries
@@ -153,68 +182,73 @@ fun WazeIntegrationSettings(
     }
 
     val installLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        isProcessing = false
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
         val app = pendingInstallApp
-        if (app != null && isAppInstalled(context, app.packageName)) {
-            statusMessage = "Installed. Open Waze to see Hush."
-            refreshTrigger++
-        } else if (result.resultCode == android.app.Activity.RESULT_CANCELED) {
-            statusMessage = "Install cancelled."
-        } else {
-            statusMessage = "Install failed. Try again."
-        }
         pendingInstallApp = null
+        tempApkFile?.delete()
+        tempApkFile = null
+        if (app != null) {
+            refreshShimState(app, installed = true) { installed ->
+                isProcessing = false
+                statusMessage = if (installed) {
+                    context.getString(R.string.waze_integration_installed)
+                } else {
+                    "Install did not complete. Try again."
+                }
+            }
+        } else {
+            isProcessing = false
+        }
     }
 
-    fun doUninstall(targetPackage: String, targetLabel: String) {
+    var pendingUninstallApp by rememberSaveable { mutableStateOf<WazeTargetApp?>(null) }
+    val uninstallLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        val app = pendingUninstallApp
+        pendingUninstallApp = null
+        if (app != null) {
+            refreshShimState(app, installed = false) { removed ->
+                isProcessing = false
+                statusMessage = if (removed) {
+                    context.getString(R.string.waze_integration_uninstalled)
+                } else {
+                    "Uninstall cancelled."
+                }
+            }
+        } else {
+            isProcessing = false
+        }
+    }
+
+    fun doUninstall(targetApp: WazeTargetApp) {
         isProcessing = true
-        statusMessage = "Open Settings to remove $targetLabel\u2026"
+        statusMessage = "${context.getString(R.string.waze_integration_uninstalling)} ${getWazeAppLabel(context, targetApp).lowercase()}"
+        pendingUninstallApp = targetApp
 
         try {
-            val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:$targetPackage")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val intent = Intent(Intent.ACTION_UNINSTALL_PACKAGE).apply {
+                data = Uri.parse("package:${targetApp.packageName}")
             }
-            context.startActivity(intent)
+            uninstallLauncher.launch(intent)
         } catch (e: Exception) {
-            Timber.e(e, "Settings intent failed")
-            try {
-                val intent = Intent(Intent.ACTION_UNINSTALL_PACKAGE).apply {
-                    data = Uri.parse("package:$targetPackage")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-            } catch (e2: Exception) {
-                Timber.e(e2, "Uninstall intent also failed")
-                isProcessing = false
-                statusMessage = "Uninstall failed. Please uninstall from Settings manually."
-            }
-        }
-
-        scope.launch {
-            delay(5000)
-            withContext(Dispatchers.Main) {
-                if (!isAppInstalled(context, targetPackage)) {
-                    statusMessage = "Removed."
-                    refreshTrigger++
-                } else if (isProcessing) {
-                    statusMessage = "Still installed. Uninstall from App Info."
-                }
-                isProcessing = false
-            }
+            Timber.e(e, "Failed to launch package uninstaller")
+            isProcessing = false
+            pendingUninstallApp = null
+            statusMessage = "Unable to open the package uninstaller."
         }
     }
 
     fun doInstall(targetApp: WazeTargetApp) {
         isProcessing = true
-        statusMessage = "Installing ${getWazeAppLabel(targetApp)}\u2026"
+        statusMessage = "${context.getString(R.string.waze_integration_installing)} ${getWazeAppLabel(context, targetApp).lowercase()}"
         pendingInstallApp = targetApp
         scope.launch(Dispatchers.IO) {
             val apkUri = getShimApkFromZip(context, getFlavorName(targetApp))
             withContext(Dispatchers.Main) {
                 if (apkUri != null) {
+                    tempApkFile = File(context.cacheDir, "waze-shim-${getFlavorName(targetApp)}-release.apk")
                     val intent = Intent(Intent.ACTION_VIEW).apply {
                         setDataAndType(apkUri, "application/vnd.android.package-archive")
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -238,6 +272,10 @@ fun WazeIntegrationSettings(
     }
 
     val installedPackages = remember(refreshTrigger) { installedShimPackages() }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        refreshTrigger++
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         HushAmbientBackground(
@@ -284,7 +322,7 @@ fun WazeIntegrationSettings(
             Spacer(modifier = Modifier.height(16.dp))
 
             WazeTargetApp.entries.forEach { app ->
-                val appLabel = remember(app, refreshTrigger) { getWazeAppLabel(app) }
+                val appLabel = remember(app, refreshTrigger) { getWazeAppLabel(context, app) }
                 val isInstalled = remember(app, refreshTrigger) { app.packageName in installedPackages }
                 val realAppInstalled = remember(app, refreshTrigger) { isRealAppInstalled(context, app.packageName) }
 
@@ -429,8 +467,10 @@ fun WazeIntegrationSettings(
             confirmButton = {
                 TextButton(onClick = {
                     showUninstallConfirm = false
-                    if (uninstallTargetPackage.isNotEmpty()) {
-                        doUninstall(uninstallTargetPackage, uninstallTargetLabel)
+                    if (!isProcessing && uninstallTargetPackage.isNotEmpty()) {
+                        WazeTargetApp.entries
+                            .firstOrNull { it.packageName == uninstallTargetPackage }
+                            ?.let(::doUninstall)
                     }
                 }) {
                     Text("Remove")

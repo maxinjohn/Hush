@@ -17,6 +17,10 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
+        <meta-data
+            android:name="app.hush.music.waze.SHIM"
+            android:value="true" />
+
         <activity
             android:name=".ShimLauncherActivity"
             android:exported="true"

@@ -47,8 +47,8 @@ android {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 150
-        versionName = "13.11.0"
+        versionCode = 151
+        versionName = "13.11.1"
 
         ndk {
             // ABI filters are set per product flavor (arm64, universal, etc.).
@@ -153,6 +153,12 @@ android {
             dimension = "abi"
             ndk { abiFilters += "x86_64" }
             buildConfigField("String", "ARCHITECTURE", "\"x86_64\"")
+        }
+    }
+
+    sourceSets {
+        getByName("mobile") {
+            assets.directories.add("src/mobile/assets")
         }
     }
 
@@ -480,14 +486,19 @@ afterEvaluate {
 
 // Build Waze shim APKs and compress them into app assets
 // Run: ./gradlew :app:copyShimApks
-val shimFlavors = listOf("spotify", "youtubeMusic")
-tasks.register<Copy>("copyShimApks") {
+val copyShimApks = tasks.register<Copy>("copyShimApks") {
     description = "Copies Waze shim APKs zip into app assets"
     group = "hush"
-    dependsOn(shimFlavors.map { ":waze-shim:assemble${it.replaceFirstChar { c -> c.uppercase() }}Release" })
+    dependsOn(":waze-shim:packageShimApks")
     from(rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip"))
-    into(rootProject.file("app/src/main/assets"))
+    into(rootProject.file("app/src/mobile/assets"))
     doLast {
-        println("Copied waze-shims.zip to app/src/main/assets/")
+        println("Copied waze-shims.zip to app/src/mobile/assets/")
+    }
+}
+
+tasks.configureEach {
+    if (name.contains("Mobile")) {
+        dependsOn(copyShimApks)
     }
 }

@@ -6006,7 +6006,16 @@ class MusicService :
         val shimPackages = mutableListOf<String>()
         for (app in WazeTargetApp.entries) {
             try {
-                if (packageManager.checkSignatures(packageName, app.packageName) == PackageManager.SIGNATURE_MATCH) {
+                val appInfo = packageManager.getApplicationInfo(
+                    app.packageName,
+                    PackageManager.GET_META_DATA,
+                )
+                val isCurrentShim = appInfo.metaData?.getBoolean("app.hush.music.waze.SHIM", false) == true
+                val isLegacyShim = appInfo.loadLabel(packageManager).toString() == when (app) {
+                    WazeTargetApp.SPOTIFY -> "Hush (Spotify)"
+                    WazeTargetApp.YOUTUBE_MUSIC -> "Hush (YouTube Music)"
+                }
+                if (isCurrentShim || isLegacyShim) {
                     shimPackages.add(app.packageName)
                 }
             } catch (_: PackageManager.NameNotFoundException) {}
