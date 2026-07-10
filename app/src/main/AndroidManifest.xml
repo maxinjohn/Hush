@@ -250,10 +250,6 @@
                 android:resource="@xml/provider_paths" />
         </provider>
 
-        <receiver
-            android:name=".ui.screens.settings.ShimInstallReceiver"
-            android:exported="false" />
-
         <service
             android:name=".playback.MusicService"
             android:exported="true"

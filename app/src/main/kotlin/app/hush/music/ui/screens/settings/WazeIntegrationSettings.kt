@@ -2,7 +2,6 @@ package app.hush.music.ui.screens.settings
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
@@ -67,7 +66,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
-import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 
 private fun getWazeAppLabel(context: android.content.Context, app: WazeTargetApp): String = when (app) {
     WazeTargetApp.SPOTIFY -> context.getString(R.string.waze_integration_spotify)
@@ -113,21 +112,32 @@ private fun isRealAppInstalled(context: android.content.Context, packageName: St
     return !isOurShim(context, packageName)
 }
 
-private fun getShimApkBytes(context: android.content.Context, flavorName: String): ByteArray? {
+private fun getShimApkUri(context: android.content.Context, flavorName: String): Uri? {
     return try {
-        val zipFile = File(context.cacheDir, "waze-shims.zip")
-        context.assets.open("waze-shims.zip").use { input ->
-            zipFile.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
         val targetEntry = "waze-shim-$flavorName-release.apk"
-        ZipFile(zipFile).use { zip ->
-            val entry = zip.getEntry(targetEntry) ?: return null
-            zip.getInputStream(entry).use { apkInput ->
-                apkInput.readBytes()
+        val tempFile = File(context.cacheDir, targetEntry)
+        context.assets.open("waze-shims.zip").use { zipInput ->
+            val zis = java.util.zip.ZipInputStream(zipInput)
+            var entry = zis.nextEntry
+            while (entry != null) {
+                if (entry.name == targetEntry) {
+                    tempFile.outputStream().use { out ->
+                        zis.copyTo(out)
+                    }
+                    Timber.d("Extracted $targetEntry: ${tempFile.length()} bytes")
+                    zis.close()
+                    return androidx.core.content.FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.FileProvider",
+                        tempFile,
+                    )
+                }
+                entry = zis.nextEntry
             }
+            zis.close()
         }
+        Timber.e("Entry $targetEntry not found in waze-shims.zip")
+        null
     } catch (e: Exception) {
         Timber.e(e, "Failed to extract companion APK from zip")
         null
@@ -137,21 +147,6 @@ private fun getShimApkBytes(context: android.content.Context, flavorName: String
 private fun getFlavorName(app: WazeTargetApp): String = when (app) {
     WazeTargetApp.SPOTIFY -> "spotify"
     WazeTargetApp.YOUTUBE_MUSIC -> "youtubeMusic"
-}
-
-object ShimInstallCallback {
-    var onResult: ((Boolean) -> Unit)? = null
-}
-
-class ShimInstallReceiver : android.content.BroadcastReceiver() {
-    override fun onReceive(context: android.content.Context, intent: Intent) {
-        val status = intent.getIntExtra(
-            android.content.pm.PackageInstaller.EXTRA_STATUS,
-            -1,
-        )
-        ShimInstallCallback.onResult?.invoke(status == android.content.pm.PackageInstaller.STATUS_SUCCESS)
-        ShimInstallCallback.onResult = null
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -168,6 +163,7 @@ fun WazeIntegrationSettings(
     var showUninstallConfirm by remember { mutableStateOf(false) }
     var uninstallTargetLabel by remember { mutableStateOf("") }
     var uninstallTargetPackage by remember { mutableStateOf("") }
+    var pendingInstallApp by rememberSaveable { mutableStateOf<WazeTargetApp?>(null) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
 
     fun refreshNow() { refreshTrigger++ }
@@ -197,6 +193,26 @@ fun WazeIntegrationSettings(
             .filter { isOurShim(context, it.packageName) }
             .map { it.packageName }
             .toSet()
+    }
+
+    val installLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        val app = pendingInstallApp
+        pendingInstallApp = null
+        if (app != null) {
+            checkShimState(app, expectedInstalled = true) { success ->
+                isProcessing = false
+                statusMessage = if (success) {
+                    context.getString(R.string.waze_integration_installed)
+                } else {
+                    Timber.e("Install result: resultCode=${it.resultCode}")
+                    "Install did not complete. Check that 'Install unknown apps' is enabled for Hush."
+                }
+            }
+        } else {
+            isProcessing = false
+        }
     }
 
     var pendingUninstallApp by rememberSaveable { mutableStateOf<WazeTargetApp?>(null) }
@@ -238,67 +254,30 @@ fun WazeIntegrationSettings(
     }
 
     fun doInstall(targetApp: WazeTargetApp) {
-        if (
-            android.os.Build.VERSION.SDK_INT >= 33 &&
-            !context.packageManager.canRequestPackageInstalls()
-        ) {
-            statusMessage = "Enable 'Install unknown apps' permission for Hush in Settings."
-            val intent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:${context.packageName}"),
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-            return
-        }
         isProcessing = true
         statusMessage = "${context.getString(R.string.waze_integration_installing)} ${getWazeAppLabel(context, targetApp).lowercase()}"
+        pendingInstallApp = targetApp
         scope.launch(Dispatchers.IO) {
-            val apkBytes = getShimApkBytes(context, getFlavorName(targetApp))
+            val apkUri = getShimApkUri(context, getFlavorName(targetApp))
+            Timber.d("APK URI: $apkUri")
             withContext(Dispatchers.Main) {
-                if (apkBytes != null) {
+                if (apkUri != null) {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(apkUri, "application/vnd.android.package-archive")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
                     try {
-                        val params = PackageInstaller.SessionParams(
-                            PackageInstaller.SessionParams.MODE_FULL_INSTALL,
-                        )
-                        params.setAppPackageName(targetApp.packageName)
-                        val sessionId = context.packageManager.packageInstaller.createSession(params)
-                        val session = context.packageManager.packageInstaller.openSession(sessionId)
-                        session.openWrite("shim", 0, apkBytes.size.toLong()).use { out ->
-                            out.write(apkBytes)
-                        }
-                        val pendingIntent = android.app.PendingIntent.getBroadcast(
-                            context,
-                            sessionId,
-                            Intent(context, ShimInstallReceiver::class.java),
-                            android.app.PendingIntent.FLAG_MUTABLE or
-                                android.app.PendingIntent.FLAG_UPDATE_CURRENT,
-                        )
-                        ShimInstallCallback.onResult = { success ->
-                            isProcessing = false
-                            if (success) {
-                                checkShimState(targetApp, expectedInstalled = true) {}
-                                statusMessage = context.getString(R.string.waze_integration_installed)
-                            } else {
-                                statusMessage = "Install failed."
-                            }
-                        }
-                        session.commit(pendingIntent.intentSender)
-                    } catch (e: SecurityException) {
-                        Timber.e(e, "Missing install permission")
-                        isProcessing = false
-                        statusMessage = "Enable 'Install unknown apps' for Hush in Settings."
-                        val intent = Intent(
-                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                            Uri.parse("package:${context.packageName}"),
-                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        context.startActivity(intent)
+                        installLauncher.launch(intent)
                     } catch (e: Exception) {
-                        Timber.e(e, "PackageInstaller failed")
+                        Timber.e(e, "Failed to launch APK installer")
                         isProcessing = false
-                        statusMessage = "Install failed: ${e.message}"
+                        pendingInstallApp = null
+                        statusMessage = "No installer found on this device."
                     }
                 } else {
                     isProcessing = false
+                    pendingInstallApp = null
                     statusMessage = "Companion APK not found. Rebuild the app."
                 }
             }
