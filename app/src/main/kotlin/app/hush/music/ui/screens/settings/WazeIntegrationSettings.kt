@@ -270,7 +270,7 @@ fun WazeIntegrationSettings(
                             context,
                             sessionId,
                             Intent(context, ShimInstallReceiver::class.java),
-                            android.app.PendingIntent.FLAG_IMMUTABLE or
+                            android.app.PendingIntent.FLAG_MUTABLE or
                                 android.app.PendingIntent.FLAG_UPDATE_CURRENT,
                         )
                         ShimInstallCallback.onResult = { success ->
