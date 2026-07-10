@@ -109,6 +109,7 @@ jobs:
           TOGETHER_BEARER_TOKEN: ${{ secrets.TOGETHER_BEARER_TOKEN }}
           CANVAS_BEARER_TOKEN: ${{ secrets.CANVAS_BEARER_TOKEN }}
           EXTRACTOR_BEARER: ${{ secrets.EXTRACTOR_BEARER }}
+          HUSH_UNSIGNED_RELEASE_BUILD: "true"
         run: |
           set -euo pipefail
           DEVICE="mobile"
@@ -228,7 +229,7 @@ jobs:
           }
 
           normalize_apk() {
-            python3 -c "import hashlib, sys, zipfile; archive = zipfile.ZipFile(sys.argv[1]); print(hashlib.sha256(b''.join(archive.read(name) for name in sorted(archive.namelist()))).hexdigest())" "$1"
+            python3 -c "import hashlib, sys, zipfile; archive = zipfile.ZipFile(sys.argv[1]); print(hashlib.sha256(b''.join(name.encode() + b'\\0' + archive.read(name) for name in sorted(archive.namelist()))).hexdigest())" "$1"
           }
 
           export SOURCE_DATE_EPOCH=0

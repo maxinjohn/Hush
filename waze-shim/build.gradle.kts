@@ -11,6 +11,7 @@ val hasReleaseSigningConfig =
         !shimStorePassword.isNullOrBlank() &&
         !shimKeyAlias.isNullOrBlank() &&
         !shimKeyPassword.isNullOrBlank()
+val unsignedReleaseBuild = System.getenv("HUSH_UNSIGNED_RELEASE_BUILD") == "true"
 
 android {
     namespace = "app.hush.music.waze"
@@ -46,7 +47,11 @@ android {
             isShrinkResources = true
             // CI supplies a persistent release key so installed bridges can be updated.
             signingConfig =
-                if (hasReleaseSigningConfig) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
+                when {
+                    unsignedReleaseBuild -> null
+                    hasReleaseSigningConfig -> signingConfigs.getByName("release")
+                    else -> signingConfigs.getByName("debug")
+                }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
