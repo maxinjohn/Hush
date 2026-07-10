@@ -37,6 +37,7 @@ val hasReleaseSigningConfig =
         releaseStorePassword != null &&
         releaseKeyAlias != null &&
         releaseKeyPassword != null
+val unsignedReleaseBuild = System.getenv("HUSH_UNSIGNED_RELEASE_BUILD") == "true"
 
 android {
     namespace = "app.hush.music"
@@ -179,7 +180,7 @@ android {
             // apksigner after assemble (ilharp/sign-android-release or scripts/resign-release-apk.sh).
             // Signing twice (Gradle release + apksigner) leaves broken v1 JAR signatures.
             signingConfig =
-                if (hasReleaseSigningConfig) {
+                if (unsignedReleaseBuild || hasReleaseSigningConfig) {
                     null
                 } else {
                     signingConfigs.getByName("debug")
