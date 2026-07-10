@@ -215,44 +215,17 @@ fun WazeIntegrationSettings(
         }
     }
 
-    var pendingUninstallApp by rememberSaveable { mutableStateOf<WazeTargetApp?>(null) }
-    val uninstallLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) {
-        val app = pendingUninstallApp
-        pendingUninstallApp = null
-        if (app != null) {
-            scope.launch {
-                delay(500)
-                checkShimState(app, expectedInstalled = false) { removed ->
-                    isProcessing = false
-                    statusMessage = if (removed) {
-                        context.getString(R.string.waze_integration_uninstalled)
-                    } else {
-                        "Uninstall cancelled."
-                    }
-                }
-            }
-        } else {
-            isProcessing = false
-        }
-    }
-
     fun doUninstall(targetApp: WazeTargetApp) {
-        isProcessing = true
-        statusMessage = "${context.getString(R.string.waze_integration_uninstalling)} ${getWazeAppLabel(context, targetApp).lowercase()}"
-        pendingUninstallApp = targetApp
-
         try {
-            val intent = Intent(Intent.ACTION_UNINSTALL_PACKAGE).apply {
-                data = Uri.parse("package:${targetApp.packageName}")
-            }
-            uninstallLauncher.launch(intent)
+            context.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:${targetApp.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
         } catch (e: Exception) {
-            Timber.e(e, "Failed to launch package uninstaller")
-            isProcessing = false
-            pendingUninstallApp = null
-            statusMessage = "Unable to open the package uninstaller."
+            Timber.e(e, "Failed to open app settings")
+            statusMessage = "Unable to open app settings."
         }
     }
 
