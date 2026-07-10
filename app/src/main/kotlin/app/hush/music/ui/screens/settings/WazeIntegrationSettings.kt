@@ -175,8 +175,8 @@ fun WazeIntegrationSettings(
             return
         }
         scope.launch {
-            repeat(5) {
-                delay(300)
+            repeat(10) {
+                delay(500)
                 if (isOurShim(context, app.packageName) == expectedInstalled) {
                     refreshNow()
                     onResult(true)
@@ -222,12 +222,15 @@ fun WazeIntegrationSettings(
         val app = pendingUninstallApp
         pendingUninstallApp = null
         if (app != null) {
-            checkShimState(app, expectedInstalled = false) { removed ->
-                isProcessing = false
-                statusMessage = if (removed) {
-                    context.getString(R.string.waze_integration_uninstalled)
-                } else {
-                    "Uninstall cancelled."
+            scope.launch {
+                delay(500)
+                checkShimState(app, expectedInstalled = false) { removed ->
+                    isProcessing = false
+                    statusMessage = if (removed) {
+                        context.getString(R.string.waze_integration_uninstalled)
+                    } else {
+                        "Uninstall cancelled."
+                    }
                 }
             }
         } else {
