@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.bundling.Zip
+
 plugins {
     id("com.android.application")
 }
@@ -21,8 +23,8 @@ android {
         applicationId = "com.spotify.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 150
-        versionName = "13.11.0"
+        versionCode = 151
+        versionName = "13.11.1"
     }
 
     signingConfigs {
@@ -84,4 +86,18 @@ dependencies {
     implementation("androidx.media:media:1.7.0")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+}
+
+tasks.register<Zip>("packageShimApks") {
+    group = "hush"
+    description = "Packages the Waze bridge APKs for embedding in Hush."
+    dependsOn("assembleSpotifyRelease", "assembleYoutubeMusicRelease")
+    from(layout.buildDirectory.dir("outputs/apk/spotify/release")) {
+        include("waze-shim-spotify-release.apk")
+    }
+    from(layout.buildDirectory.dir("outputs/apk/youtubeMusic/release")) {
+        include("waze-shim-youtubeMusic-release.apk")
+    }
+    destinationDirectory.set(layout.buildDirectory.dir("outputs/apk"))
+    archiveFileName.set("waze-shims.zip")
 }

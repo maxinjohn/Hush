@@ -932,6 +932,7 @@ val AlarmEntriesKey = stringPreferencesKey("alarmEntries")
 
 val WazeIntegrationEnabledKey = booleanPreferencesKey("wazeIntegrationEnabled")
 val WazeIntegrationPackageKey = stringPreferencesKey("wazeIntegrationPackage")
+val WazeBridgeUpdateDismissalsKey = stringSetPreferencesKey("wazeBridgeUpdateDismissals")
 
 enum class WazeTargetApp(val packageName: String) {
     SPOTIFY("com.spotify.music"),
