@@ -3,6 +3,7 @@ package app.hush.music.ui.screens.settings
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -69,6 +70,11 @@ import java.util.zip.ZipInputStream
 private fun getWazeAppLabel(context: android.content.Context, app: WazeTargetApp): String = when (app) {
     WazeTargetApp.SPOTIFY -> context.getString(R.string.waze_integration_spotify)
     WazeTargetApp.YOUTUBE_MUSIC -> context.getString(R.string.waze_integration_youtube_music)
+}
+
+private fun getRealAppName(app: WazeTargetApp): String = when (app) {
+    WazeTargetApp.SPOTIFY -> "Spotify"
+    WazeTargetApp.YOUTUBE_MUSIC -> "YouTube Music"
 }
 
 private fun isAppInstalled(context: android.content.Context, packageName: String): Boolean {
@@ -159,18 +165,25 @@ fun WazeIntegrationSettings(
 
     var tempApkFile by remember { mutableStateOf<File?>(null) }
 
-    fun refreshShimState(app: WazeTargetApp, installed: Boolean, onComplete: (Boolean) -> Unit) {
+    fun refreshNow() { refreshTrigger++ }
+
+    fun checkShimState(app: WazeTargetApp, expectedInstalled: Boolean, onResult: (Boolean) -> Unit) {
+        if (isOurShim(context, app.packageName) == expectedInstalled) {
+            refreshNow()
+            onResult(true)
+            return
+        }
         scope.launch {
-            repeat(30) {
-                if (isOurShim(context, app.packageName) == installed) {
-                    refreshTrigger++
-                    onComplete(true)
+            repeat(5) {
+                delay(300)
+                if (isOurShim(context, app.packageName) == expectedInstalled) {
+                    refreshNow()
+                    onResult(true)
                     return@launch
                 }
-                delay(500)
             }
-            refreshTrigger++
-            onComplete(false)
+            refreshNow()
+            onResult(false)
         }
     }
 
@@ -189,9 +202,9 @@ fun WazeIntegrationSettings(
         tempApkFile?.delete()
         tempApkFile = null
         if (app != null) {
-            refreshShimState(app, installed = true) { installed ->
+            checkShimState(app, expectedInstalled = true) { success ->
                 isProcessing = false
-                statusMessage = if (installed) {
+                statusMessage = if (success) {
                     context.getString(R.string.waze_integration_installed)
                 } else {
                     "Install did not complete. Try again."
@@ -209,7 +222,7 @@ fun WazeIntegrationSettings(
         val app = pendingUninstallApp
         pendingUninstallApp = null
         if (app != null) {
-            refreshShimState(app, installed = false) { removed ->
+            checkShimState(app, expectedInstalled = false) { removed ->
                 isProcessing = false
                 statusMessage = if (removed) {
                     context.getString(R.string.waze_integration_uninstalled)
@@ -323,6 +336,7 @@ fun WazeIntegrationSettings(
 
             WazeTargetApp.entries.forEach { app ->
                 val appLabel = remember(app, refreshTrigger) { getWazeAppLabel(context, app) }
+                val realAppName = remember(app) { getRealAppName(app) }
                 val isInstalled = remember(app, refreshTrigger) { app.packageName in installedPackages }
                 val realAppInstalled = remember(app, refreshTrigger) { isRealAppInstalled(context, app.packageName) }
 
@@ -362,7 +376,7 @@ fun WazeIntegrationSettings(
                             }
                             if (realAppInstalled) {
                                 Text(
-                                    text = stringResource(R.string.waze_integration_conflict, appLabel),
+                                    text = "$realAppName is installed. Uninstall it first to use this Bridge.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.error,
                                 )
@@ -383,7 +397,22 @@ fun WazeIntegrationSettings(
                                     color = MaterialTheme.colorScheme.error,
                                 )
                             }
-                        } else if (!realAppInstalled && !isProcessing) {
+                        } else if (realAppInstalled && !isProcessing) {
+                            TextButton(
+                                onClick = {
+                                    try {
+                                        context.startActivity(
+                                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                data = Uri.parse("package:${app.packageName}")
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                        )
+                                    } catch (_: Exception) {}
+                                },
+                            ) {
+                                Text("Uninstall")
+                            }
+                        } else if (!isProcessing) {
                             TextButton(
                                 onClick = { doInstall(app) },
                             ) {
