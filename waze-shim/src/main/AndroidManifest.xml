@@ -16,7 +16,8 @@
 
     <application
         android:label="@string/waze_bridge_app_name"
-        android:icon="@drawable/hush_bridge_icon"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
@@ -26,7 +27,7 @@
             android:value="true" />
         <meta-data
             android:name="app.hush.music.waze.PROTOCOL_VERSION"
-            android:value="2" />
+            android:value="3" />
 
         <activity
             android:name=".WazeRedirectActivity"

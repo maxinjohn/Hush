@@ -54,30 +54,43 @@ class SearchDiscoveryViewModel
         val selectedTab: StateFlow<SearchDiscoveryTab> = _selectedTab.asStateFlow()
 
         private var loadJob: Job? = null
+        private val loadedTabs = mutableMapOf<SearchDiscoveryTab, SearchDiscoveryUiModel>()
 
         init {
-            load()
+            load(SearchDiscoveryTab.EXPLORE)
         }
 
         fun selectTab(tab: SearchDiscoveryTab) {
             _selectedTab.value = tab
+            load(tab)
         }
 
         fun retry() {
-            load(force = true)
+            load(_selectedTab.value, force = true)
         }
 
-        private fun load(force: Boolean = false) {
+        private fun load(
+            tab: SearchDiscoveryTab,
+            force: Boolean = false,
+        ) {
             if (!force && loadJob?.isActive == true) return
+            if (!force && loadedTabs[tab] != null) {
+                _state.value = SearchDiscoveryScreenState.Success(loadedTabs.getValue(tab))
+                return
+            }
             loadJob?.cancel()
             _state.value = SearchDiscoveryScreenState.Loading
             loadJob =
                 viewModelScope.launch {
                     _state.value =
                         try {
-                            loadSearchDiscovery()
+                            when (tab) {
+                                SearchDiscoveryTab.EXPLORE -> loadSearchDiscovery.loadExplore()
+                                SearchDiscoveryTab.SUGGESTIONS -> loadSearchDiscovery.loadSuggestions()
+                            }
                                 .fold(
                                     onSuccess = { data ->
+                                        loadedTabs[tab] = data
                                         if (data.isEmpty) {
                                             SearchDiscoveryScreenState.Empty
                                         } else {

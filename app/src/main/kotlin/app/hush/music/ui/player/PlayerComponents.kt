@@ -160,6 +160,8 @@ fun PlayerTitleSection(
     state: BottomSheetState,
     titleMaxLines: Int = 1,
     centerAligned: Boolean = false,
+    marquee: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     // Tap/long-press behavior is centralized; this style keeps its own visual rendering.
     val actions =
@@ -168,47 +170,49 @@ fun PlayerTitleSection(
             navController = navController,
             state = state,
         )
-    AnimatedContent(
-        targetState = mediaMetadata.title,
-        transitionSpec = { fadeIn() togetherWith fadeOut() },
-        label = "",
-    ) { title ->
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            maxLines = titleMaxLines,
-            overflow = TextOverflow.Ellipsis,
-            color = textBackgroundColor,
-            textAlign = if (centerAligned) TextAlign.Center else TextAlign.Start,
+    Column(modifier = modifier) {
+        AnimatedContent(
+            targetState = mediaMetadata.title,
+            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            label = "",
+        ) { title ->
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = titleMaxLines,
+                overflow = TextOverflow.Ellipsis,
+                color = textBackgroundColor,
+                textAlign = if (centerAligned) TextAlign.Center else TextAlign.Start,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .then(if (marquee) Modifier.basicMarquee() else Modifier)
+                        .combinedClickable(
+                            enabled = true,
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                            onClick = actions.onTitleClick,
+                            onLongClick = actions.onCopyTitle,
+                        ),
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        ClickableArtists(
+            artists = mediaMetadata.artists,
+            onArtistClick = actions.onArtistClick,
+            style = MaterialTheme.typography.titleMedium.copy(color = textBackgroundColor, fontSize = 16.sp),
+            onLongClick = actions.onCopyArtists,
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .basicMarquee()
-                    .combinedClickable(
-                        enabled = true,
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() },
-                        onClick = actions.onTitleClick,
-                        onLongClick = actions.onCopyTitle,
-                    ),
+                    .then(if (marquee) Modifier.basicMarquee() else Modifier)
+                    .padding(end = if (centerAligned) 0.dp else 12.dp),
+            textAlign = if (centerAligned) TextAlign.Center else TextAlign.Start,
         )
     }
-
-    Spacer(Modifier.height(6.dp))
-
-    ClickableArtists(
-        artists = mediaMetadata.artists,
-        onArtistClick = actions.onArtistClick,
-        style = MaterialTheme.typography.titleMedium.copy(color = textBackgroundColor, fontSize = 16.sp),
-        onLongClick = actions.onCopyArtists,
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .basicMarquee()
-                .padding(end = if (centerAligned) 0.dp else 12.dp),
-        textAlign = if (centerAligned) TextAlign.Center else TextAlign.Start,
-    )
 }
 
 @Composable
@@ -751,6 +755,7 @@ fun PlayerSlider(
     onValueChange: (Long) -> Unit,
     onValueChangeFinished: () -> Unit,
     horizontalPadding: Dp = PlayerHorizontalPadding,
+    modifier: Modifier = Modifier,
 ) {
     val safeDuration = if (duration <= 0L) 0f else duration.toFloat()
     val safeValue = (sliderPosition ?: position).toFloat().coerceIn(0f, maxOf(0f, safeDuration))
@@ -763,7 +768,7 @@ fun PlayerSlider(
         onValueChangeFinished = onValueChangeFinished,
         activeColor = textButtonColor,
         isPlaying = isPlaying,
-        modifier = Modifier.padding(horizontal = horizontalPadding),
+        modifier = modifier.padding(horizontal = horizontalPadding),
     )
 }
 
@@ -2175,7 +2180,7 @@ fun V6PortraitControlsPanel(
 }
 
 @Composable
-private fun V6PortraitSingleActionRow(
+internal fun V6PortraitSingleActionRow(
     mediaMetadata: MediaMetadata,
     textBackgroundColor: Color,
     currentSongLiked: Boolean,
@@ -2188,6 +2193,13 @@ private fun V6PortraitSingleActionRow(
     state: BottomSheetState,
     bottomSheetPageState: BottomSheetPageState,
     context: Context,
+    onExpandQueue: (() -> Unit)? = null,
+    sleepTimerEnabled: Boolean = false,
+    onSleepTimerClick: (() -> Unit)? = null,
+    onShowLyrics: (() -> Unit)? = null,
+    buttonSize: Dp = 40.dp,
+    iconSize: Dp = 20.dp,
+    buttonSpacing: Dp? = null,
     modifier: Modifier = Modifier,
 ) {
     val database = LocalDatabase.current
@@ -2210,14 +2222,25 @@ private fun V6PortraitSingleActionRow(
             else -> R.drawable.repeat
         }
 
-    val buttonSize = 40.dp
-    val iconSize = 20.dp
-
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        horizontalArrangement =
+            buttonSpacing?.let { Arrangement.spacedBy(it, Alignment.CenterHorizontally) }
+                ?: Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (onExpandQueue != null) {
+            V6PortraitActionIcon(
+                iconRes = R.drawable.queue_music,
+                contentDescription = stringResource(R.string.queue),
+                tint = textBackgroundColor,
+                backgroundColor = textBackgroundColor.copy(alpha = 0.12f),
+                buttonSize = buttonSize,
+                iconSize = iconSize,
+                onClick = onExpandQueue,
+            )
+        }
+
         V6PortraitActionIcon(
             iconRes = R.drawable.share,
             contentDescription = stringResource(R.string.share),
@@ -2312,6 +2335,35 @@ private fun V6PortraitSingleActionRow(
             iconSize = iconSize,
             onClick = { playerConnection.player.toggleRepeatMode() },
         )
+
+        if (onSleepTimerClick != null) {
+            V6PortraitActionIcon(
+                iconRes = R.drawable.bedtime,
+                contentDescription = stringResource(R.string.sleep_timer),
+                tint = if (sleepTimerEnabled) accent else textBackgroundColor,
+                backgroundColor =
+                    if (sleepTimerEnabled) {
+                        accent.copy(alpha = 0.18f)
+                    } else {
+                        textBackgroundColor.copy(alpha = 0.12f)
+                    },
+                buttonSize = buttonSize,
+                iconSize = iconSize,
+                onClick = onSleepTimerClick,
+            )
+        }
+
+        if (onShowLyrics != null) {
+            V6PortraitActionIcon(
+                iconRes = R.drawable.lyrics,
+                contentDescription = stringResource(R.string.lyrics),
+                tint = textBackgroundColor,
+                backgroundColor = textBackgroundColor.copy(alpha = 0.12f),
+                buttonSize = buttonSize,
+                iconSize = iconSize,
+                onClick = onShowLyrics,
+            )
+        }
 
         V6PortraitActionIcon(
             iconRes = R.drawable.more_horiz,

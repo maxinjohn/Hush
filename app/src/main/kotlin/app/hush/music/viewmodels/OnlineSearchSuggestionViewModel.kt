@@ -12,12 +12,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import app.hush.music.constants.HideExplicitKey
 import app.hush.music.constants.HideVideoKey
 import app.hush.music.db.MusicDatabase
@@ -30,7 +35,9 @@ import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 import javax.inject.Inject
 
-@OptIn(ExperimentalCoroutinesApi::class)
+private const val SUGGESTION_DEBOUNCE_MS = 250L
+
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
 class OnlineSearchSuggestionViewModel
     @Inject
@@ -45,6 +52,7 @@ class OnlineSearchSuggestionViewModel
         init {
             viewModelScope.launch {
                 query
+                    .debounce(SUGGESTION_DEBOUNCE_MS)
                     .flatMapLatest { query ->
                         if (query.isEmpty()) {
                             database.searchHistory().map { history ->
@@ -53,7 +61,7 @@ class OnlineSearchSuggestionViewModel
                                 )
                             }
                         } else {
-                            val result = YouTube.searchSuggestions(query).getOrNull()
+                            val result = withContext(Dispatchers.IO) { YouTube.searchSuggestions(query).getOrNull() }
                             database
                                 .searchHistory(query)
                                 .map { it.take(3) }
@@ -86,8 +94,8 @@ class OnlineSearchSuggestionViewModel
         }
     }
 
-data class SearchSuggestionViewState(
-    val history: List<SearchHistory> = emptyList(),
-    val suggestions: List<String> = emptyList(),
-    val items: List<YTItem> = emptyList(),
-)
+    data class SearchSuggestionViewState(
+        val history: List<SearchHistory> = emptyList(),
+        val suggestions: List<String> = emptyList(),
+        val items: List<YTItem> = emptyList(),
+    )

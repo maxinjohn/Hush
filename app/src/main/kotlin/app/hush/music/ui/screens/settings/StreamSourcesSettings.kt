@@ -59,6 +59,7 @@ import app.hush.music.constants.StreamSourceVisionOSKey
 import app.hush.music.constants.StreamSourceWebCreatorKey
 import app.hush.music.constants.StreamSourceWebRemixKey
 import app.hush.music.ui.component.IconButton
+import app.hush.music.ui.component.ListPreference
 import app.hush.music.ui.component.PreferenceGroup
 import app.hush.music.ui.component.SwitchPreference
 import app.hush.music.ui.theme.HushAmbientBackground
@@ -66,6 +67,7 @@ import app.hush.music.ui.utils.backToMain
 import app.hush.music.utils.YTPlayerUtils
 import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberPreference
+import app.hush.music.BuildConfig
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,8 +83,26 @@ fun StreamSourcesSettings(
     val (webCreator, onWebCreatorChange) = rememberPreference(StreamSourceWebCreatorKey, defaultValue = true)
     val (androidCreator, onAndroidCreatorChange) =
         rememberPreference(StreamSourceAndroidCreatorKey, defaultValue = false)
-    val (preferredStreamClient, _) =
+    val (playerStreamClient, onPlayerStreamClientChange) =
         rememberEnumPreference(PlayerStreamClientKey, defaultValue = PlayerStreamClient.ANDROID_VR)
+
+    val playerStreamClients =
+        remember {
+            buildList {
+                add(PlayerStreamClient.ANDROID_VR)
+                add(PlayerStreamClient.WEB_REMIX)
+                if (BuildConfig.EXTRACTOR_BEARER.isNotBlank()) {
+                    add(PlayerStreamClient.ARCHIVETUNE_EXTRACTOR)
+                }
+                add(PlayerStreamClient.HI_RES_LOSSLESS)
+            }
+        }
+    val selectedPlayerStreamClient =
+        if (playerStreamClient in playerStreamClients) {
+            playerStreamClient
+        } else {
+            PlayerStreamClient.ANDROID_VR
+        }
 
     val disabledClients =
         remember(webRemix, tvHtml5, visionOS, androidVR, ios, webCreator, androidCreator) {
@@ -101,8 +121,8 @@ fun StreamSourcesSettings(
             StreamSourcePreferences.toggleableFamilies.all { it in disabledClients }
         }
     val streamOrderFamilies =
-        remember(preferredStreamClient, disabledClients) {
-            YTPlayerUtils.streamClientPreviewFamilies(preferredStreamClient, disabledClients)
+        remember(selectedPlayerStreamClient, disabledClients) {
+            YTPlayerUtils.streamClientPreviewFamilies(selectedPlayerStreamClient, disabledClients)
         }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -202,6 +222,39 @@ fun StreamSourcesSettings(
             }
 
             Spacer(modifier = Modifier.height(20.dp))
+
+            PreferenceGroup(title = stringResource(R.string.player_stream_client)) {
+                item {
+                    ListPreference(
+                        title = { Text(stringResource(R.string.player_stream_client)) },
+                        description = stringResource(R.string.player_stream_client_desc),
+                        icon = { Icon(painterResource(R.drawable.integration), null) },
+                        selectedValue = selectedPlayerStreamClient,
+                        values = playerStreamClients,
+                        onValueSelected = onPlayerStreamClientChange,
+                        valueText = {
+                            when (it) {
+                                PlayerStreamClient.ANDROID_VR -> stringResource(R.string.player_stream_client_android_vr)
+                                PlayerStreamClient.WEB_REMIX -> stringResource(R.string.player_stream_client_web_remix)
+                                PlayerStreamClient.ARCHIVETUNE_EXTRACTOR -> stringResource(R.string.player_stream_client_hush_extractor)
+                                PlayerStreamClient.HI_RES_LOSSLESS -> stringResource(R.string.player_stream_client_hi_res_lossless)
+                                else -> stringResource(R.string.player_stream_client_web_remix)
+                            }
+                        },
+                        valueDescription = {
+                            when (it) {
+                                PlayerStreamClient.ANDROID_VR -> stringResource(R.string.player_stream_client_android_vr_desc)
+                                PlayerStreamClient.WEB_REMIX -> stringResource(R.string.player_stream_client_web_remix_desc)
+                                PlayerStreamClient.ARCHIVETUNE_EXTRACTOR -> stringResource(R.string.player_stream_client_hush_extractor_desc)
+                                PlayerStreamClient.HI_RES_LOSSLESS -> stringResource(R.string.player_stream_client_hi_res_lossless_desc)
+                                else -> stringResource(R.string.player_stream_client_web_remix_desc)
+                            }
+                        },
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             PreferenceGroup(title = stringResource(R.string.stream_source_web_clients)) {
                 item {

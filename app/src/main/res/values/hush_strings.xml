@@ -301,6 +301,10 @@
     <string name="open_supported_links">Open supported link by default</string>
     <string name="set_first_lyrics_provider">Preferred lyrics provider</string>
     <string name="audio_quality_max">Max</string>
+    <string name="youtube_music_quality">YouTube music quality</string>
+    <string name="youtube_quality_desc">Quality for YouTube playback only</string>
+    <string name="jiosaavn_quality">JioSaavn quality</string>
+    <string name="jiosaavn_quality_desc">Quality when JioSaavn is the primary source</string>
     <string name="percentage_format">%d%%</string>
     <string name="import_online">Import a \"m3u\" playlists</string>
     <string name="import_csv">Import a \"csv\" playlists</string>
@@ -449,6 +453,8 @@
     <string name="audio_crossfade_seconds">%1$s s</string>
     <string name="crossfade_gapless_title">Skip gapless albums</string>
     <string name="crossfade_gapless_description">Do not crossfade consecutive songs from the same album.</string>
+    <string name="prefetch_count">Prefetch upcoming songs</string>
+    <string name="prefetch_count_desc">Resolve and cache stream URLs ahead. 0 = off, up to 20</string>
     <string name="player_stream_client">Playback client</string>
     <string name="player_stream_client_desc">Controls which playback source is used to fetch streams</string>
     <string name="player_stream_client_android_vr">Android VR</string>
@@ -470,6 +476,17 @@
     <string name="error_extractor_token_missing">Hush Extractor is not available in this build. Use Android VR or Web Remix in Settings → Playback.</string>
     <string name="stream_sources">Stream sources</string>
     <string name="stream_sources_desc">Choose which YouTube clients are used when resolving playback streams.</string>
+    <string name="audio_source">Audio source</string>
+    <string name="playback_settings">Playback</string>
+    <string name="stream_quality">Stream quality</string>
+    <string name="stream_quality_desc">YouTube audio quality and JioSaavn quality settings</string>
+    <string name="stream_sources_and_client">Stream sources &amp; client</string>
+    <string name="stream_sources_and_client_desc">Playback client and individual source toggles</string>
+    <string name="primary_audio_scraper">Primary audio scraper</string>
+    <string name="primary_scraper_youtube">YouTube</string>
+    <string name="primary_scraper_jiosaavn">JioSaavn</string>
+    <string name="primary_scraper_yt_only">YouTube only</string>
+    <string name="primary_scraper_saavn_fallback">YouTube as fallback</string>
     <string name="jiosaavn_settings">JioSaavn settings</string>
     <string name="feature_beta_badge">Beta</string>
     <string name="jiosaavn_settings_off">Off — YouTube only</string>

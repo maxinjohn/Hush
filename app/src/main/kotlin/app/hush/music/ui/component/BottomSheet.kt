@@ -401,7 +401,7 @@ fun rememberBottomSheetState(
         }
 
     val state =
-        remember(coroutineScope, animationsDisabled) {
+        remember(dismissedBound, expandedBound, collapsedBound, coroutineScope, animationsDisabled) {
             val initialTarget =
                 when (previousAnchor) {
                     EXPANDED_ANCHOR -> expandedBound

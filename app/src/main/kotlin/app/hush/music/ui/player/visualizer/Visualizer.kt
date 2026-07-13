@@ -46,6 +46,7 @@ enum class VisualizerStyle {
     PULSE_BARS,
     SPECTRUM,
     JUMPING_BARS,
+    PULSE_MATRIX,
 }
 
 enum class VisualizerColorTheme {
@@ -54,6 +55,22 @@ enum class VisualizerColorTheme {
     NEON,
     MONOCHROME,
     FIRE,
+    AURORA,
+    OCEAN,
+    FOREST,
+    SUNSET,
+}
+
+internal fun VisualizerColorTheme.toPulseMatrixTheme(): PulseMatrixTheme = when (this) {
+    VisualizerColorTheme.THEME -> PulseMatrixTheme.AURORA
+    VisualizerColorTheme.AURORA -> PulseMatrixTheme.AURORA
+    VisualizerColorTheme.OCEAN -> PulseMatrixTheme.CYAN
+    VisualizerColorTheme.FOREST -> PulseMatrixTheme.EMERALD
+    VisualizerColorTheme.SUNSET -> PulseMatrixTheme.AMBER
+    VisualizerColorTheme.RAINBOW -> PulseMatrixTheme.NEON
+    VisualizerColorTheme.NEON -> PulseMatrixTheme.NEON
+    VisualizerColorTheme.MONOCHROME -> PulseMatrixTheme.ICE
+    VisualizerColorTheme.FIRE -> PulseMatrixTheme.CRIMSON
 }
 
 // ── Public entry point ───────────────────────────────────────────────────────
@@ -83,6 +100,12 @@ fun Visualizer(
         VisualizerStyle.PULSE_BARS -> PulseBarsStyle(isPlaying, colors, alphaModifier, spectrumData)
         VisualizerStyle.SPECTRUM -> SpectrumStyle(isPlaying, colors, alphaModifier, spectrumData)
         VisualizerStyle.JUMPING_BARS -> JumpingBarsStyle(isPlaying, colors, alphaModifier, spectrumData)
+VisualizerStyle.PULSE_MATRIX -> PulseMatrixCanvas(
+            theme = colorTheme.toPulseMatrixTheme(),
+            opacity = opacity,
+            modifier = modifier,
+            bands = spectrumData?.toFloatArray(),
+        )
     }
 }
 
@@ -119,6 +142,34 @@ fun rememberVisualizerColors(theme: VisualizerColorTheme): List<Color> {
                 Color(0xFFFFAA00),
                 Color(0xFFFFCC00),
                 Color(0xFFFF8800),
+            )
+            VisualizerColorTheme.AURORA -> listOf(
+                Color(0xFF00E5FF),
+                Color(0xFF536DFE),
+                Color(0xFF7C4DFF),
+                Color(0xFF00BCD4),
+                Color(0xFF18FFFF),
+            )
+            VisualizerColorTheme.OCEAN -> listOf(
+                Color(0xFF01579B),
+                Color(0xFF0288D1),
+                Color(0xFF03A9F4),
+                Color(0xFF4FC3F7),
+                Color(0xFF80DEEA),
+            )
+            VisualizerColorTheme.FOREST -> listOf(
+                Color(0xFF1B5E20),
+                Color(0xFF388E3C),
+                Color(0xFF4CAF50),
+                Color(0xFF66BB6A),
+                Color(0xFFA5D6A7),
+            )
+            VisualizerColorTheme.SUNSET -> listOf(
+                Color(0xFFFF3D00),
+                Color(0xFFFF9100),
+                Color(0xFFFFEA00),
+                Color(0xFFE040FB),
+                Color(0xFF536DFE),
             )
         }
     }

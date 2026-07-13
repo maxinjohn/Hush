@@ -67,6 +67,7 @@ import app.hush.music.constants.PermanentShuffleKey
 import app.hush.music.constants.PersistentQueueKey
 import app.hush.music.constants.PlayerStreamClient
 import app.hush.music.constants.PlayerStreamClientKey
+import app.hush.music.constants.PrefetchCountKey
 import app.hush.music.constants.SeekExtraSeconds
 import app.hush.music.constants.SkipSilenceKey
 import app.hush.music.constants.StopMusicOnTaskClearKey
@@ -95,16 +96,6 @@ fun PlayerSettings(
     navController: NavController,
     scrollBehavior: TopAppBarScrollBehavior,
 ) {
-    val (audioQuality, onAudioQualityChange) =
-        rememberEnumPreference(
-            AudioQualityKey,
-            defaultValue = AudioQuality.AUTO,
-        )
-    val (playerStreamClient, onPlayerStreamClientChange) =
-        rememberEnumPreference(
-            PlayerStreamClientKey,
-            defaultValue = PlayerStreamClient.ANDROID_VR,
-        )
     val (lowDataMode, onLowDataModeChange) =
         rememberPreference(
             LowDataModeKey,
@@ -201,6 +192,11 @@ fun PlayerSettings(
             CrossfadeGaplessKey,
             defaultValue = true,
         )
+    val (prefetchCount, onPrefetchCountChange) =
+        rememberPreference(
+            PrefetchCountKey,
+            defaultValue = 2,
+        )
 
     val (artistSeparators, onArtistSeparatorsChange) =
         rememberPreference(
@@ -223,33 +219,9 @@ fun PlayerSettings(
             WakelockKey,
             defaultValue = false,
         )
-    val playerStreamClients =
-        remember {
-            buildList {
-                add(PlayerStreamClient.ANDROID_VR)
-                add(PlayerStreamClient.WEB_REMIX)
-                if (app.hush.music.BuildConfig.EXTRACTOR_BEARER.isNotBlank()) {
-                    add(PlayerStreamClient.ARCHIVETUNE_EXTRACTOR)
-                }
-                add(PlayerStreamClient.HI_RES_LOSSLESS)
-            }
-        }
-    val selectedPlayerStreamClient =
-        if (playerStreamClient in playerStreamClients) {
-            playerStreamClient
-        } else {
-            PlayerStreamClient.ANDROID_VR
-        }
-    val audioQualityEnabled = true
     var showArtistSeparatorsDialog by remember { mutableStateOf(false) }
     var showTagsManagementDialog by remember { mutableStateOf(false) }
     var showExternalDownloaderPackageDialog by remember { mutableStateOf(false) }
-
-    LaunchedEffect(playerStreamClient) {
-        if (playerStreamClient !in playerStreamClients) {
-            onPlayerStreamClientChange(PlayerStreamClient.ANDROID_VR)
-        }
-    }
 
     if (showArtistSeparatorsDialog) {
         ArtistSeparatorsDialog(
@@ -304,79 +276,27 @@ fun PlayerSettings(
             ),
         )
 
-        PreferenceGroup(title = stringResource(R.string.player)) {
+        PreferenceGroup(title = stringResource(R.string.audio_source)) {
             item {
-                ListPreference(
-                    title = { Text(stringResource(R.string.audio_quality)) },
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.stream_quality)) },
+                    description = stringResource(R.string.stream_quality_desc),
                     icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
-                    selectedValue = audioQuality,
-                    values =
-                        listOf(
-                            AudioQuality.HIGHEST,
-                            AudioQuality.HIGH,
-                            AudioQuality.AUTO,
-                            AudioQuality.LOW,
-                        ),
-                    onValueSelected = onAudioQualityChange,
-                    isEnabled = audioQualityEnabled,
-                    valueText = {
-                        when (it) {
-                            AudioQuality.HIGHEST -> stringResource(R.string.audio_quality_max)
-                            AudioQuality.HIGH -> stringResource(R.string.audio_quality_high)
-                            AudioQuality.AUTO -> stringResource(R.string.audio_quality_auto)
-                            AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
-                        }
-                    },
+                    onClick = { navController.navigate("settings/player/stream_quality") },
                 )
             }
 
             item {
                 PreferenceEntry(
-                    title = { Text(stringResource(R.string.jiosaavn_settings)) },
-                    description = stringResource(R.string.enable_saavn_streaming_desc),
-                    icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
-                    onClick = { navController.navigate("settings/player/jiosaavn") },
-                )
-            }
-
-            item {
-                ListPreference(
-                    title = { Text(stringResource(R.string.player_stream_client)) },
-                    description = stringResource(R.string.player_stream_client_desc),
-                    icon = { Icon(painterResource(R.drawable.integration), null) },
-                    selectedValue = selectedPlayerStreamClient,
-                    values = playerStreamClients,
-                    onValueSelected = onPlayerStreamClientChange,
-                    valueText = {
-                        when (it) {
-                            PlayerStreamClient.ANDROID_VR -> stringResource(R.string.player_stream_client_android_vr)
-                            PlayerStreamClient.WEB_REMIX -> stringResource(R.string.player_stream_client_web_remix)
-                            PlayerStreamClient.ARCHIVETUNE_EXTRACTOR -> stringResource(R.string.player_stream_client_hush_extractor)
-                            PlayerStreamClient.HI_RES_LOSSLESS -> stringResource(R.string.player_stream_client_hi_res_lossless)
-                            else -> stringResource(R.string.player_stream_client_web_remix)
-                        }
-                    },
-                    valueDescription = {
-                        when (it) {
-                            PlayerStreamClient.ANDROID_VR -> stringResource(R.string.player_stream_client_android_vr_desc)
-                            PlayerStreamClient.WEB_REMIX -> stringResource(R.string.player_stream_client_web_remix_desc)
-                            PlayerStreamClient.ARCHIVETUNE_EXTRACTOR -> stringResource(R.string.player_stream_client_hush_extractor_desc)
-                            PlayerStreamClient.HI_RES_LOSSLESS -> stringResource(R.string.player_stream_client_hi_res_lossless_desc)
-                            else -> stringResource(R.string.player_stream_client_web_remix_desc)
-                        }
-                    },
-                )
-            }
-
-            item {
-                PreferenceEntry(
-                    title = { Text(stringResource(R.string.stream_sources)) },
-                    description = stringResource(R.string.stream_sources_desc),
+                    title = { Text(stringResource(R.string.stream_sources_and_client)) },
+                    description = stringResource(R.string.stream_sources_and_client_desc),
                     icon = { Icon(painterResource(R.drawable.integration), null) },
                     onClick = { navController.navigate("settings/player/stream_sources") },
                 )
             }
+        }
 
+        PreferenceGroup(title = stringResource(R.string.playback_settings)) {
             item {
                 SwitchPreference(
                     title = { Text(stringResource(R.string.low_data_mode_title)) },
@@ -427,6 +347,18 @@ fun PlayerSettings(
                     checked = crossfadeGapless,
                     onCheckedChange = onCrossfadeGaplessChange,
                     isEnabled = crossfadeEnabled,
+                )
+            }
+
+            item {
+                NumberPickerPreference(
+                    title = { Text(stringResource(R.string.prefetch_count)) },
+                    icon = { Icon(painterResource(R.drawable.download), null) },
+                    value = prefetchCount,
+                    onValueChange = onPrefetchCountChange,
+                    minValue = 0,
+                    maxValue = 20,
+                    valueText = { if (it == 0) "Off" else "$it songs" },
                 )
             }
 

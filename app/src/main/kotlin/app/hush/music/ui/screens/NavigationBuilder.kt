@@ -106,6 +106,7 @@ import app.hush.music.ui.screens.settings.JioSaavnSettings
 import app.hush.music.ui.screens.settings.WazeIntegrationSettings
 import app.hush.music.ui.screens.settings.PlayerSettings
 import app.hush.music.ui.screens.settings.StreamSourcesSettings
+import app.hush.music.ui.screens.settings.StreamQualitySettings
 import app.hush.music.ui.screens.settings.PoTokenScreen
 import app.hush.music.ui.screens.settings.PrivacySettings
 import app.hush.music.ui.screens.settings.SettingsScreen
@@ -443,6 +444,9 @@ fun NavGraphBuilder.navigationBuilder(
     }
     composable("settings/player/stream_sources") {
         StreamSourcesSettings(navController, scrollBehavior)
+    }
+    composable("settings/player/stream_quality") {
+        StreamQualitySettings(navController, scrollBehavior)
     }
     composable("settings/misc/jiosaavn") {
         val nestedScrollBehavior =

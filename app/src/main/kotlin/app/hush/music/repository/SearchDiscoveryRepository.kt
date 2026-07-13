@@ -9,9 +9,6 @@ package app.hush.music.repository
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import app.hush.music.db.MusicDatabase
@@ -28,12 +25,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 data class SearchDiscoveryData(
-    val moodAndGenres: List<MoodAndGenres.Item>,
-    val newReleaseAlbums: List<AlbumItem>,
-    val chartSections: List<ChartsPage.ChartSection>,
-    val suggestedSongs: List<SongItem>,
-    val searchedAlbums: List<AlbumItem>,
-    val suggestedArtists: List<ArtistItem>,
+    val moodAndGenres: List<MoodAndGenres.Item> = emptyList(),
+    val newReleaseAlbums: List<AlbumItem> = emptyList(),
+    val chartSections: List<ChartsPage.ChartSection> = emptyList(),
+    val suggestedSongs: List<SongItem> = emptyList(),
+    val searchedAlbums: List<AlbumItem> = emptyList(),
+    val suggestedArtists: List<ArtistItem> = emptyList(),
 )
 
 @Singleton
@@ -42,36 +39,38 @@ class SearchDiscoveryRepository
     constructor(
         private val database: MusicDatabase,
     ) {
-        suspend fun loadDiscovery(): Result<SearchDiscoveryData> =
+        suspend fun loadExplore(): Result<SearchDiscoveryData> =
             withContext(Dispatchers.IO) {
                 try {
-                    coroutineScope {
-                        val explorePageDeferred = async { YouTube.explore().getOrThrow() }
-                        val chartsPageDeferred = async { YouTube.getChartsPage().getOrThrow() }
-                        val suggestedSongsDeferred = async { loadSuggestedSongs() }
-                        val searchedAlbumsDeferred =
-                            async {
+                    val explorePage = YouTube.explore().getOrThrow()
+                    Result.success(
+                        SearchDiscoveryData(
+                            moodAndGenres = explorePage.moodAndGenres,
+                        ),
+                    )
+                } catch (throwable: Throwable) {
+                    if (throwable is CancellationException) throw throwable
+                    Result.failure(throwable)
+                }
+            }
+
+        suspend fun loadSuggestions(): Result<SearchDiscoveryData> =
+            withContext(Dispatchers.IO) {
+                try {
+                    // Suggestions are intentionally deferred until their tab is selected.
+                    val chartsPage = YouTube.getChartsPage().getOrThrow()
+                    Result.success(
+                        SearchDiscoveryData(
+                            chartSections = chartsPage.sections,
+                            suggestedSongs = loadSuggestedSongs(),
+                            searchedAlbums =
                                 searchItems<AlbumItem>(
                                     query = TopAlbumsQuery,
                                     filter = YouTube.SearchFilter.FILTER_ALBUM,
-                                )
-                            }
-                        val suggestedArtistsDeferred = async { loadSuggestedArtists() }
-
-                        val explorePage = explorePageDeferred.await()
-                        val chartsPage = chartsPageDeferred.await()
-
-                        Result.success(
-                            SearchDiscoveryData(
-                                moodAndGenres = explorePage.moodAndGenres,
-                                newReleaseAlbums = explorePage.newReleaseAlbums,
-                                chartSections = chartsPage.sections,
-                                suggestedSongs = suggestedSongsDeferred.await(),
-                                searchedAlbums = searchedAlbumsDeferred.await(),
-                                suggestedArtists = suggestedArtistsDeferred.await(),
-                            ),
-                        )
-                    }
+                                ),
+                            suggestedArtists = loadSuggestedArtists(),
+                        ),
+                    )
                 } catch (throwable: Throwable) {
                     if (throwable is CancellationException) throw throwable
                     Result.failure(throwable)
@@ -91,13 +90,14 @@ class SearchDiscoveryRepository
                     ).getOrThrow()
                     .items
                     .filterIsInstance<T>()
+                    .take(MaxDiscoverySourceItems)
             } catch (throwable: Throwable) {
                 if (throwable is CancellationException) throw throwable
                 emptyList()
             }
 
         private suspend fun loadSuggestedSongs(): List<SongItem> =
-            coroutineScope {
+            run {
                 val seedSongs =
                     database
                         .mostPlayedSongs(
@@ -107,18 +107,17 @@ class SearchDiscoveryRepository
                         .filterNot { song -> song.song.isLocal }
                         .take(MaxSuggestionSeedItems)
                 val seedSongIds = seedSongs.mapTo(HashSet()) { song -> song.id }
+                val suggestions = LinkedHashMap<String, SongItem>()
 
-                seedSongs
-                    .map { song ->
-                        async {
-                            loadRelatedSongs(song)
-                                .ifEmpty { searchRelatedSongs(song) }
+                for (song in seedSongs) {
+                    loadRelatedSongs(song)
+                        .ifEmpty { searchRelatedSongs(song) }
+                        .forEach { candidate ->
+                            if (candidate.id !in seedSongIds) suggestions.putIfAbsent(candidate.id, candidate)
                         }
-                    }.awaitAll()
-                    .flatten()
-                    .filterNot { song -> song.id in seedSongIds }
-                    .distinctBy { song -> song.id }
-                    .take(MaxSuggestedItems)
+                    if (suggestions.size >= MaxSuggestedItems) break
+                }
+                suggestions.values.take(MaxSuggestedItems)
             }
 
         private suspend fun loadRelatedSongs(song: Song): List<SongItem> =
@@ -129,7 +128,7 @@ class SearchDiscoveryRepository
                         .relatedEndpoint
                         ?.let { endpoint -> YouTube.related(endpoint).getOrNull()?.songs }
                         .orEmpty()
-                (relatedSongs + nextResult.items).distinctBy { item -> item.id }
+                (relatedSongs + nextResult.items).distinctBy { item -> item.id }.take(MaxDiscoverySourceItems)
             } catch (throwable: Throwable) {
                 if (throwable is CancellationException) throw throwable
                 emptyList()
@@ -153,7 +152,7 @@ class SearchDiscoveryRepository
             )
 
         private suspend fun loadSuggestedArtists(): List<ArtistItem> =
-            coroutineScope {
+            run {
                 val seedArtists =
                     database
                         .mostPlayedArtists(
@@ -163,18 +162,17 @@ class SearchDiscoveryRepository
                         .filter { artist -> artist.artist.isYouTubeArtist }
                         .take(MaxSuggestionSeedItems)
                 val seedArtistIds = seedArtists.mapTo(HashSet()) { artist -> artist.id }
+                val suggestions = LinkedHashMap<String, ArtistItem>()
 
-                seedArtists
-                    .map { artist ->
-                        async {
-                            loadRelatedArtists(artist)
-                                .ifEmpty { searchRelatedArtists(artist) }
+                for (artist in seedArtists) {
+                    loadRelatedArtists(artist)
+                        .ifEmpty { searchRelatedArtists(artist) }
+                        .forEach { candidate ->
+                            if (candidate.id !in seedArtistIds) suggestions.putIfAbsent(candidate.id, candidate)
                         }
-                    }.awaitAll()
-                    .flatten()
-                    .filterNot { artist -> artist.id in seedArtistIds }
-                    .distinctBy { artist -> artist.id }
-                    .take(MaxSuggestedItems)
+                    if (suggestions.size >= MaxSuggestedItems) break
+                }
+                suggestions.values.take(MaxSuggestedItems)
             }
 
         private suspend fun loadRelatedArtists(artist: Artist): List<ArtistItem> =
@@ -185,6 +183,7 @@ class SearchDiscoveryRepository
                     .sections
                     .flatMap { section -> section.items }
                     .filterIsInstance<ArtistItem>()
+                    .take(MaxDiscoverySourceItems)
             } catch (throwable: Throwable) {
                 if (throwable is CancellationException) throw throwable
                 emptyList()
@@ -201,6 +200,7 @@ class SearchDiscoveryRepository
             const val MaxHistoryLookupItems = 36
             const val MaxSuggestionSeedItems = 6
             const val MaxSuggestedItems = 12
+            const val MaxDiscoverySourceItems = 24
             const val TopAlbumsQuery = "top albums"
         }
     }

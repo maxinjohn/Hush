@@ -66,6 +66,12 @@ class WazeCommandReceiver : BroadcastReceiver() {
                     val pos = intent.getLongExtra("position", 0L)
                     svc.player.seekTo(pos)
                 }
+                "skip_to_queue_item" -> {
+                    val queueItemId = intent.getLongExtra("queue_item_id", -1L)
+                    if (queueItemId >= 0L) {
+                        svc.playWazeQueueItem(queueItemId)
+                    }
+                }
                 "search" -> {
                     val query = intent.getStringExtra("query") ?: return
                     Log.d(TAG, "Search query: $query")

@@ -10,72 +10,93 @@ import app.hush.music.constants.WazeBridgeUpdateDismissalsKey
 import app.hush.music.utils.dataStore
 import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.flow.first
+import timber.log.Timber
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 
 data class WazeBridgeDefinition(
     val id: String,
     val displayName: String,
+    val providerName: String,
     val packageName: String,
     val assetPath: String,
-    val protocolVersion: Int,
-    val legacyLabel: String,
+    val requiredProtocolVersion: Int,
 )
 
-enum class WazeBridgeStatus {
+enum class WazeBridgeState {
     NOT_INSTALLED,
-    UP_TO_DATE,
-    UPDATE_AVAILABLE,
-    UPDATE_REQUIRED,
-    INSTALLED_VERSION_NEWER,
-    PACKAGE_CONFLICT,
-    SIGNATURE_MISMATCH,
+    ORIGINAL_APP_INSTALLED,
+    BRIDGE_CURRENT,
+    BRIDGE_UPDATE_AVAILABLE,
+    BRIDGE_UPDATE_REQUIRED,
+    BRIDGE_NEWER_THAN_BUNDLED,
+    BUNDLED_APK_MISSING,
+    BUNDLED_APK_INVALID,
     UNKNOWN,
 }
 
 data class WazeBridgeInspection(
     val definition: WazeBridgeDefinition,
-    val status: WazeBridgeStatus,
+    val state: WazeBridgeState,
     val installedVersionCode: Long? = null,
     val installedVersionName: String? = null,
     val bundledVersionCode: Long? = null,
     val bundledVersionName: String? = null,
     val installedProtocolVersion: Int? = null,
     val requiredProtocolVersion: Int,
+    val installedCertificateFingerprints: Set<String> = emptySet(),
+    val bundledCertificateFingerprints: Set<String> = emptySet(),
 ) {
     val isInstalled: Boolean
-        get() = status != WazeBridgeStatus.NOT_INSTALLED
+        get() = installedVersionCode != null
+
+    val isValidBridge: Boolean
+        get() = state in setOf(
+            WazeBridgeState.BRIDGE_CURRENT,
+            WazeBridgeState.BRIDGE_UPDATE_AVAILABLE,
+            WazeBridgeState.BRIDGE_UPDATE_REQUIRED,
+            WazeBridgeState.BRIDGE_NEWER_THAN_BUNDLED,
+        )
+
+    val canInstall: Boolean
+        get() = state == WazeBridgeState.NOT_INSTALLED
 
     val canUpdate: Boolean
         get() =
-            (status == WazeBridgeStatus.UPDATE_AVAILABLE || status == WazeBridgeStatus.UPDATE_REQUIRED) &&
-                installedVersionCode != null &&
+            state in setOf(
+                WazeBridgeState.BRIDGE_UPDATE_AVAILABLE,
+                WazeBridgeState.BRIDGE_UPDATE_REQUIRED,
+            ) &&
                 bundledVersionCode != null &&
+                installedVersionCode != null &&
                 bundledVersionCode > installedVersionCode
+
+    val canUninstall: Boolean
+        get() = isValidBridge
 }
 
 object WazeBridgeManager {
     private const val BRIDGE_ARCHIVE = "waze-shims.zip"
-    private const val BRIDGE_MARKER = "app.hush.music.waze.SHIM"
     private const val BRIDGE_PROTOCOL = "app.hush.music.waze.PROTOCOL_VERSION"
 
     val definitions = listOf(
         WazeBridgeDefinition(
             id = "spotify",
             displayName = "Spotify Bridge",
+            providerName = "Spotify",
             packageName = "com.spotify.music",
             assetPath = "waze-shim-spotify-release.apk",
-            protocolVersion = 2,
-            legacyLabel = "Hush (Spotify)",
+            requiredProtocolVersion = 3,
         ),
         WazeBridgeDefinition(
             id = "youtube_music",
             displayName = "YouTube Music Bridge",
+            providerName = "YouTube Music",
             packageName = "com.google.android.apps.youtube.music",
             assetPath = "waze-shim-youtubeMusic-release.apk",
-            protocolVersion = 2,
-            legacyLabel = "Hush (YouTube Music)",
+            requiredProtocolVersion = 3,
         ),
     )
 
@@ -96,89 +117,198 @@ object WazeBridgeManager {
         context: Context,
         definition: WazeBridgeDefinition,
     ): WazeBridgeInspection {
-        val bundledApk = extractBundledBridge(context, definition) ?: return unknown(definition)
-        val bundledInfo = packageArchiveInfo(context.packageManager, bundledApk) ?: return unknown(definition)
-        if (bundledInfo.packageName != definition.packageName) return unknown(definition)
-
-        val bundledProtocol = bundledInfo.applicationInfo?.metaData?.getInt(BRIDGE_PROTOCOL, 0) ?: 0
-        val bundledSigners = signingCertificateDigests(bundledInfo)
-        val bundledVersionCode = versionCode(bundledInfo)
-        val bundledVersionName = bundledInfo.versionName
-        if (bundledProtocol != definition.protocolVersion || bundledSigners.isEmpty()) {
-            return unknown(definition, bundledVersionCode, bundledVersionName, bundledProtocol)
-        }
-
         val installedInfo = installedPackageInfo(context.packageManager, definition.packageName)
-            ?: return WazeBridgeInspection(
+        val installedVersionCode = installedInfo?.let(::versionCode)
+        val installedVersionName = installedInfo?.versionName
+        val installedProtocol = installedInfo?.applicationInfo?.metaData?.getInt(BRIDGE_PROTOCOL, 0)
+        val installedCertificates = installedInfo?.let(::signingCertificateFingerprints) ?: emptySet()
+        val bundled = readBundledBridge(context, definition)
+
+        val inspection = when (bundled) {
+            is BundledBridgeResult.Missing -> WazeBridgeInspection(
                 definition = definition,
-                status = WazeBridgeStatus.NOT_INSTALLED,
-                bundledVersionCode = bundledVersionCode,
-                bundledVersionName = bundledVersionName,
-                requiredProtocolVersion = definition.protocolVersion,
-            )
-        val installedVersionCode = versionCode(installedInfo)
-        val installedVersionName = installedInfo.versionName
-        val installedMarker = installedInfo.applicationInfo?.metaData?.getBoolean(BRIDGE_MARKER, false) == true
-        val installedLabel = installedInfo.applicationInfo?.loadLabel(context.packageManager)?.toString()
-        if (!installedMarker && installedLabel != definition.legacyLabel) {
-            return WazeBridgeInspection(
-                definition = definition,
-                status = WazeBridgeStatus.PACKAGE_CONFLICT,
+                state = WazeBridgeState.BUNDLED_APK_MISSING,
                 installedVersionCode = installedVersionCode,
                 installedVersionName = installedVersionName,
-                bundledVersionCode = bundledVersionCode,
-                bundledVersionName = bundledVersionName,
-                requiredProtocolVersion = definition.protocolVersion,
+                installedProtocolVersion = installedProtocol,
+                requiredProtocolVersion = definition.requiredProtocolVersion,
+                installedCertificateFingerprints = installedCertificates,
             )
-        }
 
-        if (signingCertificateDigests(installedInfo) != bundledSigners) {
-            return WazeBridgeInspection(
+            is BundledBridgeResult.Invalid -> WazeBridgeInspection(
                 definition = definition,
-                status = WazeBridgeStatus.SIGNATURE_MISMATCH,
+                state = WazeBridgeState.BUNDLED_APK_INVALID,
                 installedVersionCode = installedVersionCode,
                 installedVersionName = installedVersionName,
-                bundledVersionCode = bundledVersionCode,
-                bundledVersionName = bundledVersionName,
-                requiredProtocolVersion = definition.protocolVersion,
+                installedProtocolVersion = installedProtocol,
+                requiredProtocolVersion = definition.requiredProtocolVersion,
+                installedCertificateFingerprints = installedCertificates,
             )
-        }
 
-        val installedProtocol = installedInfo.applicationInfo?.metaData?.getInt(BRIDGE_PROTOCOL, 0) ?: 0
-        val status = when {
-            installedProtocol < definition.protocolVersion -> WazeBridgeStatus.UPDATE_REQUIRED
-            installedVersionCode < bundledVersionCode -> WazeBridgeStatus.UPDATE_AVAILABLE
-            installedVersionCode > bundledVersionCode -> WazeBridgeStatus.INSTALLED_VERSION_NEWER
-            else -> WazeBridgeStatus.UP_TO_DATE
+            is BundledBridgeResult.Valid -> {
+                val bridge = bundled.bridge
+                if (installedInfo == null) {
+                    WazeBridgeInspection(
+                        definition = definition,
+                        state = WazeBridgeState.NOT_INSTALLED,
+                        bundledVersionCode = bridge.versionCode,
+                        bundledVersionName = bridge.versionName,
+                        requiredProtocolVersion = definition.requiredProtocolVersion,
+                        bundledCertificateFingerprints = bridge.certificateFingerprints,
+                    )
+                } else {
+                    val trustedFingerprints = trustedHushBridgeFingerprints(context)
+                    val isTrustedBridge = isTrustedHushBridge(installedCertificates, trustedFingerprints)
+
+                    diagnosticLog(
+                        packageName = definition.packageName,
+                        installedVersionCode = installedVersionCode,
+                        installedVersionName = installedVersionName,
+                        installedFingerprints = installedCertificates,
+                        trustedFingerprints = trustedFingerprints,
+                        isTrustedMatch = isTrustedBridge,
+                    )
+
+                    when {
+                        !isTrustedBridge -> WazeBridgeInspection(
+                            definition = definition,
+                            state = WazeBridgeState.ORIGINAL_APP_INSTALLED,
+                            installedVersionCode = installedVersionCode,
+                            installedVersionName = installedVersionName,
+                            bundledVersionCode = bridge.versionCode,
+                            bundledVersionName = bridge.versionName,
+                            installedProtocolVersion = installedProtocol,
+                            requiredProtocolVersion = definition.requiredProtocolVersion,
+                            installedCertificateFingerprints = installedCertificates,
+                            bundledCertificateFingerprints = bridge.certificateFingerprints,
+                        )
+
+                        installedProtocol == null || installedProtocol < definition.requiredProtocolVersion -> WazeBridgeInspection(
+                            definition = definition,
+                            state = WazeBridgeState.BRIDGE_UPDATE_REQUIRED,
+                            installedVersionCode = installedVersionCode,
+                            installedVersionName = installedVersionName,
+                            bundledVersionCode = bridge.versionCode,
+                            bundledVersionName = bridge.versionName,
+                            installedProtocolVersion = installedProtocol,
+                            requiredProtocolVersion = definition.requiredProtocolVersion,
+                            installedCertificateFingerprints = installedCertificates,
+                            bundledCertificateFingerprints = bridge.certificateFingerprints,
+                        )
+
+                        installedVersionCode!! < bridge.versionCode -> WazeBridgeInspection(
+                            definition = definition,
+                            state = WazeBridgeState.BRIDGE_UPDATE_AVAILABLE,
+                            installedVersionCode = installedVersionCode,
+                            installedVersionName = installedVersionName,
+                            bundledVersionCode = bridge.versionCode,
+                            bundledVersionName = bridge.versionName,
+                            installedProtocolVersion = installedProtocol,
+                            requiredProtocolVersion = definition.requiredProtocolVersion,
+                            installedCertificateFingerprints = installedCertificates,
+                            bundledCertificateFingerprints = bridge.certificateFingerprints,
+                        )
+
+                        installedVersionCode > bridge.versionCode -> WazeBridgeInspection(
+                            definition = definition,
+                            state = WazeBridgeState.BRIDGE_NEWER_THAN_BUNDLED,
+                            installedVersionCode = installedVersionCode,
+                            installedVersionName = installedVersionName,
+                            bundledVersionCode = bridge.versionCode,
+                            bundledVersionName = bridge.versionName,
+                            installedProtocolVersion = installedProtocol,
+                            requiredProtocolVersion = definition.requiredProtocolVersion,
+                            installedCertificateFingerprints = installedCertificates,
+                            bundledCertificateFingerprints = bridge.certificateFingerprints,
+                        )
+
+                        else -> WazeBridgeInspection(
+                            definition = definition,
+                            state = WazeBridgeState.BRIDGE_CURRENT,
+                            installedVersionCode = installedVersionCode,
+                            installedVersionName = installedVersionName,
+                            bundledVersionCode = bridge.versionCode,
+                            bundledVersionName = bridge.versionName,
+                            installedProtocolVersion = installedProtocol,
+                            requiredProtocolVersion = definition.requiredProtocolVersion,
+                            installedCertificateFingerprints = installedCertificates,
+                            bundledCertificateFingerprints = bridge.certificateFingerprints,
+                        )
+                    }
+                }
+            }
         }
-        return WazeBridgeInspection(
-            definition = definition,
-            status = status,
-            installedVersionCode = installedVersionCode,
-            installedVersionName = installedVersionName,
-            bundledVersionCode = bundledVersionCode,
-            bundledVersionName = bundledVersionName,
-            installedProtocolVersion = installedProtocol,
-            requiredProtocolVersion = definition.protocolVersion,
-        )
+        logInspection(inspection)
+        return inspection
     }
 
     fun extractInstallableBridge(
         context: Context,
         inspection: WazeBridgeInspection,
     ): File? {
-        if (!inspection.canUpdate && inspection.status != WazeBridgeStatus.NOT_INSTALLED) return null
-        val apk = extractBundledBridge(context, inspection.definition) ?: return null
-        val bundledInfo = packageArchiveInfo(context.packageManager, apk) ?: return null
-        if (bundledInfo.packageName != inspection.definition.packageName) return null
-        if (signingCertificateDigests(bundledInfo).isEmpty()) return null
+        if (!inspection.canInstall && !inspection.canUpdate) return null
+        val bundled = readBundledBridge(context, inspection.definition) as? BundledBridgeResult.Valid ?: return null
+        if (bundled.bridge.packageName != inspection.definition.packageName) return null
 
-        val installedInfo = installedPackageInfo(context.packageManager, inspection.definition.packageName)
-        if (installedInfo != null) {
-            if (signingCertificateDigests(installedInfo) != signingCertificateDigests(bundledInfo)) return null
-            if (versionCode(bundledInfo) <= versionCode(installedInfo)) return null
+        val installed = installedPackageInfo(context.packageManager, inspection.definition.packageName)
+        if (installed != null) {
+            val installedCerts = signingCertificateFingerprints(installed)
+            val trustedFingerprints = trustedHushBridgeFingerprints(context)
+            if (!isTrustedHushBridge(installedCerts, trustedFingerprints)) {
+                return null
+            }
+            if (bundled.bridge.versionCode <= versionCode(installed)) return null
         }
-        return apk
+        return bundled.bridge.apk
+    }
+
+    private fun trustedHushBridgeFingerprints(context: Context): Set<String> {
+        val fingerprints = mutableSetOf<String>()
+
+        for (definition in definitions) {
+            when (val bundled = readBundledBridge(context, definition)) {
+                is BundledBridgeResult.Valid -> {
+                    fingerprints.addAll(bundled.bridge.certificateFingerprints)
+                }
+                else -> {}
+            }
+        }
+
+        try {
+            val myInfo = context.packageManager.getPackageInfo(
+                context.packageName,
+                packageInfoFlags(),
+            )
+            fingerprints.addAll(signingCertificateFingerprints(myInfo))
+        } catch (_: Exception) {}
+
+        return fingerprints
+    }
+
+    private fun isTrustedHushBridge(
+        installedFingerprints: Set<String>,
+        trustedFingerprints: Set<String>,
+    ): Boolean = installedFingerprints.isNotEmpty() &&
+        trustedFingerprints.isNotEmpty() &&
+        installedFingerprints.any { it in trustedFingerprints }
+
+    private fun diagnosticLog(
+        packageName: String,
+        installedVersionCode: Long?,
+        installedVersionName: String?,
+        installedFingerprints: Set<String>,
+        trustedFingerprints: Set<String>,
+        isTrustedMatch: Boolean,
+    ) {
+        Timber.tag("WazeBridge").d(
+            "Package: %s\nInstalled version: %s (%s)\nInstalled fingerprints: [%s]\nTrusted fingerprints: [%s]\nTrusted Bridge match: %b",
+            packageName,
+            installedVersionName ?: "none",
+            installedVersionCode ?: "none",
+            installedFingerprints.joinToString(", ").ifBlank { "none" },
+            trustedFingerprints.joinToString(", ").ifBlank { "none" },
+            isTrustedMatch,
+        )
     }
 
     suspend fun isUpdateDismissed(
@@ -201,8 +331,10 @@ object WazeBridgeManager {
     }
 
     private fun dismissalKey(inspection: WazeBridgeInspection): String? {
-        if (inspection.status != WazeBridgeStatus.UPDATE_AVAILABLE &&
-            inspection.status != WazeBridgeStatus.UPDATE_REQUIRED
+        if (inspection.state !in setOf(
+                WazeBridgeState.BRIDGE_UPDATE_AVAILABLE,
+                WazeBridgeState.BRIDGE_UPDATE_REQUIRED,
+            )
         ) {
             return null
         }
@@ -214,37 +346,94 @@ object WazeBridgeManager {
         ).joinToString(":")
     }
 
-    private fun unknown(
-        definition: WazeBridgeDefinition,
-        bundledVersionCode: Long? = null,
-        bundledVersionName: String? = null,
-        bundledProtocol: Int? = null,
-    ) = WazeBridgeInspection(
-        definition = definition,
-        status = WazeBridgeStatus.UNKNOWN,
-        bundledVersionCode = bundledVersionCode,
-        bundledVersionName = bundledVersionName,
-        requiredProtocolVersion = bundledProtocol ?: definition.protocolVersion,
+    private sealed interface BundledBridgeResult {
+        data object Missing : BundledBridgeResult
+        data object Invalid : BundledBridgeResult
+        data class Valid(val bridge: BundledBridgeApk) : BundledBridgeResult
+    }
+
+    private data class BundledBridgeApk(
+        val apk: File,
+        val packageName: String,
+        val versionCode: Long,
+        val versionName: String?,
+        val protocolVersion: Int,
+        val certificateFingerprints: Set<String>,
     )
 
-    private fun extractBundledBridge(
+    private fun readBundledBridge(
         context: Context,
         definition: WazeBridgeDefinition,
-    ): File? = runCatching {
-        val apk = File(context.cacheDir, definition.assetPath)
-        context.assets.open(BRIDGE_ARCHIVE).use { archive ->
-            ZipInputStream(archive).use { entries ->
-                while (true) {
-                    val entry = entries.nextEntry ?: break
-                    if (entry.name == definition.assetPath) {
-                        apk.outputStream().use { output -> entries.copyTo(output) }
-                        return@runCatching apk
+    ): BundledBridgeResult {
+        val apk = File(context.cacheDir, "waze-bridge-${definition.id}.apk")
+        val entryFound = try {
+            context.assets.open(BRIDGE_ARCHIVE).use { archive ->
+                ZipInputStream(archive).use { entries ->
+                    while (true) {
+                        val entry = entries.nextEntry ?: break
+                        if (entry.name == definition.assetPath) {
+                            apk.outputStream().use { output -> entries.copyTo(output) }
+                            return@use true
+                        }
                     }
+                    false
                 }
             }
+        } catch (error: IOException) {
+            Timber.tag("WazeBridge").w(error, "Unable to read embedded %s", definition.displayName)
+            false
         }
-        null
-    }.getOrNull()
+        if (!entryFound) {
+            apk.delete()
+            return BundledBridgeResult.Missing
+        }
+
+        val packageInfo = packageArchiveInfo(context.packageManager, apk)
+            ?: return BundledBridgeResult.Invalid
+        val packageName = packageInfo.packageName
+        val protocolVersion = packageInfo.applicationInfo?.metaData?.getInt(BRIDGE_PROTOCOL, 0) ?: 0
+        val certificates = signingCertificateFingerprints(packageInfo)
+        if (packageName != definition.packageName ||
+            protocolVersion < definition.requiredProtocolVersion ||
+            certificates.isEmpty()
+        ) {
+            Timber.tag("WazeBridge").w(
+                "Invalid embedded %s: package=%s protocol=%d certificates=%d",
+                definition.displayName,
+                packageName,
+                protocolVersion,
+                certificates.size,
+            )
+            return BundledBridgeResult.Invalid
+        }
+        return BundledBridgeResult.Valid(
+            BundledBridgeApk(
+                apk = apk,
+                packageName = packageName,
+                versionCode = versionCode(packageInfo),
+                versionName = packageInfo.versionName,
+                protocolVersion = protocolVersion,
+                certificateFingerprints = certificates,
+            ),
+        )
+    }
+
+    private fun logInspection(inspection: WazeBridgeInspection) {
+        Timber.tag("WazeBridge").d(
+            "%s package=%s installed=%s (%s) bundled=%s (%s) installedCert=%s bundledCert=%s protocol=%s/%s state=%s",
+            inspection.definition.displayName,
+            inspection.definition.packageName,
+            inspection.installedVersionName ?: "none",
+            inspection.installedVersionCode ?: "none",
+            inspection.bundledVersionName ?: "none",
+            inspection.bundledVersionCode ?: "none",
+            inspection.installedCertificateFingerprints.joinToString(",").ifBlank { "none" },
+            inspection.bundledCertificateFingerprints.joinToString(",").ifBlank { "none" },
+            inspection.installedProtocolVersion ?: "none",
+            inspection.requiredProtocolVersion,
+            inspection.state,
+        )
+    }
 
     @Suppress("DEPRECATION")
     private fun installedPackageInfo(packageManager: PackageManager, packageName: String): PackageInfo? =
@@ -264,19 +453,25 @@ object WazeBridgeManager {
             }
 
     @Suppress("DEPRECATION")
-    private fun signingCertificateDigests(packageInfo: PackageInfo): Set<String> {
-        val signatures: Array<Signature> =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                packageInfo.signingInfo?.apkContentsSigners ?: emptyArray()
-            } else {
-                packageInfo.signatures ?: emptyArray()
+    private fun signingCertificateFingerprints(packageInfo: PackageInfo): Set<String> {
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val signingInfo = packageInfo.signingInfo
+            buildList {
+                addAll(signingInfo?.apkContentsSigners.orEmpty())
+                if (signingInfo?.hasPastSigningCertificates() == true) {
+                    addAll(signingInfo.signingCertificateHistory.orEmpty())
+                }
             }
-        return signatures.mapTo(linkedSetOf()) { signature ->
-            MessageDigest.getInstance("SHA-256")
-                .digest(signature.toByteArray())
-                .joinToString("") { byte -> "%02x".format(byte) }
+        } else {
+            packageInfo.signatures?.toList().orEmpty()
         }
+        return signatures.mapTo(linkedSetOf(), ::signatureSha256)
     }
+
+    private fun signatureSha256(signature: Signature): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(signature.toByteArray())
+            .joinToString(":") { byte -> "%02X".format(byte) }
 
     @Suppress("DEPRECATION")
     private fun versionCode(packageInfo: PackageInfo): Long =

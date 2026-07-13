@@ -703,6 +703,33 @@
     <string name="visualizer_opacity">Visualizer opacity</string>
     <string name="visualizer_opacity_value">%1$d%%</string>
     <string name="visualizer_mini_player_desc">Show visualizer behind the mini player artwork</string>
+    <string name="pulse_matrix">PulseMatrix</string>
+    <string name="car_expressive_player_layout">Car Expressive Player Layout</string>
+    <string name="car_expressive_player_layout_desc">Use the dedicated cinematic player layout on wide car and dashboard displays.</string>
+    <string name="car_expressive_auto_hide_title">Auto-hide artwork title</string>
+    <string name="car_expressive_auto_hide_title_desc">Hide the title and artist after the marquee and selected delay. Touch the player to show them again.</string>
+    <string name="car_expressive_title_hide_delay">Title hide delay</string>
+    <string name="car_expressive_title_hide_delay_value">%1$s seconds</string>
+    <string name="pulse_matrix_desc">LED matrix spectrum analyzer overlay</string>
+    <string name="pulse_matrix_theme">PulseMatrix Theme</string>
+    <string name="pulse_matrix_mini_player">Show in Mini Player</string>
+    <string name="pulse_matrix_mini_player_desc">Show PulseMatrix behind the mini player artwork</string>
+    <string name="pulse_matrix_intensity">Visualizer Intensity</string>
+    <string name="pulse_matrix_peak_hold">Peak Hold</string>
+    <string name="pulse_matrix_peak_hold_desc">Show peak indicators on the visualizer</string>
+
+    <string name="pulse_matrix_theme_neon">Neon</string>
+    <string name="pulse_matrix_theme_amber">Amber</string>
+    <string name="pulse_matrix_theme_cyan">Cyan</string>
+    <string name="pulse_matrix_theme_emerald">Emerald</string>
+    <string name="pulse_matrix_theme_crimson">Crimson</string>
+    <string name="pulse_matrix_theme_violet">Violet</string>
+    <string name="pulse_matrix_theme_ice">Ice</string>
+    <string name="pulse_matrix_theme_aurora">Aurora</string>
+
+    <string name="pulse_matrix_intensity_low">Low</string>
+    <string name="pulse_matrix_intensity_normal">Normal</string>
+    <string name="pulse_matrix_intensity_high">High</string>
 
     <string name="eq_bass_boost">Bass boost</string>
     <string name="eq_virtualizer">Virtualizer</string>

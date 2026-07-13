@@ -54,6 +54,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -89,21 +90,21 @@ import app.hush.music.constants.EnableHapticFeedbackKey
 import app.hush.music.constants.MiniPlayerArtworkInnerSize
 import app.hush.music.constants.MiniPlayerArtworkOuterSize
 import app.hush.music.constants.MiniPlayerHeight
-import app.hush.music.constants.VisualizerEnabledKey
-import app.hush.music.constants.VisualizerStyleKey
-import app.hush.music.constants.VisualizerColorThemeKey
-import app.hush.music.constants.VisualizerMiniPlayerKey
-import app.hush.music.constants.VisualizerOpacityKey
+import app.hush.music.constants.PulseMatrixEnabledKey
+import app.hush.music.constants.PulseMatrixThemeKey
+import app.hush.music.constants.PulseMatrixMiniPlayerKey
+import app.hush.music.constants.PulseMatrixIntensityKey
+import app.hush.music.constants.PulseMatrixPeakHoldKey
 import app.hush.music.extensions.togglePlayPause
 import app.hush.music.models.MediaMetadata
 import app.hush.music.playback.PlayerConnection
 import app.hush.music.together.TogetherSessionState
 import app.hush.music.utils.rememberPreference
 import app.hush.music.utils.rememberEnumPreference
-import app.hush.music.ui.player.visualizer.AudioSpectrumProvider
-import app.hush.music.ui.player.visualizer.Visualizer
-import app.hush.music.ui.player.visualizer.VisualizerStyle
-import app.hush.music.ui.player.visualizer.VisualizerColorTheme
+import app.hush.music.ui.player.visualizer.PulseMatrixCanvas
+import app.hush.music.ui.player.visualizer.PulseMatrixEngine
+import app.hush.music.ui.player.visualizer.PulseMatrixSettings
+import app.hush.music.ui.player.visualizer.PulseMatrixTheme
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
@@ -376,11 +377,13 @@ private fun MiniPlayerArtwork(
                         shape = CircleShape,
                     ),
         ) {
-            val (visualizerEnabled) = rememberPreference(VisualizerEnabledKey, true)
-            val (visualizerMiniPlayer) = rememberPreference(VisualizerMiniPlayerKey, false)
-            val (visualizerStyle) = rememberEnumPreference(VisualizerStyleKey, VisualizerStyle.BOTTOM_BARS)
-            val (visualizerColorTheme) = rememberEnumPreference(VisualizerColorThemeKey, VisualizerColorTheme.THEME)
-            val (visualizerOpacity) = rememberPreference(VisualizerOpacityKey, 0.8f)
+            val (pulseMatrixEnabled) = rememberPreference(PulseMatrixEnabledKey, false)
+            val (pulseMatrixThemeStr) = rememberPreference(PulseMatrixThemeKey, PulseMatrixTheme.AURORA.name)
+            val pulseMatrixTheme = PulseMatrixTheme.valueOf(pulseMatrixThemeStr)
+            val (pulseMatrixMiniPlayer) = rememberPreference(PulseMatrixMiniPlayerKey, true)
+            val (pulseMatrixIntensityStr) = rememberPreference(PulseMatrixIntensityKey, PulseMatrixSettings.IntensityLevel.NORMAL.name)
+            val pulseMatrixIntensity = PulseMatrixSettings.IntensityLevel.valueOf(pulseMatrixIntensityStr)
+            val (pulseMatrixPeakHold) = rememberPreference(PulseMatrixPeakHoldKey, true)
 
             Crossfade(
                 targetState = artworkUrl,
@@ -406,29 +409,44 @@ private fun MiniPlayerArtwork(
                 }
             }
 
-            var spectrumData by remember { mutableStateOf<List<Float>?>(null) }
-            val audioSessionId = remember(playerConnection) { playerConnection.player.audioSessionId }
-            LaunchedEffect(audioSessionId, isPlaying) {
-                if (!isPlaying || audioSessionId <= 0) {
-                    spectrumData = null
-                    return@LaunchedEffect
+            if (pulseMatrixEnabled && pulseMatrixMiniPlayer) {
+                LaunchedEffect(Unit) {
+                    var acquired = false
+                    var lastSid = 0
+                    try {
+                        while (true) {
+                            val sid = try {
+                                playerConnection.player.audioSessionId
+                            } catch (_: Exception) { 0 }
+                            if (sid > 0 && sid != lastSid) {
+                                if (!acquired) {
+                                    PulseMatrixEngine.acquire(sid)
+                                    acquired = true
+                                } else {
+                                    PulseMatrixEngine.changeSession(sid)
+                                }
+                                lastSid = sid
+                            }
+                            delay(100)
+                        }
+                    } finally {
+                        if (acquired) {
+                            PulseMatrixEngine.release()
+                        }
+                    }
                 }
-                AudioSpectrumProvider.spectrumFlow(audioSessionId).collect { data ->
-                    spectrumData = data
-                }
-            }
-            DisposableEffect(Unit) {
-                onDispose { AudioSpectrumProvider.release() }
-            }
 
-            if (visualizerEnabled && visualizerMiniPlayer) {
-                Visualizer(
-                    isPlaying = isPlaying,
-                    style = visualizerStyle,
-                    colorTheme = visualizerColorTheme,
-                    opacity = visualizerOpacity,
-                    modifier = Modifier.fillMaxSize(),
-                    spectrumData = spectrumData,
+                val visualizerHeight = MiniPlayerArtworkInnerSize * 0.35f
+                val bands by PulseMatrixEngine.barHeights.collectAsState()
+                PulseMatrixCanvas(
+                    theme = pulseMatrixTheme,
+                    opacity = 0.8f,
+                    modifier = Modifier
+                        .width(MiniPlayerArtworkInnerSize * 0.60f)
+                        .height(visualizerHeight)
+                        .align(Alignment.BottomCenter),
+                    bands = bands,
+                    miniMode = true,
                 )
             }
         }

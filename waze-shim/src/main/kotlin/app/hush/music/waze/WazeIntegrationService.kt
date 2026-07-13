@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -58,6 +59,36 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
     private val lock = Any()
     private var wazeSdkConnection: ServiceConnection? = null
     private var wazeMessenger: Messenger? = null
+    private val wazeSdkConnectionImpl = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, service: IBinder) {
+            Log.d(TAG, "Connected to Waze SdkService!")
+            val token = this@WazeIntegrationService.wazeToken
+            if (token != null) {
+                callConnect(service, token)
+            }
+        }
+
+        override fun onServiceDisconnected(name: ComponentName) {
+            Log.d(TAG, "Disconnected from Waze SdkService")
+            wazeSdkConnection = null
+            wazeMessenger = null
+            scheduleWazeReconnect()
+        }
+
+        override fun onBindingDied(name: ComponentName) {
+            Log.w(TAG, "Waze SdkService binding died")
+            wazeSdkConnection = null
+            wazeMessenger = null
+            scheduleWazeReconnect()
+        }
+
+        override fun onNullBinding(name: ComponentName) {
+            Log.w(TAG, "Waze SdkService returned a null binding")
+            wazeSdkConnection = null
+            wazeMessenger = null
+            scheduleWazeReconnect()
+        }
+    }
     private var notificationTitle = "Hush Music"
     private var notificationSubtitle = "Ready to play"
     private var wazeToken: String? = null
@@ -69,6 +100,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
     private var pendingPlaybackStateAtMs = 0L
     private var pendingSeekPositionMs: Long? = null
     private var pendingSeekAtMs = 0L
+    private var latestQueueRevision = -1L
 
     private val messenger = Messenger(Handler(Looper.getMainLooper()) { msg ->
         Log.d(TAG, "handleMessage: what=${msg.what} arg1=${msg.arg1} arg2=${msg.arg2}" +
@@ -308,71 +340,77 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         }
     }
 
-    private fun setupMediaSession() {
-        val session = MediaSessionCompat(this, "HushWazeBridge").apply {
-            setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() {
-                    Log.d(TAG, "onPlay")
-                    if (sendCommandToHush("play")) {
-                        publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PLAYING)
-                    }
-                }
-
-                override fun onPause() {
-                    Log.d(TAG, "onPause")
-                    if (sendCommandToHush("pause")) {
-                        publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PAUSED)
-                    }
-                }
-
-                override fun onStop() {
-                    Log.d(TAG, "onStop")
-                    if (sendCommandToHush("pause")) {
-                        publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PAUSED)
-                    }
-                }
-
-                override fun onSkipToNext() {
-                    Log.d(TAG, "onSkipToNext")
-                    sendCommandToHush("next")
-                }
-
-                override fun onSkipToPrevious() {
-                    Log.d(TAG, "onSkipToPrevious")
-                    sendCommandToHush("previous")
-                }
-
-                override fun onSeekTo(pos: Long) {
-                    Log.d(TAG, "onSeekTo: $pos")
-                    if (sendSeekCommandToHush(pos)) {
-                        publishOptimisticSeek(pos)
-                    }
-                }
-
-                override fun onCustomAction(action: String?, extras: Bundle?) {
-                    Log.d(TAG, "onCustomAction: $action")
-                    when (action) {
-                        "THUMBS_UP" -> sendCommandToHush("like")
-                    }
-                }
-
-                override fun onSetRating(rating: RatingCompat?) {
-                    if (rating?.rating == 1f) {
-                        Log.d(TAG, "onSetRating: thumbs up")
-                        sendCommandToHush("like")
-                    }
-                }
-
-                override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) {
-                    Log.d(TAG, "onPlayFromMediaId: $mediaId")
-                    if (sendCommandToHush("play")) {
-                        publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PLAYING)
-                    }
-                }
-            })
-            setRatingType(RatingCompat.RATING_HEART)
-            isActive = true
+    private val mediaSessionCallback = object : MediaSessionCompat.Callback() {
+        override fun onPlay() {
+            Log.d(TAG, "onPlay")
+            if (sendCommandToHush("play")) {
+                publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PLAYING)
+            }
         }
+
+        override fun onPause() {
+            Log.d(TAG, "onPause")
+            if (sendCommandToHush("pause")) {
+                publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PAUSED)
+            }
+        }
+
+        override fun onStop() {
+            Log.d(TAG, "onStop")
+            if (sendCommandToHush("pause")) {
+                publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PAUSED)
+            }
+        }
+
+        override fun onSkipToNext() {
+            Log.d(TAG, "onSkipToNext")
+            sendCommandToHush("next")
+        }
+
+        override fun onSkipToPrevious() {
+            Log.d(TAG, "onSkipToPrevious")
+            sendCommandToHush("previous")
+        }
+
+        override fun onSkipToQueueItem(id: Long) {
+            Log.d(TAG, "onSkipToQueueItem: $id")
+            sendQueueItemCommandToHush(id)
+        }
+
+        override fun onSeekTo(pos: Long) {
+            Log.d(TAG, "onSeekTo: $pos")
+            if (sendSeekCommandToHush(pos)) {
+                publishOptimisticSeek(pos)
+            }
+        }
+
+        override fun onCustomAction(action: String?, extras: Bundle?) {
+            Log.d(TAG, "onCustomAction: $action")
+            when (action) {
+                "THUMBS_UP" -> sendCommandToHush("like")
+            }
+        }
+
+        override fun onSetRating(rating: RatingCompat?) {
+            if (rating?.rating == 1f) {
+                Log.d(TAG, "onSetRating: thumbs up")
+                sendCommandToHush("like")
+            }
+        }
+
+        override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) {
+            Log.d(TAG, "onPlayFromMediaId: $mediaId")
+            if (sendCommandToHush("play")) {
+                publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PLAYING)
+            }
+        }
+    }
+
+    private fun setupMediaSession() {
+        val session = MediaSessionCompat(this, "HushWazeBridge")
+        session.setCallback(mediaSessionCallback)
+        session.setRatingType(RatingCompat.RATING_HEART)
+        session.isActive = true
         mediaSession = session
         sessionToken = session.sessionToken
 
@@ -399,6 +437,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                         PlaybackStateCompat.ACTION_PLAY_PAUSE or
                         PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                         PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+                        PlaybackStateCompat.ACTION_SKIP_TO_QUEUE_ITEM or
                         PlaybackStateCompat.ACTION_SEEK_TO or
                         PlaybackStateCompat.ACTION_STOP or
                         PlaybackStateCompat.ACTION_SET_RATING
@@ -445,6 +484,28 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         latestSnapshotTimestampMs = snapshot.timestampMs
 
         try {
+            if (snapshot.queue.revision > latestQueueRevision) {
+                session.setQueue(
+                    snapshot.queue.items.map { item ->
+                        MediaSessionCompat.QueueItem(
+                            MediaDescriptionCompat.Builder()
+                                .setMediaId(item.trackId)
+                                .setTitle(item.title)
+                                .setSubtitle(item.artist)
+                                .setDescription(item.album)
+                                .apply {
+                                    if (!item.artworkUrl.isNullOrEmpty()) {
+                                        setIconUri(Uri.parse(item.artworkUrl))
+                                    }
+                                }
+                                .build(),
+                            item.queueItemId,
+                        )
+                    },
+                )
+                session.setQueueTitle(snapshot.queue.title)
+                latestQueueRevision = snapshot.queue.revision
+            }
             val displaySubtitle = if (snapshot.album.isNotEmpty()) {
                 "${snapshot.artist} \u2014 ${snapshot.album}"
             } else {
@@ -586,6 +647,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                     PlaybackStateCompat.ACTION_PLAY_PAUSE or
                     PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                     PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+                    PlaybackStateCompat.ACTION_SKIP_TO_QUEUE_ITEM or
                     PlaybackStateCompat.ACTION_SEEK_TO or
                     PlaybackStateCompat.ACTION_STOP or
                     PlaybackStateCompat.ACTION_SET_RATING,
@@ -752,6 +814,21 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         }
     }
 
+    private fun sendQueueItemCommandToHush(queueItemId: Long): Boolean {
+        return try {
+            val intent = Intent("app.hush.music.WAZE_COMMAND").apply {
+                putExtra("command", "skip_to_queue_item")
+                putExtra("queue_item_id", queueItemId)
+                component = ComponentName("app.hush.music", "app.hush.music.playback.MusicService")
+            }
+            startForegroundService(intent)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send queue item command to Hush", e)
+            false
+        }
+    }
+
     private fun bindToWazeSdkService(token: String) {
         if (cleanedUp) return
         wazeToken = token
@@ -760,43 +837,15 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             component = ComponentName(WAZE_PKG, WAZE_SDK_SERVICE)
         }
 
-        val conn = object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName, service: IBinder) {
-                Log.d(TAG, "Connected to Waze SdkService!")
-                callConnect(service, token)
-            }
-
-            override fun onServiceDisconnected(name: ComponentName) {
-                Log.d(TAG, "Disconnected from Waze SdkService")
-                wazeSdkConnection = null
-                wazeMessenger = null
-                scheduleWazeReconnect()
-            }
-
-            override fun onBindingDied(name: ComponentName) {
-                Log.w(TAG, "Waze SdkService binding died")
-                wazeSdkConnection = null
-                wazeMessenger = null
-                scheduleWazeReconnect()
-            }
-
-            override fun onNullBinding(name: ComponentName) {
-                Log.w(TAG, "Waze SdkService returned a null binding")
-                wazeSdkConnection = null
-                wazeMessenger = null
-                scheduleWazeReconnect()
-            }
-        }
-
         synchronized(lock) {
             wazeSdkConnection?.let {
                 try {
                     unbindService(it)
                 } catch (_: Exception) {}
             }
-            val bound = bindService(serviceIntent, conn, Context.BIND_AUTO_CREATE)
+            val bound = bindService(serviceIntent, wazeSdkConnectionImpl, Context.BIND_AUTO_CREATE)
             if (bound) {
-                wazeSdkConnection = conn
+                wazeSdkConnection = wazeSdkConnectionImpl
             } else {
                 scheduleWazeReconnect()
             }

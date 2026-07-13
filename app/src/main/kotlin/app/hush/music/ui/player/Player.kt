@@ -203,6 +203,7 @@ import app.hush.music.constants.landscapeQueuePeekHeight
 import app.hush.music.constants.portraitQueuePeekHeight
 import app.hush.music.constants.SliderStyle
 import app.hush.music.constants.SliderStyleKey
+import app.hush.music.constants.LandscapePlayerLayoutKey
 import app.hush.music.constants.ThumbnailCornerRadiusKey
 import app.hush.music.db.entities.FormatEntity
 import app.hush.music.extensions.metadata
@@ -1299,61 +1300,117 @@ fun BottomSheetPlayer(
                     }
                 } else if (playerDesignStyle == PlayerDesignStyle.V6) {
                     enrichedMetadata?.let { metadata ->
-                        V6LandscapePlayerContent(
-                            modifier =
-                                Modifier
-                                    .fillMaxSize()
-                                    .windowInsetsPadding(landscapePlayerInsets)
-                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
-                            textBackgroundColor = TextBackgroundColor,
-                            sleepTimerEnabled = sleepTimerEnabled,
-                            sleepTimerTimeLeft = sleepTimerTimeLeft,
-                            onExpandQueue = openQueue,
-                            onSleepTimerClick = {
-                                if (sleepTimerEnabled) {
-                                    playerConnection.service.sleepTimer?.clear()
-                                } else {
-                                    showSleepTimerDialog = true
-                                }
-                            },
-                            onShowLyrics = openLyrics,
-                            artworkContent = { artSize ->
-                                Thumbnail(
-                                    sliderPositionProvider = { sliderPosition },
-                                    modifier = Modifier.size(artSize),
-                                    showNowPlayingHeader = false,
-                                    isPlayerExpanded = state.isExpanded,
-                                )
-                            },
-                            controlsContent = {
-                                V6LandscapeControlsPanel(
-                                    mediaMetadata = metadata,
-                                    playerDesignStyle = playerDesignStyle,
-                                    sliderStyle = sliderStyle,
-                                    playbackState = playbackState,
-                                    isPlaying = isPlaying,
-                                    isLoading = isLoading,
-                                    repeatMode = repeatMode,
-                                    canSkipPrevious = canSkipPrevious,
-                                    canSkipNext = canSkipNext,
-                                    textButtonColor = textButtonColor,
-                                    iconButtonColor = iconButtonColor,
-                                    textBackgroundColor = TextBackgroundColor,
-                                    icBackgroundColor = icBackgroundColor,
-                                    sliderPosition = sliderPosition,
-                                    position = position,
-                                    duration = duration,
-                                    playerConnection = playerConnection,
-                                    navController = navController,
-                                    state = state,
-                                    menuState = menuState,
-                                    bottomSheetPageState = bottomSheetPageState,
-                                    context = context,
-                                    onSliderValueChange = onSliderValueChange,
-                                    onSliderValueChangeFinished = onSliderValueChangeFinished,
-                                )
-                            },
-                        )
+                        val (useCarExpressiveLayout) =
+                            rememberPreference(LandscapePlayerLayoutKey, defaultValue = false)
+                        if (useCarExpressiveLayout) {
+                            CarExpressivePlayerContent(
+                                mediaMetadata = metadata,
+                                playerDesignStyle = playerDesignStyle,
+                                sliderStyle = sliderStyle,
+                                playbackState = playbackState,
+                                isPlaying = isPlaying,
+                                isLoading = isLoading,
+                                repeatMode = repeatMode,
+                                canSkipPrevious = canSkipPrevious,
+                                canSkipNext = canSkipNext,
+                                textButtonColor = textButtonColor,
+                                iconButtonColor = iconButtonColor,
+                                textBackgroundColor = TextBackgroundColor,
+                                icBackgroundColor = icBackgroundColor,
+                                sliderPosition = sliderPosition,
+                                position = position,
+                                duration = duration,
+                                playerConnection = playerConnection,
+                                navController = navController,
+                                state = state,
+                                menuState = menuState,
+                                bottomSheetPageState = bottomSheetPageState,
+                                context = context,
+                                sleepTimerEnabled = sleepTimerEnabled,
+                                sleepTimerTimeLeft = sleepTimerTimeLeft,
+                                onSliderValueChange = onSliderValueChange,
+                                onSliderValueChangeFinished = onSliderValueChangeFinished,
+                                onExpandQueue = openQueue,
+                                onSleepTimerClick = {
+                                    if (sleepTimerEnabled) {
+                                        playerConnection.service.sleepTimer?.clear()
+                                    } else {
+                                        showSleepTimerDialog = true
+                                    }
+                                },
+                                onShowLyrics = openLyrics,
+                                artworkContent = {
+                                    Thumbnail(
+                                        sliderPositionProvider = { sliderPosition },
+                                        modifier = Modifier.fillMaxSize(),
+                                        showNowPlayingHeader = false,
+                                        edgeToEdge = true,
+                                        isPlayerExpanded = state.isExpanded,
+                                    )
+                                },
+                                modifier =
+                                    Modifier
+                                        .fillMaxSize()
+                                        .windowInsetsPadding(landscapePlayerInsets)
+                                        .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                            )
+                        } else {
+                            V6LandscapePlayerContent(
+                                modifier =
+                                    Modifier
+                                        .fillMaxSize()
+                                        .windowInsetsPadding(landscapePlayerInsets)
+                                        .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                                textBackgroundColor = TextBackgroundColor,
+                                sleepTimerEnabled = sleepTimerEnabled,
+                                sleepTimerTimeLeft = sleepTimerTimeLeft,
+                                onExpandQueue = openQueue,
+                                onSleepTimerClick = {
+                                    if (sleepTimerEnabled) {
+                                        playerConnection.service.sleepTimer?.clear()
+                                    } else {
+                                        showSleepTimerDialog = true
+                                    }
+                                },
+                                onShowLyrics = openLyrics,
+                                artworkContent = { artSize ->
+                                    Thumbnail(
+                                        sliderPositionProvider = { sliderPosition },
+                                        modifier = Modifier.size(artSize),
+                                        showNowPlayingHeader = false,
+                                        isPlayerExpanded = state.isExpanded,
+                                    )
+                                },
+                                controlsContent = {
+                                    V6LandscapeControlsPanel(
+                                        mediaMetadata = metadata,
+                                        playerDesignStyle = playerDesignStyle,
+                                        sliderStyle = sliderStyle,
+                                        playbackState = playbackState,
+                                        isPlaying = isPlaying,
+                                        isLoading = isLoading,
+                                        repeatMode = repeatMode,
+                                        canSkipPrevious = canSkipPrevious,
+                                        canSkipNext = canSkipNext,
+                                        textButtonColor = textButtonColor,
+                                        iconButtonColor = iconButtonColor,
+                                        textBackgroundColor = TextBackgroundColor,
+                                        icBackgroundColor = icBackgroundColor,
+                                        sliderPosition = sliderPosition,
+                                        position = position,
+                                        duration = duration,
+                                        playerConnection = playerConnection,
+                                        navController = navController,
+                                        state = state,
+                                        menuState = menuState,
+                                        bottomSheetPageState = bottomSheetPageState,
+                                        context = context,
+                                        onSliderValueChange = onSliderValueChange,
+                                        onSliderValueChangeFinished = onSliderValueChangeFinished,
+                                    )
+                                },
+                            )
+                        }
                     }
                 } else if (
                     playerDesignStyle == PlayerDesignStyle.V7 ||

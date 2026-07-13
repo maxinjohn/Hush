@@ -3,6 +3,7 @@ package app.hush.music.waze
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 
@@ -22,12 +23,26 @@ class WazeMetadataReceiver : BroadcastReceiver() {
         this.listener = null
     }
 
+    @Suppress("DEPRECATION")
     override fun onReceive(context: Context?, intent: Intent?) {
         if (intent?.action != "app.hush.music.WAZE_METADATA_UPDATE") return
 
         val title = intent.getStringExtra("title") ?: return
         val artist = intent.getStringExtra("artist") ?: ""
         val album = intent.getStringExtra("album") ?: ""
+        val queueItems = intent.getParcelableArrayListExtra<Bundle>("queue_items")
+            ?.map { item ->
+                HushQueueItem(
+                    queueItemId = item.getLong("queue_item_id", -1L),
+                    trackId = item.getString("track_id").orEmpty(),
+                    title = item.getString("title").orEmpty(),
+                    artist = item.getString("artist").orEmpty(),
+                    album = item.getString("album").orEmpty(),
+                    artworkUrl = item.getString("artwork_url"),
+                )
+            }
+            ?.filter { item -> item.queueItemId >= 0L }
+            ?: emptyList()
         val snapshot = HushPlaybackSnapshot(
             trackId = intent.getStringExtra("track_id").orEmpty(),
             title = title,
@@ -42,6 +57,11 @@ class WazeMetadataReceiver : BroadcastReceiver() {
             playerState = intent.getIntExtra("player_state", 0),
             playbackSpeed = intent.getFloatExtra("playback_speed", 1f),
             activeQueueItemId = intent.getLongExtra("queue_item_id", -1L),
+            queue = HushQueueSnapshot(
+                title = intent.getStringExtra("queue_title") ?: "Hush Queue",
+                revision = intent.getLongExtra("queue_revision", 0L),
+                items = queueItems,
+            ),
             sequenceNumber = if (intent.hasExtra("sequence_number")) {
                 intent.getLongExtra("sequence_number", -1L)
             } else {

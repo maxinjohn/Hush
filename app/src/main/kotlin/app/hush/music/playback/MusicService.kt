@@ -143,9 +143,11 @@ import app.hush.music.constants.AutoStartOnBluetoothKey
 import app.hush.music.constants.CrossfadeDurationKey
 import app.hush.music.constants.CrossfadeEnabledKey
 import app.hush.music.constants.CrossfadeGaplessKey
+import app.hush.music.constants.PrefetchCountKey
 import app.hush.music.constants.DeviceMutePlaybackRecoveryVolumeKey
 import app.hush.music.constants.EnableLastFMScrobblingKey
 import app.hush.music.constants.EnableSaavnStreamingKey
+import app.hush.music.constants.PrimaryAudioScraperKey
 import app.hush.music.constants.EqualizerBandLevelsMbKey
 import app.hush.music.constants.EqualizerBassBoostEnabledKey
 import app.hush.music.constants.EqualizerBassBoostStrengthKey
@@ -525,6 +527,7 @@ class MusicService :
     private var crossfadeTriggerJob: Job? = null
     private var crossfadeJob: Job? = null
     private var secondaryCrossfadePlayer: ExoPlayer? = null
+    private var secondaryEqProcessor: CustomEqualizerAudioProcessor? = null
     private var secondaryCrossfadeTarget: CrossfadeTarget? = null
     private var isCrossfading = false
     private var crossfadeHandoffInProgress = false
@@ -545,13 +548,21 @@ class MusicService :
     private val secondaryCrossfadeListener =
         object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
+                val cause = error.cause
+                val isMediaCodecError = cause is IllegalArgumentException && cause.message?.contains("newPosition > limit") == true
                 Timber.tag(TAG).w(error, "Secondary crossfade player failed")
+
+                if (isMediaCodecError) {
+                    Timber.tag(TAG).w("MediaCodec buffer conflict — falling back to gapless transition")
+                    secondaryCrossfadeRetryCount.set(MAX_SECONDARY_PLAYER_RETRIES)
+                }
                 scope.launch {
                     cancelCrossfade(resetVolume = true, resetPauseAtEnd = true)
-                    scheduleCrossfade()
                 }
             }
         }
+
+    private val secondaryCrossfadeRetryCount = java.util.concurrent.atomic.AtomicInteger(0)
 
     private data class CrossfadeConfig(
         val enabled: Boolean,
@@ -563,6 +574,29 @@ class MusicService :
         val index: Int,
         val mediaId: String,
     )
+
+    enum class CrossfadeTransitionState {
+        IDLE,
+        PREPARING_INCOMING,
+        FADING,
+        HANDOFF_COMPLETE,
+        CLEANING_OUTGOING
+    }
+
+    private data class CrossfadeTransition(
+        val transitionId: Long,
+        val outgoingTrackId: String,
+        val incomingTrackId: String,
+        val outgoingQueueIndex: Int,
+        val incomingQueueIndex: Int,
+        var state: CrossfadeTransitionState = CrossfadeTransitionState.IDLE,
+        val incomingStartedAtPositionMs: Long = 0L,
+        var logicalHandoffCompleted: Boolean = false,
+        var metadataPublished: Boolean = false,
+    )
+
+    private var activeCrossfadeTransition: CrossfadeTransition? = null
+    private var crossfadeTransitionSeq = 0L
 
     private data class PendingHistoryFinalization(
         val sessionToken: Long,
@@ -676,9 +710,7 @@ class MusicService :
     private var loudnessEnhancer: LoudnessEnhancer? = null
 
     val hushEqualizerService = HushEqualizerService()
-    private val eqProcessor = CustomEqualizerAudioProcessor().also {
-        hushEqualizerService.addAudioProcessor(it)
-    }
+    private lateinit var primaryEqProcessor: CustomEqualizerAudioProcessor
 
     private var scrobbleManager: app.hush.music.utils.ScrobbleManager? = null
 
@@ -927,6 +959,8 @@ class MusicService :
         super.onCreate()
         ensureScopesActive()
 
+        primaryEqProcessor = CustomEqualizerAudioProcessor().also(hushEqualizerService::addAudioProcessor)
+
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val nm = getSystemService(NotificationManager::class.java)
@@ -953,7 +987,7 @@ class MusicService :
             ExoPlayer
                 .Builder(this)
                 .setMediaSourceFactory(createMediaSourceFactory())
-                .setRenderersFactory(createRenderersFactory())
+                .setRenderersFactory(createRenderersFactory(primaryEqProcessor))
                 .setLoadControl(createPrimaryLoadControl())
                 .setTrackSelector(DefaultTrackSelector(this, SafeTrackSelectionFactory()))
                 .setHandleAudioBecomingNoisy(true)
@@ -1185,6 +1219,14 @@ class MusicService :
                 if (enabled && !wasEnabled) {
                     clearSaavnIncompatiblePlaybackCache()
                 }
+            }
+
+        dataStore.data
+            .map { it[PrimaryAudioScraperKey] ?: "" }
+            .distinctUntilChanged()
+            .collectLatest(scope) { scraper ->
+                clearSaavnIncompatiblePlaybackCache()
+                playbackUrlCache.clear()
             }
 
         combine(
@@ -1916,6 +1958,13 @@ class MusicService :
 
         releaseSecondaryCrossfadePlayer()
 
+        val retries = secondaryCrossfadeRetryCount.get()
+        if (retries >= MAX_SECONDARY_PLAYER_RETRIES) {
+            Timber.tag(TAG).w("Max secondary player retries ($MAX_SECONDARY_PLAYER_RETRIES) reached — falling back to normal transition")
+            secondaryCrossfadeRetryCount.set(0)
+            return null
+        }
+
         val targetItem =
             runCatching { player.getMediaItemAt(target.index) }
                 .getOrNull()
@@ -1941,12 +1990,25 @@ class MusicService :
         ExoPlayer
             .Builder(this)
             .setMediaSourceFactory(createMediaSourceFactory())
-            .setRenderersFactory(createRenderersFactory())
+            .setRenderersFactory(
+                createRenderersFactory(
+                    CustomEqualizerAudioProcessor().also {
+                        secondaryEqProcessor = it
+                        hushEqualizerService.addAudioProcessor(it)
+                    },
+                ),
+            )
             .setLoadControl(createCrossfadeLoadControl())
             .setTrackSelector(DefaultTrackSelector(this, SafeTrackSelectionFactory()))
             .setHandleAudioBecomingNoisy(false)
             .setWakeMode(C.WAKE_MODE_NETWORK)
-            .setAudioAttributes(playbackAudioAttributes(), false)
+            .setAudioAttributes(
+                androidx.media3.common.AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .build(),
+                false,
+            )
             .setSeekBackIncrementMs(5000)
             .setSeekForwardIncrementMs(5000)
             .build()
@@ -1964,7 +2026,20 @@ class MusicService :
 
         val incomingPlayer = prepareSecondaryCrossfadePlayer(target) ?: return
         val outgoingMediaId = player.currentMediaItem?.mediaId ?: return
+        val outgoingQueueIndex = player.currentMediaItemIndex
 
+        crossfadeTransitionSeq++
+        val transition = CrossfadeTransition(
+            transitionId = crossfadeTransitionSeq,
+            outgoingTrackId = outgoingMediaId,
+            incomingTrackId = target.mediaId,
+            outgoingQueueIndex = outgoingQueueIndex,
+            incomingQueueIndex = target.index,
+            state = CrossfadeTransitionState.FADING,
+        )
+        activeCrossfadeTransition = transition
+
+        Timber.tag(TAG).d("[CROSSFADE #${transition.transitionId}] START outgoing=$outgoingMediaId incoming=${target.mediaId} duration=${durationMs}ms")
         crossfadeTriggerJob?.cancel()
         crossfadeTriggerJob = null
         crossfadeJob?.cancel()
@@ -1975,26 +2050,31 @@ class MusicService :
                 crossfadeBaseVolume = currentEffectivePlayerVolume()
                 crossfadeIncomingBaseVolume = currentEffectivePlayerVolumeForMediaId(target.mediaId)
                 crossfadePlaybackRequested = player.playWhenReady
-                localPlayer.pauseAtEndOfMediaItems = true
 
                 try {
                     val requiredBufferedMs = requiredCrossfadeStartBufferMs(durationMs)
                     if (!awaitCrossfadePlayerReady(incomingPlayer, CROSSFADE_READY_TIMEOUT_MS, requiredBufferedMs)) {
+                        Timber.tag(TAG).w("[CROSSFADE #${transition.transitionId}] incoming player not ready")
                         cancelCrossfade(resetVolume = true, resetPauseAtEnd = true)
                         scheduleCrossfade()
                         return@launch
                     }
 
+                    localPlayer.pauseAtEndOfMediaItems = true
                     incomingPlayer.playbackParameters = player.playbackParameters
                     incomingPlayer.playWhenReady = crossfadePlaybackRequested
                     if (crossfadePlaybackRequested) {
                         incomingPlayer.play()
                     }
+                    secondaryCrossfadeRetryCount.set(0)
+                    Timber.tag(TAG).d("[CROSSFADE #${transition.transitionId}] PLAY incoming position=0")
 
                     var elapsedMs = 0L
+                    var handoffMetadataPromoted = false
                     var lastTickMs = android.os.SystemClock.elapsedRealtime()
                     while (isActive && elapsedMs < durationMs) {
                         if (player.currentMediaItem?.mediaId != outgoingMediaId) {
+                            Timber.tag(TAG).d("[CROSSFADE #${transition.transitionId}] outgoing track changed, cancelling")
                             cancelCrossfade(resetVolume = true, resetPauseAtEnd = true)
                             return@launch
                         }
@@ -2017,6 +2097,14 @@ class MusicService :
                                     incomingMediaId = target.mediaId,
                                     incomingPositionMs = incomingPlayer.currentPosition.coerceAtLeast(0L),
                                 )
+
+                            // Promote metadata when crossfade reaches 50%
+                            if (!handoffMetadataPromoted && crossfadeProgress >= 0.50f) {
+                                handoffMetadataPromoted = true
+                                transition.state = CrossfadeTransitionState.HANDOFF_COMPLETE
+                                transition.logicalHandoffCompleted = true
+                                promoteCrossfadeMetadata(transition, target, incomingPlayer)
+                            }
                         } else {
                             incomingPlayer.pause()
                         }
@@ -2024,7 +2112,7 @@ class MusicService :
                         delay(CROSSFADE_FRAME_MS)
                     }
 
-                    finishCrossfade(target, incomingPlayer)
+                    finishCrossfade(target, incomingPlayer, transition)
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
@@ -2062,18 +2150,43 @@ class MusicService :
             hasBufferedForSmoothStart(crossfadePlayer, minimumBufferedMs)
     }
 
-    private suspend fun finishCrossfade(
+    private fun promoteCrossfadeMetadata(
+        transition: CrossfadeTransition,
         target: CrossfadeTarget,
         incomingPlayer: ExoPlayer,
     ) {
+        if (transition.metadataPublished) return
+        transition.metadataPublished = true
+
+        val incomingPosition = incomingPlayer.currentPosition.coerceAtLeast(0L)
+        Timber.tag(TAG).d("[CROSSFADE #${transition.transitionId}] METADATA_PROMOTED active=${target.mediaId} position=${incomingPosition}ms")
+
+        val targetItem = runCatching { player.getMediaItemAt(target.index) }.getOrNull()
+        if (targetItem != null && targetItem.mediaId == target.mediaId) {
+            currentMediaMetadata.value = targetItem.metadata
+            Timber.tag(TAG).d("[CROSSFADE #${transition.transitionId}] MEDIASESSION metadata updated to incoming")
+
+            publishWazePlaybackSnapshot(force = true)
+            Timber.tag(TAG).d("[CROSSFADE #${transition.transitionId}] WAZE_BRIDGE snapshot published")
+        }
+    }
+
+    private suspend fun finishCrossfade(
+        target: CrossfadeTarget,
+        incomingPlayer: ExoPlayer,
+        transition: CrossfadeTransition,
+    ) {
         val targetIndex = resolveCrossfadeTargetIndex(target)
         if (targetIndex == C.INDEX_UNSET) {
+            Timber.tag(TAG).w("[CROSSFADE #${transition.transitionId}] target index not found")
             cancelCrossfade(resetVolume = true, resetPauseAtEnd = true)
             return
         }
 
         val incomingPosition = incomingPlayer.currentPosition.coerceAtLeast(0L)
         val shouldContinuePlayback = crossfadePlaybackRequested
+
+        Timber.tag(TAG).d("[CROSSFADE #${transition.transitionId}] HANDOFF active=${target.mediaId} position=${incomingPosition}ms")
 
         var handoffCompleted = false
         try {
@@ -2082,16 +2195,21 @@ class MusicService :
             crossfadeHandoffInProgress = true
             player.seekTo(targetIndex, incomingPosition)
             player.playWhenReady = shouldContinuePlayback
+            Timber.tag(TAG).d("[CROSSFADE #${transition.transitionId}] HANDOFF seekTo(target=$targetIndex, pos=$incomingPosition)")
+
             if (shouldContinuePlayback) {
-                if (awaitPrimaryCrossfadeHandoffReady(incomingPlayer)) {
-                    val syncedIncomingPosition = incomingPlayer.currentPosition.coerceAtLeast(0L)
-                    player.seekTo(targetIndex, syncedIncomingPosition)
-                }
+                awaitPrimaryCrossfadeHandoffReady(incomingPlayer)
             }
-            currentMediaMetadata.value = player.getMediaItemAt(targetIndex).metadata
+
+            // Ensure metadata is promoted even if the 50% threshold wasn't reached
+            if (!transition.metadataPublished) {
+                promoteCrossfadeMetadata(transition, target, incomingPlayer)
+            }
+
             handoffCompleted = true
         } finally {
             if (!handoffCompleted) {
+                Timber.tag(TAG).w("[CROSSFADE #${transition.transitionId}] handoff failed, cleaning up")
                 crossfadeHandoffInProgress = false
                 isCrossfading = false
                 crossfadeProgress = 0f
@@ -2110,6 +2228,11 @@ class MusicService :
         releaseSecondaryCrossfadePlayer()
         applyEffectiveVolumeImmediately()
         updateAudiblePlaybackRecovery()
+
+        transition.state = CrossfadeTransitionState.CLEANING_OUTGOING
+        Timber.tag(TAG).d("[CROSSFADE #${transition.transitionId}] HANDOFF complete — incoming continues at ${incomingPosition}ms")
+        activeCrossfadeTransition = null
+
         scheduleCrossfade()
     }
 
@@ -2199,6 +2322,11 @@ class MusicService :
         resetVolume: Boolean,
         resetPauseAtEnd: Boolean,
     ) {
+        val activeTx = activeCrossfadeTransition
+        if (activeTx != null) {
+            Timber.tag(TAG).d("[CROSSFADE #${activeTx.transitionId}] CANCELLED")
+            activeCrossfadeTransition = null
+        }
         crossfadeTriggerJob?.cancel()
         crossfadeTriggerJob = null
         crossfadeJob?.cancel()
@@ -2219,9 +2347,12 @@ class MusicService :
     }
 
     private fun releaseSecondaryCrossfadePlayer() {
-        val playerToRelease = secondaryCrossfadePlayer ?: return
+        val playerToRelease = secondaryCrossfadePlayer
         secondaryCrossfadePlayer = null
         secondaryCrossfadeTarget = null
+        secondaryEqProcessor?.let(hushEqualizerService::removeAudioProcessor)
+        secondaryEqProcessor = null
+        if (playerToRelease == null) return
         runCatching { playerToRelease.removeListener(secondaryCrossfadeListener) }
         runCatching { playerToRelease.stop() }
         runCatching { playerToRelease.clearMediaItems() }
@@ -2304,8 +2435,14 @@ class MusicService :
     @Volatile
     private var saavnStreamingEnabled = false
 
-    private fun isSaavnStreamingEnabled(): Boolean =
-        PreferenceStore.get(EnableSaavnStreamingKey) ?: saavnStreamingEnabled
+    private fun isSaavnStreamingEnabled(): Boolean {
+        val primaryScraper = PreferenceStore.get(PrimaryAudioScraperKey)
+        return when (primaryScraper) {
+            "JIOSAAVN" -> true
+            "YOUTUBE" -> false
+            else -> PreferenceStore.get(EnableSaavnStreamingKey) ?: saavnStreamingEnabled
+        }
+    }
 
     private suspend fun saavnHintsFor(mediaId: String): SaavnPlaybackResolver.PlaybackHints? {
         currentMediaMetadata.value?.takeIf { it.id == mediaId }?.let {
@@ -2513,14 +2650,26 @@ class MusicService :
         lastPublishedPlaybackClient = null
     }
 
+    private fun prefetchNextTracks() {
+        val count = dataStore.get(PrefetchCountKey, 2).coerceIn(0, 20)
+        if (count <= 0) return
+
+        val currentIndex = player.currentMediaItemIndex
+        if (currentIndex == C.INDEX_UNSET) return
+
+        val startIdx = currentIndex + 1
+        val endIdx = (startIdx + count).coerceAtMost(player.mediaItemCount)
+
+        for (idx in startIdx until endIdx) {
+            val mediaId = player.getMediaItemAt(idx).mediaId.orEmpty()
+            if (mediaId.isNotBlank() && !mediaId.isLocalMediaId()) {
+                startPlaybackUrlPrefetch(mediaId)
+            }
+        }
+    }
+
     private fun prefetchNextTrack() {
-        val nextIndex = player.nextMediaItemIndex
-        if (nextIndex == C.INDEX_UNSET) return
-
-        val nextMediaId = player.getMediaItemAt(nextIndex).mediaId.orEmpty()
-        if (nextMediaId.isBlank() || nextMediaId.isLocalMediaId()) return
-
-        startPlaybackUrlPrefetch(nextMediaId)
+        prefetchNextTracks()
     }
 
     private fun shouldKeepPlaybackAudible(): Boolean {
@@ -3464,6 +3613,7 @@ class MusicService :
         val currentMeta = player.currentMetadata ?: return
         if (isCurrentPlaybackItemLocal(currentMeta)) return
         if (infiniteQueueLoading.value) return
+        if (isCrossfading || crossfadeHandoffInProgress) return
         infiniteQueueLoading.value = true
 
         scope.launch(SilentHandler) {
@@ -5827,7 +5977,7 @@ class MusicService :
                 saveQueueToDisk()
             }
         }
-        if (!isCrossfading) {
+        if (!isCrossfading && activeCrossfadeTransition == null) {
             scheduleCrossfade()
         }
     }
@@ -6122,6 +6272,14 @@ class MusicService :
         else -> PlaybackState.STATE_PAUSED
     }
 
+    fun playWazeQueueItem(queueItemId: Long) {
+        val index = queueItemId.toInt()
+        if (index < 0 || index >= player.mediaItemCount) return
+        suppressAutoPlayback = false
+        player.seekTo(index, C.TIME_UNSET)
+        player.prepare()
+    }
+
     private fun scheduleDelayedWazeUpdate() {
         scope.launch {
             delay(500)
@@ -6326,6 +6484,9 @@ class MusicService :
                 } catch (e: Exception) {
                     Timber.tag("MusicService").v(e, "ListenBrainz playing_now submit failed on transition")
                 }
+            }
+            if (events.contains(EVENT_TIMELINE_CHANGED)) {
+                publishWazePlaybackSnapshot(force = true)
             }
         }
         if (events.contains(EVENT_TIMELINE_CHANGED) && !isCrossfading) {
@@ -7438,7 +7599,7 @@ class MusicService :
             ).setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
-    private fun createRenderersFactory() =
+    private fun createRenderersFactory(eqProcessor: CustomEqualizerAudioProcessor) =
         object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
                 context: Context,
@@ -8075,6 +8236,7 @@ class MusicService :
     }
 
     companion object {
+        private const val WAZE_QUEUE_ITEM_ID = "app.hush.music.waze.QUEUE_ITEM_ID"
         const val ACTION_ALARM_TRIGGER = "app.hush.music.action.ALARM_TRIGGER"
         const val EXTRA_ALARM_ID = "extra_alarm_id"
         const val EXTRA_ALARM_PLAYLIST_ID = "extra_alarm_playlist_id"
@@ -8143,6 +8305,7 @@ class MusicService :
         const val CROSSFADE_MIN_BUFFER_MS = 15_000
         const val CROSSFADE_MAX_BUFFER_MS = 45_000
         const val CROSSFADE_FRAME_MS = 32L
+        const val MAX_SECONDARY_PLAYER_RETRIES = 3
         const val MIN_AUDIBLE_EFFECTIVE_VOLUME = 0.01f
         const val STUCK_MUTED_VOLUME_EPSILON = 0.001f
         const val AUDIBLE_PLAYBACK_VOLUME_CHECK_MS = 2_000L
