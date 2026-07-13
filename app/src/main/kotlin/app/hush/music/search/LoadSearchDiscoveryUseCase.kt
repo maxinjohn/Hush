@@ -13,6 +13,7 @@ import app.hush.music.innertube.models.AlbumItem
 import app.hush.music.innertube.models.ArtistItem
 import app.hush.music.innertube.models.SongItem
 import app.hush.music.innertube.pages.MoodAndGenres
+import app.hush.music.repository.SearchDiscoveryData
 import app.hush.music.repository.SearchDiscoveryRepository
 import javax.inject.Inject
 
@@ -21,36 +22,39 @@ class LoadSearchDiscoveryUseCase
     constructor(
         private val repository: SearchDiscoveryRepository,
     ) {
-        suspend operator fun invoke(): Result<SearchDiscoveryUiModel> =
-            repository.loadDiscovery().map { data ->
-                val chartItems = data.chartSections.flatMap { section -> section.items }
+        suspend fun loadExplore(): Result<SearchDiscoveryUiModel> = repository.loadExplore().map(::toUiModel)
 
-                SearchDiscoveryUiModel(
-                    moodAndGenres = ImmutableList.copyOf(data.moodAndGenres),
-                    suggestedSongs =
-                        ImmutableList.copyOf(
-                            data
-                                .suggestedSongs
-                                .distinctBy { item -> item.id }
-                                .take(MaxDiscoveryItems),
-                        ),
-                    trendingAlbums =
-                        ImmutableList.copyOf(
-                            (
-                                chartItems.filterIsInstance<AlbumItem>() +
-                                    data.newReleaseAlbums +
-                                    data.searchedAlbums
-                            ).distinctBy { item -> item.id }.take(MaxDiscoveryItems),
-                        ),
-                    suggestedArtists =
-                        ImmutableList.copyOf(
-                            data
-                                .suggestedArtists
-                                .distinctBy { item -> item.id }
-                                .take(MaxDiscoveryItems),
-                        ),
-                )
-            }
+        suspend fun loadSuggestions(): Result<SearchDiscoveryUiModel> = repository.loadSuggestions().map(::toUiModel)
+
+        private fun toUiModel(data: SearchDiscoveryData): SearchDiscoveryUiModel {
+            val chartItems = data.chartSections.flatMap { section -> section.items }
+
+            return SearchDiscoveryUiModel(
+                moodAndGenres = ImmutableList.copyOf(data.moodAndGenres),
+                suggestedSongs =
+                    ImmutableList.copyOf(
+                        data
+                            .suggestedSongs
+                            .distinctBy { item -> item.id }
+                            .take(MaxDiscoveryItems),
+                    ),
+                trendingAlbums =
+                    ImmutableList.copyOf(
+                        (
+                            chartItems.filterIsInstance<AlbumItem>() +
+                                data.newReleaseAlbums +
+                                data.searchedAlbums
+                        ).distinctBy { item -> item.id }.take(MaxDiscoveryItems),
+                    ),
+                suggestedArtists =
+                    ImmutableList.copyOf(
+                        data
+                            .suggestedArtists
+                            .distinctBy { item -> item.id }
+                            .take(MaxDiscoveryItems),
+                    ),
+            )
+        }
 
         private companion object {
             const val MaxDiscoveryItems = 12

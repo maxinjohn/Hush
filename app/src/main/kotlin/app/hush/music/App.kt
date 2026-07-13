@@ -9,6 +9,7 @@ package app.hush.music
 
 import android.app.ActivityManager
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -19,6 +20,7 @@ import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.disk.directory
+import coil3.imageLoader
 import coil3.request.CachePolicy
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.allowHardware
@@ -142,7 +144,10 @@ class App :
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        // WebView cleanup happens automatically on process death
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            applicationContext.imageLoader.memoryCache?.clear()
+            applicationScope.launch { BotGuardTokenGenerator.onAppBackgrounded() }
+        }
     }
 
     private fun initializeCriticalSync() {

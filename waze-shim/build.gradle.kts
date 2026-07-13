@@ -1,4 +1,5 @@
 import org.gradle.api.tasks.bundling.Zip
+import org.gradle.api.tasks.Sync
 
 plugins {
     id("com.android.application")
@@ -14,6 +15,17 @@ val hasReleaseSigningConfig =
         !shimKeyAlias.isNullOrBlank() &&
         !shimKeyPassword.isNullOrBlank()
 val unsignedReleaseBuild = System.getenv("HUSH_UNSIGNED_RELEASE_BUILD") == "true"
+val generatedHushBridgeIconResources = layout.buildDirectory.dir("generated/hushBridgeIcon/res")
+val syncHushBridgeIconResources = tasks.register<Sync>("syncHushBridgeIconResources") {
+    from(rootProject.file("app/src/main/res")) {
+        include("mipmap-*/ic_launcher*.png")
+        include("mipmap-anydpi-v26/ic_launcher*.xml")
+        include("mipmap-anydpi-v31/ic_launcher*.xml")
+        include("values/ic_launcher_background.xml")
+        exclude("**/ic_launcher_static*")
+    }
+    into(generatedHushBridgeIconResources)
+}
 
 android {
     namespace = "app.hush.music.waze"
@@ -23,8 +35,8 @@ android {
         applicationId = "com.spotify.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 152
-        versionName = "13.11.2"
+        versionCode = 154
+        versionName = "13.11.3"
     }
 
     signingConfigs {
@@ -69,6 +81,12 @@ android {
         }
     }
 
+    sourceSets {
+        getByName("main") {
+            res.srcDir(generatedHushBridgeIconResources.get().asFile)
+        }
+    }
+
     flavorDimensions += "target"
     productFlavors {
         create("spotify") {
@@ -80,6 +98,10 @@ android {
             applicationId = "com.google.android.apps.youtube.music"
         }
     }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(syncHushBridgeIconResources)
 }
 
 dependencies {

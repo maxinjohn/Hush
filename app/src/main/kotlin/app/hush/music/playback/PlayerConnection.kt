@@ -83,6 +83,7 @@ class PlayerConnection(
     val canSkipNext = MutableStateFlow(true)
 
     val aodModeEnabled = MutableStateFlow(false)
+    val audioSessionId = MutableStateFlow(player.audioSessionId)
 
     val error = MutableStateFlow<PlaybackException?>(null)
     val waitingForNetworkConnection = service.waitingForNetworkConnection
@@ -168,6 +169,10 @@ class PlayerConnection(
             player.prepare()
         }
         player.playWhenReady = true
+    }
+
+    override fun onAudioSessionIdChanged(sessionId: Int) {
+        audioSessionId.value = sessionId
     }
 
     override fun onPlaybackStateChanged(state: Int) {

@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -86,17 +87,20 @@ import coil3.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
 import app.hush.music.canvas.models.CanvasArtwork
 import app.hush.music.ui.player.visualizer.AudioSpectrumProvider
-import app.hush.music.ui.player.visualizer.Visualizer
-import app.hush.music.ui.player.visualizer.VisualizerStyle
-import app.hush.music.ui.player.visualizer.VisualizerColorTheme
-import app.hush.music.constants.VisualizerEnabledKey
-import app.hush.music.constants.VisualizerStyleKey
-import app.hush.music.constants.VisualizerColorThemeKey
-import app.hush.music.constants.VisualizerOpacityKey
+import app.hush.music.ui.player.visualizer.PulseMatrixCanvas
+import app.hush.music.ui.player.visualizer.PulseMatrixEngine
+import app.hush.music.ui.player.visualizer.PulseMatrixSettings
+import app.hush.music.ui.player.visualizer.PulseMatrixTheme
+import app.hush.music.constants.PulseMatrixEnabledKey
+import app.hush.music.constants.PulseMatrixThemeKey
+import app.hush.music.constants.PulseMatrixIntensityKey
+import app.hush.music.constants.PulseMatrixPeakHoldKey
 import app.hush.music.constants.HushCanvasKey
 import app.hush.music.constants.BackdropBlurAmountKey
 import app.hush.music.constants.BackdropEnabledKey
@@ -138,6 +142,7 @@ fun Thumbnail(
     modifier: Modifier = Modifier,
     isPlayerExpanded: Boolean = true, // Add parameter to control swipe based on player state
     showNowPlayingHeader: Boolean = true,
+    edgeToEdge: Boolean = false,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val context = LocalContext.current
@@ -169,25 +174,76 @@ fun Thumbnail(
             defaultValue = 16f,
         )
     val cropThumbnailToSquare by rememberPreference(CropThumbnailToSquareKey, false)
-    val (visualizerEnabled) = rememberPreference(VisualizerEnabledKey, true)
-    val (visualizerStyle) = rememberEnumPreference(VisualizerStyleKey, VisualizerStyle.BOTTOM_BARS)
-    val (visualizerColorTheme) = rememberEnumPreference(VisualizerColorThemeKey, VisualizerColorTheme.THEME)
-    val (visualizerOpacity) = rememberPreference(VisualizerOpacityKey, 0.8f)
+    val (pulseMatrixEnabled) = rememberPreference(PulseMatrixEnabledKey, false)
+    val (pulseMatrixThemeStr) = rememberPreference(PulseMatrixThemeKey, PulseMatrixTheme.AURORA.name)
+    val pulseMatrixTheme = PulseMatrixTheme.valueOf(pulseMatrixThemeStr)
+    val (pulseMatrixIntensityStr) = rememberPreference(PulseMatrixIntensityKey, PulseMatrixSettings.IntensityLevel.NORMAL.name)
+    val pulseMatrixIntensity = PulseMatrixSettings.IntensityLevel.valueOf(pulseMatrixIntensityStr)
+    val (pulseMatrixPeakHold) = rememberPreference(PulseMatrixPeakHoldKey, true)
 
-    // Real-time spectrum data for SPECTRUM visualizer style
+    // Real-time spectrum data for all visualizer styles
     var spectrumData by remember { mutableStateOf<List<Float>?>(null) }
-    val audioSessionId = remember(playerConnection) { playerConnection.player.audioSessionId }
-    LaunchedEffect(audioSessionId, isPlaying) {
-        if (!isPlaying || audioSessionId <= 0) {
-            spectrumData = null
-            return@LaunchedEffect
+
+    // Sync PulseMatrixSettings with preferences
+    LaunchedEffect(pulseMatrixIntensity) {
+        PulseMatrixSettings.setIntensityLevel(pulseMatrixIntensity)
+    }
+    LaunchedEffect(pulseMatrixPeakHold) {
+        PulseMatrixSettings.setPeakHoldEnabled(pulseMatrixPeakHold)
+    }
+
+    // === PulseMatrix: engine lifecycle ===
+    // LaunchedEffect(Unit) survives preference flicker. Check enabled inside the loop.
+    LaunchedEffect(Unit) {
+        android.util.Log.d("PulseMatrixThumb", "Lifecycle LaunchedEffect started")
+        var acquired = false
+        var lastSid = 0
+        try {
+            while (true) {
+                if (pulseMatrixEnabled) {
+                    val sid = try {
+                        playerConnection.player.audioSessionId
+                    } catch (_: Exception) { 0 }
+                    if (sid > 0 && sid != lastSid) {
+                        android.util.Log.d("PulseMatrixThumb", "Polling: sid=$sid, acquired=$acquired, lastSid=$lastSid")
+                        if (!acquired) {
+                            PulseMatrixEngine.acquire(sid)
+                            acquired = true
+                        } else {
+                            PulseMatrixEngine.changeSession(sid)
+                        }
+                        lastSid = sid
+                    }
+                } else if (acquired) {
+                    PulseMatrixEngine.release()
+                    acquired = false
+                    lastSid = 0
+                }
+                delay(100)
+            }
+        } finally {
+            if (acquired) {
+                android.util.Log.d("PulseMatrixThumb", "Lifecycle LaunchedEffect ended — releasing")
+                PulseMatrixEngine.release()
+            }
         }
-        AudioSpectrumProvider.spectrumFlow(audioSessionId).collect { data ->
-            spectrumData = data
+    }
+
+    // === AudioSpectrum fallback (when PulseMatrix disabled) ===
+    LaunchedEffect(pulseMatrixEnabled) {
+        if (pulseMatrixEnabled) return@LaunchedEffect
+        val sid = playerConnection.audioSessionId.value.takeIf { it > 0 }
+            ?: playerConnection.player.audioSessionId.takeIf { it > 0 }
+        if (sid != null) {
+            AudioSpectrumProvider.spectrumFlow(sid).collect { data ->
+                spectrumData = data
+            }
         }
     }
     DisposableEffect(Unit) {
-        onDispose { AudioSpectrumProvider.release() }
+        onDispose {
+            AudioSpectrumProvider.release()
+        }
     }
     val (disableBlur) = rememberPreference(DisableBlurKey, false)
     val (backdropEnabled) = rememberPreference(BackdropEnabledKey, defaultValue = true)
@@ -516,7 +572,7 @@ fun Thumbnail(
                                     Modifier
                                         .width(horizontalLazyGridItemWidth)
                                         .fillMaxSize()
-                                        .padding(horizontal = PlayerHorizontalPadding)
+                                        .padding(horizontal = if (edgeToEdge) 0.dp else PlayerHorizontalPadding)
                                         .pointerInput(Unit) {
                                             detectTapGestures(
                                                 onDoubleTap = { offset ->
@@ -562,7 +618,10 @@ fun Thumbnail(
                                 Box(
                                     modifier =
                                         Modifier
-                                            .size(containerMaxWidth - (PlayerHorizontalPadding * 2))
+                                            .size(
+                                                containerMaxWidth -
+                                                    if (edgeToEdge) 0.dp else PlayerHorizontalPadding * 2,
+                                            )
                                             .clip(RoundedCornerShape(thumbnailCornerRadius.dp)),
                                 ) {
                                     if (hidePlayerThumbnail) {
@@ -655,15 +714,15 @@ fun Thumbnail(
                                         }
                                     }
 
-                                    // Visualizer on top of artwork
-                                    if (visualizerEnabled) {
-                                        Visualizer(
-                                            isPlaying = isPlaying,
-                                            style = visualizerStyle,
-                                            colorTheme = visualizerColorTheme,
-                                            opacity = visualizerOpacity,
-                                            modifier = Modifier.fillMaxSize(),
-                                            spectrumData = spectrumData,
+                                    if (pulseMatrixEnabled) {
+                                        val visualizerHeight =
+                                            (containerMaxWidth - PlayerHorizontalPadding * 2) * 0.30f
+                                        PulseMatrixVisualizer(
+                                            theme = pulseMatrixTheme,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(visualizerHeight)
+                                                .align(Alignment.BottomCenter),
                                         )
                                     }
                                 }
@@ -851,3 +910,18 @@ fun calculateDistanceToDesiredSnapPosition(
 
 private val LazyGridLayoutInfo.singleAxisViewportSize: Int
     get() = if (orientation == Orientation.Vertical) viewportSize.height else viewportSize.width
+
+@Composable
+private fun PulseMatrixVisualizer(
+    theme: PulseMatrixTheme,
+    modifier: Modifier = Modifier,
+) {
+    val bands by PulseMatrixEngine.barHeights.collectAsState()
+    PulseMatrixCanvas(
+        theme = theme,
+        opacity = 0.8f,
+        modifier = modifier,
+        bands = bands,
+        miniMode = false,
+    )
+}

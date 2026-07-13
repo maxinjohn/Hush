@@ -72,11 +72,11 @@ import androidx.navigation.NavController
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.constants.AppFontPreference
-import app.hush.music.constants.VisualizerEnabledKey
-import app.hush.music.constants.VisualizerStyleKey
-import app.hush.music.constants.VisualizerColorThemeKey
-import app.hush.music.constants.VisualizerMiniPlayerKey
-import app.hush.music.constants.VisualizerOpacityKey
+import app.hush.music.constants.PulseMatrixEnabledKey
+import app.hush.music.constants.PulseMatrixThemeKey
+import app.hush.music.constants.PulseMatrixMiniPlayerKey
+import app.hush.music.constants.PulseMatrixIntensityKey
+import app.hush.music.constants.PulseMatrixPeakHoldKey
 import app.hush.music.constants.HushCanvasKey
 import app.hush.music.constants.CanvasSource
 import app.hush.music.constants.CanvasSourceKey
@@ -100,6 +100,9 @@ import app.hush.music.constants.FontPreferenceKey
 import app.hush.music.constants.GridItemSize
 import app.hush.music.constants.GridItemsSizeKey
 import app.hush.music.constants.HidePlayerThumbnailKey
+import app.hush.music.constants.LandscapePlayerLayoutKey
+import app.hush.music.constants.CarExpressiveAutoHideTitleKey
+import app.hush.music.constants.CarExpressiveTitleHideDelayKey
 import app.hush.music.constants.LibraryFilter
 import app.hush.music.constants.MiniPlayerBackgroundStyle
 import app.hush.music.constants.MiniPlayerBackgroundStyleKey
@@ -130,8 +133,8 @@ import app.hush.music.ui.component.PreferenceGroup
 import app.hush.music.ui.component.SwitchPreference
 import app.hush.music.ui.component.ThumbnailCornerRadiusSelectorButton
 import app.hush.music.ui.player.StyledPlaybackSlider
-import app.hush.music.ui.player.visualizer.VisualizerStyle
-import app.hush.music.ui.player.visualizer.VisualizerColorTheme
+import app.hush.music.ui.player.visualizer.PulseMatrixSettings
+import app.hush.music.ui.player.visualizer.PulseMatrixTheme
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import app.hush.music.ui.theme.CustomFontLoader
 import app.hush.music.ui.theme.HushAmbientBackground
@@ -189,36 +192,64 @@ fun AppearanceSettings(
             defaultValue = DarkMode.AUTO,
         )
     val (playerDesignStyle, onPlayerDesignStyleChange) = rememberPlayerDesignStylePreference()
+    val (carExpressiveLayout, onCarExpressiveLayoutChange) =
+        rememberPreference(
+            LandscapePlayerLayoutKey,
+            defaultValue = false,
+        )
+    val (carExpressiveAutoHideTitle, onCarExpressiveAutoHideTitleChange) =
+        rememberPreference(
+            CarExpressiveAutoHideTitleKey,
+            defaultValue = false,
+        )
+    val (carExpressiveTitleHideDelay, onCarExpressiveTitleHideDelayChange) =
+        rememberPreference(
+            CarExpressiveTitleHideDelayKey,
+            defaultValue = 5,
+        )
     val (hidePlayerThumbnail, onHidePlayerThumbnailChange) =
         rememberPreference(
             HidePlayerThumbnailKey,
             defaultValue = false,
         )
-    val (visualizerEnabled, onVisualizerEnabledChange) =
+    val (pulseMatrixEnabled, onPulseMatrixEnabledChange) =
         rememberPreference(
-            VisualizerEnabledKey,
-            defaultValue = true,
-        )
-    val (visualizerStyle, onVisualizerStyleChange) =
-        rememberEnumPreference(
-            VisualizerStyleKey,
-            defaultValue = VisualizerStyle.BOTTOM_BARS,
-        )
-    val (visualizerColorTheme, onVisualizerColorThemeChange) =
-        rememberEnumPreference(
-            VisualizerColorThemeKey,
-            defaultValue = VisualizerColorTheme.THEME,
-        )
-    val (visualizerMiniPlayer, onVisualizerMiniPlayerChange) =
-        rememberPreference(
-            VisualizerMiniPlayerKey,
+            PulseMatrixEnabledKey,
             defaultValue = false,
         )
-    val (visualizerOpacity, onVisualizerOpacityChange) =
-        rememberPreference(
-            VisualizerOpacityKey,
-            defaultValue = 0.8f,
+    val (pulseMatrixTheme, onPulseMatrixThemeChange) =
+        rememberEnumPreference(
+            PulseMatrixThemeKey,
+            defaultValue = PulseMatrixTheme.AURORA,
         )
+    val (pulseMatrixMiniPlayer, onPulseMatrixMiniPlayerChange) =
+        rememberPreference(
+            PulseMatrixMiniPlayerKey,
+            defaultValue = true,
+        )
+    val (pulseMatrixIntensity, onPulseMatrixIntensityChange) =
+        rememberEnumPreference(
+            PulseMatrixIntensityKey,
+            defaultValue = PulseMatrixSettings.IntensityLevel.NORMAL,
+        )
+    val (pulseMatrixPeakHold, onPulseMatrixPeakHoldChange) =
+        rememberPreference(
+            PulseMatrixPeakHoldKey,
+            defaultValue = true,
+        )
+    // Sync PulseMatrixSettings with preferences
+    LaunchedEffect(pulseMatrixEnabled) {
+        PulseMatrixSettings.setEnabled(pulseMatrixEnabled)
+    }
+    LaunchedEffect(pulseMatrixTheme) {
+        PulseMatrixSettings.setTheme(pulseMatrixTheme)
+    }
+    LaunchedEffect(pulseMatrixIntensity) {
+        PulseMatrixSettings.setIntensityLevel(pulseMatrixIntensity)
+    }
+    LaunchedEffect(pulseMatrixPeakHold) {
+        PulseMatrixSettings.setPeakHoldEnabled(pulseMatrixPeakHold)
+    }
     val (hushCanvasEnabled, onHushCanvasEnabledChange) =
         rememberPreference(
             HushCanvasKey,
@@ -647,6 +678,44 @@ fun AppearanceSettings(
                 }
             }
 
+            item(visible = playerDesignStyle == PlayerDesignStyle.V6) {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.car_expressive_player_layout)) },
+                    description = stringResource(R.string.car_expressive_player_layout_desc),
+                    icon = { Icon(painterResource(R.drawable.grid_view), null) },
+                    checked = carExpressiveLayout,
+                    onCheckedChange = onCarExpressiveLayoutChange,
+                )
+            }
+
+            item(visible = playerDesignStyle == PlayerDesignStyle.V6 && carExpressiveLayout) {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.car_expressive_auto_hide_title)) },
+                    description = stringResource(R.string.car_expressive_auto_hide_title_desc),
+                    icon = { Icon(painterResource(R.drawable.visibility_off), null) },
+                    checked = carExpressiveAutoHideTitle,
+                    onCheckedChange = onCarExpressiveAutoHideTitleChange,
+                )
+            }
+
+            item(
+                visible =
+                    playerDesignStyle == PlayerDesignStyle.V6 &&
+                        carExpressiveLayout &&
+                        carExpressiveAutoHideTitle,
+            ) {
+                ListPreference(
+                    title = { Text(stringResource(R.string.car_expressive_title_hide_delay)) },
+                    icon = { Icon(painterResource(R.drawable.timer), null) },
+                    selectedValue = carExpressiveTitleHideDelay.toString(),
+                    onValueSelected = { value ->
+                        value.toIntOrNull()?.let(onCarExpressiveTitleHideDelayChange)
+                    },
+                    values = listOf("3", "5", "8", "10"),
+                    valueText = { seconds -> stringResource(R.string.car_expressive_title_hide_delay_value, seconds) },
+                )
+            }
+
             item {
                 EnumListPreference(
                     title = { Text(stringResource(R.string.player_background_style)) },
@@ -704,77 +773,72 @@ fun AppearanceSettings(
 
             item {
                 SwitchPreference(
-                    title = { Text(stringResource(R.string.visualizer_enabled)) },
-                    description = stringResource(R.string.visualizer_enabled_desc),
+                    title = { Text(stringResource(R.string.pulse_matrix)) },
+                    description = stringResource(R.string.pulse_matrix_desc),
                     icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
-                    checked = visualizerEnabled,
-                    onCheckedChange = onVisualizerEnabledChange,
+                    checked = pulseMatrixEnabled,
+                    onCheckedChange = onPulseMatrixEnabledChange,
                 )
             }
 
-            item {
+            item(visible = pulseMatrixEnabled) {
                 EnumListPreference(
-                    title = { Text(stringResource(R.string.visualizer_style)) },
-                    icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
-                    selectedValue = visualizerStyle,
-                    onValueSelected = onVisualizerStyleChange,
-                    valueText = {
-                        when (it) {
-                            VisualizerStyle.BOTTOM_BARS -> "Bottom Bars"
-                            VisualizerStyle.COLOR_WAVE -> "Color Wave"
-                            VisualizerStyle.GLOW_BARS -> "Glow Bars"
-                            VisualizerStyle.DUAL_BARS -> "Dual Bars"
-                            VisualizerStyle.PULSE_BARS -> "Pulse Bars"
-                            VisualizerStyle.JUMPING_BARS -> stringResource(R.string.visualizer_jumping_bars)
-                            VisualizerStyle.SPECTRUM -> stringResource(R.string.visualizer_spectrum)
-                        }
-                    },
-                )
-            }
-
-            item {
-                EnumListPreference(
-                    title = { Text(stringResource(R.string.visualizer_color_theme)) },
+                    title = { Text(stringResource(R.string.pulse_matrix_theme)) },
                     icon = { Icon(painterResource(R.drawable.palette), null) },
-                    selectedValue = visualizerColorTheme,
-                    onValueSelected = onVisualizerColorThemeChange,
+                    selectedValue = pulseMatrixTheme,
+                    onValueSelected = onPulseMatrixThemeChange,
                     valueText = {
                         when (it) {
-                            VisualizerColorTheme.THEME -> stringResource(R.string.visualizer_theme_theme)
-                            VisualizerColorTheme.RAINBOW -> stringResource(R.string.visualizer_theme_rainbow)
-                            VisualizerColorTheme.NEON -> stringResource(R.string.visualizer_theme_neon)
-                            VisualizerColorTheme.MONOCHROME -> stringResource(R.string.visualizer_theme_monochrome)
-                            VisualizerColorTheme.FIRE -> stringResource(R.string.visualizer_theme_fire)
+                            PulseMatrixTheme.NEON -> "Neon"
+                            PulseMatrixTheme.AMBER -> "Amber"
+                            PulseMatrixTheme.CYAN -> "Cyan"
+                            PulseMatrixTheme.EMERALD -> "Emerald"
+                            PulseMatrixTheme.CRIMSON -> "Crimson"
+                            PulseMatrixTheme.VIOLET -> "Violet"
+                            PulseMatrixTheme.ICE -> "Ice"
+                            PulseMatrixTheme.AURORA -> "Aurora"
                         }
                     },
                 )
             }
 
-            item {
+            item(visible = pulseMatrixEnabled) {
                 SwitchPreference(
-                    title = { Text(stringResource(R.string.visualizer_mini_player)) },
-                    description = stringResource(R.string.visualizer_mini_player_desc),
+                    title = { Text(stringResource(R.string.pulse_matrix_mini_player)) },
+                    description = stringResource(R.string.pulse_matrix_mini_player_desc),
                     icon = { Icon(painterResource(R.drawable.vibration), null) },
-                    checked = visualizerMiniPlayer,
-                    onCheckedChange = onVisualizerMiniPlayerChange,
+                    checked = pulseMatrixMiniPlayer,
+                    onCheckedChange = onPulseMatrixMiniPlayerChange,
                 )
             }
 
-            item {
-                PreferenceEntry(
-                    title = { Text(stringResource(R.string.visualizer_opacity)) },
-                    description = stringResource(R.string.visualizer_opacity_value, (visualizerOpacity * 100).roundToInt()),
+            item(visible = pulseMatrixEnabled) {
+                ListPreference(
+                    title = { Text(stringResource(R.string.pulse_matrix_intensity)) },
                     icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
-                    content = {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Slider(
-                            value = visualizerOpacity,
-                            onValueChange = onVisualizerOpacityChange,
-                            valueRange = 0.05f..1f,
-                            steps = 18,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                    selectedValue = pulseMatrixIntensity.name,
+                    onValueSelected = { name ->
+                        onPulseMatrixIntensityChange(PulseMatrixSettings.IntensityLevel.valueOf(name))
                     },
+                    valueText = {
+                        when (it) {
+                            "LOW" -> stringResource(R.string.pulse_matrix_intensity_low)
+                            "NORMAL" -> stringResource(R.string.pulse_matrix_intensity_normal)
+                            "HIGH" -> stringResource(R.string.pulse_matrix_intensity_high)
+                            else -> stringResource(R.string.pulse_matrix_intensity_normal)
+                        }
+                    },
+                    values = listOf("LOW", "NORMAL", "HIGH"),
+                )
+            }
+
+            item(visible = pulseMatrixEnabled) {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.pulse_matrix_peak_hold)) },
+                    description = stringResource(R.string.pulse_matrix_peak_hold_desc),
+                    icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
+                    checked = pulseMatrixPeakHold,
+                    onCheckedChange = onPulseMatrixPeakHoldChange,
                 )
             }
 

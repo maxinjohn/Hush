@@ -17,17 +17,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import app.hush.music.constants.HideExplicitKey
 import app.hush.music.constants.HideVideoKey
 import app.hush.music.innertube.YouTube
-import app.hush.music.innertube.YouTube.SearchFilter.Companion.FILTER_ALBUM
-import app.hush.music.innertube.YouTube.SearchFilter.Companion.FILTER_ARTIST
-import app.hush.music.innertube.YouTube.SearchFilter.Companion.FILTER_COMMUNITY_PLAYLIST
-import app.hush.music.innertube.YouTube.SearchFilter.Companion.FILTER_FEATURED_PLAYLIST
-import app.hush.music.innertube.YouTube.SearchFilter.Companion.FILTER_SONG
-import app.hush.music.innertube.YouTube.SearchFilter.Companion.FILTER_VIDEO
 import app.hush.music.innertube.models.SongItem
 import app.hush.music.innertube.models.YTItem
 import app.hush.music.innertube.models.filterExplicit
@@ -62,15 +59,6 @@ class OnlineSearchViewModel
         var summaryPage by mutableStateOf<SearchSummaryPage?>(null)
         val viewStateMap = mutableStateMapOf<String, ItemsPage?>()
 
-        private val allModeFilters =
-            listOf(
-                FILTER_SONG,
-                FILTER_VIDEO,
-                FILTER_ALBUM,
-                FILTER_ARTIST,
-                FILTER_COMMUNITY_PLAYLIST,
-                FILTER_FEATURED_PLAYLIST,
-            )
         private var isSummaryLoading = false
         private val loadingFilters = mutableSetOf<String>()
 
@@ -80,11 +68,6 @@ class OnlineSearchViewModel
                     if (selectedFilter == null) {
                         viewModelScope.launch {
                             loadSummaryIfNeeded()
-                        }
-                        allModeFilters.forEach { allModeFilter ->
-                            viewModelScope.launch {
-                                loadFilterIfNeeded(allModeFilter)
-                            }
                         }
                     } else {
                         loadFilterIfNeeded(selectedFilter)
@@ -98,16 +81,18 @@ class OnlineSearchViewModel
 
             isSummaryLoading = true
             try {
-                YouTube
-                    .searchSummary(query)
-                    .onSuccess {
-                        summaryPage =
-                            it
-                                .filterExplicit(context.dataStore.get(HideExplicitKey, false))
-                                .filterVideo(context.dataStore.get(HideVideoKey, false))
-                    }.onFailure {
-                        reportException(it)
-                    }
+                withContext(Dispatchers.IO) {
+                    YouTube
+                        .searchSummary(query)
+                        .onSuccess {
+                            summaryPage =
+                                it
+                                    .filterExplicit(context.dataStore.get(HideExplicitKey, false))
+                                    .filterVideo(context.dataStore.get(HideVideoKey, false))
+                        }.onFailure {
+                            reportException(it)
+                        }
+                }
             } finally {
                 isSummaryLoading = false
             }
@@ -118,24 +103,20 @@ class OnlineSearchViewModel
             if (viewStateMap.containsKey(filterKey) || !loadingFilters.add(filterKey)) return
 
             try {
-                YouTube
-                    .search(query, filter)
-                    .onSuccess { result ->
-                        viewStateMap[filterKey] =
-                            ItemsPage(
-                                result.items
-                                    .distinctBy { it.id }
-                                    .filterExplicit(
-                                        context.dataStore.get(
-                                            HideExplicitKey,
-                                            false,
-                                        ),
-                                    ).filterVideo(context.dataStore.get(HideVideoKey, false)),
-                                result.continuation,
-                            )
-                    }.onFailure {
-                        reportException(it)
-                    }
+                val result = withContext(Dispatchers.IO) {
+                    YouTube.search(query, filter).getOrNull()
+                }
+                if (result != null) {
+                    viewStateMap[filterKey] =
+                        ItemsPage(
+                            result.items
+                                .distinctBy { it.id }
+                                .filterExplicit(context.dataStore.get(HideExplicitKey, false))
+                                .filterVideo(context.dataStore.get(HideVideoKey, false))
+                                .take(MAX_RESULTS_PER_FILTER),
+                            result.continuation.takeIf { result.items.size < MAX_RESULTS_PER_FILTER },
+                        )
+                }
             } finally {
                 loadingFilters.remove(filterKey)
             }
@@ -147,14 +128,22 @@ class OnlineSearchViewModel
                 if (filter == null) return@launch
                 val viewState = viewStateMap[filter] ?: return@launch
                 val continuation = viewState.continuation
-                if (continuation != null) {
-                    val searchResult =
-                        YouTube.searchContinuation(continuation).getOrNull() ?: return@launch
-                    viewStateMap[filter] =
-                        ItemsPage(
-                            (viewState.items + searchResult.items).distinctBy { it.id },
-                            searchResult.continuation,
-                        )
+                if (continuation != null && viewState.items.size < MAX_RESULTS_PER_FILTER && loadingFilters.add(filter)) {
+                    try {
+                        val searchResult =
+                            withContext(Dispatchers.IO) { YouTube.searchContinuation(continuation).getOrNull() } ?: return@launch
+                        val items =
+                            (viewState.items + searchResult.items)
+                                .distinctBy { it.id }
+                                .take(MAX_RESULTS_PER_FILTER)
+                        viewStateMap[filter] =
+                            ItemsPage(
+                                items,
+                                searchResult.continuation.takeIf { items.size < MAX_RESULTS_PER_FILTER },
+                            )
+                    } finally {
+                        loadingFilters.remove(filter)
+                    }
                 }
             }
         }
@@ -182,4 +171,8 @@ class OnlineSearchViewModel
                         ).map { it.value }
                 }
             }
+
+        private companion object {
+            const val MAX_RESULTS_PER_FILTER = 100
+        }
     }

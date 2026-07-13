@@ -71,11 +71,12 @@ class LocalSearchViewModel
                             database.searchPlaylists(query)
                         }
                     }.map { list ->
+                        val boundedList = list.take(MAX_RESULTS_PER_FILTER)
                         LocalSearchResult(
                             query = query,
                             filter = filter,
                             map =
-                                list.groupBy {
+                                boundedList.groupBy {
                                     when (it) {
                                         is Song -> LocalFilter.SONG
                                         is Album -> LocalFilter.ALBUM
@@ -94,6 +95,7 @@ class LocalSearchViewModel
 
         companion object {
             const val PREVIEW_SIZE = 3
+            const val MAX_RESULTS_PER_FILTER = 100
         }
     }
 

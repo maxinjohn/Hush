@@ -33,6 +33,9 @@ val GridItemsSizeKey = stringPreferencesKey("gridItemSize")
 val SliderStyleKey = stringPreferencesKey("sliderStyle")
 val SwipeToSongKey = booleanPreferencesKey("SwipeToSong")
 val PlayerDesignStyleKey = stringPreferencesKey("playerDesignStyle")
+val LandscapePlayerLayoutKey = booleanPreferencesKey("landscapePlayerStacked")
+val CarExpressiveAutoHideTitleKey = booleanPreferencesKey("carExpressiveAutoHideTitle")
+val CarExpressiveTitleHideDelayKey = intPreferencesKey("carExpressiveTitleHideDelaySeconds")
 val HidePlayerThumbnailKey = booleanPreferencesKey("hidePlayerThumbnail")
 val HushCanvasKey = booleanPreferencesKey("archiveTuneCanvas")
 val ThumbnailCornerRadiusKey = floatPreferencesKey("thumbnailCornerRadius")
@@ -246,6 +249,13 @@ enum class LastFmProvider {
 
 val AudioQualityKey = stringPreferencesKey("audioQuality")
 
+enum class PrimaryAudioScraper {
+    YOUTUBE,
+    JIOSAAVN,
+}
+
+val PrimaryAudioScraperKey = stringPreferencesKey("primaryAudioScraper")
+
 val NetworkMeteredKey = booleanPreferencesKey("networkMetered")
 val LowDataModeKey = NetworkMeteredKey
 
@@ -298,6 +308,7 @@ val AudioOffload = booleanPreferencesKey("audioOffload")
 val CrossfadeEnabledKey = booleanPreferencesKey("crossfadeEnabled")
 val CrossfadeDurationKey = floatPreferencesKey("crossfadeDuration")
 val CrossfadeGaplessKey = booleanPreferencesKey("crossfadeGapless")
+val PrefetchCountKey = intPreferencesKey("prefetchCount")
 val AutoLoadMoreKey = booleanPreferencesKey("autoLoadMore")
 val AutoDownloadOnLikeKey = booleanPreferencesKey("autoDownloadOnLike")
 val AutoSkipNextOnErrorKey = booleanPreferencesKey("autoSkipNextOnError")
@@ -313,11 +324,12 @@ val PlaylistTagsFilterKey = stringPreferencesKey("playlistTagsFilter")
 val ShowHomeCategoryChipsKey = booleanPreferencesKey("showHomeCategoryChips")
 val ShowTagsInLibraryKey = booleanPreferencesKey("showTagsInLibrary")
 
-val VisualizerEnabledKey = booleanPreferencesKey("visualizerEnabled")
-val VisualizerStyleKey = stringPreferencesKey("visualizerStyle")
-val VisualizerColorThemeKey = stringPreferencesKey("visualizerColorTheme")
-val VisualizerMiniPlayerKey = booleanPreferencesKey("visualizerMiniPlayer")
-val VisualizerOpacityKey = floatPreferencesKey("visualizerOpacity")
+val PulseMatrixEnabledKey = booleanPreferencesKey("pulseMatrixEnabled")
+val PulseMatrixThemeKey = stringPreferencesKey("pulseMatrixTheme")
+val PulseMatrixMiniPlayerKey = booleanPreferencesKey("pulseMatrixMiniPlayer")
+val PulseMatrixIntensityKey = stringPreferencesKey("pulseMatrixIntensity")
+val PulseMatrixPeakHoldKey = booleanPreferencesKey("pulseMatrixPeakHold")
+
 val EqualizerEnabledKey = booleanPreferencesKey("equalizerEnabled")
 val EqualizerBandLevelsMbKey = stringPreferencesKey("equalizerBandLevelsMb")
 val EqualizerOutputGainEnabledKey = booleanPreferencesKey("equalizerOutputGainEnabled")
@@ -629,7 +641,7 @@ enum class PlayerDesignStyle {
 
     /** Legacy/rationalized styles hidden from settings; existing users are migrated to [DEFAULT]. */
     val isDeprecated: Boolean
-        get() = this == V1 || this == V3 || this == V5 || this == V7 || this == V8 || this == V9
+        get() = this != DEFAULT
 
     /** Only deprecated styles normalize to [DEFAULT]; active styles keep their identity. */
     fun normalized(): PlayerDesignStyle =
@@ -641,7 +653,7 @@ enum class PlayerDesignStyle {
 
         /** Styles shown in Settings → Player design style. */
         val selectableValues: List<PlayerDesignStyle> =
-            listOf(V2, V4, V6)
+            listOf(V6)
     }
 }
 
@@ -708,7 +720,6 @@ val HistoryDuration = intPreferencesKey("historyDuration")
 
 val PlayerButtonsStyleKey = stringPreferencesKey("player_buttons_style")
 val PlayerBackgroundStyleKey = stringPreferencesKey("playerBackgroundStyle")
-val ShowLyricsKey = booleanPreferencesKey("showLyrics")
 val LyricsTextPositionKey = stringPreferencesKey("lyricsTextPosition")
 val LyricsClickKey = booleanPreferencesKey("lyricsClick")
 val LyricsScrollKey = booleanPreferencesKey("lyricsScrollKey")
