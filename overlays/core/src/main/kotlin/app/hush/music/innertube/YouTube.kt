@@ -178,6 +178,30 @@ object YouTube {
         set(value) {
             authState = authState.copy(poTokenPlayer = value)
         }
+
+    /** Updates Web PoTokens only when the session that minted them is still active. */
+    fun updateWebPoTokensIfSessionMatches(
+        sessionId: String,
+        sessionToken: String,
+        playerToken: String,
+    ): PlaybackAuthState? =
+        synchronized(authStateLock) {
+            val currentAuthState = mutableAuthState.value
+            if (currentAuthState.sessionId != sessionId) {
+                null
+            } else {
+                currentAuthState.copy(
+                    poTokenGvs = sessionToken,
+                    poTokenPlayer = playerToken,
+                    webClientPoTokenEnabled = true,
+                ).also { value ->
+                    val normalized = value.normalized()
+                    mutableAuthState.value = normalized
+                    innerTube.applyAuthState(normalized)
+                }
+            }
+        }
+
     var proxy: Proxy?
         get() = innerTube.proxy
         set(value) {
