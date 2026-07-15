@@ -41,6 +41,9 @@ import app.hush.music.innertube.models.YouTubeClient.Companion.WEB_CREATOR
 import app.hush.music.innertube.models.YouTubeClient.Companion.WEB_REMIX
 import app.hush.music.innertube.models.response.PlayerResponse
 import app.hush.music.utils.potoken.BotGuardTokenGenerator
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.selects.select
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.HttpUrl
@@ -504,8 +507,23 @@ object YTPlayerUtils {
         context: Context? = null,
         trySaavnFirst: Boolean = true,
         saavnHints: SaavnPlaybackResolver.PlaybackHints? = null,
+        parallelFetch: Boolean = false,
     ): Result<PlaybackData> =
         runCatching {
+            if (parallelFetch && context != null) {
+                return@runCatching resolveInParallel(
+                    context = context,
+                    videoId = videoId,
+                    playlistId = playlistId,
+                    audioQuality = audioQuality,
+                    connectivityManager = connectivityManager,
+                    preferredStreamClient = preferredStreamClient,
+                    networkMetered = networkMetered,
+                    fastResolution = fastResolution,
+                    saavnHints = saavnHints,
+                )
+            }
+
             if (context != null && trySaavnFirst) {
                 SaavnPlaybackResolver.tryResolve(
                     context = context,
@@ -519,19 +537,113 @@ object YTPlayerUtils {
                 Timber.tag(logTag).d("JioSaavn did not match %s — falling back to YouTube", videoId)
             }
 
-            val attempts =
-                when (audioQuality) {
-                    AudioQuality.HIGHEST -> listOf(AudioQuality.HIGHEST, AudioQuality.HIGH, AudioQuality.LOW)
-                    AudioQuality.HIGH -> listOf(AudioQuality.HIGH, AudioQuality.LOW)
-                    AudioQuality.AUTO -> listOf(AudioQuality.AUTO, AudioQuality.HIGH, AudioQuality.LOW)
-                    AudioQuality.LOW -> listOf(AudioQuality.LOW, AudioQuality.HIGH, AudioQuality.AUTO)
-                    else -> listOf(audioQuality)
-                }.distinct()
+            playerResponseYouTubeOnly(
+                videoId = videoId,
+                playlistId = playlistId,
+                audioQuality = audioQuality,
+                connectivityManager = connectivityManager,
+                preferredStreamClient = preferredStreamClient,
+                networkMetered = networkMetered,
+                fastResolution = fastResolution,
+            )
+        }
 
-            var lastError: Throwable? = null
-            var didRefreshIpRotationAfterBotDetection = false
-            for (attempt in attempts) {
-                val attemptResult =
+    private suspend fun resolveInParallel(
+        context: Context,
+        videoId: String,
+        playlistId: String?,
+        audioQuality: AudioQuality,
+        connectivityManager: ConnectivityManager,
+        preferredStreamClient: PlayerStreamClient,
+        networkMetered: Boolean?,
+        fastResolution: Boolean,
+        saavnHints: SaavnPlaybackResolver.PlaybackHints?,
+    ): PlaybackData = coroutineScope {
+        val saavnDeferred = async {
+            SaavnPlaybackResolver.tryResolve(
+                context = context,
+                videoId = videoId,
+                playlistId = playlistId,
+                hints = saavnHints,
+            )
+        }
+        val ytDeferred = async {
+            playerResponseYouTubeOnly(
+                videoId = videoId,
+                playlistId = playlistId,
+                audioQuality = audioQuality,
+                connectivityManager = connectivityManager,
+                preferredStreamClient = preferredStreamClient,
+                networkMetered = networkMetered,
+                fastResolution = fastResolution,
+            )
+        }
+
+        var result: PlaybackData? = null
+        select<Unit> {
+            saavnDeferred.onAwait { saavnResult ->
+                if (saavnResult != null) {
+                    Timber.tag(logTag).i("Parallel fetch: JioSaavn won race for %s", videoId)
+                    result = saavnResult
+                    ytDeferred.cancel()
+                }
+            }
+            ytDeferred.onAwait { ytResult ->
+                result = ytResult
+                saavnDeferred.cancel()
+            }
+        }
+
+        if (result == null) {
+            Timber.tag(logTag).d("Parallel fetch: JioSaavn did not match %s — using YouTube", videoId)
+            result = ytDeferred.await()
+        }
+
+        result!!
+    }
+
+    private suspend fun playerResponseYouTubeOnly(
+        videoId: String,
+        playlistId: String?,
+        audioQuality: AudioQuality,
+        connectivityManager: ConnectivityManager,
+        preferredStreamClient: PlayerStreamClient,
+        networkMetered: Boolean?,
+        fastResolution: Boolean,
+    ): PlaybackData {
+        val attempts =
+            when (audioQuality) {
+                AudioQuality.HIGHEST -> listOf(AudioQuality.HIGHEST, AudioQuality.HIGH, AudioQuality.LOW)
+                AudioQuality.HIGH -> listOf(AudioQuality.HIGH, AudioQuality.LOW)
+                AudioQuality.AUTO -> listOf(AudioQuality.AUTO, AudioQuality.HIGH, AudioQuality.LOW)
+                AudioQuality.LOW -> listOf(AudioQuality.LOW, AudioQuality.HIGH, AudioQuality.AUTO)
+                else -> listOf(audioQuality)
+            }.distinct()
+
+        var lastError: Throwable? = null
+        var didRefreshIpRotationAfterBotDetection = false
+        for (attempt in attempts) {
+            val attemptResult =
+                runCatching {
+                    playerResponseForPlaybackOnce(
+                        videoId = videoId,
+                        playlistId = playlistId,
+                        audioQuality = attempt,
+                        connectivityManager = connectivityManager,
+                        preferredStreamClient = preferredStreamClient,
+                        networkMetered = networkMetered,
+                        fastResolution = fastResolution,
+                    )
+                }
+            if (attemptResult.isSuccess) return attemptResult.getOrThrow()
+            lastError = attemptResult.exceptionOrNull()
+            if (
+                !didRefreshIpRotationAfterBotDetection &&
+                lastError is BotDetectionPlaybackException &&
+                refreshIpRotationForBotDetection(videoId, lastError)
+            ) {
+                didRefreshIpRotationAfterBotDetection = true
+                val rotatedAttemptResult =
                     runCatching {
                         playerResponseForPlaybackOnce(
                             videoId = videoId,
@@ -543,32 +655,12 @@ object YTPlayerUtils {
                             fastResolution = fastResolution,
                         )
                     }
-                if (attemptResult.isSuccess) return@runCatching attemptResult.getOrThrow()
-                lastError = attemptResult.exceptionOrNull()
-                if (
-                    !didRefreshIpRotationAfterBotDetection &&
-                    lastError is BotDetectionPlaybackException &&
-                    refreshIpRotationForBotDetection(videoId, lastError)
-                ) {
-                    didRefreshIpRotationAfterBotDetection = true
-                    val rotatedAttemptResult =
-                        runCatching {
-                            playerResponseForPlaybackOnce(
-                                videoId = videoId,
-                                playlistId = playlistId,
-                                audioQuality = attempt,
-                                connectivityManager = connectivityManager,
-                                preferredStreamClient = preferredStreamClient,
-                                networkMetered = networkMetered,
-                                fastResolution = fastResolution,
-                            )
-                        }
-                    if (rotatedAttemptResult.isSuccess) return@runCatching rotatedAttemptResult.getOrThrow()
-                    lastError = rotatedAttemptResult.exceptionOrNull()
-                }
+                if (rotatedAttemptResult.isSuccess) return rotatedAttemptResult.getOrThrow()
+                lastError = rotatedAttemptResult.exceptionOrNull()
             }
-            throw lastError ?: IllegalStateException("Failed to resolve stream")
         }
+        throw lastError ?: IllegalStateException("Failed to resolve stream")
+    }
 
     suspend fun playerResponseForDownload(
         videoId: String,
@@ -678,7 +770,7 @@ object YTPlayerUtils {
                     reason = if (hasLoginCookie) "cookie-only playback fallback" else "anonymous playback bootstrap",
                 )
         }
-        val sessionId = authState.visitorData
+        val sessionId = authState.sessionId
         val authStatus =
             when {
                 canUseLoggedInPlayback -> "Logged in"
@@ -716,11 +808,11 @@ object YTPlayerUtils {
                 val tokenResult = BotGuardTokenGenerator.mintToken(videoId, sessionId)
                 metadataPoToken = tokenResult?.playerToken
                 tokenResult?.let {
-                    YouTube.authState =
-                        YouTube.authState.copy(
-                            poTokenGvs = it.sessionToken,
-                            poTokenPlayer = it.playerToken,
-                            webClientPoTokenEnabled = true,
+                    authState =
+                        authState.withMintedWebPoTokens(
+                            sessionId = sessionId,
+                            playerToken = it.playerToken,
+                            sessionToken = it.sessionToken,
                         )
                 }
             } catch (e: Exception) {
@@ -756,17 +848,17 @@ object YTPlayerUtils {
             YouTube.authState = authState
             clearPlaybackAuthCaches()
 
-            val newSessionId = authState.visitorData
+            val newSessionId = authState.sessionId
             if (metadataClient.useWebPoTokens && newSessionId != null) {
                 try {
                     val tokenResult = BotGuardTokenGenerator.mintToken(videoId, newSessionId)
                     metadataPoToken = tokenResult?.playerToken
                     tokenResult?.let {
-                        YouTube.authState =
-                            YouTube.authState.copy(
-                                poTokenGvs = it.sessionToken,
-                                poTokenPlayer = it.playerToken,
-                                webClientPoTokenEnabled = true,
+                        authState =
+                            authState.withMintedWebPoTokens(
+                                sessionId = newSessionId,
+                                playerToken = it.playerToken,
+                                sessionToken = it.sessionToken,
                             )
                     }
                 } catch (e: Exception) {
@@ -1135,7 +1227,8 @@ object YTPlayerUtils {
         Timber.tag(logTag).i("Fetching metadata player response for videoId: $videoId")
 
         val signatureTimestamp = getSignatureTimestampOrNull(videoId)
-        val sessionId = authState.visitorData
+        var requestAuthState = authState
+        val sessionId = requestAuthState.sessionId
         var poToken: String? = null
 
         if (MAIN_CLIENT.useWebPoTokens && sessionId != null) {
@@ -1143,11 +1236,11 @@ object YTPlayerUtils {
                 val tokenResult = BotGuardTokenGenerator.mintToken(videoId, sessionId)
                 poToken = tokenResult?.playerToken
                 tokenResult?.let {
-                    YouTube.authState =
-                        YouTube.authState.copy(
-                            poTokenGvs = it.sessionToken,
-                            poTokenPlayer = it.playerToken,
-                            webClientPoTokenEnabled = true,
+                    requestAuthState =
+                        requestAuthState.withMintedWebPoTokens(
+                            sessionId = sessionId,
+                            playerToken = it.playerToken,
+                            sessionToken = it.sessionToken,
                         )
                 }
             } catch (e: Exception) {
@@ -1163,9 +1256,24 @@ object YTPlayerUtils {
                 signatureTimestamp = signatureTimestamp,
                 poToken = poToken,
                 setLogin = true,
-                authState = authState,
+                authState = requestAuthState,
             ).onSuccess { Timber.tag(logTag).d("Successfully fetched metadata") }
             .onFailure { Timber.tag(logTag).e(it, "Failed to fetch metadata") }
+    }
+
+    private fun PlaybackAuthState.withMintedWebPoTokens(
+        sessionId: String,
+        playerToken: String,
+        sessionToken: String,
+    ): PlaybackAuthState {
+        val updatedRequestState =
+            copy(
+                poTokenGvs = sessionToken,
+                poTokenPlayer = playerToken,
+                webClientPoTokenEnabled = true,
+            )
+        YouTube.updateWebPoTokensIfSessionMatches(sessionId, sessionToken, playerToken)
+        return updatedRequestState
     }
 
     private fun findFormat(

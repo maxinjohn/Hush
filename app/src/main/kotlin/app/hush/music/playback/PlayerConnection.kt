@@ -135,6 +135,10 @@ class PlayerConnection(
         service.toggleLike()
     }
 
+    fun evictCachedAudio(mediaId: String) {
+        service.evictCachedAudio(mediaId)
+    }
+
     fun seekToNext() {
         val state = service.togetherSessionState.value as? app.hush.music.together.TogetherSessionState.Joined
         if (state?.role is app.hush.music.together.TogetherRole.Guest) {

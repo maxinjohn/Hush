@@ -312,7 +312,7 @@ class HomeViewModel
             filter { song -> song.artists.none { it.blockedAt != null } }
                 .distinctBy { it.id }
                 .shuffled()
-                .take(20)
+                .take(40)
 
         private fun List<Song>.hasSameSongIdsAs(other: List<Song>): Boolean {
             if (size != other.size) return false

@@ -8,6 +8,9 @@ package app.hush.music.jiosaavn
 
 import android.util.Log
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.selects.select
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -172,11 +175,7 @@ object SaavnService {
     private suspend fun apiCall(
         block: suspend (String) -> io.ktor.client.statement.HttpResponse,
     ): io.ktor.client.statement.HttpResponse {
-        val servers = buildList {
-            add(API_BASE)
-            add(API_BASE)
-            add(API_BASE)
-        }
+        val servers = listOf(API_BASE, API_BASE, API_BASE)
         var lastError: Throwable? = null
         for ((attempt, server) in servers.withIndex()) {
             try {
@@ -210,7 +209,7 @@ object SaavnService {
             if (q.isBlank()) error("Empty query")
             Log.i(TAG, "searchSongs \"$q\"")
 
-            // Try v4 format first, fallback to no-api_version
+            // Try v4 and legacy formats in parallel, use whichever responds first with results
             val paramSets = listOf(
                 mapOf(
                     "__call" to "search.getResults", "_format" to "json", "_marker" to "0",
@@ -223,27 +222,52 @@ object SaavnService {
                 ),
             )
 
-            for (params in paramSets) {
-                try {
-                    val response = apiCall { baseUrl ->
-                        client.get(baseUrl) { params.forEach { (k, v) -> parameter(k, v) } }
+            val searchResult = coroutineScope {
+                val deferreds = paramSets.map { params ->
+                    async {
+                        params to runCatching {
+                            val response = apiCall { baseUrl ->
+                                client.get(baseUrl) {
+                                    params.forEach { (key, value) -> parameter(key, value) }
+                                }
+                            }
+                            if (response.status != HttpStatusCode.OK) {
+                                error("HTTP ${response.status.value}")
+                            }
+                            val rawBody = response.bodyAsText()
+                            val results = parseSearchResults(rawBody)
+                            if (results.isEmpty()) error("0 results")
+                            results
+                        }
                     }
-                    if (response.status != HttpStatusCode.OK) {
-                        Log.w(TAG, "searchSongs params=$params: HTTP ${response.status.value}")
-                        continue
-                    }
-                    val rawBody = response.bodyAsText()
-                    val results = parseSearchResults(rawBody)
-                    if (results.isNotEmpty()) {
-                        Log.i(TAG, "searchSongs \"$q\" -> ${results.size} results (fmt=${params["api_version"] ?: "legacy"})")
-                        return@runCatching results
-                    }
-                    Log.w(TAG, "searchSongs \"$q\": 0 results with params=$params raw=${rawBody.take(150)}")
-                } catch (e: Exception) {
-                    Log.w(TAG, "searchSongs params=$params error: ${e.message}")
                 }
+
+                val remaining = deferreds.toMutableList()
+                var lastError: Throwable? = null
+                var found: List<SaavnSong>? = null
+
+                while (remaining.isNotEmpty() && found == null) {
+                    val (params, result) = select<Pair<Map<String, String>, Result<List<SaavnSong>>>> {
+                        remaining.forEach { d ->
+                            d.onAwait { it }
+                        }
+                    }
+                    remaining.removeAll { it.isCompleted }
+
+                    result.onSuccess { results ->
+                        Log.i(TAG, "searchSongs \"$q\" -> ${results.size} results (fmt=${params["api_version"] ?: "legacy"})")
+                        remaining.forEach { it.cancel() }
+                        found = results
+                    }.onFailure { e ->
+                        lastError = e
+                        Log.w(TAG, "searchSongs params=$params failed: ${e.message}")
+                    }
+                }
+
+                found ?: throw (lastError ?: error("No results for \"$q\""))
             }
-            error("No results for \"$q\"")
+
+            return@runCatching searchResult
         }.onFailure {
             Log.w(TAG, "searchSongs failed for \"$query\"", it)
         }
@@ -281,20 +305,28 @@ object SaavnService {
     private suspend fun resolveStreamFresh(
         saavnSongId: String,
         qualityOrder: List<String>,
-    ): String? {
-        // Path A: auth token
-        Log.d(TAG, "resolveStreamFresh: trying auth token path for $saavnSongId")
-        val tokenUrl = tryGenerateAuthToken(saavnSongId, qualityOrder.first())
-        if (tokenUrl != null) return tokenUrl
+    ): String? = coroutineScope {
+        Log.d(TAG, "resolveStreamFresh: racing all paths for $saavnSongId")
+        val paths = listOf(
+            "authToken" to async { tryGenerateAuthToken(saavnSongId, qualityOrder.first()) },
+            "v4Decrypt" to async { tryDecrypt(saavnSongId, qualityOrder, apiV4 = true) },
+            "flatDecrypt" to async { tryDecrypt(saavnSongId, qualityOrder, apiV4 = false) },
+        )
 
-        // Path B: DES decrypt from song details (v4 format)
-        Log.d(TAG, "resolveStreamFresh: trying DES decrypt v4 for $saavnSongId")
-        val v4Url = tryDecrypt(saavnSongId, qualityOrder, apiV4 = true)
-        if (v4Url != null) return v4Url
+        val remaining = paths.map { it.second }.toMutableList()
 
-        // Path C: DES decrypt from song details (flat format)
-        Log.d(TAG, "resolveStreamFresh: trying DES decrypt flat for $saavnSongId")
-        return tryDecrypt(saavnSongId, qualityOrder, apiV4 = false)
+        while (remaining.isNotEmpty()) {
+            val url = select<String?> {
+                remaining.forEach { d ->
+                    d.onAwait { it }
+                }
+            }
+            remaining.removeAll { it.isCompleted }
+
+            if (url != null) return@coroutineScope url
+        }
+
+        null
     }
 
     private suspend fun tryGenerateAuthToken(

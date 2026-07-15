@@ -80,6 +80,8 @@ import coil3.compose.AsyncImage
 import app.hush.music.R
 import app.hush.music.constants.EnableHapticFeedbackKey
 import app.hush.music.constants.EnableSaavnStreamingKey
+import app.hush.music.constants.PrimaryAudioScraper
+import app.hush.music.constants.PrimaryAudioScraperKey
 import app.hush.music.db.entities.FormatEntity
 import app.hush.music.db.entities.containerLabel
 import app.hush.music.db.entities.formattedBitrate
@@ -94,6 +96,7 @@ import app.hush.music.ui.component.bottomSheetDraggable
 import app.hush.music.ui.menu.PlayerMenu
 import app.hush.music.ui.utils.ShowMediaInfo
 import app.hush.music.utils.makeTimeString
+import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberPreference
 import kotlin.math.roundToInt
 
@@ -730,7 +733,13 @@ fun PlaybackSourceRow(
     modifier: Modifier = Modifier,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
-    val (saavnEnabled) = rememberPreference(EnableSaavnStreamingKey, defaultValue = false)
+    val (legacySaavnEnabled) = rememberPreference(EnableSaavnStreamingKey, defaultValue = false)
+    val (primaryScraper) =
+        rememberEnumPreference(
+            PrimaryAudioScraperKey,
+            defaultValue = if (legacySaavnEnabled) PrimaryAudioScraper.JIOSAAVN else PrimaryAudioScraper.YOUTUBE,
+        )
+    val saavnEnabled = primaryScraper == PrimaryAudioScraper.JIOSAAVN
     if (!saavnEnabled) return
 
     val clientLabel by playerConnection.activePlaybackClientLabel.collectAsStateWithLifecycle()

@@ -9,11 +9,14 @@
 
 package app.hush.music.ui.menu
 
+import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
+import android.media.MediaRouter2
 import android.media.audiofx.AudioEffect
+import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
@@ -104,9 +107,7 @@ import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import app.hush.music.LocalDatabase
 import app.hush.music.LocalDownloadUtil
 import app.hush.music.LocalPlayerConnection
@@ -176,10 +177,7 @@ fun PlayerMenu(
         remember(deviceMusicVolumeController) {
             { volume: Float -> deviceMusicVolumeController.setVolumeFraction(volume) }
         }
-    val activityResultLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
     val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
-    val coroutineScope = rememberCoroutineScope()
 
     val download by LocalDownloadUtil.current
         .getDownload(mediaMetadata.id)
@@ -205,6 +203,7 @@ fun PlayerMenu(
         remember(librarySong?.song?.isLocal, mediaMetadata.id) {
             librarySong?.song?.isLocal == true || mediaMetadata.id.isLocalMediaId()
         }
+    val setAsRingtoneAction = rememberSetAsRingtoneAction(mediaMetadata.id.takeIf { isLocalMedia })
     val castPlayerMenuAction = rememberCastPlayerMenuAction()
 
     // Split artists by configured separators
@@ -464,6 +463,20 @@ fun PlayerMenu(
                 NewActionGrid(
                     actions =
                         buildList {
+                            add(
+                                NewAction(
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.volume_up),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(menuActionIconSize()),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    text = stringResource(R.string.audio_output),
+                                    onClick = { openSystemOutputSwitcher(context) },
+                                ),
+                            )
                             castPlayerMenuAction?.let(::add)
                             add(
                                 NewAction(
@@ -557,6 +570,7 @@ fun PlayerMenu(
                                     )
                                 },
                             )
+                            setAsRingtoneAction?.let(::add)
                             if (!isLocalMedia) {
                                 add(
                                     NewAction(
@@ -893,6 +907,26 @@ fun PlayerMenu(
             }
         }
     }
+}
+
+private fun openSystemOutputSwitcher(context: Context) {
+    val didShowSystemOutputSwitcher =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            runCatching {
+                MediaRouter2.getInstance(context).showSystemOutputSwitcher()
+            }.getOrDefault(false)
+        } else {
+            false
+        }
+    if (didShowSystemOutputSwitcher) return
+
+    context
+        .getSystemService(AudioManager::class.java)
+        ?.adjustStreamVolume(
+            AudioManager.STREAM_MUSIC,
+            AudioManager.ADJUST_SAME,
+            AudioManager.FLAG_SHOW_UI,
+        )
 }
 
 @Composable
@@ -1409,5 +1443,3 @@ private fun multiplierToSlider(multiplier: Float): Float {
         }
     return (0.5f + y / 2f).coerceIn(0f, 1f)
 }
-
-

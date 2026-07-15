@@ -334,34 +334,16 @@
     <string name="stream_cache_location_desc">Temporary streamed audio cache</string>
     <string name="change_download_location">Change download location</string>
     <string name="change_stream_cache_location">Change stream cache location</string>
-    <string name="import_from_folder">Import from folder</string>
-    <string name="import_from_folder_desc">Copy songs from another folder into your Hush download location</string>
+    <string name="import_from_folder">Choose folder</string>
+    <string name="import_from_folder_desc">Select a custom folder for storing downloads and cached songs</string>
     <string name="import_downloads_folder">Import downloads folder</string>
     <string name="import_song_cache_folder">Import stream cache folder</string>
-    <string name="import_storage_folder_hint">Pick a folder from Hush, OuterTune, or another compatible app</string>
     <string name="downloads_folder">Downloads folder</string>
     <string name="song_cache_folder">Stream cache folder</string>
     <string name="storage_location_default">Default location</string>
     <string name="reset_downloads_folder">Reset download location to default</string>
     <string name="reset_song_cache_folder">Reset stream cache to default</string>
-    <string name="compatible_app_storage">Compatible apps</string>
-    <string name="auto_import_legacy_storage">Auto-import from compatible apps</string>
-    <string name="auto_import_legacy_storage_desc">On startup, copy downloads and cache from OuterTune, ArchiveTune, and similar apps when found</string>
-    <string name="scan_compatible_apps">Scan compatible apps</string>
-    <string name="scan_compatible_apps_scanning">Scanning for cached and downloaded music…</string>
-    <string name="scan_compatible_apps_summary">Found %1$d apps · %2$s total</string>
-    <string name="scan_compatible_apps_empty">No readable downloads found. If another app is installed, its songs may be in private storage — see below.</string>
-    <string name="scan_compatible_apps_hint">Tap to scan OuterTune, ArchiveTune, Metrolist, ViVi, Echo Music, and other compatible apps</string>
-    <string name="scan_compatible_apps_installed_summary">%1$d apps installed · no readable downloads yet</string>
-    <string name="scan_compatible_apps_mixed_summary">%1$d apps installed · %2$d ready to import · %3$s total</string>
-    <string name="legacy_storage_installed_hint">Installed. Android keeps its downloads private — grant All files access below and scan again, or tap to pick a folder manually.</string>
-    <string name="grant_all_files_access">Grant All files access</string>
-    <string name="grant_all_files_access_desc">Needed to read other apps\' download folders on external storage (Android 11+)</string>
-    <string name="all_files_access_granted">All files access granted</string>
-    <string name="legacy_storage_import_title">Import from %1$s</string>
-    <string name="legacy_storage_import_description">%1$s ready to import</string>
-    <string name="legacy_storage_use_folder">Use %1$s download folder</string>
-    <string name="legacy_storage_import_success">Imported downloads. App will restart in 3 seconds.</string>
+    <string name="storage_folder_import_success">Folder selected. App will restart in 3 seconds.</string>
     <string name="storage_cache_cleared">Cache cleared.</string>
     <string name="storage_cache_clear_failed">Cache could not be cleared. Check SD card access.</string>
     <string name="storage_clear_song_cache_progress">Clearing song cache...%1$d%%</string>
@@ -454,7 +436,7 @@
     <string name="crossfade_gapless_title">Skip gapless albums</string>
     <string name="crossfade_gapless_description">Do not crossfade consecutive songs from the same album.</string>
     <string name="prefetch_count">Prefetch upcoming songs</string>
-    <string name="prefetch_count_desc">Resolve and cache stream URLs ahead. 0 = off, up to 20</string>
+    <string name="prefetch_count_desc">Resolve and cache stream URLs ahead. 0 = off, up to 4</string>
     <string name="player_stream_client">Playback client</string>
     <string name="player_stream_client_desc">Controls which playback source is used to fetch streams</string>
     <string name="player_stream_client_android_vr">Android VR</string>
@@ -487,6 +469,8 @@
     <string name="primary_scraper_jiosaavn">JioSaavn</string>
     <string name="primary_scraper_yt_only">YouTube only</string>
     <string name="primary_scraper_saavn_fallback">YouTube as fallback</string>
+    <string name="parallel_source_fetch">Parallel source fetch</string>
+    <string name="parallel_source_fetch_desc">Fetch from YouTube and JioSaavn simultaneously. Whichever responds first is used, reducing playback start time.</string>
     <string name="jiosaavn_settings">JioSaavn settings</string>
     <string name="feature_beta_badge">Beta</string>
     <string name="jiosaavn_settings_off">Off — YouTube only</string>

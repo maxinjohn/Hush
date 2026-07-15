@@ -411,6 +411,7 @@ fun SongMenu(
 
     val bottomSheetPageState = LocalBottomSheetPageState.current
     val isLocalSong = song.song.isLocal
+    val setAsRingtoneAction = rememberSetAsRingtoneAction(song.id.takeIf { isLocalSong })
 
     val playText = stringResource(R.string.play)
     val playNextText = stringResource(R.string.play_next)
@@ -429,6 +430,7 @@ fun SongMenu(
             shareText,
             editText,
             isLocalSong,
+            setAsRingtoneAction,
             onDismiss,
             playerConnection,
         ) {
@@ -455,6 +457,7 @@ fun SongMenu(
                         },
                     ),
                 )
+                setAsRingtoneAction?.let(::add)
                 add(
                     NewAction(
                         icon = {
@@ -991,6 +994,7 @@ fun SongMenu(
                                                 database.transaction {
                                                     update(song, newSong.toMediaMetadata())
                                                 }
+                                                playerConnection.evictCachedAudio(song.id)
                                             }
                                         }
                                     }

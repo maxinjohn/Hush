@@ -125,6 +125,7 @@
     <string name="retry">Retry</string>
     <string name="radio">Radio</string>
     <string name="cast">Cast</string>
+    <string name="audio_output">Audio output</string>
     <string name="cast_devices">Cast devices</string>
     <string name="cast_sheet_subtitle">Choose where Hush plays</string>
     <string name="cast_available_devices">Available devices</string>
@@ -167,6 +168,11 @@
     <string name="downloading">Downloading</string>
     <string name="remove_download">Remove download</string>
     <string name="download_progress_percent">%1$d%%</string>
+    <string name="downloads_active">Active</string>
+    <string name="downloads_paused">Paused</string>
+    <string name="downloads_failed">Failed</string>
+    <string name="downloads_completed">Completed</string>
+    <string name="downloads_empty">No downloads yet</string>
     <string name="import_playlist">Import playlist</string>
     <string name="import_failed">Import failed</string>
     <string name="update_button">Update</string>
@@ -182,6 +188,10 @@
     <string name="more">more</string>
     <string name="refetch">Refetch</string>
     <string name="share">Share</string>
+    <string name="set_as_ringtone">Set as ringtone</string>
+    <string name="ringtone_set">Ringtone set</string>
+    <string name="ringtone_set_failed">Couldn\'t set ringtone.</string>
+    <string name="ringtone_permission_required">Allow Hush to modify system settings to set a ringtone.</string>
     <string name="delete">Delete</string>
     <string name="hide_playlist">Hide playlist</string>
     <string name="unhide_playlist">Unhide playlist</string>

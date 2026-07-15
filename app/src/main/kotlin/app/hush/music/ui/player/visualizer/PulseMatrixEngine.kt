@@ -2,6 +2,7 @@ package app.hush.music.ui.player.visualizer
 
 import android.media.audiofx.Visualizer
 import android.util.Log
+import app.hush.music.BuildConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,13 +36,10 @@ object PulseMatrixEngine {
     private const val TAG = "PulseMatrixEngine"
     private const val TARGET_BANDS = 16
 
-    private val logFile = java.io.File("/sdcard/Download/pulse_debug.log")
-
     private fun dlog(msg: String) {
-        Log.d(TAG, msg)
-        try {
-            logFile.appendText("${System.currentTimeMillis()} $msg\n")
-        } catch (_: Exception) {}
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, msg)
+        }
     }
     private const val FRAME_MS = 17L
     private const val CAPTURE_RATE_MS = 60
@@ -145,7 +143,7 @@ object PulseMatrixEngine {
         if (consumerCount == 1) {
             startVisualizer(audioSessionId)
         } else if (currentSessionId != audioSessionId) {
-            Log.w(TAG, "Session changed while consumers active: $currentSessionId -> $audioSessionId")
+            if (BuildConfig.DEBUG) Log.w(TAG, "Session changed while consumers active: $currentSessionId -> $audioSessionId")
             resetState()
             stopVisualizer()
             startVisualizer(audioSessionId)
@@ -226,7 +224,7 @@ object PulseMatrixEngine {
             dlog("Visualizer created OK: enabled=${v.enabled}, captureSize=${v.captureSize}")
             v
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create Visualizer for session $audioSessionId: ${e.message}", e)
+            if (BuildConfig.DEBUG) Log.e(TAG, "Failed to create Visualizer for session $audioSessionId: ${e.message}", e)
             return
         }
 
@@ -282,7 +280,7 @@ object PulseMatrixEngine {
                 viz.enabled = false
                 viz.release()
             } catch (e: Exception) {
-                Log.w(TAG, "Error releasing visualizer: ${e.message}")
+                if (BuildConfig.DEBUG) Log.w(TAG, "Error releasing visualizer: ${e.message}")
             }
         }
         visualizer = null
@@ -339,7 +337,7 @@ object PulseMatrixEngine {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Processing loop error: ${e.message}")
+            if (BuildConfig.DEBUG) Log.w(TAG, "Processing loop error: ${e.message}")
         }
     }
 

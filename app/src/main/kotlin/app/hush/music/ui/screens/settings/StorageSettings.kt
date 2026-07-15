@@ -9,10 +9,6 @@
 
 package app.hush.music.ui.screens.settings
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
@@ -62,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -85,9 +82,6 @@ import app.hush.music.constants.MaxSongCacheSizeKey
 import app.hush.music.constants.SmartTrimmerKey
 import app.hush.music.extensions.directorySizeBytes
 import app.hush.music.extensions.tryOrNull
-import app.hush.music.storage.InstalledLegacyAppHint
-import app.hush.music.storage.LegacyStorageCandidate
-import app.hush.music.storage.LegacyStorageCompatibility
 import app.hush.music.storage.StorageFolderKind
 import app.hush.music.storage.StorageLocationKind
 import app.hush.music.storage.StorageLocationRepository
@@ -108,8 +102,6 @@ import app.hush.music.viewmodels.StorageLocationUiModel
 import app.hush.music.viewmodels.StorageLocationUiOptions
 import app.hush.music.viewmodels.StorageMigrationUiModel
 import app.hush.music.viewmodels.StorageMigrationUiPhase
-import app.hush.music.constants.AutoImportLegacyStorageKey
-import app.hush.music.viewmodels.LegacyStorageScanUiModel
 import app.hush.music.viewmodels.StorageSettingsScreenState
 import app.hush.music.viewmodels.StorageSettingsViewModel
 
@@ -187,7 +179,7 @@ fun StorageSettings(
     var clearDownloads by remember { mutableStateOf(false) }
     var clearImageCacheDialog by remember { mutableStateOf(false) }
     var clearCanvasCacheDialog by remember { mutableStateOf(false) }
-    var imageCacheSize by remember { mutableStateOf(tryOrNull { imageDiskCache.size } ?: 0L) }
+    var imageCacheSize by remember { mutableStateOf(0L) }
     var playerCacheSize by remember { mutableStateOf(0L) }
     var downloadCacheSize by remember { mutableStateOf(0L) }
     var canvasCacheBytes by remember { mutableStateOf(0L) }
@@ -255,8 +247,11 @@ fun StorageSettings(
     }
     LaunchedEffect(imageDiskCache) {
         while (isActive) {
+            imageCacheSize =
+                withContext(Dispatchers.IO) {
+                    tryOrNull { imageDiskCache.size } ?: 0L
+                }
             delay(StorageRefreshIntervalMillis)
-            imageCacheSize = tryOrNull { imageDiskCache.size } ?: 0L
         }
     }
     LaunchedEffect(playerCache, playerCacheDir) {
@@ -292,6 +287,7 @@ fun StorageSettings(
     Box(Modifier.fillMaxSize()) {
         Column(
             Modifier
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .windowInsetsPadding(LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
                 .verticalScroll(rememberScrollState())
                 .padding(
@@ -315,7 +311,7 @@ fun StorageSettings(
                 onSelectFolder = viewModel::openStorageLocationPicker,
             )
 
-            DownloadAndLegacyStorageSection(
+            CustomStorageFoldersSection(
                 viewModel = viewModel,
             )
 
@@ -940,17 +936,10 @@ private fun CacheUsagePreference(progress: Float) {
 }
 
 @Composable
-private fun DownloadAndLegacyStorageSection(
+private fun CustomStorageFoldersSection(
     viewModel: StorageSettingsViewModel,
 ) {
     val context = LocalContext.current
-    val legacyScan by viewModel.legacyScan.collectAsStateWithLifecycle()
-    val (autoImportLegacy, onAutoImportLegacyChange) =
-        rememberPreference(
-            key = AutoImportLegacyStorageKey,
-            defaultValue = false,
-        )
-
     var storagePathsRefreshKey by remember { mutableStateOf(0) }
     var downloadPath by remember { mutableStateOf("") }
     var cachePath by remember { mutableStateOf("") }
@@ -976,10 +965,6 @@ private fun DownloadAndLegacyStorageSection(
             withContext(Dispatchers.IO) {
                 StorageLocationRepository.cacheDirectory(context, StorageFolderKind.SONG_CACHE).absolutePath
             }
-    }
-
-    LaunchedEffect(Unit) {
-        viewModel.scanCompatibleApps()
     }
 
     LaunchedEffect(viewModel) {
@@ -1031,28 +1016,6 @@ private fun DownloadAndLegacyStorageSection(
             )
         }
     }
-
-    CompatibleAppsStorageSection(
-        legacyScan = legacyScan,
-        autoImportLegacy = autoImportLegacy,
-        onAutoImportLegacyChange = { enabled ->
-            onAutoImportLegacyChange(enabled)
-            viewModel.setAutoImportLegacyStorage(enabled)
-        },
-        onScan = viewModel::scanCompatibleApps,
-        onImport = viewModel::importLegacyDownloads,
-        onUseDownloadFolder = { candidate ->
-            viewModel.setCustomFolderPath(
-                kind = StorageFolderKind.DOWNLOADS,
-                path = candidate.downloadDir.absolutePath,
-                displayName = candidate.app.displayName,
-            )
-        },
-        onImportFromFolder = {
-            pendingFolderKind = StorageFolderKind.DOWNLOADS
-            customFolderPickerLauncher.launch(null)
-        },
-    )
 
     if (showDownloadActions) {
         StorageLocationActionSheet(
@@ -1155,169 +1118,8 @@ private fun StorageLocationActionSheet(
     }
 }
 
-@Composable
-private fun CompatibleAppsStorageSection(
-    legacyScan: LegacyStorageScanUiModel,
-    autoImportLegacy: Boolean,
-    onAutoImportLegacyChange: (Boolean) -> Unit,
-    onScan: () -> Unit,
-    onImport: (LegacyStorageCandidate) -> Unit,
-    onUseDownloadFolder: (LegacyStorageCandidate) -> Unit,
-    onImportFromFolder: () -> Unit,
-) {
-    val context = LocalContext.current
-    val totalBytes = legacyScan.candidates.sumOf { it.totalBytes }
-    val installedCount = legacyScan.candidates.size + legacyScan.installedHints.size
-    val scanDescription =
-        when {
-            legacyScan.scanning -> stringResource(R.string.scan_compatible_apps_scanning)
-            legacyScan.hasScanned && legacyScan.candidates.isNotEmpty() && legacyScan.installedHints.isNotEmpty() ->
-                stringResource(
-                    R.string.scan_compatible_apps_mixed_summary,
-                    installedCount,
-                    legacyScan.candidates.size,
-                    formatFileSize(totalBytes),
-                )
-            legacyScan.hasScanned && legacyScan.candidates.isNotEmpty() ->
-                stringResource(
-                    R.string.scan_compatible_apps_summary,
-                    legacyScan.candidates.size,
-                    formatFileSize(totalBytes),
-                )
-            legacyScan.hasScanned && legacyScan.installedHints.isNotEmpty() ->
-                stringResource(
-                    R.string.scan_compatible_apps_installed_summary,
-                    legacyScan.installedHints.size,
-                )
-            legacyScan.hasScanned ->
-                stringResource(R.string.scan_compatible_apps_empty)
-            else -> stringResource(R.string.scan_compatible_apps_hint)
-        }
 
-    PreferenceGroup(title = stringResource(R.string.compatible_app_storage)) {
-        item {
-            SwitchPreference(
-                title = { Text(stringResource(R.string.auto_import_legacy_storage)) },
-                description = stringResource(R.string.auto_import_legacy_storage_desc),
-                checked = autoImportLegacy,
-                onCheckedChange = onAutoImportLegacyChange,
-            )
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            item {
-                PreferenceEntry(
-                    title = { Text(stringResource(R.string.grant_all_files_access)) },
-                    description =
-                        if (legacyScan.hasAllFilesAccess) {
-                            stringResource(R.string.all_files_access_granted)
-                        } else {
-                            stringResource(R.string.grant_all_files_access_desc)
-                        },
-                    onClick = { openAllFilesAccessSettings(context) },
-                )
-            }
-        }
-        item {
-            PreferenceEntry(
-                title = { Text(stringResource(R.string.scan_compatible_apps)) },
-                description = scanDescription,
-                icon = {
-                    if (legacyScan.scanning) {
-                        CircularWavyProgressIndicator(modifier = Modifier.size(24.dp))
-                    } else {
-                        Icon(
-                            painter = painterResource(R.drawable.sync),
-                            contentDescription = null,
-                        )
-                    }
-                },
-                onClick = onScan,
-                isEnabled = !legacyScan.scanning,
-            )
-        }
-        legacyScan.candidates.forEach { candidate ->
-            item {
-                PreferenceEntry(
-                    title = {
-                        Text(
-                            stringResource(
-                                R.string.legacy_storage_import_title,
-                                candidate.app.displayName,
-                            ),
-                        )
-                    },
-                    description =
-                        stringResource(
-                            R.string.legacy_storage_import_description,
-                            formatFileSize(candidate.totalBytes),
-                        ),
-                    icon = {
-                        Icon(
-                            painter = painterResource(R.drawable.sync),
-                            contentDescription = null,
-                        )
-                    },
-                    onClick = { onImport(candidate) },
-                )
-            }
-            if (candidate.isWritable) {
-                item {
-                    PreferenceEntry(
-                        title = {
-                            Text(
-                                stringResource(
-                                    R.string.legacy_storage_use_folder,
-                                    candidate.app.displayName,
-                                ),
-                            )
-                        },
-                        onClick = { onUseDownloadFolder(candidate) },
-                    )
-                }
-            }
-        }
-        legacyScan.installedHints.forEach { hint ->
-            item {
-                InstalledLegacyAppHintRow(
-                    hint = hint,
-                    onImportFromFolder = onImportFromFolder,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun InstalledLegacyAppHintRow(
-    hint: InstalledLegacyAppHint,
-    onImportFromFolder: () -> Unit,
-) {
-    PreferenceEntry(
-        title = { Text(hint.app.displayName) },
-        description = stringResource(R.string.legacy_storage_installed_hint),
-        icon = {
-            Icon(
-                painter = painterResource(R.drawable.info),
-                contentDescription = null,
-            )
-        },
-        onClick = onImportFromFolder,
-    )
-}
-
-private fun openAllFilesAccessSettings(context: android.content.Context) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-    val intent =
-        Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-            data = Uri.parse("package:${context.packageName}")
-        }
-    runCatching { context.startActivity(intent) }
-        .onFailure {
-            context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-        }
-}
-
-private const val StorageRefreshIntervalMillis = 500L
+private const val StorageRefreshIntervalMillis = 5_000L
 private const val CacheSizeBytesPerMegabyte = 1024L * 1024L
 
 private fun cacheSizeMegabytesToBytes(sizeMegabytes: Int): Long = sizeMegabytes.toLong().coerceAtLeast(0L) * CacheSizeBytesPerMegabyte

@@ -271,6 +271,7 @@ enum class AudioQuality {
 val PlayerStreamClientKey = stringPreferencesKey("playerStreamClient")
 
 val EnableSaavnStreamingKey = booleanPreferencesKey("enableSaavnStreaming")
+val ParallelSourceFetchKey = booleanPreferencesKey("parallelSourceFetch")
 val SaavnAudioQualityKey = stringPreferencesKey("saavnAudioQuality")
 
 enum class PlayerStreamClient {
@@ -353,10 +354,6 @@ val DownloadsStoragePathKey = stringPreferencesKey("downloadsStoragePath")
 val DownloadsStorageDisplayNameKey = stringPreferencesKey("downloadsStorageDisplayName")
 val SongCacheStoragePathKey = stringPreferencesKey("songCacheStoragePath")
 val SongCacheStorageDisplayNameKey = stringPreferencesKey("songCacheStorageDisplayName")
-val LegacyStorageImportCompletedKey = stringPreferencesKey("legacyStorageImportCompleted")
-val LegacyStorageImportedAppsKey = stringSetPreferencesKey("legacyStorageImportedApps")
-val AutoImportLegacyStorageKey = booleanPreferencesKey("autoImportLegacyStorage")
-
 val PauseListenHistoryKey = booleanPreferencesKey("pauseListenHistory")
 val PauseSearchHistoryKey = booleanPreferencesKey("pauseSearchHistory")
 val DisableScreenshotKey = booleanPreferencesKey("disableScreenshot")
@@ -840,6 +837,35 @@ val LanguageCodeToName =
         "lt" to "Lietuvių",
         "lv" to "Latviešu",
         "et" to "Eesti",
+    )
+
+val AppLanguageCodeToName =
+    mapOf(
+        "en" to "English",
+        "ar" to "العربية",
+        "arz" to "العربية المصرية",
+        "de-DE" to "Deutsch",
+        "es" to "Español",
+        "et" to "Eesti",
+        "fr" to "Français",
+        "he" to "עברית",
+        "hi" to "हिन्दी",
+        "id-ID" to "Bahasa Indonesia",
+        "it" to "Italiano",
+        "ja" to "日本語",
+        "jv" to "Basa Jawa",
+        "ko" to "한국어",
+        "ml" to "മലയാളം",
+        "ms" to "Bahasa Melayu",
+        "nl" to "Nederlands",
+        "pt-BR" to "Português (Brasil)",
+        "ru" to "Русский",
+        "sa" to "संस्कृतम्",
+        "ta" to "தமிழ்",
+        "tr" to "Türkçe",
+        "uk" to "Українська",
+        "vi" to "Tiếng Việt",
+        "zh-CN" to "简体中文",
     )
 
 val CountryCodeToName =

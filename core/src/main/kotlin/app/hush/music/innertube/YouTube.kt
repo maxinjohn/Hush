@@ -120,6 +120,7 @@ object YouTube {
     private val innerTube = InnerTube()
     private val accountSwitcherClient = WEB.copy(loginSupported = true)
     private val mutableAuthState = MutableStateFlow(PlaybackAuthState.EMPTY)
+    private val authStateLock = Any()
 
     val authStateFlow: StateFlow<PlaybackAuthState> = mutableAuthState.asStateFlow()
 
@@ -133,10 +134,41 @@ object YouTube {
     var authState: PlaybackAuthState
         get() = mutableAuthState.value
         set(value) {
-            val normalized = value.normalized()
-            mutableAuthState.value = normalized
-            innerTube.applyAuthState(normalized)
+            synchronized(authStateLock) {
+                applyAuthState(value)
+            }
         }
+
+    /** Updates Web PoTokens only when the session that minted them is still active. */
+    fun updateWebPoTokensIfSessionMatches(
+        sessionId: String,
+        sessionToken: String,
+        playerToken: String,
+    ): PlaybackAuthState? =
+        synchronized(authStateLock) {
+            val currentAuthState = mutableAuthState.value
+            if (currentAuthState.sessionId != sessionId) {
+                null
+            } else {
+                currentAuthState.copy(
+                    poTokenGvs = sessionToken,
+                    poTokenPlayer = playerToken,
+                    webClientPoTokenEnabled = true,
+                ).also(::applyAuthState)
+            }
+        }
+
+    private fun applyAuthState(value: PlaybackAuthState) {
+        val normalized = value.normalized()
+        mutableAuthState.value = normalized
+        innerTube.applyAuthState(normalized)
+    }
+
+    private inline fun updateAuthState(transform: (PlaybackAuthState) -> PlaybackAuthState) {
+        synchronized(authStateLock) {
+            applyAuthState(transform(mutableAuthState.value))
+        }
+    }
 
     var locale: YouTubeLocale
         get() = innerTube.locale
@@ -146,37 +178,37 @@ object YouTube {
     var visitorData: String?
         get() = authState.visitorData
         set(value) {
-            authState = authState.copy(visitorData = value)
+            updateAuthState { it.copy(visitorData = value) }
         }
     var dataSyncId: String?
         get() = authState.dataSyncId
         set(value) {
-            authState = authState.copy(dataSyncId = value)
+            updateAuthState { it.copy(dataSyncId = value) }
         }
     var cookie: String?
         get() = authState.cookie
         set(value) {
-            authState = authState.copy(cookie = value)
+            updateAuthState { it.copy(cookie = value) }
         }
     var poToken: String?
         get() = authState.poToken
         set(value) {
-            authState = authState.copy(poToken = value)
+            updateAuthState { it.copy(poToken = value) }
         }
     var webClientPoTokenEnabled: Boolean
         get() = authState.webClientPoTokenEnabled
         set(value) {
-            authState = authState.copy(webClientPoTokenEnabled = value)
+            updateAuthState { it.copy(webClientPoTokenEnabled = value) }
         }
     var poTokenGvs: String?
         get() = authState.poTokenGvs
         set(value) {
-            authState = authState.copy(poTokenGvs = value)
+            updateAuthState { it.copy(poTokenGvs = value) }
         }
     var poTokenPlayer: String?
         get() = authState.poTokenPlayer
         set(value) {
-            authState = authState.copy(poTokenPlayer = value)
+            updateAuthState { it.copy(poTokenPlayer = value) }
         }
     var proxy: Proxy?
         get() = innerTube.proxy

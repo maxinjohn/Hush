@@ -362,15 +362,23 @@ class MainActivity : ComponentActivity() {
     private fun playPendingDeepLinkQueueIfReady() {
         val pending = pendingDeepLinkQueue ?: return
         val connection = playerConnection ?: return
-        pendingDeepLinkQueue = null
-        connection.playQueue(pending)
+        lifecycleScope.launch {
+            connection.queueRestoreCompleted.first { it }
+            if (playerConnection !== connection || pendingDeepLinkQueue !== pending) return@launch
+            pendingDeepLinkQueue = null
+            connection.playQueue(pending)
+        }
     }
 
     private fun playPendingVoiceSearchIfReady() {
         val query = pendingVoiceSearchQuery ?: return
         val connection = playerConnection ?: return
-        pendingVoiceSearchQuery = null
-        connection.playFromVoiceSearch(query)
+        lifecycleScope.launch {
+            connection.queueRestoreCompleted.first { it }
+            if (playerConnection !== connection || pendingVoiceSearchQuery != query) return@launch
+            pendingVoiceSearchQuery = null
+            connection.playFromVoiceSearch(query)
+        }
     }
 
     private fun requestAodMode() {
@@ -2163,10 +2171,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 },
-                                modifier =
-                                    Modifier
-                                        .fillMaxSize()
-                                        .nestedScroll(searchBarScrollBehavior.nestedScrollConnection),
+                                modifier = Modifier.fillMaxSize(),
                             ) {
                                 var transitionDirection =
                                     AnimatedContentTransitionScope.SlideDirection.Left
@@ -2286,13 +2291,17 @@ class MainActivity : ComponentActivity() {
                                                 } else {
                                                     Modifier
                                                 },
-                                            ).nestedScroll(
+                                            ).then(
                                                 if (navigationItems.fastAny { it.route == navBackStackEntry?.destination?.route } ||
                                                     navBackStackEntry?.destination?.route?.startsWith(OnlineSearchResultRoutePrefix) == true
                                                 ) {
-                                                    searchBarScrollBehavior.nestedScrollConnection
+                                                    Modifier.nestedScroll(searchBarScrollBehavior.nestedScrollConnection)
+                                                } else if (navBackStackEntry?.destination?.route == "settings" ||
+                                                    navBackStackEntry?.destination?.route?.startsWith("settings/") == true
+                                                ) {
+                                                    Modifier
                                                 } else {
-                                                    topAppBarScrollBehavior.nestedScrollConnection
+                                                    Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection)
                                                 },
                                             ),
                                 ) {
@@ -2347,17 +2356,19 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        NetworkStatusBanner(
-                            state = networkBannerState,
-                            modifier =
-                                Modifier
-                                    .align(Alignment.TopCenter)
-                                    .padding(
-                                        top = if (shouldShowTopBar) topInset + AppBarHeight + 8.dp else topInset + 8.dp,
-                                        start = 16.dp,
-                                        end = 16.dp,
-                                    ).zIndex(10f),
-                        )
+                        if (!aodModeEnabled) {
+                            NetworkStatusBanner(
+                                state = networkBannerState,
+                                modifier =
+                                    Modifier
+                                        .align(Alignment.TopCenter)
+                                        .padding(
+                                            top = if (shouldShowTopBar) topInset + AppBarHeight + 8.dp else topInset + 8.dp,
+                                            start = 16.dp,
+                                            end = 16.dp,
+                                        ).zIndex(10f),
+                            )
+                        }
                     }
 
                     pendingBackupRestoreUri?.let { uri ->

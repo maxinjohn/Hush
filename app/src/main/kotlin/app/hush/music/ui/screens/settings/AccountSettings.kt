@@ -218,15 +218,8 @@ fun AccountSettings(
             else -> loginLabel
         }
 
-    var showToken by remember { mutableStateOf(false) }
     var showTokenEditor by remember { mutableStateOf(false) }
     var showUnsavedAccountDialog by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isLoggedIn) {
-        if (!isLoggedIn) {
-            showToken = false
-        }
-    }
 
     val hasUpdate =
         BuildConfig.UPDATER_AVAILABLE &&
@@ -234,7 +227,6 @@ fun AccountSettings(
     val tokenActionTitle =
         when {
             !isLoggedIn -> stringResource(R.string.advanced_login)
-            showToken -> stringResource(R.string.token_shown)
             else -> stringResource(R.string.token_hidden)
         }
 
@@ -307,22 +299,6 @@ fun AccountSettings(
                     }
                 },
                 actions = {
-                    OutlinedIconButton(
-                        onClick = { showTokenEditor = true },
-                        colors =
-                            IconButtonDefaults.outlinedIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                contentColor = MaterialTheme.colorScheme.primary,
-                            ),
-                        border = null,
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.token),
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-
                     if (hasUpdate) {
                         BadgedBox(
                             badge = {
@@ -395,7 +371,6 @@ fun AccountSettings(
                     },
                     onSecondaryAction = {
                         if (isLoggedIn) {
-                            showToken = false
                             onInnerTubeCookieChange("")
                             forgetAccount(context, clearWebAuthSession = true)
                         } else {
@@ -501,16 +476,7 @@ fun AccountSettings(
                         icon = painterResource(R.drawable.token),
                         title = tokenActionTitle,
                         subtitle = tokenDescription,
-                        accent = if (isLoggedIn && showToken) MaterialTheme.colorScheme.tertiary else null,
-                        onClick = {
-                            if (!isLoggedIn) {
-                                showTokenEditor = true
-                            } else if (!showToken) {
-                                showToken = true
-                            } else {
-                                showTokenEditor = true
-                            }
-                        },
+                        onClick = { showTokenEditor = true },
                     )
                 }
             }

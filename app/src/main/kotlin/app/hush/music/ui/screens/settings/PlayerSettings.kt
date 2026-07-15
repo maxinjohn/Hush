@@ -197,6 +197,13 @@ fun PlayerSettings(
             PrefetchCountKey,
             defaultValue = 2,
         )
+    val visiblePrefetchCount = prefetchCount.coerceIn(0, 4)
+
+    LaunchedEffect(prefetchCount) {
+        if (prefetchCount != visiblePrefetchCount) {
+            onPrefetchCountChange(visiblePrefetchCount)
+        }
+    }
 
     val (artistSeparators, onArtistSeparatorsChange) =
         rememberPreference(
@@ -354,10 +361,10 @@ fun PlayerSettings(
                 NumberPickerPreference(
                     title = { Text(stringResource(R.string.prefetch_count)) },
                     icon = { Icon(painterResource(R.drawable.download), null) },
-                    value = prefetchCount,
-                    onValueChange = onPrefetchCountChange,
+                    value = visiblePrefetchCount,
+                    onValueChange = { onPrefetchCountChange(it.coerceIn(0, 4)) },
                     minValue = 0,
-                    maxValue = 20,
+                    maxValue = 4,
                     valueText = { if (it == 0) "Off" else "$it songs" },
                 )
             }

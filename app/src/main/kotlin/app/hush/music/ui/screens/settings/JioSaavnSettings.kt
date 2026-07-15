@@ -50,6 +50,8 @@ import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
 import app.hush.music.constants.EnableSaavnStreamingKey
+import app.hush.music.constants.PrimaryAudioScraper
+import app.hush.music.constants.PrimaryAudioScraperKey
 import app.hush.music.constants.SaavnAudioQuality
 import app.hush.music.constants.SaavnAudioQualityKey
 import app.hush.music.ui.component.FeatureBetaBadge
@@ -69,16 +71,25 @@ fun JioSaavnSettings(
     navController: NavController,
     scrollBehavior: TopAppBarScrollBehavior,
 ) {
-    val (saavnEnabled, onSaavnEnabledChange) = rememberPreference(EnableSaavnStreamingKey, defaultValue = false)
+    val (legacySaavnEnabled, onSaavnEnabledChange) = rememberPreference(EnableSaavnStreamingKey, defaultValue = false)
+    val (primaryScraper, onPrimaryScraperChange) =
+        rememberEnumPreference(
+            PrimaryAudioScraperKey,
+            defaultValue = if (legacySaavnEnabled) PrimaryAudioScraper.JIOSAAVN else PrimaryAudioScraper.YOUTUBE,
+        )
+    val saavnEnabled = primaryScraper == PrimaryAudioScraper.JIOSAAVN
     val playerConnection = LocalPlayerConnection.current
     val onSaavnToggle: (Boolean) -> Unit = { enabled ->
         onSaavnEnabledChange(enabled)
-        if (enabled) {
-            playerConnection?.service?.clearSaavnIncompatiblePlaybackCache()
-        }
+        onPrimaryScraperChange(if (enabled) PrimaryAudioScraper.JIOSAAVN else PrimaryAudioScraper.YOUTUBE)
+        playerConnection?.service?.clearSaavnIncompatiblePlaybackCache()
     }
     val (saavnQuality, onSaavnQualityChange) =
         rememberEnumPreference(SaavnAudioQualityKey, defaultValue = SaavnAudioQuality.QUALITY_320)
+    val onSaavnQualitySelected: (SaavnAudioQuality) -> Unit = { quality ->
+        onSaavnQualityChange(quality)
+        playerConnection?.service?.clearSaavnIncompatiblePlaybackCache()
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         HushAmbientBackground(
@@ -168,7 +179,7 @@ fun JioSaavnSettings(
                             trailingContent = {
                                 RadioButton(
                                     selected = saavnQuality == quality,
-                                    onClick = { onSaavnQualityChange(quality) },
+                                    onClick = { onSaavnQualitySelected(quality) },
                                     enabled = saavnEnabled,
                                     colors = RadioButtonDefaults.colors(
                                         selectedColor = MaterialTheme.colorScheme.primary,
@@ -179,7 +190,7 @@ fun JioSaavnSettings(
                                 )
                             },
                             isEnabled = saavnEnabled,
-                            onClick = { if (saavnEnabled) onSaavnQualityChange(quality) },
+                            onClick = { if (saavnEnabled) onSaavnQualitySelected(quality) },
                         )
                     }
                 }

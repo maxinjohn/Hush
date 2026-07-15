@@ -288,6 +288,7 @@ fun QuickPicksSection(
     modifier: Modifier = Modifier,
 ) {
     val distinctQuickPicks = remember(quickPicks) { quickPicks.distinctBy { it.id } }
+    val context = LocalContext.current
 
     when (displayMode) {
         QuickPicksDisplayMode.CARD -> {
@@ -324,6 +325,14 @@ fun QuickPicksSection(
                 val song = distinctQuickPicks[index]
                 val isActive = song.id == mediaMetadata?.id
                 val drawInfo = carouselItemDrawInfo
+                val artworkRequest =
+                    remember(song.id, song.song.thumbnailUrl, context) {
+                        ImageRequest
+                            .Builder(context)
+                            .data(song.song.thumbnailUrl)
+                            .crossfade(false)
+                            .build()
+                    }
 
                 Box(
                     modifier =
@@ -360,12 +369,7 @@ fun QuickPicksSection(
                             ),
                 ) {
                     AsyncImage(
-                        model =
-                            ImageRequest
-                                .Builder(LocalContext.current)
-                                .data(song.song.thumbnailUrl)
-                                .crossfade(true)
-                                .build(),
+                        model = artworkRequest,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier =

@@ -11,7 +11,10 @@ package app.hush.music.playback
 import android.content.Context
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.selects.select
 import app.hush.music.constants.EnableSaavnStreamingKey
+import app.hush.music.constants.PrimaryAudioScraper
+import app.hush.music.constants.PrimaryAudioScraperKey
 import app.hush.music.constants.SaavnAudioQuality
 import app.hush.music.constants.SaavnAudioQualityKey
 import app.hush.music.innertube.YouTube
@@ -31,7 +34,7 @@ import androidx.media3.common.MediaMetadata as ExoMediaMetadata
 
 object SaavnPlaybackResolver {
     private const val TAG = "SaavnPlayback"
-    private val matchCache = ConcurrentHashMap<String, SaavnSong?>()
+    private val matchCache = ConcurrentHashMap<String, SaavnSong>()
     private const val MATCH_CACHE_MAX_SIZE = 5000
     private val streamUrlCache = ConcurrentHashMap<String, StreamUrlCacheEntry>()
     private const val STREAM_URL_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
@@ -126,13 +129,13 @@ object SaavnPlaybackResolver {
                 }
             }
 
+            if (metadata == null && hints?.durationSec == null) {
+                metadata = YTPlayerUtils.playerResponseForMetadata(videoId, playlistId).getOrNull()
+            }
+
             if (title.isNullOrBlank()) {
                 Timber.tag(TAG).w("No title for Saavn lookup (videoId=%s hints=%s)", videoId, hints)
                 return@runCatching null
-            }
-
-            if (metadata == null) {
-                metadata = YTPlayerUtils.playerResponseForMetadata(videoId, playlistId).getOrNull()
             }
 
             Timber.tag(TAG).i(
@@ -152,22 +155,23 @@ object SaavnPlaybackResolver {
                         expectedDurationSec =
                             hints?.durationSec?.takeIf { it > 0 }
                                 ?: metadata?.videoDetails?.lengthSeconds?.toIntOrNull()?.takeIf { it > 0 },
-                    ).also { result ->
+                    )?.also { result ->
                         if (matchCache.size >= MATCH_CACHE_MAX_SIZE) matchCache.clear()
                         matchCache[videoId] = result
                     } ?: run {
-                        Timber.tag(TAG).w("No Saavn match for videoId=%s title=\"%s\"", videoId, title)
-                        return@runCatching null
-                    }
+                    Timber.tag(TAG).w("No Saavn match for videoId=%s title=\"%s\"", videoId, title)
+                    return@runCatching null
+                }
 
+            val streamCacheKey = "$videoId:${quality.name}"
             val streamUrl =
-                streamUrlCache[videoId]
+                streamUrlCache[streamCacheKey]
                     ?.takeIf { it.expiresAt > System.currentTimeMillis() }
                     ?.url
                     ?: SaavnService.resolveStreamUrl(bestSong, quality.toApiValue())
                         ?.also { url ->
                             if (streamUrlCache.size >= MATCH_CACHE_MAX_SIZE) streamUrlCache.clear()
-                            streamUrlCache[videoId] = StreamUrlCacheEntry(
+                            streamUrlCache[streamCacheKey] = StreamUrlCacheEntry(
                                 url = url,
                                 expiresAt = System.currentTimeMillis() + STREAM_URL_TTL_MS,
                             )
@@ -224,9 +228,21 @@ object SaavnPlaybackResolver {
     }
 
     private suspend fun readSaavnEnabled(context: Context): Boolean {
+        val primaryScraper =
+            context.dataStore.getAsync(PrimaryAudioScraperKey)
+                ?: PreferenceStore.get(PrimaryAudioScraperKey)
+        when (primaryScraper) {
+            PrimaryAudioScraper.JIOSAAVN.name -> return true
+            PrimaryAudioScraper.YOUTUBE.name -> return false
+        }
         val fromStore = context.dataStore.getAsync(EnableSaavnStreamingKey)
         if (fromStore != null) return fromStore
         return PreferenceStore.get(EnableSaavnStreamingKey) ?: false
+    }
+
+    fun clearCaches() {
+        matchCache.clear()
+        streamUrlCache.clear()
     }
 
     private suspend fun findBestMatch(
@@ -235,11 +251,11 @@ object SaavnPlaybackResolver {
         albumName: String,
         expectedDurationSec: Int? = null,
     ): SaavnSong? {
-        val wantedTitleLower = cleanTitleForSearch(title).lowercase(Locale.US)
-        if (wantedTitleLower.isBlank()) return null
-        val wantedArtistsLower =
+        val wantedTitleKey = comparisonKey(title)
+        if (wantedTitleKey.isBlank()) return null
+        val wantedArtistKeys =
             artistNames
-                .map { cleanArtistForSearch(it).lowercase(Locale.US) }
+                .map(::artistComparisonKey)
                 .filter { it.isNotBlank() }
         val artistQuery = artistNames.joinToString(" ")
 
@@ -255,47 +271,64 @@ object SaavnPlaybackResolver {
                 }
             }.distinct().filter { it.isNotBlank() }
 
-        var bestLooseMatch: SaavnSong? = null
-
-        for (query in queries) {
-            val candidates = SaavnService.searchSongs(query, limit = 15).getOrNull().orEmpty()
-            Timber.tag(TAG).d("Saavn search \"%s\" -> %d candidates", query, candidates.size)
-
-            candidates.firstOrNull { candidate ->
-                matchesCandidate(
-                    candidate = candidate,
-                    wantedTitleLower = wantedTitleLower,
-                    wantedArtistsLower = wantedArtistsLower,
-                    expectedDurationSec = expectedDurationSec,
-                    strict = true,
-                )
-            }?.let { return it }
-
-            candidates.firstOrNull { candidate ->
-                matchesCandidate(
-                    candidate = candidate,
-                    wantedTitleLower = wantedTitleLower,
-                    wantedArtistsLower = wantedArtistsLower,
-                    expectedDurationSec = expectedDurationSec,
-                    strict = false,
-                )
-            }?.let { loose ->
-                if (bestLooseMatch == null) bestLooseMatch = loose
+        return coroutineScope {
+            val deferreds = queries.map { query ->
+                async {
+                    query to SaavnService.searchSongs(query, limit = 15).getOrNull().orEmpty()
+                }
             }
 
-            if (bestLooseMatch == null) {
+            val remaining = deferreds.toMutableList()
+            var bestLooseMatch: SaavnSong? = null
+
+            while (remaining.isNotEmpty()) {
+                val (query, candidates) = select<Pair<String, List<SaavnSong>>> {
+                    remaining.forEach { d ->
+                        d.onAwait { it }
+                    }
+                }
+                remaining.removeAll { it.isCompleted }
+
+                Timber.tag(TAG).d("Saavn search \"%s\" -> %d candidates", query, candidates.size)
+
                 candidates.firstOrNull { candidate ->
-                    val dur = candidate.duration
-                    cleanTitleForSearch(candidate.name).lowercase(Locale.US) ==
-                        wantedTitleLower &&
-                        (expectedDurationSec == null ||
-                            dur == null ||
-                            kotlin.math.abs(expectedDurationSec - dur) <= 10)
-                }?.let { bestLooseMatch = it }
-            }
-        }
+                    matchesCandidate(
+                        candidate = candidate,
+                        wantedTitleKey = wantedTitleKey,
+                        wantedArtistKeys = wantedArtistKeys,
+                        expectedDurationSec = expectedDurationSec,
+                        strict = true,
+                    )
+                }?.let {
+                    remaining.forEach { it.cancel() }
+                    return@coroutineScope it
+                }
 
-        return bestLooseMatch
+                if (bestLooseMatch == null) {
+                    candidates.firstOrNull { candidate ->
+                        matchesCandidate(
+                            candidate = candidate,
+                            wantedTitleKey = wantedTitleKey,
+                            wantedArtistKeys = wantedArtistKeys,
+                            expectedDurationSec = expectedDurationSec,
+                            strict = false,
+                        )
+                    }?.let { bestLooseMatch = it }
+
+                    if (bestLooseMatch == null) {
+                        candidates.firstOrNull { candidate ->
+                            val dur = candidate.duration
+                            comparisonKey(candidate.name) == wantedTitleKey &&
+                                (expectedDurationSec == null ||
+                                    dur == null ||
+                                    kotlin.math.abs(expectedDurationSec - dur) <= 10)
+                        }?.let { bestLooseMatch = it }
+                    }
+                }
+            }
+
+            bestLooseMatch
+        }
     }
 
     private fun cleanTitleForSearch(title: String): String =
@@ -329,17 +362,17 @@ object SaavnPlaybackResolver {
 
     private fun matchesCandidate(
         candidate: SaavnSong,
-        wantedTitleLower: String,
-        wantedArtistsLower: List<String>,
+        wantedTitleKey: String,
+        wantedArtistKeys: List<String>,
         expectedDurationSec: Int? = null,
         strict: Boolean,
     ): Boolean {
-        val candidateTitleLower = cleanTitleForSearch(candidate.name).lowercase(Locale.US)
-        val normalizedWantedTitle = cleanTitleForSearch(wantedTitleLower).lowercase(Locale.US)
+        val candidateTitleKey = comparisonKey(candidate.name)
+        if (candidateTitleKey.isBlank()) return false
         val titleMatches =
-            candidateTitleLower == normalizedWantedTitle ||
-                candidateTitleLower.contains(normalizedWantedTitle) ||
-                normalizedWantedTitle.contains(candidateTitleLower)
+            candidateTitleKey == wantedTitleKey ||
+                candidateTitleKey.contains(wantedTitleKey) ||
+                wantedTitleKey.contains(candidateTitleKey)
         if (!titleMatches) return false
 
         if (expectedDurationSec != null) {
@@ -348,23 +381,23 @@ object SaavnPlaybackResolver {
             if (durationDelta > if (strict) 12 else 10) return false
         }
 
-        if (wantedArtistsLower.isEmpty()) return true
+        if (wantedArtistKeys.isEmpty()) return true
 
-        val candidateArtists =
+        val candidateArtistKeys =
             candidate.artists.primary
-                .map { cleanArtistForSearch(it.name).lowercase(Locale.US) }
+                .map { artistComparisonKey(it.name) }
                 .filter { it.isNotBlank() }
 
-        if (candidateArtists.isEmpty()) return !strict
+        if (candidateArtistKeys.isEmpty()) return !strict
 
         val artistMatches =
-            wantedArtistsLower.any { wanted ->
-                candidateArtists.any { candidateArtist ->
+            wantedArtistKeys.any { wanted ->
+                candidateArtistKeys.any { candidateArtist ->
                     candidateArtist.contains(wanted) || wanted.contains(candidateArtist)
                 }
             }
 
-        return artistMatches || !strict
+        return artistMatches || (!strict && wantedArtistKeys.isEmpty())
     }
 
     private fun normalizeQuery(value: String): String =
@@ -373,6 +406,13 @@ object SaavnPlaybackResolver {
             .replace(",", " ")
             .replace(Regex("\\s+"), " ")
             .trim()
+
+    private fun comparisonKey(value: String): String =
+        cleanTitleForSearch(value)
+            .lowercase(Locale.US)
+            .replace(Regex("[^\\p{L}\\p{N}]"), "")
+
+    private fun artistComparisonKey(value: String): String = comparisonKey(cleanArtistForSearch(value))
 
     private fun buildPlaybackData(
         metadata: PlayerResponse?,
