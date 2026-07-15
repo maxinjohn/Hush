@@ -8,10 +8,11 @@ import app.hush.music.utils.safeDataStoreEdit
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -39,42 +40,41 @@ class CipherConfigFetcher @Inject constructor(
     @Volatile
     private var lastFetchTime: Long = 0L
 
-    private var fetchInProgress = false
+    private val fetchMutex = Mutex()
+
+    private data class StoredConfig(
+        val config: RemoteCipherConfig,
+        val fetchedAt: Long,
+    )
 
     fun getCachedConfig(): RemoteCipherConfig? = cachedConfig
 
     suspend fun getConfig(): RemoteCipherConfig = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
-
-        if (cachedConfig != null && (now - lastFetchTime) < RemoteCipherConfig.CONFIG_CACHE_DURATION_MS) {
-            return@withContext cachedConfig!!
-        }
-
-        if (cachedConfig == null) {
-            val stored = loadFromDataStore()
-            if (stored != null) {
-                cachedConfig = stored
-                lastFetchTime = now
-                return@withContext stored
+        fetchMutex.withLock {
+            if (cachedConfig == null) {
+                loadFromDataStore()?.let { stored ->
+                    cachedConfig = stored.config
+                    lastFetchTime = stored.fetchedAt
+                }
             }
-        }
 
-        if (fetchInProgress) return@withContext cachedConfig ?: RemoteCipherConfig.EMPTY
+            val now = System.currentTimeMillis()
+            val currentConfig = cachedConfig
+            if (currentConfig != null && isFresh(lastFetchTime, now)) {
+                return@withLock currentConfig
+            }
 
-        fetchInProgress = true
-        try {
             val config = fetchRemoteConfig()
             if (config != null) {
+                val fetchedAt = System.currentTimeMillis()
                 cachedConfig = config
-                lastFetchTime = now
-                saveToDataStore(config)
-                return@withContext config
+                lastFetchTime = fetchedAt
+                saveToDataStore(config, fetchedAt)
+                return@withLock config
             }
-        } finally {
-            fetchInProgress = false
-        }
 
-        cachedConfig ?: RemoteCipherConfig.EMPTY
+            cachedConfig ?: RemoteCipherConfig.EMPTY
+        }
     }
 
     fun getConfigBlocking(): RemoteCipherConfig = runBlocking { getConfig() }
@@ -113,15 +113,32 @@ class CipherConfigFetcher @Inject constructor(
         }.getOrNull()
     }
 
-    private suspend fun loadFromDataStore(): RemoteCipherConfig? = runCatching {
-        val raw = context.dataStore.data.first()[Companion.CIPHER_CONFIG_KEY] ?: return@runCatching null
-        RemoteCipherConfig.parse(raw).getOrNull()
+    private fun isFresh(
+        fetchedAt: Long,
+        now: Long,
+    ): Boolean =
+        fetchedAt > 0L &&
+            now >= fetchedAt &&
+            now - fetchedAt < RemoteCipherConfig.CONFIG_CACHE_DURATION_MS
+
+    private suspend fun loadFromDataStore(): StoredConfig? = runCatching {
+        val preferences = context.dataStore.data.first()
+        val raw = preferences[Companion.CIPHER_CONFIG_KEY] ?: return@runCatching null
+        val config = RemoteCipherConfig.parse(raw).getOrNull() ?: return@runCatching null
+        StoredConfig(
+            config = config,
+            fetchedAt = preferences[Companion.CIPHER_CONFIG_FETCHED_AT_KEY] ?: 0L,
+        )
     }.getOrNull()
 
-    private suspend fun saveToDataStore(config: RemoteCipherConfig) {
+    private suspend fun saveToDataStore(
+        config: RemoteCipherConfig,
+        fetchedAt: Long,
+    ) {
         runCatching {
             context.safeDataStoreEdit { prefs ->
                 prefs[Companion.CIPHER_CONFIG_KEY] = json.encodeToString(config)
+                prefs[Companion.CIPHER_CONFIG_FETCHED_AT_KEY] = fetchedAt
             }
         }
     }
@@ -133,6 +150,7 @@ class CipherConfigFetcher @Inject constructor(
 
     companion object {
         val CIPHER_CONFIG_KEY = androidx.datastore.preferences.core.stringPreferencesKey("remote_cipher_config")
+        val CIPHER_CONFIG_FETCHED_AT_KEY = androidx.datastore.preferences.core.longPreferencesKey("remote_cipher_config_fetched_at")
 
         @Volatile
         private var instance: CipherConfigFetcher? = null

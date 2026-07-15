@@ -10,12 +10,10 @@
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
-    <uses-permission
-        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
-        tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -41,15 +39,6 @@
         <package android:name="com.google.android.apps.youtube.music" />
         <package android:name="com.google.android.youtube" />
         <package android:name="com.google.android.projection.gearhead" />
-        <package android:name="com.dd3boh.outertune" />
-        <package android:name="com.metrolist.music" />
-        <package android:name="com.zionhuang.music" />
-        <package android:name="it.vfsfitvnm.vimusic" />
-        <package android:name="com.vivi.vivimusic" />
-        <package android:name="iad1tya.echo.music" />
-        <package android:name="com.echo.music" />
-        <package android:name="com.arturo254.opentune" />
-        <package android:name="moe.rukamori.archivetune" />
         <package android:name="com.spotify.music" />
         <package android:name="deezer.android.app" />
         <package android:name="com.amazon.mp3" />

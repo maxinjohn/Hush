@@ -38,8 +38,6 @@ import app.hush.music.constants.GitHubTranslationContributorsJsonKey
 import app.hush.music.constants.GitHubTranslationContributorsLastCheckedAtKey
 import app.hush.music.constants.DownloadsStorageDisplayNameKey
 import app.hush.music.constants.DownloadsStoragePathKey
-import app.hush.music.constants.LegacyStorageImportCompletedKey
-import app.hush.music.constants.LegacyStorageImportedAppsKey
 import app.hush.music.constants.SongCacheStorageDisplayNameKey
 import app.hush.music.constants.SongCacheStoragePathKey
 import app.hush.music.constants.StorageFolderDisplayNameKey
@@ -187,17 +185,6 @@ class SetCustomStorageFolderUseCase
             displayName: String?,
             onProgress: suspend (StorageMigrationProgress) -> Unit,
         ): StorageFolderUpdateResult = repository.setCustomFolderPath(kind, path, displayName, onProgress)
-    }
-
-class ImportLegacyStorageUseCase
-    @Inject
-    constructor(
-        private val repository: StorageLocationRepository,
-    ) {
-        suspend operator fun invoke(
-            candidate: LegacyStorageCandidate,
-            onProgress: suspend (StorageMigrationProgress) -> Unit,
-        ): StorageFolderUpdateResult = repository.importLegacyStorage(candidate, onProgress)
     }
 
 class ImportFromDocumentTreeUseCase
@@ -357,63 +344,6 @@ class StorageLocationRepository
                         else -> Unit
                     }
                 }.apply()
-                StorageRestartScheduler.schedule(context)
-                StorageFolderUpdateResult.Success
-            }
-
-        suspend fun importLegacyStorage(
-            candidate: LegacyStorageCandidate,
-            onProgress: suspend (StorageMigrationProgress) -> Unit,
-        ): StorageFolderUpdateResult =
-            withContext(Dispatchers.IO) {
-                releaseCachesForMigration()
-                val preferencesSnapshot = context.dataStore.data.first()
-                val targetDownload = activeCacheDirectory(preferencesSnapshot, StorageFolderKind.DOWNLOADS)
-                val targetCache = activeCacheDirectory(preferencesSnapshot, StorageFolderKind.SONG_CACHE)
-
-                val movedDownloads =
-                    copyMigrationPhase(
-                        phase = StorageMigrationPhase.DOWNLOADS,
-                        directories =
-                            listOf(
-                                StorageDirectoryMove(
-                                    source = candidate.downloadDir,
-                                    target = targetDownload,
-                                ),
-                            ),
-                        onProgress = onProgress,
-                    )
-                if (!movedDownloads) return@withContext StorageFolderUpdateResult.NotWritable
-
-                candidate.streamCacheDir?.let { streamCacheDir ->
-                    val movedCache =
-                        copyMigrationPhase(
-                            phase = StorageMigrationPhase.CACHE,
-                            directories =
-                                listOf(
-                                    StorageDirectoryMove(
-                                        source = streamCacheDir,
-                                        target = targetCache,
-                                    ),
-                                ),
-                            onProgress = onProgress,
-                        )
-                    if (!movedCache) return@withContext StorageFolderUpdateResult.NotWritable
-                }
-
-                candidate.exoPlayerDatabase?.let { legacyDatabase ->
-                    LegacyStorageCompatibility.mergeExoPlayerDatabase(
-                        sourceDb = legacyDatabase,
-                        targetDb = LegacyStorageCompatibility.resolveExoPlayerDatabase(context),
-                    )
-                }
-
-                context.dataStore.edit { preferences ->
-                    val imported = preferences[LegacyStorageImportedAppsKey]?.toMutableSet() ?: mutableSetOf()
-                    imported += candidate.app.id
-                    preferences[LegacyStorageImportedAppsKey] = imported
-                    preferences[LegacyStorageImportCompletedKey] = candidate.app.id
-                }
                 StorageRestartScheduler.schedule(context)
                 StorageFolderUpdateResult.Success
             }
@@ -1178,11 +1108,11 @@ private fun File.migrationByteCount(target: File): Long {
     val canonicalSource = canonicalFile
     val canonicalTarget = target.canonicalFile
     if (canonicalSource == canonicalTarget || !canonicalSource.exists()) return 0L
-    if (canonicalSource.isFile) return canonicalSource.length()
+    if (canonicalSource.isFile) return canonicalSource.length().takeIf { !canonicalTarget.exists() } ?: 0L
     return canonicalSource
         .walkTopDown()
         .filter { file -> file.isFile }
-        .sumOf { file -> file.length() }
+        .sumOf { file -> file.length().takeIf { !canonicalTarget.resolve(file.relativeTo(canonicalSource).path).exists() } ?: 0L }
 }
 
 private suspend fun File.deleteTreeSafely(

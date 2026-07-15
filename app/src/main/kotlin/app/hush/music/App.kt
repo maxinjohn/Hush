@@ -46,10 +46,7 @@ import app.hush.music.kugou.KuGou
 import app.hush.music.lastfm.LastFM
 import app.hush.music.paxsenix.PaxsenixLyrics
 import app.hush.music.scrobbling.LastFmServiceConfig
-import app.hush.music.di.StorageEntryPoint
-import app.hush.music.storage.LegacyStorageAutoImporter
 import app.hush.music.storage.StorageFolderKind
-import dagger.hilt.android.EntryPointAccessors
 import app.hush.music.storage.StorageLocationRepository
 import app.hush.music.ui.player.CanvasArtworkPlaybackCache
 import app.hush.music.ui.screens.settings.ThemePalettes
@@ -124,12 +121,12 @@ class App :
         super.onCreate()
         instance = this
         if (currentProcessName()?.endsWith(":crash") == true) {
-            Timber.plant(Timber.DebugTree())
+            if (BuildConfig.DEBUG) Timber.plant(Timber.DebugTree())
             return
         }
         BotGuardTokenGenerator.initialize(this)
         PreferenceStore.start(this)
-        Timber.plant(Timber.DebugTree())
+        if (BuildConfig.DEBUG) Timber.plant(Timber.DebugTree())
         try {
             Timber.plant(
                 app.hush.music.utils
@@ -245,17 +242,6 @@ class App :
                     dayOfWeek = backupDayOfWeek,
                 )
 
-                runCatching {
-                    val storageEntryPoint =
-                        EntryPointAccessors.fromApplication(this@App, StorageEntryPoint::class.java)
-                    LegacyStorageAutoImporter.runIfEnabled(
-                        context = this@App,
-                        importLegacyStorage = storageEntryPoint.importLegacyStorage(),
-                    )
-                }.onFailure { throwable ->
-                    Timber.w(throwable, "Legacy storage auto-import failed")
-                }
-
                 IconUtils.setIcon(this@App, prefs[EnableDynamicIconKey] != false)
 
                 prefs[ContentCountryKey]?.takeIf { it != SYSTEM_DEFAULT }?.let { country ->
@@ -296,10 +282,10 @@ class App :
                 }
 
                 // Pre-warm BotGuard token generator
-                val initialVisitor = prefs[VisitorDataKey] ?: YouTube.visitorData
-                if (!initialVisitor.isNullOrBlank()) {
+                val initialSessionId = YouTube.currentPlaybackAuthState().sessionId
+                if (!initialSessionId.isNullOrBlank()) {
                     applicationScope.launch(Dispatchers.IO) {
-                        BotGuardTokenGenerator.preWarm(initialVisitor)
+                        BotGuardTokenGenerator.preWarm(initialSessionId)
                     }
                 }
 

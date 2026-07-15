@@ -53,6 +53,7 @@ object CanvasArtworkPlaybackCache {
     private const val DOWNLOAD_MAX_ATTEMPTS = 4
     private const val DOWNLOAD_RETRY_DELAY_MS = 750L
     private const val CACHE_SIZE_BYTES_PER_MEGABYTE = 1024L * 1024L
+    private const val PARTIAL_FILE_MAX_AGE_MS = 24L * 60L * 60L * 1_000L
 
     private val map = LinkedHashMap<String, CanvasCacheEntry>(DEFAULT_MAX_SIZE_MEGABYTES, 0.75f, true)
     private val cacheJobs = LinkedHashMap<String, Job>()
@@ -253,7 +254,11 @@ object CanvasArtworkPlaybackCache {
     @Synchronized
     fun byteSize(): Long {
         val directory = cacheDirectory ?: return 0L
-        return map.values.sumOf { entry -> entry.byteSize(directory) }
+        return directory
+            .listFiles()
+            ?.filter { file -> file.isFile && (file.name.endsWith(".mp4") || file.name.endsWith(".part")) }
+            ?.sumOf(File::length)
+            ?: 0L
     }
 
     @Synchronized
@@ -509,13 +514,23 @@ object CanvasArtworkPlaybackCache {
             .listFiles()
             ?.filter { file -> file.isFile && file.name.endsWith(".mp4") && file.name !in activeFiles }
             ?.forEach { file -> runCatching { file.delete() } }
+        val staleBeforeMs = System.currentTimeMillis() - PARTIAL_FILE_MAX_AGE_MS
+        directory
+            .listFiles()
+            ?.filter { file -> file.isFile && file.name.endsWith(".part") && file.lastModified() < staleBeforeMs }
+            ?.forEach { file -> runCatching { file.delete() } }
         trimToByteLimitLocked(directory)
     }
 
     private fun trimToByteLimitLocked(directory: File) {
         val limitBytes = maxSizeBytes
         if (limitBytes == Long.MAX_VALUE) return
-        var totalBytes = map.values.sumOf { entry -> entry.byteSize(directory) }
+        var totalBytes =
+            directory
+                .listFiles()
+                ?.filter { file -> file.isFile && (file.name.endsWith(".mp4") || file.name.endsWith(".part")) }
+                ?.sumOf(File::length)
+                ?: 0L
         val iterator = map.entries.iterator()
         while (totalBytes > limitBytes && iterator.hasNext()) {
             val entry = iterator.next().value
@@ -524,6 +539,19 @@ object CanvasArtworkPlaybackCache {
             runCatching { entry.regularFileName?.let { directory.resolve(it).delete() } }
             runCatching { entry.verticalFileName?.let { directory.resolve(it).delete() } }
             totalBytes -= entryBytes
+        }
+        if (totalBytes > limitBytes && cacheJobs.isEmpty()) {
+            directory
+                .listFiles()
+                ?.filter { file -> file.isFile && file.name.endsWith(".part") }
+                ?.sortedBy(File::lastModified)
+                ?.forEach { file ->
+                    if (totalBytes <= limitBytes) return@forEach
+                    val length = file.length()
+                    if (runCatching { file.delete() }.getOrDefault(false)) {
+                        totalBytes -= length
+                    }
+                }
         }
     }
 
@@ -608,15 +636,22 @@ object CanvasArtworkPlaybackCache {
                     ?.let { file -> Uri.fromFile(file).toString() }
             if (regularUri == null && verticalUri == null) return null
             return artwork.copy(
-                animated = if (preferCachedOnly) regularUri else artwork.animated.takeIfNotBlank() ?: regularUri,
-                videoUrl = regularUri,
+                animated = regularUri ?: artwork.animated.takeIfNotBlank(),
+                videoUrl =
+                    if (preferCachedOnly) {
+                        regularUri
+                    } else {
+                        artwork.animated.takeIfNotBlank()?.takeIf { it != regularUri } ?: artwork.videoUrl.takeIfNotBlank()
+                    },
                 animatedVertical =
+                    verticalUri ?: artwork.animatedVertical.takeIfNotBlank(),
+                videoUrlVertical =
                     if (preferCachedOnly) {
                         verticalUri
                     } else {
-                        artwork.animatedVertical.takeIfNotBlank() ?: verticalUri
+                        artwork.animatedVertical.takeIfNotBlank()?.takeIf { it != verticalUri }
+                            ?: artwork.videoUrlVertical.takeIfNotBlank()
                     },
-                videoUrlVertical = verticalUri,
             )
         }
     }

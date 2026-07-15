@@ -46,6 +46,7 @@ import app.hush.music.R
 import app.hush.music.constants.AudioQuality
 import app.hush.music.constants.AudioQualityKey
 import app.hush.music.constants.EnableSaavnStreamingKey
+import app.hush.music.constants.ParallelSourceFetchKey
 import app.hush.music.constants.PrimaryAudioScraper
 import app.hush.music.constants.PrimaryAudioScraperKey
 import app.hush.music.constants.SaavnAudioQuality
@@ -53,6 +54,7 @@ import app.hush.music.constants.SaavnAudioQualityKey
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.ListPreference
 import app.hush.music.ui.component.PreferenceEntry
+import app.hush.music.ui.component.SwitchPreference
 import app.hush.music.ui.component.PreferenceGroup
 import app.hush.music.ui.theme.HushAmbientBackground
 import app.hush.music.ui.utils.backToMain
@@ -67,8 +69,13 @@ fun StreamQualitySettings(
 ) {
     val (audioQuality, onAudioQualityChange) =
         rememberEnumPreference(AudioQualityKey, defaultValue = AudioQuality.AUTO)
+    val (legacySaavnEnabled, onLegacySaavnEnabledChange) =
+        rememberPreference(EnableSaavnStreamingKey, defaultValue = false)
     val (primaryScraper, onPrimaryScraperChange) =
-        rememberEnumPreference(PrimaryAudioScraperKey, defaultValue = PrimaryAudioScraper.YOUTUBE)
+        rememberEnumPreference(
+            PrimaryAudioScraperKey,
+            defaultValue = if (legacySaavnEnabled) PrimaryAudioScraper.JIOSAAVN else PrimaryAudioScraper.YOUTUBE,
+        )
     val saavnEnabled = primaryScraper == PrimaryAudioScraper.JIOSAAVN
     val playerConnection = LocalPlayerConnection.current
     val onSaavnToggle: (Boolean) -> Unit = { enabled ->
@@ -79,6 +86,10 @@ fun StreamQualitySettings(
     }
     val (saavnQuality, onSaavnQualityChange) =
         rememberEnumPreference(SaavnAudioQualityKey, defaultValue = SaavnAudioQuality.QUALITY_320)
+    val onSaavnQualitySelected: (SaavnAudioQuality) -> Unit = { quality ->
+        onSaavnQualityChange(quality)
+        playerConnection?.service?.clearSaavnIncompatiblePlaybackCache()
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         HushAmbientBackground(
@@ -114,6 +125,7 @@ fun StreamQualitySettings(
                         values = PrimaryAudioScraper.entries,
                         onValueSelected = { newScraper ->
                             onPrimaryScraperChange(newScraper)
+                            onLegacySaavnEnabledChange(newScraper == PrimaryAudioScraper.JIOSAAVN)
                             playerConnection?.service?.clearSaavnIncompatiblePlaybackCache()
                         },
                         valueText = {
@@ -122,6 +134,18 @@ fun StreamQualitySettings(
                                 PrimaryAudioScraper.JIOSAAVN -> stringResource(R.string.primary_scraper_jiosaavn)
                             }
                         },
+                    )
+                }
+
+                item {
+                    val (parallelFetch, onParallelFetchChange) =
+                        rememberPreference(ParallelSourceFetchKey, defaultValue = false)
+                    SwitchPreference(
+                        title = { Text(stringResource(R.string.parallel_source_fetch)) },
+                        description = stringResource(R.string.parallel_source_fetch_desc),
+                        icon = { Icon(painterResource(R.drawable.integration), null) },
+                        checked = parallelFetch,
+                        onCheckedChange = onParallelFetchChange,
                     )
                 }
             }
@@ -187,7 +211,7 @@ fun StreamQualitySettings(
                             icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
                             selectedValue = saavnQuality,
                             values = SaavnAudioQuality.entries,
-                            onValueSelected = onSaavnQualityChange,
+                            onValueSelected = onSaavnQualitySelected,
                             valueText = { it.toLabel() },
                         )
                     }

@@ -87,12 +87,17 @@ object BotGuardTokenGenerator {
 
     /**
      * LRU cache for per-video player tokens.
-     * Key: videoId, Value: token string.
+     * Key: session ID + video ID, Value: token string.
      * Avoids redundant mints when the same video is played multiple times.
      */
-    private val playerTokenCache: LinkedHashMap<String, String> =
-        object : LinkedHashMap<String, String>(0, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>): Boolean = size > PLAYER_TOKEN_CACHE_SIZE
+    private data class PlayerTokenCacheKey(
+        val sessionId: String,
+        val videoId: String,
+    )
+
+    private val playerTokenCache: LinkedHashMap<PlayerTokenCacheKey, String> =
+        object : LinkedHashMap<PlayerTokenCacheKey, String>(0, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<PlayerTokenCacheKey, String>): Boolean = size > PLAYER_TOKEN_CACHE_SIZE
         }
 
     // ── public API ───────────────────────────────────────────────────
@@ -113,7 +118,11 @@ object BotGuardTokenGenerator {
     suspend fun preWarm(sessionId: String) {
         val ctx = appContext ?: return
         if (permanentlyBroken) return
-        if (engineReady) return
+        val isReadyForSession =
+            mutex.withLock {
+                engineReady && engineSessionId == sessionId && engine?.isExpired == false
+            }
+        if (isReadyForSession) return
 
         try {
             withTimeout(COLD_START_TIMEOUT_MS) {
@@ -150,24 +159,28 @@ object BotGuardTokenGenerator {
 
         // Check player token cache first
         mutex.withLock {
-            val cachedPlayer = playerTokenCache[videoId]
-            if (cachedPlayer != null && cachedSessionToken != null && engineReady) {
+            val cachedPlayer = playerTokenCache[PlayerTokenCacheKey(sessionId, videoId)]
+            if (
+                cachedPlayer != null &&
+                cachedSessionToken != null &&
+                engineReady &&
+                engineSessionId == sessionId &&
+                engine?.isExpired == false
+            ) {
                 Timber.tag(TAG).d("Cache hit for $videoId")
                 return PoTokenResult(playerToken = cachedPlayer, sessionToken = cachedSessionToken!!)
             }
         }
 
-        val isFirstCall = !engineReady
+        val isFirstCall =
+            mutex.withLock {
+                !engineReady || engineSessionId != sessionId || engine?.isExpired != false
+            }
         val timeout = if (isFirstCall) COLD_START_TIMEOUT_MS else WARM_TIMEOUT_MS
 
         return try {
             withTimeout(timeout) {
-                val result = mintTokenInternal(ctx, videoId, sessionId, forceNewEngine = false)
-                // Cache the player token
-                mutex.withLock {
-                    playerTokenCache[videoId] = result.playerToken
-                }
-                result
+                mintTokenInternal(ctx, videoId, sessionId, forceNewEngine = false)
             }
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
             Timber.tag(TAG).w("Timed out after ${timeout}ms — proceeding without PoToken")
@@ -203,7 +216,7 @@ object BotGuardTokenGenerator {
      */
     suspend fun invalidatePlayerToken(videoId: String) {
         mutex.withLock {
-            playerTokenCache.remove(videoId)
+            playerTokenCache.keys.removeAll { it.videoId == videoId }
         }
     }
 
@@ -213,7 +226,6 @@ object BotGuardTokenGenerator {
      */
     suspend fun invalidateAll() {
         mutex.withLock {
-            playerTokenCache.clear()
             destroyEngine()
         }
     }
@@ -243,6 +255,7 @@ object BotGuardTokenGenerator {
                     withContext(Dispatchers.Main) {
                         engine?.close()
                     }
+                    playerTokenCache.clear()
                     engine = BotGuardEngine.create(ctx)
                     engineSessionId = sessionId
                     cachedSessionToken = engine!!.mint(sessionId)
@@ -261,7 +274,15 @@ object BotGuardTokenGenerator {
                 return mintTokenInternal(ctx, videoId, sessionId, forceNewEngine = true)
             }
 
-        return PoTokenResult(playerToken = playerTok, sessionToken = sessionTok)
+        val result = PoTokenResult(playerToken = playerTok, sessionToken = sessionTok)
+        if (videoId != "__warmup__") {
+            mutex.withLock {
+                if (engine === eng && engineSessionId == sessionId && engineReady) {
+                    playerTokenCache[PlayerTokenCacheKey(sessionId, videoId)] = playerTok
+                }
+            }
+        }
+        return result
     }
 
     private suspend fun destroyEngine() {
@@ -272,6 +293,7 @@ object BotGuardTokenGenerator {
         engineSessionId = null
         cachedSessionToken = null
         engineReady = false
+        playerTokenCache.clear()
     }
 
     // ── WebView wrapper ──────────────────────────────────────────────

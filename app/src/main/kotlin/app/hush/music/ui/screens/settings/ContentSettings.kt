@@ -9,6 +9,7 @@
 
 package app.hush.music.ui.screens.settings
 
+import android.app.Activity
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
@@ -26,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -49,15 +51,18 @@ import app.hush.music.ui.component.SwitchPreference
 import app.hush.music.ui.utils.backToMain
 import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberPreference
+import app.hush.music.utils.safeDataStoreEdit
 import app.hush.music.utils.setAppLocale
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @Composable
 fun ContentSettings(navController: NavController) {
     val context = LocalContext.current
 
     // Used only before Android 13
-    val (appLanguage, onAppLanguageChange) = rememberPreference(key = AppLanguageKey, defaultValue = SYSTEM_DEFAULT)
+    val (appLanguage, _) = rememberPreference(key = AppLanguageKey, defaultValue = SYSTEM_DEFAULT)
+    val coroutineScope = rememberCoroutineScope()
 
     val (contentLanguage, onContentLanguageChange) = rememberPreference(key = ContentLanguageKey, defaultValue = "system")
     val (contentCountry, onContentCountryChange) = rememberPreference(key = ContentCountryKey, defaultValue = "system")
@@ -259,9 +264,9 @@ fun ContentSettings(navController: NavController) {
                         title = { Text(stringResource(R.string.app_language)) },
                         icon = { Icon(painterResource(R.drawable.language), null) },
                         selectedValue = appLanguage,
-                        values = listOf(SYSTEM_DEFAULT) + LanguageCodeToName.keys.toList(),
+                        values = listOf(SYSTEM_DEFAULT) + AppLanguageCodeToName.keys.toList(),
                         valueText = {
-                            LanguageCodeToName.getOrElse(it) { stringResource(R.string.system_default) }
+                            AppLanguageCodeToName.getOrElse(it) { stringResource(R.string.system_default) }
                         },
                         onValueSelected = { langTag ->
                             val newLocale =
@@ -270,8 +275,16 @@ fun ContentSettings(navController: NavController) {
                                     ?.let { Locale.forLanguageTag(it) }
                                     ?: Locale.getDefault()
 
-                            onAppLanguageChange(langTag)
-                            setAppLocale(context, newLocale)
+                            coroutineScope.launch {
+                                val persisted =
+                                    context.safeDataStoreEdit { preferences ->
+                                        preferences[AppLanguageKey] = langTag
+                                    }
+                                if (persisted) {
+                                    setAppLocale(context, newLocale)
+                                    (context as? Activity)?.recreate()
+                                }
+                            }
                         },
                     )
                 }

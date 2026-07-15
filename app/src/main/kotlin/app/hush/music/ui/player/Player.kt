@@ -1916,6 +1916,7 @@ fun BottomSheetPlayer(
             modifier =
                 Modifier
                     .fillMaxSize()
+                    .zIndex(6f)
                     .background(Color.Black),
         ) {
             mediaMetadata?.let { metadata ->

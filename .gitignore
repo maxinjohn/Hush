@@ -56,8 +56,9 @@ captures/
 # Comment next line if keeping position of elements in Navigation Editor is relevant for you
 .idea/navEditor.xml
 
-# Keystore files (except release.keystore which is tracked)
+# Keystore files
 *.jks
+*.keystore
 *.keystore_bk
 persistent-debug.keystore
 Koiverse.jks.base64

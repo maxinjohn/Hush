@@ -7,13 +7,11 @@
 
 package app.hush.music.viewmodels
 
-import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -31,17 +29,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import app.hush.music.R
-import app.hush.music.constants.AutoImportLegacyStorageKey
-import app.hush.music.utils.dataStore
-import androidx.datastore.preferences.core.edit
 import app.hush.music.storage.ClearStorageCacheUseCase
-import app.hush.music.storage.InstalledLegacyAppHint
-import app.hush.music.storage.LegacyStorageCompatibility
-import app.hush.music.storage.LegacyStorageScanResult
 import app.hush.music.storage.ObserveStorageFoldersUseCase
 import app.hush.music.storage.ImportFromDocumentTreeUseCase
-import app.hush.music.storage.ImportLegacyStorageUseCase
-import app.hush.music.storage.LegacyStorageCandidate
 import app.hush.music.storage.SetCustomStorageFolderUseCase
 import app.hush.music.storage.SetStorageFolderUseCase
 import app.hush.music.storage.StorageFolderKind
@@ -143,15 +133,6 @@ enum class StorageCacheClearUiKind {
 }
 
 @Immutable
-data class LegacyStorageScanUiModel(
-    val scanning: Boolean = false,
-    val candidates: List<LegacyStorageCandidate> = emptyList(),
-    val installedHints: List<InstalledLegacyAppHint> = emptyList(),
-    val hasAllFilesAccess: Boolean = true,
-    val hasScanned: Boolean = false,
-)
-
-@Immutable
 data class StorageSettingsEffect(
     val messageResId: Int,
     val restartApp: Boolean,
@@ -161,11 +142,9 @@ data class StorageSettingsEffect(
 class StorageSettingsViewModel
     @Inject
     constructor(
-        @ApplicationContext private val appContext: Context,
         observeStorageFolders: ObserveStorageFoldersUseCase,
         private val setStorageFolder: SetStorageFolderUseCase,
         private val setCustomStorageFolder: SetCustomStorageFolderUseCase,
-        private val importLegacyStorage: ImportLegacyStorageUseCase,
         private val importFromDocumentTree: ImportFromDocumentTreeUseCase,
         private val clearStorageCache: ClearStorageCacheUseCase,
     ) : ViewModel() {
@@ -174,10 +153,7 @@ class StorageSettingsViewModel
         private val pickerState = MutableStateFlow(StorageLocationPickerUiModel())
         private val migrationState = MutableStateFlow<StorageMigrationUiModel?>(null)
         private val cacheClearState = MutableStateFlow<StorageCacheClearUiModel?>(null)
-        private val legacyScanState = MutableStateFlow(LegacyStorageScanUiModel())
         private val activeCacheClearKinds = mutableSetOf<StorageCacheKind>()
-
-        val legacyScan: StateFlow<LegacyStorageScanUiModel> = legacyScanState.asStateFlow()
 
         val state: StateFlow<StorageSettingsScreenState> =
             combine(
@@ -304,64 +280,8 @@ class StorageSettingsViewModel
                 migrationState.value = null
                 emitFolderUpdateResult(
                     result,
-                    successMessageResId = R.string.legacy_storage_import_success,
+                    successMessageResId = R.string.storage_folder_selected_restart,
                 )
-            }
-        }
-
-        fun importLegacyDownloads(candidate: LegacyStorageCandidate) {
-            viewModelScope.launch(Dispatchers.IO) {
-                migrationState.value =
-                    StorageMigrationUiModel(
-                        phase = StorageMigrationUiPhase.DOWNLOADS,
-                        percent = 0,
-                    )
-                val result =
-                    withContext(NonCancellable + Dispatchers.IO) {
-                        importLegacyStorage(candidate) { progress ->
-                            migrationState.value = progress.toUiModel()
-                        }
-                    }
-                migrationState.value = null
-                emitFolderUpdateResult(
-                    result,
-                    successMessageResId = R.string.legacy_storage_import_success,
-                )
-                scanCompatibleApps()
-            }
-        }
-
-        fun scanCompatibleApps() {
-            viewModelScope.launch(Dispatchers.IO) {
-                legacyScanState.update { it.copy(scanning = true) }
-                val result =
-                    runCatching { LegacyStorageCompatibility.scan(appContext) }
-                        .getOrDefault(
-                            LegacyStorageScanResult(
-                                importableCandidates = emptyList(),
-                                installedHints = emptyList(),
-                                hasAllFilesAccess = LegacyStorageCompatibility.hasAllFilesAccess(),
-                            ),
-                        )
-                legacyScanState.value =
-                    LegacyStorageScanUiModel(
-                        scanning = false,
-                        candidates = result.importableCandidates,
-                        installedHints = result.installedHints,
-                        hasAllFilesAccess = result.hasAllFilesAccess,
-                        hasScanned = true,
-                    )
-            }
-        }
-
-        fun setAutoImportLegacyStorage(enabled: Boolean) {
-            viewModelScope.launch(Dispatchers.IO) {
-                appContext.dataStore.edit { preferences ->
-                    preferences[AutoImportLegacyStorageKey] = enabled
-                }
-                if (enabled) {
-                    scanCompatibleApps()
-                }
             }
         }
 

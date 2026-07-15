@@ -143,6 +143,11 @@ fun AutoPlaylistScreen(
     scrollBehavior: TopAppBarScrollBehavior,
     viewModel: AutoPlaylistViewModel = hiltViewModel(),
 ) {
+    if (viewModel.playlist == "downloaded") {
+        DownloadManagementScreen(navController, scrollBehavior)
+        return
+    }
+
     val context = LocalContext.current
     val menuState = LocalMenuState.current
     val haptic = LocalHapticFeedback.current
