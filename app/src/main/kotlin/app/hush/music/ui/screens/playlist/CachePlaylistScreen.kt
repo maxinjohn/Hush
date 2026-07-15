@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -146,6 +147,7 @@ fun CachePlaylistScreen(
     val isPlaying by playerConnection.isPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val cachedSongs by viewModel.cachedSongs.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
 
     val (sortType, onSortTypeChange) =
         rememberEnumPreference(
@@ -439,6 +441,14 @@ fun CachePlaylistScreen(
             )
         }
 
+        if (isLoading) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+        } else {
         LazyColumn(
             state = lazyListState,
             contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
@@ -663,6 +673,7 @@ fun CachePlaylistScreen(
                     )
                 }
             }
+        }
         }
 
         DraggableScrollbar(

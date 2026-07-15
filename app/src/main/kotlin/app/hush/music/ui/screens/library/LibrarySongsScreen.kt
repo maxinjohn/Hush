@@ -37,6 +37,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -88,6 +89,7 @@ import app.hush.music.ui.component.ExpressivePullToRefreshBox
 import app.hush.music.ui.component.LocalMenuState
 import app.hush.music.ui.menu.SongMenu
 import app.hush.music.ui.screens.library.rememberArtworkGradient
+import app.hush.music.ui.theme.hushCombinedPressable
 import app.hush.music.ui.utils.ItemWrapper
 import app.hush.music.utils.makeTimeString
 import app.hush.music.utils.rememberEnumPreference
@@ -121,6 +123,7 @@ fun LibrarySongsScreen(
 
     val songs by viewModel.allSongs.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
 
     var filter by rememberEnumPreference(SongFilterKey, SongFilter.LIKED)
     val lazyListState = rememberLazyListState()
@@ -170,6 +173,14 @@ fun LibrarySongsScreen(
         onRefresh = { viewModel.refresh(filter) },
         modifier = Modifier.fillMaxSize(),
     ) {
+        if (isLoading && songs.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+        } else {
         Column(modifier = Modifier.fillMaxSize()) {
             // Sub-Filters Row (All Songs, Downloaded, Liked)
             Row(
@@ -372,35 +383,41 @@ fun LibrarySongsScreen(
                                 }
 
                                 // Play Button inside spotlight
-                                Button(
-                                    onClick = {
-                                        if (filteredSongs.isNotEmpty()) {
-                                            playerConnection.playQueue(
-                                                ListQueue(
-                                                    title = context.getString(R.string.queue_all_songs),
-                                                    items = filteredSongs.map { it.item.toMediaItem() },
-                                                ),
+                                Box(
+                                    modifier =
+                                        Modifier
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primary)
+                                            .hushCombinedPressable(
+                                                onClick = {
+                                                    if (filteredSongs.isNotEmpty()) {
+                                                        playerConnection.playQueue(
+                                                            ListQueue(
+                                                                title = context.getString(R.string.queue_all_songs),
+                                                                items = filteredSongs.map { it.item.toMediaItem() },
+                                                            ),
+                                                        )
+                                                    }
+                                                },
                                             )
-                                        }
-                                    },
-                                    shape = CircleShape,
-                                    colors =
-                                        ButtonDefaults.buttonColors(
-                                            containerColor = MaterialTheme.colorScheme.primary,
-                                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                                        ),
-                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
+                                            .padding(horizontal = 20.dp, vertical = 10.dp),
                                 ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.play),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = stringResource(R.string.play),
-                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.play),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = stringResource(R.string.play),
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -579,6 +596,7 @@ fun LibrarySongsScreen(
                 }
             }
         }
+    }
     }
 }
 

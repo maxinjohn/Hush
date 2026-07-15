@@ -40,8 +40,12 @@ class CachePlaylistViewModel
         private val _cachedSongs = MutableStateFlow<List<Song>>(emptyList())
         val cachedSongs: StateFlow<List<Song>> = _cachedSongs
 
+        private val _isLoading = MutableStateFlow(true)
+        val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
         init {
             viewModelScope.launch(Dispatchers.IO) {
+                var emptyPolls = 0
                 while (true) {
                     val hideExplicit = context.dataStore.get(HideExplicitKey, false)
                     val cachedIds = playerCache.keys.toSet()
@@ -62,6 +66,7 @@ class CachePlaylistViewModel
                         }
 
                     if (completeSongs.isNotEmpty()) {
+                        emptyPolls = 0
                         database.query {
                             completeSongs.forEach {
                                 if (it.song.dateDownload == null) {
@@ -69,6 +74,12 @@ class CachePlaylistViewModel
                                 }
                             }
                         }
+                    } else {
+                        emptyPolls++
+                    }
+
+                    if (_isLoading.value && (completeSongs.isNotEmpty() || emptyPolls >= 10)) {
+                        _isLoading.value = false
                     }
 
                     _cachedSongs.value =

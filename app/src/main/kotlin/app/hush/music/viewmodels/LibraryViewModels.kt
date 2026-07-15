@@ -90,6 +90,8 @@ import app.hush.music.utils.SyncUtils
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 import app.hush.music.utils.reportException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import timber.log.Timber
 import java.text.Collator
 import java.time.Duration
@@ -111,6 +113,17 @@ class LibrarySongsViewModel
     ) : ViewModel() {
         private val _isRefreshing = MutableStateFlow(false)
         val isRefreshing = _isRefreshing.asStateFlow()
+
+        private val _isLoading = MutableStateFlow(true)
+        val isLoading = _isLoading.asStateFlow()
+
+        init {
+            viewModelScope.launch {
+                allSongs.collect {
+                    if (_isLoading.value) _isLoading.value = false
+                }
+            }
+        }
 
         val allSongs =
             context.dataStore.data
@@ -183,11 +196,15 @@ class LibrarySongsViewModel
             viewModelScope.launch(Dispatchers.IO) {
                 _isRefreshing.value = true
                 try {
-                    when (filter) {
-                        SongFilter.LIKED -> syncUtils.syncLikedSongs()
-                        SongFilter.LIBRARY -> syncUtils.syncLibrarySongs()
-                        SongFilter.DOWNLOADED -> Unit
+                    withTimeout(15_000L) {
+                        when (filter) {
+                            SongFilter.LIKED -> syncUtils.syncLikedSongs()
+                            SongFilter.LIBRARY -> syncUtils.syncLibrarySongs()
+                            SongFilter.DOWNLOADED -> Unit
+                        }
                     }
+                } catch (e: TimeoutCancellationException) {
+                    Timber.w("Library sync timed out after 15s for filter=$filter")
                 } catch (e: Exception) {
                     reportException(e)
                 } finally {
