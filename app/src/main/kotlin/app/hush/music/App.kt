@@ -64,6 +64,7 @@ import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 import app.hush.music.utils.potoken.BotGuardTokenGenerator
 import app.hush.music.jiosaavn.DeviceRouter
+import app.hush.music.jiosaavn.SaavnService
 import app.hush.music.utils.CipherConfigFetcher
 import app.hush.music.utils.reportException
 import app.hush.music.utils.safeDataStoreEdit
@@ -269,6 +270,16 @@ class App :
                     customUrl = prefs[stringPreferencesKey("customDnsUrl")] ?: "https://",
                 )
 
+                applySaavnProxySettings(
+                    proxyEnabled = prefs[ProxyEnabledKey] == true,
+                    proxyType = prefs[ProxyTypeKey].toEnum(defaultValue = Proxy.Type.HTTP),
+                    proxyHost = prefs[ProxyHostKey],
+                    proxyPort = prefs[ProxyPortKey],
+                    dohEnabled = prefs[EnableDnsOverHttpsKey] ?: false,
+                    dnsProvider = prefs[DnsOverHttpsProviderKey] ?: "Cloudflare",
+                    customDnsUrl = prefs[stringPreferencesKey("customDnsUrl")] ?: "https://",
+                )
+
                 if (prefs[IpRotationEnabledKey] == true) {
                     try {
                         YouTube.enableIpRotation()
@@ -323,6 +334,15 @@ class App :
                 }.distinctUntilChanged()
                 .collect { (enabled, provider, customUrl) ->
                     applyDnsOverHttpsSettings(enabled, provider, customUrl)
+                    applySaavnProxySettings(
+                        proxyEnabled = false,
+                        proxyType = Proxy.Type.HTTP,
+                        proxyHost = null,
+                        proxyPort = null,
+                        dohEnabled = enabled,
+                        dnsProvider = provider,
+                        customDnsUrl = customUrl,
+                    )
                 }
         }
 
@@ -524,6 +544,29 @@ class App :
             YouTube.dns = Dns.SYSTEM
         }
         YTPlayerUtils.invalidateStreamClient()
+    }
+
+    private fun applySaavnProxySettings(
+        proxyEnabled: Boolean,
+        proxyType: Proxy.Type,
+        proxyHost: String?,
+        proxyPort: Int?,
+        dohEnabled: Boolean,
+        dnsProvider: String,
+        customDnsUrl: String,
+    ) {
+        val dns = if (dohEnabled) {
+            val url = YouTube.resolveDnsProviderUrl(dnsProvider, customDnsUrl)
+            if (url != null) {
+                runCatching { YouTube.createDnsOverHttps(url) }.getOrNull()
+            } else null
+        } else null
+
+        val proxy = if (proxyEnabled) {
+            ProxyUtils.createProxyOrNull(proxyType, proxyHost, proxyPort)
+        } else null
+
+        SaavnService.reconfigure(dns = dns ?: Dns.SYSTEM, proxy = proxy)
     }
 }
 

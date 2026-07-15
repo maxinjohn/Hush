@@ -521,6 +521,7 @@ object YTPlayerUtils {
                     networkMetered = networkMetered,
                     fastResolution = fastResolution,
                     saavnHints = saavnHints,
+                    trySaavnFirst = trySaavnFirst,
                 )
             }
 
@@ -530,6 +531,7 @@ object YTPlayerUtils {
                     videoId = videoId,
                     playlistId = playlistId,
                     hints = saavnHints,
+                    force = false,
                 )?.let {
                     Timber.tag(logTag).i("Using JioSaavn stream for %s", videoId)
                     return@runCatching it
@@ -558,6 +560,7 @@ object YTPlayerUtils {
         networkMetered: Boolean?,
         fastResolution: Boolean,
         saavnHints: SaavnPlaybackResolver.PlaybackHints?,
+        trySaavnFirst: Boolean,
     ): PlaybackData = coroutineScope {
         val saavnDeferred = async {
             SaavnPlaybackResolver.tryResolve(
@@ -565,6 +568,7 @@ object YTPlayerUtils {
                 videoId = videoId,
                 playlistId = playlistId,
                 hints = saavnHints,
+                force = true,
             )
         }
         val ytDeferred = async {
@@ -579,27 +583,25 @@ object YTPlayerUtils {
             )
         }
 
-        var result: PlaybackData? = null
-        select<Unit> {
-            saavnDeferred.onAwait { saavnResult ->
+        when {
+            trySaavnFirst -> {
+                val saavnResult = saavnDeferred.await()
                 if (saavnResult != null) {
-                    Timber.tag(logTag).i("Parallel fetch: JioSaavn won race for %s", videoId)
-                    result = saavnResult
                     ytDeferred.cancel()
+                    Timber.tag(logTag).i("Parallel fetch: JioSaavn (primary) for %s", videoId)
+                    saavnResult
+                } else {
+                    Timber.tag(logTag).d("Parallel fetch: JioSaavn no match — using YouTube for %s", videoId)
+                    ytDeferred.await()
                 }
             }
-            ytDeferred.onAwait { ytResult ->
-                result = ytResult
+            else -> {
+                val ytResult = ytDeferred.await()
                 saavnDeferred.cancel()
+                Timber.tag(logTag).i("Parallel fetch: YouTube (primary) for %s", videoId)
+                ytResult
             }
         }
-
-        if (result == null) {
-            Timber.tag(logTag).d("Parallel fetch: JioSaavn did not match %s — using YouTube", videoId)
-            result = ytDeferred.await()
-        }
-
-        result!!
     }
 
     private suspend fun playerResponseYouTubeOnly(

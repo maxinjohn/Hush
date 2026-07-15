@@ -184,7 +184,7 @@ class LyricsPreloadManager
 
         companion object {
             private const val TAG = "LyricsPreloadManager"
-            private const val DEFAULT_PRELOAD_COUNT = 3
-            private const val PRELOAD_CONCURRENCY = 3
+            private const val DEFAULT_PRELOAD_COUNT = 5
+            private const val PRELOAD_CONCURRENCY = 5
         }
     }

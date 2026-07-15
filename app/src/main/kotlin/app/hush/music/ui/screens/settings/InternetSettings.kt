@@ -189,8 +189,8 @@ fun InternetSettings(
                                             YouTube
                                                 .createDnsOverHttps(providerUrl)
                                                 .withIpVersionPreference(YouTube.ipVersion)
-                                        val playbackHosts = listOf("music.youtube.com", "googlevideo.com")
-                                        playbackHosts.forEach { host ->
+                                        val testHosts = listOf("music.youtube.com", "googlevideo.com", "jiosaavn.com", "www.jiosaavn.com")
+                                        testHosts.forEach { host ->
                                             val addresses = testDns.lookup(host)
                                             check(addresses.isNotEmpty()) { "No addresses for $host" }
                                         }
@@ -201,17 +201,23 @@ fun InternetSettings(
                                                 .connectTimeout(10, TimeUnit.SECONDS)
                                                 .readTimeout(10, TimeUnit.SECONDS)
                                                 .build()
-                                        val request =
-                                            Request
-                                                .Builder()
-                                                .url("https://music.youtube.com/generate_204")
-                                                .build()
-                                        client.newCall(request).execute().use { response ->
-                                            if (response.isSuccessful || response.code == 204) {
-                                                context.getString(R.string.dns_connection_success)
-                                            } else {
-                                                context.getString(R.string.dns_connection_failed, "HTTP ${response.code}")
+                                        val probeUrls = listOf(
+                                            "https://music.youtube.com/generate_204",
+                                            "https://www.jiosaavn.com/api.php?__call=song.getDetails&_format=json&pids=test",
+                                        )
+                                        var allSuccess = true
+                                        for (url in probeUrls) {
+                                            val req = Request.Builder().url(url).build()
+                                            val resp = client.newCall(req).execute()
+                                            if (!resp.isSuccessful && resp.code != 204) {
+                                                allSuccess = false
                                             }
+                                            resp.close()
+                                        }
+                                        if (allSuccess) {
+                                            context.getString(R.string.dns_connection_success)
+                                        } else {
+                                            context.getString(R.string.dns_connection_failed, "Some endpoints failed")
                                         }
                                     }
                                 dnsTestResult = result

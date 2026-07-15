@@ -470,7 +470,7 @@
     <string name="primary_scraper_yt_only">YouTube only</string>
     <string name="primary_scraper_saavn_fallback">YouTube as fallback</string>
     <string name="parallel_source_fetch">Parallel source fetch</string>
-    <string name="parallel_source_fetch_desc">Fetch from YouTube and JioSaavn simultaneously. Whichever responds first is used, reducing playback start time.</string>
+    <string name="parallel_source_fetch_desc">Race YouTube and JioSaavn. Prefers primary source; fallback to the other.</string>
     <string name="jiosaavn_settings">JioSaavn settings</string>
     <string name="feature_beta_badge">Beta</string>
     <string name="jiosaavn_settings_off">Off — YouTube only</string>

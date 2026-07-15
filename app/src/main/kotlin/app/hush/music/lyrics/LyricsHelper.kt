@@ -215,13 +215,8 @@ class LyricsHelper
             contentCountry: String?,
         ): String {
             if (providers.isEmpty()) return LYRICS_NOT_FOUND
-
             val artist = mediaMetadata.artists.joinToString { it.name }
-            fetchProviderLyrics(providers.first(), mediaMetadata, artist, contentLanguage, contentCountry)?.let { lyrics ->
-                return lyrics
-            }
-
-            return fetchBestMatchingLyrics(providers.drop(1), mediaMetadata, artist, contentLanguage, contentCountry)
+            return fetchBestMatchingLyrics(providers, mediaMetadata, artist, contentLanguage, contentCountry)
         }
 
         private suspend fun fetchBestMatchingLyrics(
@@ -244,24 +239,35 @@ class LyricsHelper
 
                 var bestLyrics: String? = null
                 var bestScore = Int.MIN_VALUE
-                requests.forEach { request ->
-                    val lyrics = request.await() ?: return@forEach
-                    val score =
-                        LyricsLanguageFilter.relevanceScore(
+                var found = false
+
+                // Launch all concurrently and pick best result
+                val jobs = requests.mapIndexed { _, d ->
+                    async {
+                        val lyrics = d.await() ?: return@async null
+                        val score = LyricsLanguageFilter.relevanceScore(
                             lyrics = lyrics,
                             title = mediaMetadata.title,
                             artist = artist,
                             contentLanguage = contentLanguage,
                             contentCountry = contentCountry,
                         )
-                    if (score < 0) return@forEach
-                    if (score > bestScore) {
-                        bestScore = score
-                        bestLyrics = lyrics
+                        if (score < 0) return@async null
+                        score to lyrics
                     }
                 }
 
-                bestLyrics.takeIf { bestScore >= 0 } ?: LYRICS_NOT_FOUND
+                jobs.forEach { job ->
+                    val result = job.await() ?: return@forEach
+                    val (score, lyrics) = result
+                    if (score > bestScore) {
+                        bestScore = score
+                        bestLyrics = lyrics
+                        found = true
+                    }
+                }
+
+                if (found) bestLyrics!! else LYRICS_NOT_FOUND
             }
 
         private suspend fun fetchProviderLyrics(

@@ -538,7 +538,7 @@
     <string name="content_language">Default content language</string>
     <string name="content_country">Default content country</string>
     <string name="system_default">System default</string>
-    <string name="enable_proxy">Enable proxy</string>
+    <string name="enable_proxy">Enable manual proxy</string>
     <string name="internet">Internet</string>
     <string name="dns_over_https">DNS over HTTPS</string>
     <string name="dns_over_https_desc">Use DNS over HTTPS (DoH) to resolve hostnames</string>
