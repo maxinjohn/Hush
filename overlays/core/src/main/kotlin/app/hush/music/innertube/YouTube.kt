@@ -120,6 +120,7 @@ object YouTube {
     private val innerTube = InnerTube()
     private val accountSwitcherClient = WEB.copy(loginSupported = true)
     private val mutableAuthState = MutableStateFlow(PlaybackAuthState.EMPTY)
+    private val authStateLock = Any()
 
     val authStateFlow: StateFlow<PlaybackAuthState> = mutableAuthState.asStateFlow()
 
