@@ -59,8 +59,9 @@ object SaavnPlaybackResolver {
         videoId: String,
         playlistId: String? = null,
         hints: PlaybackHints? = null,
+        force: Boolean = false,
     ): YTPlayerUtils.PlaybackData? {
-        if (!readSaavnEnabled(context)) {
+        if (!force && !readSaavnEnabled(context)) {
             Timber.tag(TAG).i("JioSaavn streaming disabled — using YouTube for %s", videoId)
             return null
         }
@@ -237,7 +238,7 @@ object SaavnPlaybackResolver {
         }
         val fromStore = context.dataStore.getAsync(EnableSaavnStreamingKey)
         if (fromStore != null) return fromStore
-        return PreferenceStore.get(EnableSaavnStreamingKey) ?: false
+        return PreferenceStore.get(EnableSaavnStreamingKey) ?: true
     }
 
     fun clearCaches() {

@@ -2446,7 +2446,7 @@ class MusicService :
         return when (primaryScraper) {
             "JIOSAAVN" -> true
             "YOUTUBE" -> false
-            else -> PreferenceStore.get(EnableSaavnStreamingKey) ?: saavnStreamingEnabled
+            else -> PreferenceStore.get(EnableSaavnStreamingKey) ?: true
         }
     }
 
@@ -2532,6 +2532,7 @@ class MusicService :
                     }.getOrThrow()
                 } else {
                     val saavnEnabled = isSaavnStreamingEnabled()
+                    val shouldTrySaavn = saavnEnabled || parallelFetch
                     retryWithoutPlaybackLoginContext {
                         YTPlayerUtils.playerResponseForPlayback(
                             videoId = mediaId,
@@ -2541,7 +2542,7 @@ class MusicService :
                             networkMetered = networkMeteredHint,
                             context = this@MusicService,
                             trySaavnFirst = saavnEnabled,
-                            saavnHints = if (saavnEnabled) saavnHintsFor(mediaId) else null,
+                            saavnHints = if (shouldTrySaavn) saavnHintsFor(mediaId) else null,
                             parallelFetch = parallelFetch,
                         )
                     }.getOrThrow()

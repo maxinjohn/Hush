@@ -74,7 +74,7 @@ fun StreamQualitySettings(
     val (primaryScraper, onPrimaryScraperChange) =
         rememberEnumPreference(
             PrimaryAudioScraperKey,
-            defaultValue = if (legacySaavnEnabled) PrimaryAudioScraper.JIOSAAVN else PrimaryAudioScraper.YOUTUBE,
+            defaultValue = PrimaryAudioScraper.JIOSAAVN,
         )
     val saavnEnabled = primaryScraper == PrimaryAudioScraper.JIOSAAVN
     val playerConnection = LocalPlayerConnection.current

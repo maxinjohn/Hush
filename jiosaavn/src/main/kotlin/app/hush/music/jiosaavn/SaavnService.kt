@@ -154,8 +154,24 @@ object SaavnService {
             coerceInputValues = true
         }
 
-    private val client by lazy {
-        HttpClient(OkHttp) {
+    @Volatile
+    private var customDns: okhttp3.Dns? = null
+    @Volatile
+    private var customProxy: java.net.Proxy? = null
+
+    @Volatile
+    private var _client: HttpClient? = null
+
+    private fun buildClient(): HttpClient {
+        return HttpClient(OkHttp) {
+            engine {
+                config {
+                    customDns?.let { dns(it) }
+                    if (customProxy != null) {
+                        proxy(customProxy)
+                    }
+                }
+            }
             install(ContentNegotiation) { json(json) }
             install(HttpTimeout) {
                 requestTimeoutMillis = 30_000
@@ -170,6 +186,19 @@ object SaavnService {
             }
             expectSuccess = false
         }
+    }
+
+    private val client: HttpClient
+        get() {
+            val existing = _client
+            if (existing != null) return existing
+            return buildClient().also { _client = it }
+        }
+
+    fun reconfigure(dns: okhttp3.Dns?, proxy: java.net.Proxy?) {
+        customDns = dns
+        customProxy = proxy
+        _client = buildClient()
     }
 
     private suspend fun apiCall(
