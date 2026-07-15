@@ -143,11 +143,6 @@ fun AutoPlaylistScreen(
     scrollBehavior: TopAppBarScrollBehavior,
     viewModel: AutoPlaylistViewModel = hiltViewModel(),
 ) {
-    if (viewModel.playlist == "downloaded") {
-        DownloadManagementScreen(navController, scrollBehavior)
-        return
-    }
-
     val context = LocalContext.current
     val menuState = LocalMenuState.current
     val haptic = LocalHapticFeedback.current
@@ -157,7 +152,11 @@ fun AutoPlaylistScreen(
     val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
     val playlist =
-        if (viewModel.playlist == "liked") stringResource(R.string.liked) else stringResource(R.string.offline)
+        when (viewModel.playlist) {
+            "liked" -> stringResource(R.string.liked)
+            "downloaded" -> stringResource(R.string.downloaded_songs)
+            else -> stringResource(R.string.offline)
+        }
 
     val songs by viewModel.likedSongs.collectAsStateWithLifecycle()
 
