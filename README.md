@@ -28,6 +28,12 @@ Not a PR factory. Not taking donations. If something's broken in code that came 
 
 ---
 
+## Waze Bridge
+
+Hush includes a **Waze Bridge** — a shim that intercepts Waze's "Play music" action and routes it to Hush instead of the default music app. When you tap the music note in Waze's navigation view, Hush launches and plays your library. Works with both Spotify and YouTube Music bridge intents. This is a standalone feature unique to Hush, not found in upstream forks.
+
+---
+
 ## Loot table — who donated what
 
 Real talk on what got ported from where. This table only moves when I add something new. Patch notes for each version → [Changelog](CHANGELOG.md).
@@ -38,7 +44,7 @@ Real talk on what got ported from where. This table only moves when I add someth
 | **[Metrolist](https://github.com/metrolistgroup/metrolist)** | Wake-up **music alarms**, **loudness** presets, **playlist export** (CSV / M3U), **Android Auto** settings |
 | **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | Playlist **view-count prefetch**, **auto-backup before in-app update**, **JioSaavn streaming** (320 kbps primary, YT fallback) |
 | **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)** | **Settings search**, **IPv4 / IPv6 / Auto** network mode |
-| **Hush** | **Waze Bridge** (Spotify/YT Music Bridges), Audio Visualizer, Parametric EQ, SponsorBlock, JioSaavn overhaul, CDN failover, Cipher config, in-app update system, download pre-resolution |
+| **Hush** | Parallel source fetch, app language selector, DOH/proxy, IP rotation UI, lyrics racing, library rewrite |
 | **[ViMusic](https://github.com/vfsfitvnm/ViMusic)** | InnerTube foundations, bottom-sheet UI patterns, KuGou lyrics client |
 | **[OuterTune](https://github.com/OuterTune/OuterTune)** | Player carousel snap / parallax, network connectivity observer |
 | **[BetterLyrics](https://github.com/boidu-dev/BetterLyrics)** | Word-synced TTML lyrics module |

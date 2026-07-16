@@ -361,10 +361,12 @@ object WazeBridgeManager {
         val certificateFingerprints: Set<String>,
     )
 
+    private val bridgeLock = Any()
+
     private fun readBundledBridge(
         context: Context,
         definition: WazeBridgeDefinition,
-    ): BundledBridgeResult {
+    ): BundledBridgeResult = synchronized(bridgeLock) {
         val apk = File(context.cacheDir, "waze-bridge-${definition.id}.apk")
         val entryFound = try {
             context.assets.open(BRIDGE_ARCHIVE).use { archive ->

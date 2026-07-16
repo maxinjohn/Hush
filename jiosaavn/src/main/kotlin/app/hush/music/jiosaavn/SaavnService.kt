@@ -204,14 +204,16 @@ object SaavnService {
     private suspend fun apiCall(
         block: suspend (String) -> io.ktor.client.statement.HttpResponse,
     ): io.ktor.client.statement.HttpResponse {
-        val servers = listOf(API_BASE, API_BASE, API_BASE)
+        val maxAttempts = 3
         var lastError: Throwable? = null
-        for ((attempt, server) in servers.withIndex()) {
+        for (attempt in 0 until maxAttempts) {
+            val server = DeviceRouter.getCurrentServer()
             try {
                 val response = block(server)
                 val status = response.status
                 if (status.value in 500..599) {
                     Log.w(TAG, "apiCall attempt $attempt: HTTP ${status.value} on $server")
+                    DeviceRouter.fallbackToNextServer()
                     lastError = Exception("Server ${status.value}")
                     continue
                 }
@@ -221,7 +223,8 @@ object SaavnService {
                 return response
             } catch (e: Exception) {
                 lastError = e
-                Log.w(TAG, "apiCall attempt $attempt failed: ${e.message}")
+                Log.w(TAG, "apiCall attempt $attempt failed on $server: ${e.message}")
+                DeviceRouter.fallbackToNextServer()
             }
         }
         throw lastError ?: Exception("All API attempts failed")
