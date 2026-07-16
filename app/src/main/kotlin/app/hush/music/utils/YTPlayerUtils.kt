@@ -526,20 +526,52 @@ object YTPlayerUtils {
                 )
             }
 
-            if (context != null && trySaavnFirst) {
-                withTimeoutOrNull(15_000L) {
-                    SaavnPlaybackResolver.tryResolve(
-                        context = context,
+            if (context != null) {
+                if (trySaavnFirst) {
+                    withTimeoutOrNull(15_000L) {
+                        SaavnPlaybackResolver.tryResolve(
+                            context = context,
+                            videoId = videoId,
+                            playlistId = playlistId,
+                            hints = saavnHints,
+                            force = false,
+                        )
+                    }?.let {
+                        Timber.tag(logTag).i("Using JioSaavn stream for %s", videoId)
+                        return@runCatching it
+                    }
+                    Timber.tag(logTag).d("JioSaavn did not match %s — falling back to YouTube", videoId)
+                }
+
+                try {
+                    val ytResult = playerResponseYouTubeOnly(
                         videoId = videoId,
                         playlistId = playlistId,
-                        hints = saavnHints,
-                        force = false,
+                        audioQuality = audioQuality,
+                        connectivityManager = connectivityManager,
+                        preferredStreamClient = preferredStreamClient,
+                        networkMetered = networkMetered,
+                        fastResolution = fastResolution,
                     )
-                }?.let {
-                    Timber.tag(logTag).i("Using JioSaavn stream for %s", videoId)
-                    return@runCatching it
+                    return@runCatching ytResult
+                } catch (e: Exception) {
+                    if (!trySaavnFirst) {
+                        Timber.tag(logTag).d("YouTube failed for %s — falling back to JioSaavn", videoId)
+                        withTimeoutOrNull(15_000L) {
+                            SaavnPlaybackResolver.tryResolve(
+                                context = context,
+                                videoId = videoId,
+                                playlistId = playlistId,
+                                hints = saavnHints,
+                                force = false,
+                            )
+                        }?.let {
+                            Timber.tag(logTag).i("Using JioSaavn stream (fallback) for %s", videoId)
+                            return@runCatching it
+                        }
+                    }
+                    throw e
                 }
-                Timber.tag(logTag).d("JioSaavn did not match %s — falling back to YouTube", videoId)
             }
 
             playerResponseYouTubeOnly(
@@ -632,14 +664,24 @@ object YTPlayerUtils {
                 Timber.tag(logTag).i("Parallel fetch: YouTube (primary) for %s", videoId)
                 ytResult!!
             } else if (saavnResult != null) {
-                ytDeferred.cancel()
-                Timber.tag(logTag).d("Parallel fetch: Saavn (faster than YouTube) for %s", videoId)
-                saavnResult!!
+                val delayedYt = withTimeoutOrNull(2_500L) { ytDeferred.await() }
+                if (delayedYt != null) {
+                    Timber.tag(logTag).i("Parallel fetch: YouTube (primary, arrived late) for %s", videoId)
+                    delayedYt
+                } else {
+                    Timber.tag(logTag).d("Parallel fetch: Saavn (YouTube too slow) for %s", videoId)
+                    saavnResult!!
+                }
             } else {
                 val yt = ytDeferred.await()
-                saavnDeferred.cancel()
-                Timber.tag(logTag).i("Parallel fetch: YouTube (primary) for %s", videoId)
-                yt ?: error("YouTube source failed for $videoId")
+                if (yt != null) {
+                    saavnDeferred.cancel()
+                    Timber.tag(logTag).i("Parallel fetch: YouTube (primary) for %s", videoId)
+                    yt
+                } else {
+                    Timber.tag(logTag).d("Parallel fetch: YouTube failed — falling back to Saavn for %s", videoId)
+                    saavnDeferred.await() ?: error("Both parallel sources failed for $videoId")
+                }
             }
         }
     }
