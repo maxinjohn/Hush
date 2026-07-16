@@ -44,6 +44,7 @@ import app.hush.music.utils.potoken.BotGuardTokenGenerator
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.HttpUrl
@@ -526,13 +527,15 @@ object YTPlayerUtils {
             }
 
             if (context != null && trySaavnFirst) {
-                SaavnPlaybackResolver.tryResolve(
-                    context = context,
-                    videoId = videoId,
-                    playlistId = playlistId,
-                    hints = saavnHints,
-                    force = false,
-                )?.let {
+                withTimeoutOrNull(15_000L) {
+                    SaavnPlaybackResolver.tryResolve(
+                        context = context,
+                        videoId = videoId,
+                        playlistId = playlistId,
+                        hints = saavnHints,
+                        force = false,
+                    )
+                }?.let {
                     Timber.tag(logTag).i("Using JioSaavn stream for %s", videoId)
                     return@runCatching it
                 }
@@ -563,43 +566,80 @@ object YTPlayerUtils {
         trySaavnFirst: Boolean,
     ): PlaybackData = coroutineScope {
         val saavnDeferred = async {
-            SaavnPlaybackResolver.tryResolve(
-                context = context,
-                videoId = videoId,
-                playlistId = playlistId,
-                hints = saavnHints,
-                force = true,
-            )
+            runCatching {
+                withTimeoutOrNull(15_000L) {
+                    SaavnPlaybackResolver.tryResolve(
+                        context = context,
+                        videoId = videoId,
+                        playlistId = playlistId,
+                        hints = saavnHints,
+                        force = true,
+                    )
+                }
+            }.getOrNull()
         }
         val ytDeferred = async {
-            playerResponseYouTubeOnly(
-                videoId = videoId,
-                playlistId = playlistId,
-                audioQuality = audioQuality,
-                connectivityManager = connectivityManager,
-                preferredStreamClient = preferredStreamClient,
-                networkMetered = networkMetered,
-                fastResolution = fastResolution,
-            )
+            runCatching {
+                withTimeoutOrNull(15_000L) {
+                    playerResponseYouTubeOnly(
+                        videoId = videoId,
+                        playlistId = playlistId,
+                        audioQuality = audioQuality,
+                        connectivityManager = connectivityManager,
+                        preferredStreamClient = preferredStreamClient,
+                        networkMetered = networkMetered,
+                        fastResolution = fastResolution,
+                    )
+                }
+            }.getOrNull()
         }
 
-        when {
-            trySaavnFirst -> {
-                val saavnResult = saavnDeferred.await()
-                if (saavnResult != null) {
-                    ytDeferred.cancel()
-                    Timber.tag(logTag).i("Parallel fetch: JioSaavn (primary) for %s", videoId)
-                    saavnResult
-                } else {
-                    Timber.tag(logTag).d("Parallel fetch: JioSaavn no match — using YouTube for %s", videoId)
-                    ytDeferred.await()
-                }
+        var saavnResult: PlaybackData? = null
+        var ytResult: PlaybackData? = null
+
+        select<Unit> {
+            saavnDeferred.onAwait { result ->
+                saavnResult = result
+                Unit
             }
-            else -> {
-                val ytResult = ytDeferred.await()
+            ytDeferred.onAwait { result ->
+                ytResult = result
+                Unit
+            }
+        }
+
+        if (trySaavnFirst) {
+            if (saavnResult != null) {
+                ytDeferred.cancel()
+                Timber.tag(logTag).i("Parallel fetch: JioSaavn (primary) for %s", videoId)
+                saavnResult!!
+            } else if (ytResult != null) {
+                val delayedSaavn = withTimeoutOrNull(2_500L) { saavnDeferred.await() }
+                if (delayedSaavn != null) {
+                    Timber.tag(logTag).i("Parallel fetch: JioSaavn (primary, arrived late) for %s", videoId)
+                    delayedSaavn
+                } else {
+                    Timber.tag(logTag).d("Parallel fetch: YouTube (Saavn too slow) for %s", videoId)
+                    ytResult!!
+                }
+            } else {
+                Timber.tag(logTag).d("Parallel fetch: JioSaavn no match — waiting for YouTube for %s", videoId)
+                ytDeferred.await() ?: error("Both parallel sources failed for $videoId")
+            }
+        } else {
+            if (ytResult != null) {
                 saavnDeferred.cancel()
                 Timber.tag(logTag).i("Parallel fetch: YouTube (primary) for %s", videoId)
-                ytResult
+                ytResult!!
+            } else if (saavnResult != null) {
+                ytDeferred.cancel()
+                Timber.tag(logTag).d("Parallel fetch: Saavn (faster than YouTube) for %s", videoId)
+                saavnResult!!
+            } else {
+                val yt = ytDeferred.await()
+                saavnDeferred.cancel()
+                Timber.tag(logTag).i("Parallel fetch: YouTube (primary) for %s", videoId)
+                yt ?: error("YouTube source failed for $videoId")
             }
         }
     }
