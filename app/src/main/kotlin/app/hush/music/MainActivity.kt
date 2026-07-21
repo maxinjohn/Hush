@@ -575,7 +575,7 @@ class MainActivity : ComponentActivity() {
                         val versionResult =
                             when (actualChannel) {
                                 UpdateChannel.DAILY_NIGHTLY -> Updater.getLatestDailyNightlyVersionName()
-                                else -> Updater.getLatestVersionName()
+                                else -> Updater.getLatestVersionName(forceRefresh = true)
                             }
                         versionResult.onSuccess {
                             if (Updater.isUpdateAvailable(it, BuildConfig.VERSION_NAME)) {
