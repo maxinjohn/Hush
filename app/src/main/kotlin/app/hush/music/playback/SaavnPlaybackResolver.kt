@@ -238,7 +238,7 @@ object SaavnPlaybackResolver {
         }
         val fromStore = context.dataStore.getAsync(EnableSaavnStreamingKey)
         if (fromStore != null) return fromStore
-        return PreferenceStore.get(EnableSaavnStreamingKey) ?: true
+        return PreferenceStore.get(EnableSaavnStreamingKey) ?: false
     }
 
     fun clearCaches() {

@@ -2459,7 +2459,7 @@ class MusicService :
         return when (primaryScraper) {
             "JIOSAAVN" -> true
             "YOUTUBE" -> false
-            else -> PreferenceStore.get(EnableSaavnStreamingKey) ?: true
+            else -> PreferenceStore.get(EnableSaavnStreamingKey) ?: false
         }
     }
 
