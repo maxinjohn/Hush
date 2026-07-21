@@ -8086,26 +8086,30 @@ class MusicService :
             releaseAudioEffects()
         } catch (_: Exception) {
         }
-        try {
-            if (dataStore.get(PersistentQueueKey, true) && player.mediaItemCount > 0) {
-                runBlocking {
-                    saveQueueToDisk()
+        if (::player.isInitialized) {
+            try {
+                if (dataStore.get(PersistentQueueKey, true) && player.mediaItemCount > 0) {
+                    runBlocking {
+                        saveQueueToDisk()
+                    }
                 }
+            } catch (_: Exception) {
             }
-        } catch (_: Exception) {
+            try {
+                player.removeListener(this)
+                sleepTimer?.let { player.removeListener(it) }
+                player.release()
+            } catch (_: Exception) {
+            }
         }
-        try {
-            mediaSession.release()
-        } catch (_: Exception) {
+        if (::mediaSession.isInitialized) {
+            try {
+                mediaSession.release()
+            } catch (_: Exception) {
+            }
         }
         try {
             if (wakeLock?.isHeld == true) wakeLock?.release()
-        } catch (_: Exception) {
-        }
-        try {
-            player.removeListener(this)
-            sleepTimer?.let { player.removeListener(it) }
-            player.release()
         } catch (_: Exception) {
         }
         scopeJob.cancel()
@@ -8115,7 +8119,7 @@ class MusicService :
         hasBoundClients = true
         cancelIdleStop()
         val result = super.onBind(intent) ?: binder
-        if (player.mediaItemCount > 0 && player.currentMediaItem != null) {
+        if (::player.isInitialized && player.mediaItemCount > 0 && player.currentMediaItem != null) {
             currentMediaMetadata.value = player.currentMetadata
             scope.launch {
                 delay(50)
@@ -8176,7 +8180,8 @@ class MusicService :
         }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = mediaSession
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) =
+        if (::mediaSession.isInitialized) mediaSession else null
 
     private fun handleAlarmTrigger(intent: Intent) {
         scope.launch(Dispatchers.IO) {
