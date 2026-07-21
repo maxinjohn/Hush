@@ -528,7 +528,7 @@ object YTPlayerUtils {
 
             if (context != null) {
                 if (trySaavnFirst) {
-                    withTimeoutOrNull(15_000L) {
+                    withTimeoutOrNull(8_000L) {
                         SaavnPlaybackResolver.tryResolve(
                             context = context,
                             videoId = videoId,
@@ -557,7 +557,7 @@ object YTPlayerUtils {
                 } catch (e: Exception) {
                     if (!trySaavnFirst) {
                         Timber.tag(logTag).d("YouTube failed for %s — falling back to JioSaavn", videoId)
-                        withTimeoutOrNull(15_000L) {
+                        withTimeoutOrNull(8_000L) {
                             SaavnPlaybackResolver.tryResolve(
                                 context = context,
                                 videoId = videoId,
@@ -599,7 +599,7 @@ object YTPlayerUtils {
     ): PlaybackData = coroutineScope {
         val saavnDeferred = async {
             runCatching {
-                withTimeoutOrNull(15_000L) {
+                withTimeoutOrNull(10_000L) {
                     SaavnPlaybackResolver.tryResolve(
                         context = context,
                         videoId = videoId,
@@ -646,7 +646,7 @@ object YTPlayerUtils {
                 Timber.tag(logTag).i("Parallel fetch: JioSaavn (primary) for %s", videoId)
                 saavnResult!!
             } else if (ytResult != null) {
-                val delayedSaavn = withTimeoutOrNull(2_500L) { saavnDeferred.await() }
+                val delayedSaavn = withTimeoutOrNull(1_500L) { saavnDeferred.await() }
                 if (delayedSaavn != null) {
                     Timber.tag(logTag).i("Parallel fetch: JioSaavn (primary, arrived late) for %s", videoId)
                     delayedSaavn
