@@ -11,7 +11,6 @@ package app.hush.music.playback
 import android.content.Context
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.selects.select
 import app.hush.music.constants.EnableSaavnStreamingKey
 import app.hush.music.constants.PrimaryAudioScraper
 import app.hush.music.constants.PrimaryAudioScraperKey
@@ -272,64 +271,45 @@ object SaavnPlaybackResolver {
                 }
             }.distinct().filter { it.isNotBlank() }
 
-        return coroutineScope {
-            val deferreds = queries.map { query ->
-                async {
-                    query to SaavnService.searchSongs(query, limit = 15).getOrNull().orEmpty()
-                }
+        for (query in queries) {
+            val candidates = SaavnService.searchSongs(query, limit = 15).getOrNull().orEmpty()
+            if (candidates.isEmpty()) continue
+
+            Timber.tag(TAG).d("Saavn search \"%s\" -> %d candidates", query, candidates.size)
+
+            val strictMatch = candidates.firstOrNull { candidate ->
+                matchesCandidate(
+                    candidate = candidate,
+                    wantedTitleKey = wantedTitleKey,
+                    wantedArtistKeys = wantedArtistKeys,
+                    expectedDurationSec = expectedDurationSec,
+                    strict = true,
+                )
             }
+            if (strictMatch != null) return strictMatch
 
-            val remaining = deferreds.toMutableList()
-            var bestLooseMatch: SaavnSong? = null
-
-            while (remaining.isNotEmpty()) {
-                val (query, candidates) = select<Pair<String, List<SaavnSong>>> {
-                    remaining.forEach { d ->
-                        d.onAwait { it }
-                    }
-                }
-                remaining.removeAll { it.isCompleted }
-
-                Timber.tag(TAG).d("Saavn search \"%s\" -> %d candidates", query, candidates.size)
-
-                candidates.firstOrNull { candidate ->
-                    matchesCandidate(
-                        candidate = candidate,
-                        wantedTitleKey = wantedTitleKey,
-                        wantedArtistKeys = wantedArtistKeys,
-                        expectedDurationSec = expectedDurationSec,
-                        strict = true,
-                    )
-                }?.let {
-                    remaining.forEach { it.cancel() }
-                    return@coroutineScope it
-                }
-
-                if (bestLooseMatch == null) {
-                    candidates.firstOrNull { candidate ->
-                        matchesCandidate(
-                            candidate = candidate,
-                            wantedTitleKey = wantedTitleKey,
-                            wantedArtistKeys = wantedArtistKeys,
-                            expectedDurationSec = expectedDurationSec,
-                            strict = false,
-                        )
-                    }?.let { bestLooseMatch = it }
-
-                    if (bestLooseMatch == null) {
-                        candidates.firstOrNull { candidate ->
-                            val dur = candidate.duration
-                            comparisonKey(candidate.name) == wantedTitleKey &&
-                                (expectedDurationSec == null ||
-                                    dur == null ||
-                                    kotlin.math.abs(expectedDurationSec - dur) <= 10)
-                        }?.let { bestLooseMatch = it }
-                    }
-                }
+            val looseMatch = candidates.firstOrNull { candidate ->
+                matchesCandidate(
+                    candidate = candidate,
+                    wantedTitleKey = wantedTitleKey,
+                    wantedArtistKeys = wantedArtistKeys,
+                    expectedDurationSec = expectedDurationSec,
+                    strict = false,
+                )
             }
+            if (looseMatch != null) return looseMatch
 
-            bestLooseMatch
+            val titleFallback = candidates.firstOrNull { candidate ->
+                val dur = candidate.duration
+                comparisonKey(candidate.name) == wantedTitleKey &&
+                    (expectedDurationSec == null ||
+                        dur == null ||
+                        kotlin.math.abs(expectedDurationSec - dur) <= 10)
+            }
+            if (titleFallback != null) return titleFallback
         }
+
+        return null
     }
 
     private fun cleanTitleForSearch(title: String): String =
