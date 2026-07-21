@@ -622,7 +622,7 @@ class MusicService :
             ?.takeIf { it.isNotEmpty() }
 
     private fun isAppInForeground(): Boolean {
-        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
         val appProcesses = activityManager.runningAppProcesses ?: return false
         return appProcesses.any { processInfo ->
             processInfo.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND &&
@@ -1032,14 +1032,21 @@ class MusicService :
                 loadWidgetInsights = loadWidgetInsightsUseCase,
             )
 
-        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioManager = runCatching {
+            getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: error("AudioManager not available")
+        }.getOrElse {
+            Timber.e(it, "Failed to get AudioManager")
+            stopSelf()
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             audioManager.setAllowedCapturePolicy(android.media.AudioAttributes.ALLOW_CAPTURE_BY_ALL)
         }
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
         wakeLock =
-            (getSystemService(Context.POWER_SERVICE) as PowerManager)
-                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Hush:Playback")
-                .also { it.setReferenceCounted(false) }
+            powerManager
+                ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Hush:Playback")
+                ?.also { it.setReferenceCounted(false) }
         setupAudioFocusRequest()
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, android.os.Handler(mainLooper))
         audioDeviceCallbackRegistered = true
@@ -1101,7 +1108,13 @@ class MusicService :
             }
         }
 
-        connectivityManager = getSystemService()!!
+        connectivityManager = runCatching {
+            getSystemService<ConnectivityManager>() ?: error("ConnectivityManager not available")
+        }.getOrElse {
+            Timber.e(it, "Failed to get ConnectivityManager")
+            stopSelf()
+            return
+        }
         connectivityObserver = NetworkConnectivityObserver(this)
 
         scope.launch {

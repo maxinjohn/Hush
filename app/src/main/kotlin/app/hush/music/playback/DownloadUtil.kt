@@ -72,7 +72,8 @@ class DownloadUtil
     ) {
         private val appContext = context
         private val TAG = "DownloadUtil"
-        private val connectivityManager = appContext.getSystemService<ConnectivityManager>()!!
+        private val connectivityManager = appContext.getSystemService<ConnectivityManager>()
+            ?: error("ConnectivityManager not available")
         private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
         private val downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val songUrlCache =
