@@ -305,10 +305,10 @@ fun UpdateScreen(
                     }
 
                     else -> {
-                        Updater.getLatestReleaseNotes().onSuccess { notes ->
+                        Updater.getLatestReleaseNotes(forceRefresh = true).onSuccess { notes ->
                             updateSheetNotes = notes
                         }
-                        Updater.getLatestVersionName()
+                        Updater.getLatestVersionName(forceRefresh = true)
                     }
                 }
 
