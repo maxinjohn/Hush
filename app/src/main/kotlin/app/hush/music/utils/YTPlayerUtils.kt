@@ -506,7 +506,7 @@ object YTPlayerUtils {
         networkMetered: Boolean? = null,
         fastResolution: Boolean = true,
         context: Context? = null,
-        trySaavnFirst: Boolean = true,
+        trySaavnFirst: Boolean = false,
         saavnHints: SaavnPlaybackResolver.PlaybackHints? = null,
         parallelFetch: Boolean = false,
     ): Result<PlaybackData> =
