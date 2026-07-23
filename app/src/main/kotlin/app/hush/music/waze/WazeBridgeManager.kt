@@ -98,6 +98,14 @@ object WazeBridgeManager {
             assetPath = "waze-shim-youtubeMusic-release.apk",
             requiredProtocolVersion = 3,
         ),
+        WazeBridgeDefinition(
+            id = "deezer",
+            displayName = "Deezer Bridge",
+            providerName = "Deezer",
+            packageName = "deezer.android.app",
+            assetPath = "waze-shim-deezer-release.apk",
+            requiredProtocolVersion = 3,
+        ),
     )
 
     fun definitionForPackage(packageName: String?): WazeBridgeDefinition? =

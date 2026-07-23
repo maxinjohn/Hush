@@ -31,6 +31,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -77,7 +80,14 @@ fun StreamQualitySettings(
             defaultValue = PrimaryAudioScraper.JIOSAAVN,
         )
     val saavnEnabled = primaryScraper == PrimaryAudioScraper.JIOSAAVN
+    var showBetaWarning by remember { mutableStateOf(false) }
+    val pendingSaavnScraper = remember { mutableStateOf<PrimaryAudioScraper?>(null) }
     val playerConnection = LocalPlayerConnection.current
+    val applySaavnScraper: (PrimaryAudioScraper) -> Unit = { scraper ->
+        onPrimaryScraperChange(scraper)
+        onLegacySaavnEnabledChange(scraper == PrimaryAudioScraper.JIOSAAVN)
+        playerConnection?.service?.clearSaavnIncompatiblePlaybackCache()
+    }
     val onSaavnToggle: (Boolean) -> Unit = { enabled ->
         // This is now controlled by Primary Scraper, but kept for cache clearing
         if (enabled) {
@@ -124,9 +134,12 @@ fun StreamQualitySettings(
                         selectedValue = primaryScraper,
                         values = PrimaryAudioScraper.entries,
                         onValueSelected = { newScraper ->
-                            onPrimaryScraperChange(newScraper)
-                            onLegacySaavnEnabledChange(newScraper == PrimaryAudioScraper.JIOSAAVN)
-                            playerConnection?.service?.clearSaavnIncompatiblePlaybackCache()
+                            if (newScraper == PrimaryAudioScraper.JIOSAAVN && primaryScraper != PrimaryAudioScraper.JIOSAAVN) {
+                                pendingSaavnScraper.value = newScraper
+                                showBetaWarning = true
+                            } else {
+                                applySaavnScraper(newScraper)
+                            }
                         },
                         valueText = {
                             when (it) {
@@ -247,6 +260,18 @@ fun StreamQualitySettings(
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
                     navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                 ),
+        )
+    }
+
+    if (showBetaWarning) {
+        SaavnBetaWarningDialog(
+            onDismiss = {
+                showBetaWarning = false
+                pendingSaavnScraper.value = null
+            },
+            onConfirm = {
+                pendingSaavnScraper.value?.let { applySaavnScraper(it) }
+            },
         )
     }
 }

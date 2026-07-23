@@ -35,8 +35,8 @@ android {
         applicationId = "com.spotify.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 156
-        versionName = "13.11.5"
+        versionCode = 159
+        versionName = "13.11.7"
     }
 
     signingConfigs {
@@ -97,6 +97,10 @@ android {
             dimension = "target"
             applicationId = "com.google.android.apps.youtube.music"
         }
+        create("deezer") {
+            dimension = "target"
+            applicationId = "deezer.android.app"
+        }
     }
 }
 
@@ -113,12 +117,15 @@ dependencies {
 tasks.register<Zip>("packageShimApks") {
     group = "hush"
     description = "Packages the Waze bridge APKs for embedding in Hush."
-    dependsOn("assembleSpotifyRelease", "assembleYoutubeMusicRelease")
+    dependsOn("assembleSpotifyRelease", "assembleYoutubeMusicRelease", "assembleDeezerRelease")
     from(layout.buildDirectory.dir("outputs/apk/spotify/release")) {
         include("waze-shim-spotify-release.apk")
     }
     from(layout.buildDirectory.dir("outputs/apk/youtubeMusic/release")) {
         include("waze-shim-youtubeMusic-release.apk")
+    }
+    from(layout.buildDirectory.dir("outputs/apk/deezer/release")) {
+        include("waze-shim-deezer-release.apk")
     }
     destinationDirectory.set(layout.buildDirectory.dir("outputs/apk"))
     archiveFileName.set("waze-shims.zip")

@@ -37,10 +37,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -48,11 +50,14 @@ import androidx.navigation.NavController
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.constants.AutoBackupDayOfWeekKey
+import app.hush.music.constants.AutoBackupBeforeUpdateRetentionKey
+import app.hush.music.constants.AutoBackupDailyRetentionKey
 import app.hush.music.constants.AutoBackupEnabledKey
 import app.hush.music.constants.AutoBackupFrequency
 import app.hush.music.constants.AutoBackupFrequencyKey
 import app.hush.music.constants.AutoBackupHourKey
 import app.hush.music.constants.AutoBackupMinuteKey
+import app.hush.music.constants.AutoBackupWeeklyRetentionKey
 import app.hush.music.constants.EnableBackupBeforeUpdateKey
 import app.hush.music.constants.EnableWeeklyAutoBackupKey
 import app.hush.music.ui.component.DefaultDialog
@@ -64,8 +69,13 @@ import app.hush.music.ui.component.SwitchPreference
 import app.hush.music.ui.utils.backToMain
 import app.hush.music.ui.utils.formatFileSize
 import app.hush.music.utils.AutoBackupHelper
+import app.hush.music.utils.AutoBackupRetention
+import app.hush.music.utils.AutoBackupType
 import app.hush.music.utils.rememberPreference
 import app.hush.music.viewmodels.BackupRestoreViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -108,14 +118,38 @@ fun AutoBackupSettings(
             EnableBackupBeforeUpdateKey,
             defaultValue = true,
         )
+    val (dailyRetention, onDailyRetentionChange) =
+        rememberPreference(AutoBackupDailyRetentionKey, defaultValue = AutoBackupRetention.DEFAULT_LIMIT)
+    val (weeklyRetention, onWeeklyRetentionChange) =
+        rememberPreference(AutoBackupWeeklyRetentionKey, defaultValue = AutoBackupRetention.DEFAULT_LIMIT)
+    val (beforeUpdateRetention, onBeforeUpdateRetentionChange) =
+        rememberPreference(AutoBackupBeforeUpdateRetentionKey, defaultValue = AutoBackupRetention.DEFAULT_LIMIT)
 
     var showTimePicker by remember { mutableStateOf(false) }
     var backupsList by remember { mutableStateOf(emptyList<File>()) }
     var backupToDelete by remember { mutableStateOf<File?>(null) }
     var backupToRestore by remember { mutableStateOf<File?>(null) }
+    val coroutineScope = rememberCoroutineScope()
 
     fun reloadBackups() {
-        backupsList = AutoBackupHelper.getAutoBackups(context)
+        coroutineScope.launch {
+            backupsList = withContext(Dispatchers.IO) { AutoBackupHelper.getAutoBackups(context) }
+        }
+    }
+
+    fun updateRetention(
+        backupType: AutoBackupType,
+        retainedCount: Int,
+        onRetainedCountChange: (Int) -> Unit,
+    ) {
+        onRetainedCountChange(retainedCount)
+        coroutineScope.launch {
+            backupsList =
+                withContext(Dispatchers.IO) {
+                    AutoBackupHelper.pruneBackups(context, backupType, retainedCount)
+                    AutoBackupHelper.getAutoBackups(context)
+                }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -251,6 +285,69 @@ fun AutoBackupSettings(
                         onCheckedChange = onBackupBeforeUpdateEnabledChange,
                         isEnabled = autoBackupEnabled,
                     )
+                }
+            }
+
+            PreferenceGroup(title = stringResource(R.string.backup_retention)) {
+                when (backupFrequency) {
+                    AutoBackupFrequency.DAILY -> {
+                        item {
+                            ListPreference(
+                                title = { Text(stringResource(R.string.backup_retention_daily)) },
+                                description = stringResource(R.string.backup_retention_desc),
+                                selectedValue = dailyRetention,
+                                values = AutoBackupRetention.selectableLimits,
+                                onValueSelected = { retainedCount ->
+                                    updateRetention(AutoBackupType.DAILY, retainedCount, onDailyRetentionChange)
+                                },
+                                valueText = { retainedCount ->
+                                    pluralStringResource(R.plurals.backup_retention_count, retainedCount, retainedCount)
+                                },
+                            )
+                        }
+                    }
+                    AutoBackupFrequency.WEEKLY -> {
+                        item {
+                            ListPreference(
+                                title = { Text(stringResource(R.string.backup_retention_weekly)) },
+                                description = stringResource(R.string.backup_retention_desc),
+                                selectedValue = weeklyRetention,
+                                values = AutoBackupRetention.selectableLimits,
+                                onValueSelected = { retainedCount ->
+                                    updateRetention(AutoBackupType.WEEKLY, retainedCount, onWeeklyRetentionChange)
+                                },
+                                valueText = { retainedCount ->
+                                    pluralStringResource(R.plurals.backup_retention_count, retainedCount, retainedCount)
+                                },
+                            )
+                        }
+                    }
+                    AutoBackupFrequency.OFF -> {
+                        item {
+                            PreferenceEntry(
+                                title = { Text(stringResource(R.string.backup_retention_disabled)) },
+                                description = stringResource(R.string.backup_retention_disabled_desc),
+                                isEnabled = false,
+                            )
+                        }
+                    }
+                }
+                if (backupBeforeUpdateEnabled) {
+                    item {
+                        ListPreference(
+                            title = { Text(stringResource(R.string.backup_retention_before_update)) },
+                            description = stringResource(R.string.backup_retention_before_update_desc),
+                            selectedValue = beforeUpdateRetention,
+                            values = AutoBackupRetention.selectableLimits,
+                            onValueSelected = { retainedCount ->
+                                updateRetention(AutoBackupType.BEFORE_UPDATE, retainedCount, onBeforeUpdateRetentionChange)
+                            },
+                            valueText = { retainedCount ->
+                                pluralStringResource(R.plurals.backup_retention_count, retainedCount, retainedCount)
+                            },
+                            isEnabled = autoBackupEnabled,
+                        )
+                    }
                 }
             }
 

@@ -478,6 +478,9 @@
     <string name="enable_saavn_streaming_desc">Stream audio from JioSaavn when a match is found. Your library, likes, playlists, and sync stay on YouTube Music — only playback uses JioSaavn first, then falls back to YouTube.</string>
     <string name="saavn_audio_quality">JioSaavn audio quality</string>
     <string name="jiosaavn_beta_info">Beta feature. Best for the Indian catalog. If a song is not on JioSaavn, Hush uses YouTube automatically. Downloads use the same quality when JioSaavn matches.</string>
+    <string name="saavn_beta_warning_title">JioSaavn is in Beta</string>
+    <string name="saavn_beta_warning_message">JioSaavn streaming works best for Indian music. Some songs may not be available and will fall back to YouTube. Quality and matching may vary. Continue?</string>
+    <string name="saavn_beta_warning_confirm">Continue</string>
     <string name="playback_source_jiosaavn">JioSaavn</string>
     <string name="playback_source_youtube">YouTube</string>
     <string name="up_next">Up Next</string>

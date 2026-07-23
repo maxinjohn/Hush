@@ -10,6 +10,7 @@ package app.hush.music.ui.screens
 import android.net.Uri
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +29,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -57,6 +59,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
+import app.hush.music.ui.theme.LocalExploreTheme
 import app.hush.music.innertube.YouTube
 import app.hush.music.innertube.models.BrowseEndpoint
 import app.hush.music.ui.component.NavigationTitle
@@ -88,6 +91,7 @@ fun MoodAndGenresScreen(
         }
     }
 
+    CompositionLocalProvider(LocalExploreTheme provides true) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 180.dp),
         state = gridState,
@@ -142,6 +146,7 @@ fun MoodAndGenresScreen(
             }
         }
     }
+    }  // Close CompositionLocalProvider
 }
 
 @Composable
@@ -152,31 +157,50 @@ fun MoodAndGenresButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val isExploreTheme = LocalExploreTheme.current
     val colorScheme = MaterialTheme.colorScheme
     val base = remember(stripeColor) { Color(stripeColor) }
     val artworkUrl = rememberMoodAndGenresArtworkUrl(endpoint)
     val artworkModel = rememberMoodAndGenresArtworkModel(endpoint = endpoint, artworkUrl = artworkUrl)
+
+    // More vibrant gradients for explore theme
     val cardStart =
-        remember(base, colorScheme.primaryContainer) {
-            lerp(base, colorScheme.primaryContainer, 0.18f)
+        remember(base, colorScheme.primaryContainer, isExploreTheme) {
+            if (isExploreTheme) {
+                lerp(base, colorScheme.primary, 0.35f)
+            } else {
+                lerp(base, colorScheme.primaryContainer, 0.18f)
+            }
         }
     val cardEnd =
-        remember(base, colorScheme.surfaceContainerHighest) {
-            lerp(base, colorScheme.surfaceContainerHighest, 0.34f)
+        remember(base, colorScheme.surfaceContainerHighest, isExploreTheme) {
+            if (isExploreTheme) {
+                lerp(base, colorScheme.tertiary, 0.40f)
+            } else {
+                lerp(base, colorScheme.surfaceContainerHighest, 0.34f)
+            }
         }
     val coverStart =
-        remember(base, colorScheme.surface) {
-            lerp(base, colorScheme.surface, 0.28f)
+        remember(base, colorScheme.surface, isExploreTheme) {
+            if (isExploreTheme) {
+                lerp(base, colorScheme.secondary, 0.32f)
+            } else {
+                lerp(base, colorScheme.surface, 0.28f)
+            }
         }
     val coverEnd =
-        remember(base, colorScheme.scrim) {
-            lerp(base, colorScheme.scrim, 0.2f)
+        remember(base, colorScheme.scrim, isExploreTheme) {
+            if (isExploreTheme) {
+                lerp(base, colorScheme.primary.copy(alpha = 0.6f), 0.25f)
+            } else {
+                lerp(base, colorScheme.scrim, 0.2f)
+            }
         }
     val cardBrush =
         remember(cardStart, cardEnd) {
             Brush.linearGradient(
                 colors = listOf(cardStart, cardEnd),
-                start = Offset.Zero,
+                start = Offset(0f, 200f),
                 end = Offset(900f, 650f),
             )
         }
@@ -189,16 +213,25 @@ fun MoodAndGenresButton(
             )
         }
     val textScrimBrush =
-        remember(colorScheme.scrim) {
+        remember(colorScheme.scrim, isExploreTheme) {
             Brush.horizontalGradient(
                 colors =
-                    listOf(
-                        colorScheme.scrim.copy(alpha = 0.38f),
-                        colorScheme.scrim.copy(alpha = 0.18f),
-                        Color.Transparent,
-                    ),
+                    if (isExploreTheme) {
+                        listOf(
+                            colorScheme.scrim.copy(alpha = 0.50f),
+                            colorScheme.scrim.copy(alpha = 0.22f),
+                            Color.Transparent,
+                        )
+                    } else {
+                        listOf(
+                            colorScheme.scrim.copy(alpha = 0.38f),
+                            colorScheme.scrim.copy(alpha = 0.18f),
+                            Color.Transparent,
+                        )
+                    },
             )
         }
+    val glassBorder = isExploreTheme
 
     Card(
         onClick = onClick,
@@ -207,7 +240,20 @@ fun MoodAndGenresButton(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier =
             modifier
-                .height(MoodAndGenresButtonHeight),
+                .height(MoodAndGenresButtonHeight)
+                .then(
+                    if (isExploreTheme) {
+                        Modifier
+                            .clip(MoodAndGenresButtonShape)
+                            .border(
+                                width = 0.5.dp,
+                                color = colorScheme.primary.copy(alpha = 0.16f),
+                                shape = MoodAndGenresButtonShape,
+                            )
+                    } else {
+                        Modifier
+                    },
+                ),
     ) {
         Box(
             modifier =
@@ -215,16 +261,16 @@ fun MoodAndGenresButton(
                     .fillMaxSize()
                     .background(cardBrush),
         ) {
-            Box(
-                modifier =
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 10.dp, end = 12.dp)
-                        .size(MoodAndGenresCoverSize)
-                        .clip(MoodAndGenresCoverShape)
-                        .background(coverBrush),
-            ) {
-                if (artworkModel != null) {
+            if (artworkModel != null) {
+                Box(
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 10.dp, end = 12.dp)
+                            .size(MoodAndGenresCoverSize)
+                            .clip(MoodAndGenresCoverShape)
+                            .background(coverBrush),
+                ) {
                     AsyncImage(
                         model = artworkModel,
                         contentDescription = null,
@@ -241,7 +287,12 @@ fun MoodAndGenresButton(
             )
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
+                style =
+                    if (isExploreTheme) {
+                        MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
+                    } else {
+                        MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black)
+                    },
                 color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

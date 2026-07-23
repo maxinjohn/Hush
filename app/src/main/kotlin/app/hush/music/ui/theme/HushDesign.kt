@@ -17,6 +17,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -27,6 +28,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.hush.music.LocalAnimationsDisabled
+
+/**
+ * When true, search/explore/suggestions pages use a vibrant Gen-Z visual style
+ * with glass morphism, bold gradients, and enhanced typography.
+ */
+val LocalExploreTheme = compositionLocalOf { false }
 
 object HushDesign {
     val ChipCornerRadius = 24.dp

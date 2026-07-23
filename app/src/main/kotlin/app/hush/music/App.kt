@@ -54,6 +54,8 @@ import app.hush.music.ui.theme.ThemeSeedPalette
 import app.hush.music.ui.theme.ThemeSeedPaletteCodec
 import app.hush.music.utils.ArtworkNetworkUtils
 import app.hush.music.utils.AutoBackupHelper
+import app.hush.music.utils.AutoBackupRetention
+import app.hush.music.utils.AutoBackupType
 import app.hush.music.utils.IconUtils
 import app.hush.music.utils.PreferenceStore
 import app.hush.music.utils.ProxyUtils
@@ -242,6 +244,16 @@ class App :
                     minute = backupMinute,
                     dayOfWeek = backupDayOfWeek,
                 )
+                // Prune backups on startup
+                applicationScope.launch(Dispatchers.IO) {
+                    val ds = this@App.dataStore
+                    val dailyLimit = AutoBackupRetention.retentionLimit(ds, AutoBackupType.DAILY)
+                    AutoBackupHelper.pruneBackups(this@App, AutoBackupType.DAILY, dailyLimit)
+                    val weeklyLimit = AutoBackupRetention.retentionLimit(ds, AutoBackupType.WEEKLY)
+                    AutoBackupHelper.pruneBackups(this@App, AutoBackupType.WEEKLY, weeklyLimit)
+                    val beforeUpdateLimit = AutoBackupRetention.retentionLimit(ds, AutoBackupType.BEFORE_UPDATE)
+                    AutoBackupHelper.pruneBackups(this@App, AutoBackupType.BEFORE_UPDATE, beforeUpdateLimit)
+                }
 
                 IconUtils.setIcon(this@App, prefs[EnableDynamicIconKey] != false)
 

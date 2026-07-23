@@ -37,6 +37,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -78,11 +81,22 @@ fun JioSaavnSettings(
             defaultValue = if (legacySaavnEnabled) PrimaryAudioScraper.JIOSAAVN else PrimaryAudioScraper.YOUTUBE,
         )
     val saavnEnabled = primaryScraper == PrimaryAudioScraper.JIOSAAVN
+    var showBetaWarning by remember { mutableStateOf(false) }
     val playerConnection = LocalPlayerConnection.current
-    val onSaavnToggle: (Boolean) -> Unit = { enabled ->
+    val pendingSaavnToggle = remember { mutableStateOf(false) }
+    val applySaavnToggle: (Boolean) -> Unit = { enabled ->
         onSaavnEnabledChange(enabled)
         onPrimaryScraperChange(if (enabled) PrimaryAudioScraper.JIOSAAVN else PrimaryAudioScraper.YOUTUBE)
         playerConnection?.service?.clearSaavnIncompatiblePlaybackCache()
+    }
+    val onSaavnToggle: (Boolean) -> Unit = { enabled ->
+        if (enabled && !saavnEnabled) {
+            pendingSaavnToggle.value = true
+            showBetaWarning = true
+        } else {
+            pendingSaavnToggle.value = false
+            applySaavnToggle(enabled)
+        }
     }
     val (saavnQuality, onSaavnQualityChange) =
         rememberEnumPreference(SaavnAudioQualityKey, defaultValue = SaavnAudioQuality.QUALITY_320)
@@ -258,6 +272,18 @@ fun JioSaavnSettings(
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
                     navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                 ),
+        )
+    }
+
+    if (showBetaWarning) {
+        SaavnBetaWarningDialog(
+            onDismiss = {
+                showBetaWarning = false
+                pendingSaavnToggle.value = false
+            },
+            onConfirm = {
+                pendingSaavnToggle.value.let { applySaavnToggle(it) }
+            },
         )
     }
 }

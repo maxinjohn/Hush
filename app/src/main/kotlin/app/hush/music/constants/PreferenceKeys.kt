@@ -952,6 +952,9 @@ val AutoBackupFrequencyKey = stringPreferencesKey("autoBackupFrequency")
 val AutoBackupHourKey = intPreferencesKey("autoBackupHour")
 val AutoBackupMinuteKey = intPreferencesKey("autoBackupMinute")
 val AutoBackupDayOfWeekKey = intPreferencesKey("autoBackupDayOfWeek")
+val AutoBackupDailyRetentionKey = intPreferencesKey("autoBackupDailyRetention")
+val AutoBackupWeeklyRetentionKey = intPreferencesKey("autoBackupWeeklyRetention")
+val AutoBackupBeforeUpdateRetentionKey = intPreferencesKey("autoBackupBeforeUpdateRetention")
 
 enum class UpdateChannel {
     STABLE,
@@ -974,4 +977,5 @@ val WazeBridgeUpdateDismissalsKey = stringSetPreferencesKey("wazeBridgeUpdateDis
 enum class WazeTargetApp(val packageName: String) {
     SPOTIFY("com.spotify.music"),
     YOUTUBE_MUSIC("com.google.android.apps.youtube.music"),
+    DEEZER("deezer.android.app"),
 }

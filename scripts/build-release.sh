@@ -94,8 +94,8 @@ build_variant() {
   variant_paths "$distribution" "$device" "$abi"
   echo ""
   echo "==> Building Waze shim APKs"
-  ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease --no-daemon --max-workers=2
-  (cd waze-shim/build/outputs/apk && rm -f waze-shims.zip && zip -j waze-shims.zip spotify/release/waze-shim-spotify-release.apk youtubeMusic/release/waze-shim-youtubeMusic-release.apk && cp waze-shims.zip "$ROOT_DIR/app/src/main/assets/")
+  ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease :waze-shim:assembleDeezerRelease --no-daemon --max-workers=2
+  (cd waze-shim/build/outputs/apk && rm -f waze-shims.zip && zip -j waze-shims.zip spotify/release/waze-shim-spotify-release.apk youtubeMusic/release/waze-shim-youtubeMusic-release.apk deezer/release/waze-shim-deezer-release.apk && cp waze-shims.zip "$ROOT_DIR/app/src/main/assets/")
   echo "==> Building ${APK_NAME}"
   run_gradle "$abi" "$GRADLE_TASK"
   bash "$ROOT_DIR/scripts/resign-release-apk.sh" "$ROOT_DIR/$APK_PATH"

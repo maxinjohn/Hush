@@ -816,6 +816,18 @@
     <string name="backup_schedule_day_sunday">Sunday</string>
     <string name="backup_before_update">Backup before update</string>
     <string name="backup_before_update_desc">Automatically backup your data before downloading an app update.</string>
+    <string name="backup_retention">Backup retention</string>
+    <string name="backup_retention_desc">Keep the newest automatic backups. Older Hush backups are deleted.</string>
+    <string name="backup_retention_daily">Daily backups</string>
+    <string name="backup_retention_weekly">Weekly backups</string>
+    <string name="backup_retention_before_update">Before-update backups</string>
+    <string name="backup_retention_before_update_desc">Keep backups before each app update.</string>
+    <string name="backup_retention_disabled">Retention disabled</string>
+    <string name="backup_retention_disabled_desc">Enable daily or weekly backup to configure retention.</string>
+    <plurals name="backup_retention_count">
+        <item quantity="one">%d backup</item>
+        <item quantity="other">%d backups</item>
+    </plurals>
     <string name="stored_backups">Stored backups</string>
     <string name="no_stored_backups">No automatic backups stored yet.</string>
     <string name="backup_type_weekly">Weekly backup</string>
