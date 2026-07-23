@@ -45,6 +45,7 @@ import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -78,6 +79,8 @@ import app.hush.music.ui.component.NavigationTitle
 import app.hush.music.ui.component.YouTubeGridItem
 import app.hush.music.ui.component.YouTubeListItem
 import app.hush.music.ui.theme.HushAmbientBackground
+import app.hush.music.ui.theme.HushExploreBackground
+import app.hush.music.ui.theme.LocalExploreTheme
 import app.hush.music.ui.component.shimmer.ShimmerHost
 import app.hush.music.ui.component.shimmer.TextPlaceholder
 import app.hush.music.ui.menu.YouTubeAlbumMenu
@@ -114,7 +117,8 @@ fun SearchScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        HushAmbientBackground(modifier = Modifier.align(Alignment.TopCenter))
+        HushExploreBackground(modifier = Modifier.align(Alignment.TopCenter))
+        CompositionLocalProvider(LocalExploreTheme provides true) {
 
         LazyColumn(
             state = lazyListState,
@@ -244,10 +248,11 @@ fun SearchScreen(
                                 navController = navController,
                                 modifier = Modifier.animateItem(),
                             )
-                        }
-                    }
-                }
             }
+        }
+        }
+    }
+}
         }
     }
     }

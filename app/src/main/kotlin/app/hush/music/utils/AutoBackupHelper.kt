@@ -263,6 +263,25 @@ object AutoBackupHelper {
         return backupsList.sortedByDescending { it.lastModified() }
     }
 
+    fun pruneBackups(
+        context: Context,
+        backupType: AutoBackupType,
+        limit: Int,
+    ) {
+        if (limit <= 0) return
+        val backups = getAutoBackups(context)
+        val typeBackups = backups.filter { backup ->
+            val name = backup.name
+            when (backupType) {
+                AutoBackupType.DAILY -> name.contains("_daily_")
+                AutoBackupType.WEEKLY -> name.contains("_weekly_")
+                AutoBackupType.BEFORE_UPDATE -> name.contains("before_update")
+            }
+        }
+        val sorted = typeBackups.sortedByDescending { it.lastModified() }
+        sorted.drop(limit).forEach { deleteBackup(context, it) }
+    }
+
     fun deleteBackup(
         context: Context,
         file: File,

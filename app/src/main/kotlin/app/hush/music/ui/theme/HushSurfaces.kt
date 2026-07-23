@@ -112,7 +112,127 @@ fun Modifier.hushHomeRowCard(
         .clip(shape)
         .background(fillColor, shape)
         .border(width = 0.5.dp, color = borderColor, shape = shape)
-        .padding(6.dp)
+}
+
+// --- Gen-Z Explore Theme Surfaces ---
+
+/**
+ * Vibrant mesh gradient for search/explore/mood pages.
+ * Uses higher-chroma blobs and a neon accent for a Gen-Z visual identity.
+ */
+@Composable
+fun HushExploreBackground(
+    modifier: Modifier = Modifier,
+    heightFraction: Float = 0.72f,
+) {
+    val colors = rememberHushMeshColors()
+    val exploreColors =
+        remember(colors.primary, colors.tertiary) {
+            // Boost chroma for explore section
+            HushMeshColors(
+                primary = colors.primary,
+                secondary = colors.tertiary,
+                tertiary = colors.primary.copy(alpha = 0.8f),
+                primaryContainer = colors.primary.copy(alpha = 0.5f),
+                secondaryContainer = colors.tertiary.copy(alpha = 0.4f),
+                surface = colors.surface,
+            )
+        }
+
+    Box(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .fillMaxSize(heightFraction)
+                .zIndex(-1f)
+                .drawWithCache {
+                    val width = size.width
+                    val height = size.height
+
+                    fun blob(
+                        color: Color,
+                        centerX: Float,
+                        centerY: Float,
+                        radiusMul: Float,
+                        peakAlpha: Float,
+                    ): Brush =
+                        Brush.radialGradient(
+                            colors =
+                                listOf(
+                                    color.copy(alpha = peakAlpha * 0.55f),
+                                    color.copy(alpha = peakAlpha * 0.38f),
+                                    color.copy(alpha = peakAlpha * 0.20f),
+                                    color.copy(alpha = peakAlpha * 0.06f),
+                                    Color.Transparent,
+                                ),
+                            center = Offset(width * centerX, height * centerY),
+                            radius = width * radiusMul,
+                        )
+
+                    val brush1 = blob(exploreColors.primary, 0.18f, 0.10f, 0.65f, 0.50f)
+                    val brush2 = blob(exploreColors.secondary, 0.92f, 0.20f, 0.58f, 0.44f)
+                    val brush3 = blob(exploreColors.tertiary, 0.40f, 0.35f, 0.70f, 0.38f)
+                    val brush4 = blob(exploreColors.primaryContainer, 0.82f, 0.50f, 0.55f, 0.30f)
+                    val brush5 = blob(exploreColors.secondaryContainer, 0.55f, 0.65f, 0.68f, 0.24f)
+                    val fade =
+                        Brush.verticalGradient(
+                            colors =
+                                listOf(
+                                    Color.Transparent,
+                                    exploreColors.surface.copy(alpha = 0.10f),
+                                    exploreColors.surface.copy(alpha = 0.60f),
+                                    exploreColors.surface,
+                                ),
+                            startY = height * 0.30f,
+                            endY = height,
+                        )
+
+                    onDrawBehind {
+                        drawRect(brush1)
+                        drawRect(brush2)
+                        drawRect(brush3)
+                        drawRect(brush4)
+                        drawRect(brush5)
+                        drawRect(fade)
+                    }
+                },
+    )
+}
+
+/**
+ * Ultra-vibrant accent gradient for mood/genre cards in explore mode.
+ * Uses the primary-tertiary-secondary chain with boosted saturation.
+ */
+@Composable
+fun rememberHushVibrantGradient(): Brush {
+    val scheme = MaterialTheme.colorScheme
+    return remember(scheme.primary, scheme.tertiary, scheme.secondary) {
+        Brush.horizontalGradient(
+            colors =
+                listOf(
+                    scheme.primary,
+                    scheme.tertiary,
+                    scheme.secondary,
+                    scheme.primary.copy(alpha = 0.6f),
+                ),
+        )
+    }
+}
+
+/**
+ * Glass morphism modifier with a colored tint for the explore section.
+ * Adds a subtle glow effect compared to the standard glass surface.
+ */
+@Composable
+fun Modifier.hushExploreCard(
+    shape: Shape = HushDesign.cardShape,
+): Modifier {
+    val borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+    val fillColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.68f)
+    return this
+        .clip(shape)
+        .background(fillColor, shape)
+        .border(width = 0.5.dp, color = borderColor, shape = shape)
 }
 
 @Immutable

@@ -51,11 +51,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease --no-daemon
+          ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease :waze-shim:assembleDeezerRelease --no-daemon
           mkdir -p "${{ github.workspace }}/app/src/main/assets/"
           cd waze-shim/build/outputs/apk
           rm -f waze-shims.zip
-          zip -j waze-shims.zip spotify/release/waze-shim-spotify-release.apk youtubeMusic/release/waze-shim-youtubeMusic-release.apk
+          zip -j waze-shims.zip spotify/release/waze-shim-spotify-release.apk youtubeMusic/release/waze-shim-youtubeMusic-release.apk deezer/release/waze-shim-deezer-release.apk
           cp waze-shims.zip "${{ github.workspace }}/app/src/main/assets/"
 
       - name: Build and Lint Mobile Universal Debug APK

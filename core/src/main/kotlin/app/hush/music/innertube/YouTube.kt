@@ -309,6 +309,34 @@ object YouTube {
 
     fun createDnsOverHttps(url: String): Dns {
         val httpUrl = url.toHttpUrl()
+        return object : Dns {
+            @Volatile
+            private var cached: Dns? = null
+            private val cacheLock = Any()
+
+            private fun getOrCreateDelegate(): Dns {
+                return cached
+                    ?: synchronized(cacheLock) {
+                        cached
+                            ?: buildDnsOverHttps(httpUrl).also { cached = it }
+                    }
+            }
+
+            override fun lookup(hostname: String): List<InetAddress> {
+                return try {
+                    getOrCreateDelegate().lookup(hostname)
+                } catch (e: Exception) {
+                    // Clear cache on failure so next lookup tries fresh
+                    synchronized(cacheLock) {
+                        cached = null
+                    }
+                    throw e
+                }
+            }
+        }
+    }
+
+    private fun buildDnsOverHttps(httpUrl: okhttp3.HttpUrl): Dns {
         val bootstrapClient =
             OkHttpClient
                 .Builder()
@@ -1295,41 +1323,65 @@ object YouTube {
         continuation: String? = null,
         browseId: String? = null,
         params: String? = null,
+    ): Result<HomePage> {
+        if (continuation != null) {
+            return homeContinuation(continuation)
+        }
+
+        // Try logged-in first, fall back to anonymous if sections are empty or parsing fails
+        val result = tryHomePage(browseId, params, setLogin = true)
+        if (result.isSuccess && result.getOrNull()?.sections?.isNotEmpty() == true) {
+            return result
+        }
+        // Retry without login
+        return tryHomePage(browseId, params, setLogin = false)
+    }
+
+    private suspend fun tryHomePage(
+        browseId: String?,
+        params: String?,
+        setLogin: Boolean,
     ): Result<HomePage> =
         runCatching {
-            if (continuation != null) {
-                return@runCatching homeContinuation(continuation).getOrThrow()
-            }
-
             val resolvedBrowseId = browseId?.takeIf { it.isNotBlank() } ?: "FEmusic_home"
-            val response = innerTube.browse(WEB_REMIX, browseId = resolvedBrowseId, params = params, setLogin = true).body<BrowseResponse>()
+            val response = innerTube.browse(WEB_REMIX, browseId = resolvedBrowseId, params = params, setLogin = setLogin).body<BrowseResponse>()
+
+            // Try multiple response structure paths
+            val sectionListRender =
+                response.contents?.sectionListRenderer
+                    ?: response.contents?.singleColumnBrowseResultsRenderer
+                        ?.tabs?.firstOrNull()
+                        ?.tabRenderer?.content
+                        ?.sectionListRenderer
+                    ?: response.contents?.twoColumnBrowseResultsRenderer
+                        ?.tabs?.firstOrNull()
+                        ?.tabRenderer?.content
+                        ?.sectionListRenderer
             val continuation =
-                response.contents
-                    ?.singleColumnBrowseResultsRenderer
-                    ?.tabs
-                    ?.firstOrNull()
-                    ?.tabRenderer
-                    ?.content
-                    ?.sectionListRenderer
+                sectionListRender
                     ?.continuations
                     ?.getContinuation()
-            val sectionListRender =
-                response.contents
-                    ?.singleColumnBrowseResultsRenderer
-                    ?.tabs
-                    ?.firstOrNull()
-                    ?.tabRenderer
-                    ?.content
-                    ?.sectionListRenderer
             val sections =
                 sectionListRender
-                    ?.contents!!
-                    .mapNotNull { it.musicCarouselShelfRenderer }
-                    .mapNotNull {
-                        HomePage.Section.fromMusicCarouselShelfRenderer(it)
-                    }.toMutableList()
+                    ?.contents
+                    ?.flatMap { content ->
+                        buildList {
+                            content.musicCarouselShelfRenderer
+                                ?.let { HomePage.Section.fromMusicCarouselShelfRenderer(it) }
+                                ?.let(::add)
+                            content.itemSectionRenderer?.contents?.forEach { nested ->
+                                val items = nested.musicShelfRenderer?.contents
+                                    ?.mapNotNull { it.musicResponsiveListItemRenderer }
+                                    ?.mapNotNull { SearchPage.toYTItem(it) }
+                                    .orEmpty()
+                                if (items.isNotEmpty()) {
+                                    add(HomePage.Section(title = "", label = null, thumbnail = null, endpoint = null, items = items))
+                                }
+                            }
+                        }
+                    }.orEmpty()
             val chips =
-                sectionListRender.header
+                sectionListRender?.header
                     ?.chipCloudRenderer
                     ?.chips
                     ?.mapNotNull { HomePage.Chip.fromChipCloudChipRenderer(it) }

@@ -219,19 +219,20 @@ jobs:
           }
 
           build_with_shims() {
-            ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease
+            ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease :waze-shim:assembleDeezerRelease
             mkdir -p "${{ github.workspace }}/app/src/main/assets/"
             cd waze-shim/build/outputs/apk
             SPOTIFY_SHIM="$(find spotify/release -maxdepth 1 -type f -name "*.apk" | head -n 1)"
             YOUTUBE_MUSIC_SHIM="$(find youtubeMusic/release -maxdepth 1 -type f -name "*.apk" | head -n 1)"
-            if [ -z "${SPOTIFY_SHIM:-}" ] || [ -z "${YOUTUBE_MUSIC_SHIM:-}" ]; then
+            DEEZER_SHIM="$(find deezer/release -maxdepth 1 -type f -name "*.apk" | head -n 1)"
+            if [ -z "${SPOTIFY_SHIM:-}" ] || [ -z "${YOUTUBE_MUSIC_SHIM:-}" ] || [ -z "${DEEZER_SHIM:-}" ]; then
               echo "Could not find generated Waze shim APKs."
               find . -type f -name "*.apk" -print || true
               exit 1
             fi
             rm -f waze-shims.zip
-            touch -t 198001010000 "$SPOTIFY_SHIM" "$YOUTUBE_MUSIC_SHIM"
-            zip -X -j waze-shims.zip "$SPOTIFY_SHIM" "$YOUTUBE_MUSIC_SHIM"
+            touch -t 198001010000 "$SPOTIFY_SHIM" "$YOUTUBE_MUSIC_SHIM" "$DEEZER_SHIM"
+            zip -X -j waze-shims.zip "$SPOTIFY_SHIM" "$YOUTUBE_MUSIC_SHIM" "$DEEZER_SHIM"
             cp waze-shims.zip "${{ github.workspace }}/app/src/main/assets/"
             cd "${{ github.workspace }}"
           }
@@ -361,11 +362,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease --no-daemon
+          ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease :waze-shim:assembleDeezerRelease --no-daemon
           mkdir -p "${{ github.workspace }}/app/src/main/assets/"
           cd waze-shim/build/outputs/apk
           rm -f waze-shims.zip
-          zip -j waze-shims.zip spotify/release/waze-shim-spotify-release.apk youtubeMusic/release/waze-shim-youtubeMusic-release.apk
+          zip -j waze-shims.zip spotify/release/waze-shim-spotify-release.apk youtubeMusic/release/waze-shim-youtubeMusic-release.apk deezer/release/waze-shim-deezer-release.apk
           cp waze-shims.zip "${{ github.workspace }}/app/src/main/assets/"
 
       - name: Build Release APK

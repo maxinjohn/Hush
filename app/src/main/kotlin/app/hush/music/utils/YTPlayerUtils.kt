@@ -51,6 +51,7 @@ import okhttp3.HttpUrl
 import timber.log.Timber
 import java.net.Proxy
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -597,8 +598,11 @@ object YTPlayerUtils {
         saavnHints: SaavnPlaybackResolver.PlaybackHints?,
         trySaavnFirst: Boolean,
     ): PlaybackData = coroutineScope {
+        val saavnError = AtomicReference<Throwable?>()
+        val ytError = AtomicReference<Throwable?>()
+
         val saavnDeferred = async {
-            runCatching {
+            try {
                 withTimeoutOrNull(10_000L) {
                     SaavnPlaybackResolver.tryResolve(
                         context = context,
@@ -608,10 +612,13 @@ object YTPlayerUtils {
                         force = true,
                     )
                 }
-            }.getOrNull()
+            } catch (e: Exception) {
+                saavnError.set(e)
+                null
+            }
         }
         val ytDeferred = async {
-            runCatching {
+            try {
                 withTimeoutOrNull(15_000L) {
                     playerResponseYouTubeOnly(
                         videoId = videoId,
@@ -623,7 +630,10 @@ object YTPlayerUtils {
                         fastResolution = fastResolution,
                     )
                 }
-            }.getOrNull()
+            } catch (e: Exception) {
+                ytError.set(e)
+                null
+            }
         }
 
         var saavnResult: PlaybackData? = null
@@ -638,6 +648,14 @@ object YTPlayerUtils {
                 ytResult = result
                 Unit
             }
+        }
+
+        fun fail(): Nothing {
+            val reasons = buildList {
+                add("YT: ${ytError.get()?.message ?: "timed out / no match"}")
+                add("Saavn: ${saavnError.get()?.message ?: "timed out / no match"}")
+            }
+            error("Both sources failed for $videoId — ${reasons.joinToString(" | ")}")
         }
 
         if (trySaavnFirst) {
@@ -656,7 +674,7 @@ object YTPlayerUtils {
                 }
             } else {
                 Timber.tag(logTag).d("Parallel fetch: JioSaavn no match — waiting for YouTube for %s", videoId)
-                ytDeferred.await() ?: error("Both parallel sources failed for $videoId")
+                ytDeferred.await() ?: fail()
             }
         } else {
             if (ytResult != null) {
@@ -680,7 +698,7 @@ object YTPlayerUtils {
                     yt
                 } else {
                     Timber.tag(logTag).d("Parallel fetch: YouTube failed — falling back to Saavn for %s", videoId)
-                    saavnDeferred.await() ?: error("Both parallel sources failed for $videoId")
+                    saavnDeferred.await() ?: fail()
                 }
             }
         }

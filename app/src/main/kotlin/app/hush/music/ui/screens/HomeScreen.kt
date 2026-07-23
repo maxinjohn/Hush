@@ -403,6 +403,21 @@ private fun HomeContent(
                         }
                     }
 
+                    // When a mood chip is active, show mood content right after Quick Picks
+                    if (uiState.selectedChip != null) {
+                        RemoteSections(
+                            isChipLoading = uiState.isChipLoading,
+                            sections = uiState.homePage?.sections.orEmpty(),
+                            navController = navController,
+                            mediaMetadata = mediaMetadata,
+                            isPlaying = isPlaying,
+                            playerConnection = playerConnection,
+                            menuState = menuState,
+                            haptic = haptic,
+                            scope = scope,
+                        )
+                    }
+
                     if (uiState.speedDialItems.isNotEmpty()) {
                         sectionSpacer("speed_dial")
                         item(
@@ -548,53 +563,19 @@ private fun HomeContent(
                         }
                     }
 
-                    if (uiState.isChipLoading) {
-                        // Show shimmer placeholders while chip content loads
-                        item(
-                            key = "home_chip_shimmer_spacer",
-                            contentType = "section_spacer",
-                        ) {
-                            Spacer(Modifier.height(HomeSectionSpacing))
-                        }
-                        repeat(3) { shimmerIndex ->
-                            item(
-                                key = "home_chip_shimmer_$shimmerIndex",
-                                contentType = "shimmer_section",
-                            ) {
-                                HomeLoadingShimmer()
-                            }
-                        }
-                    } else {
-                        uiState.homePage?.sections.orEmpty().forEachIndexed { index, section ->
-                            val sectionKey = "${section.endpoint?.browseId ?: section.title}_$index"
-                            sectionSpacer("remote_$sectionKey")
-                            item(
-                                key = "home_remote_header_$sectionKey",
-                                contentType = "section_header",
-                            ) {
-                                HomePageSectionTitle(
-                                    section = section,
-                                    navController = navController,
-                                    modifier = Modifier.animateItem(),
-                                )
-                            }
-                            item(
-                                key = "home_remote_$sectionKey",
-                                contentType = "media_shelf",
-                            ) {
-                                HomePageSectionContent(
-                                    section = section,
-                                    mediaMetadata = mediaMetadata,
-                                    isPlaying = isPlaying,
-                                    navController = navController,
-                                    playerConnection = playerConnection,
-                                    menuState = menuState,
-                                    haptic = haptic,
-                                    scope = scope,
-                                    modifier = Modifier.animateItem(),
-                                )
-                            }
-                        }
+                    // Default YT sections at bottom when no mood chip is active
+                    if (uiState.selectedChip == null) {
+                        RemoteSections(
+                            isChipLoading = uiState.isChipLoading,
+                            sections = uiState.homePage?.sections.orEmpty(),
+                            navController = navController,
+                            mediaMetadata = mediaMetadata,
+                            isPlaying = isPlaying,
+                            playerConnection = playerConnection,
+                            menuState = menuState,
+                            haptic = haptic,
+                            scope = scope,
+                        )
                     }
 
                     if (uiState.isLoadingMore) {
@@ -615,6 +596,66 @@ private fun HomeContent(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.RemoteSections(
+    isChipLoading: Boolean,
+    sections: List<app.hush.music.innertube.pages.HomePage.Section>,
+    navController: NavController,
+    mediaMetadata: MediaMetadata?,
+    isPlaying: Boolean,
+    playerConnection: PlayerConnection,
+    menuState: MenuState,
+    haptic: HapticFeedback,
+    scope: CoroutineScope,
+) {
+    if (isChipLoading) {
+        item(
+            key = "home_chip_shimmer_spacer",
+            contentType = "section_spacer",
+        ) {
+            Spacer(Modifier.height(HomeSectionSpacing))
+        }
+        repeat(3) { shimmerIndex ->
+            item(
+                key = "home_chip_shimmer_$shimmerIndex",
+                contentType = "shimmer_section",
+            ) {
+                HomeLoadingShimmer()
+            }
+        }
+    } else {
+        sections.forEachIndexed { index, section ->
+            val sectionKey = "${section.endpoint?.browseId ?: section.title}_$index"
+            sectionSpacer("remote_$sectionKey")
+            item(
+                key = "home_remote_header_$sectionKey",
+                contentType = "section_header",
+            ) {
+                HomePageSectionTitle(
+                    section = section,
+                    navController = navController,
+                    modifier = Modifier.animateItem(),
+                )
+            }
+            item(
+                key = "home_remote_$sectionKey",
+                contentType = "media_shelf",
+            ) {
+                HomePageSectionContent(
+                    section = section,
+                    mediaMetadata = mediaMetadata,
+                    isPlaying = isPlaying,
+                    navController = navController,
+                    playerConnection = playerConnection,
+                    menuState = menuState,
+                    haptic = haptic,
+                    scope = scope,
+                    modifier = Modifier.animateItem(),
+                )
             }
         }
     }

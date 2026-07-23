@@ -6301,6 +6301,7 @@ class MusicService :
                 val isLegacyShim = appInfo.loadLabel(packageManager).toString() == when (app) {
                     WazeTargetApp.SPOTIFY -> "Hush (Spotify)"
                     WazeTargetApp.YOUTUBE_MUSIC -> "Hush (YouTube Music)"
+                    WazeTargetApp.DEEZER -> "Hush (Deezer)"
                 }
                 if (isCurrentShim || isLegacyShim) {
                     shimPackages.add(app.packageName)
