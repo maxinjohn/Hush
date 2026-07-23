@@ -110,7 +110,7 @@ jobs:
 
       - name: Build Waze shim APKs (fresh for each CI run)
         shell: bash
-         run: |
+        run: |
           set -euo pipefail
           ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease :waze-shim:assembleDeezerRelease --no-daemon
           mkdir -p "${{ github.workspace }}/app/src/main/assets/"
