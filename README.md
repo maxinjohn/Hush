@@ -1,6 +1,6 @@
 # Hush
 
-## Music for your mood. Waze-ready.
+## Music for your mood.
 
 YT Music client for my phone and car — with Waze bridge support so you can control playback right from the dashboard. Unofficial. Sideloaded. Built for my daily drive.
 
