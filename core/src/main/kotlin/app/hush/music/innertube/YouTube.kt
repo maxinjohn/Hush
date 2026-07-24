@@ -765,7 +765,8 @@ object YouTube {
                                     ?.title
                                     ?.runs
                                     ?.firstOrNull()
-                                    ?.text!!,
+                                    ?.text
+                                    ?: "Unknown Artist",
                         thumbnail =
                             immersiveHeader?.thumbnail?.musicThumbnailRenderer?.getThumbnailUrl()
                                 ?: response.header
