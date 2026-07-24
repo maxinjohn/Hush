@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Remove build outputs without hanging on macOS duplicate folders ("name 2").
+# Remove ALL build outputs without hanging on macOS duplicate folders ("name 2").
+# Cleans every Gradle module's build directory to prevent stale class files
+# causing "Type X is defined multiple times" D8 errors.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,13 +20,19 @@ remove_path() {
 # Finder / interrupted builds sometimes leave "folder 2" copies that hang rm/clean forever.
 while IFS= read -r dup; do
   remove_path "$dup"
-done < <(find app/build .gradle/configuration-cache -type d -name '* 2' 2>/dev/null || true)
+done < <(find . -type d -name '* 2' -path '*/build/*' 2>/dev/null || true)
 
-# Old-package KSP backup trees from pre-rename builds can loop on delete.
+# Stale KSP backup trees from pre-rename builds can loop on delete.
 while IFS= read -r stale; do
   remove_path "$stale"
-done < <(find app/build/kspCaches -type d -path '*/backups/kotlin/moe' 2>/dev/null || true)
+done < <(find . -type d -path '*/kspCaches/backups/kotlin/moe' 2>/dev/null || true)
 
-remove_path app/build
+# Remove all Gradle module build directories (prevents duplicate class D8 errors).
+for module in app core canvas lastfm moriextractor spotifycore shazamkit jiosaavn waze-shim build; do
+  remove_path "./$module/build"
+done
+
+# Remove Gradle cache that can cause stale config issues.
+remove_path .gradle/configuration-cache
 
 echo "Build output cleared."
