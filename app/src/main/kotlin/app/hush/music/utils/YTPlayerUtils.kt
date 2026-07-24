@@ -717,8 +717,8 @@ object YTPlayerUtils {
             when (audioQuality) {
                 AudioQuality.HIGHEST -> listOf(AudioQuality.HIGHEST, AudioQuality.HIGH, AudioQuality.LOW)
                 AudioQuality.HIGH -> listOf(AudioQuality.HIGH, AudioQuality.LOW)
-                AudioQuality.AUTO -> listOf(AudioQuality.AUTO, AudioQuality.HIGH, AudioQuality.LOW)
-                AudioQuality.LOW -> listOf(AudioQuality.LOW, AudioQuality.HIGH, AudioQuality.AUTO)
+                AudioQuality.AUTO -> listOf(AudioQuality.AUTO)
+                AudioQuality.LOW -> listOf(AudioQuality.LOW, AudioQuality.AUTO)
                 else -> listOf(audioQuality)
             }.distinct()
 
