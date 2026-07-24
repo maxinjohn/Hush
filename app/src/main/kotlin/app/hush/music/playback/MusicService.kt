@@ -1020,7 +1020,7 @@ class MusicService :
                     mediaItemResolver = CastMediaItemResolver(::resolveMediaItemForCast),
                 ).apply {
                     addListener(this@MusicService)
-                    SleepTimer(scope, this).also { timer ->
+                    SleepTimer(scope, this, this@MusicService).also { timer ->
                         sleepTimer = timer
                         addListener(timer)
                     }
@@ -1845,13 +1845,25 @@ class MusicService :
         incomingPlayer.volume = (incomingBaseVolume * sin(radians).toFloat()).coerceIn(0f, maxSafeGainFactor)
     }
 
+    fun pauseFromSleepTimer() {
+        sleepTimer.clear()
+        crossfadeTriggerJob?.cancel()
+        crossfadeTriggerJob = null
+        cancelCrossfade(resetVolume = true, resetPauseAtEnd = true)
+        releaseSecondaryCrossfadePlayer()
+        player.pause()
+        player.playWhenReady = false
+        localPlayer.pause()
+        localPlayer.playWhenReady = false
+    }
+
     private fun scheduleCrossfade() {
         if (!::player.isInitialized) return
         crossfadeTriggerJob?.cancel()
         crossfadeTriggerJob = null
 
         if (isCrossfading) return
-        if (!player.playWhenReady) {
+        if (!player.playWhenReady || sleepTimer.pauseWhenSongEnd) {
             localPlayer.pauseAtEndOfMediaItems = false
             releaseSecondaryCrossfadePlayer()
             return
@@ -5924,6 +5936,11 @@ class MusicService :
         reason: Int,
     ) {
         super.onMediaItemTransition(mediaItem, reason)
+
+        if (sleepTimer.pauseWhenSongEnd) {
+            pauseFromSleepTimer()
+            return
+        }
 
         activePlaybackClientLabel.value = null
         lastPublishedPlaybackClient = null
