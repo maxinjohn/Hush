@@ -3303,6 +3303,7 @@ class MusicService :
     private suspend fun recoverSong(
         mediaId: String,
         playbackData: YTPlayerUtils.PlaybackData? = null,
+        isOfflinePlayback: Boolean = false,
     ) {
         val song = database.song(mediaId).first()
         val mediaMetadata =
@@ -3314,7 +3315,7 @@ class MusicService :
         val duration =
             song?.song?.duration?.takeIf { it != -1 }
                 ?: mediaMetadata.duration.takeIf { it != -1 }
-                ?: (
+                ?: if (isOfflinePlayback) -1 else (
                     playbackData?.videoDetails ?: YTPlayerUtils
                         .playerResponseForMetadata(mediaId)
                         .getOrNull()
@@ -3328,7 +3329,7 @@ class MusicService :
                 update(song.song.copy(duration = duration))
             }
         }
-        if (!database.hasRelatedSongs(mediaId)) {
+        if (!isOfflinePlayback && !database.hasRelatedSongs(mediaId)) {
             val relatedEndpoint =
                 YouTube.next(WatchEndpoint(videoId = mediaId)).getOrNull()?.relatedEndpoint
                     ?: return
@@ -7056,7 +7057,7 @@ class MusicService :
             knownContentLength = knownContentLength,
         )
         if (cachedDataSpec != null) {
-            scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
+            scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
             return cachedDataSpec
         }
         val effectiveAudioQuality = resolveEffectiveAudioQuality(audioQuality, lowDataModeActive)
@@ -7073,7 +7074,7 @@ class MusicService :
         }
 
         cachedPlaybackUrl(mediaId)?.let { cached ->
-            scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
+            scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
             return buildResolvedStreamDataSpec(
                 dataSpec = dataSpec,
                 streamUrl = cached.url,
@@ -7087,7 +7088,7 @@ class MusicService :
             awaitPlaybackUrlPrefetch(mediaId, timeoutMs = 1_500L)
         }
         cachedPlaybackUrl(mediaId)?.let { cached ->
-            scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
+            scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
             return buildResolvedStreamDataSpec(
                 dataSpec = dataSpec,
                 streamUrl = cached.url,
