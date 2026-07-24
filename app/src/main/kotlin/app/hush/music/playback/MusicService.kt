@@ -1846,7 +1846,7 @@ class MusicService :
     }
 
     fun pauseFromSleepTimer() {
-        sleepTimer.clear()
+        sleepTimer?.clear()
         crossfadeTriggerJob?.cancel()
         crossfadeTriggerJob = null
         cancelCrossfade(resetVolume = true, resetPauseAtEnd = true)
@@ -1863,7 +1863,7 @@ class MusicService :
         crossfadeTriggerJob = null
 
         if (isCrossfading) return
-        if (!player.playWhenReady || sleepTimer.pauseWhenSongEnd) {
+        if (!player.playWhenReady || sleepTimer?.pauseWhenSongEnd == true) {
             localPlayer.pauseAtEndOfMediaItems = false
             releaseSecondaryCrossfadePlayer()
             return
@@ -5937,7 +5937,7 @@ class MusicService :
     ) {
         super.onMediaItemTransition(mediaItem, reason)
 
-        if (sleepTimer.pauseWhenSongEnd) {
+        if (sleepTimer?.pauseWhenSongEnd == true) {
             pauseFromSleepTimer()
             return
         }
