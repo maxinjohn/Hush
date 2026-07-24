@@ -584,6 +584,7 @@ class SyncUtils
                                 .filterIsInstance<PlaylistItem>()
                                 .filterNot { it.id == "LM" || it.id == "SE" }
                                 .reversed()
+                                .distinctBy { it.id }
 
                         if (remotePlaylists.isEmpty() && !authoritative) {
                             Timber.w("syncSavedPlaylists: No playlists found")
