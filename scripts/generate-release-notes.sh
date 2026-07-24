@@ -71,6 +71,7 @@ is_chore_commit() {
   return 1
 }
 
+is_internal_rename_commit() {
   local subject="$1"
   local lower
   lower="$(printf '%s' "$subject" | tr '[:upper:]' '[:lower:]')"
