@@ -117,14 +117,6 @@ class LibrarySongsViewModel
         private val _isLoading = MutableStateFlow(true)
         val isLoading = _isLoading.asStateFlow()
 
-        init {
-            viewModelScope.launch {
-                allSongs.collect {
-                    if (_isLoading.value) _isLoading.value = false
-                }
-            }
-        }
-
         val allSongs =
             context.dataStore.data
                 .map {
@@ -190,6 +182,14 @@ class LibrarySongsViewModel
                         }
                     }
                 }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+        init {
+            viewModelScope.launch {
+                allSongs.collect {
+                    if (_isLoading.value) _isLoading.value = false
+                }
+            }
+        }
 
         fun refresh(filter: SongFilter) {
             if (_isRefreshing.value) return
