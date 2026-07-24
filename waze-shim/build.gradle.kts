@@ -35,8 +35,8 @@ android {
         applicationId = "com.spotify.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 159
-        versionName = "13.11.7"
+        versionCode = 160
+        versionName = "13.11.8"
     }
 
     signingConfigs {
