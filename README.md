@@ -1,8 +1,8 @@
 # Hush
 
-## Music for your mood.
+## Music for your mood. Waze-ready.
 
-Android YouTube Music player for my phone and car. Unofficial. Sideloaded. Zero corporate energy — just playback that actually slaps.
+YT Music client for my phone and car — with Waze bridge support so you can control playback right from the dashboard. Unofficial. Sideloaded. Built for my daily drive.
 
 Instead of hopping between a pile of forks, I combined the best from the whole open-source stack: **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** as the base, then pulled in the good stuff from **[Metrolist](https://github.com/metrolistgroup/metrolist)**, **[Vivi Music](https://github.com/vivizzz007/vivi-music)**, **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)**, and the shared libs behind **[ViMusic](https://github.com/vfsfitvnm/ViMusic)**, **[OuterTune](https://github.com/OuterTune/OuterTune)**, and **[BetterLyrics](https://github.com/boidu-dev/BetterLyrics)**. One app. Most of the features. No fork roulette.
 
@@ -20,17 +20,27 @@ Instead of hopping between a pile of forks, I combined the best from the whole o
 
 ## So what is Hush?
 
-Personal fork. I build it for me. You're welcome to the APKs.
+I built this for myself. My car has Waze, and Waze only shows music controls for the official apps — Spotify, YouTube Music, Deezer. None of the unofficial YT Music clients I liked (Metrolist, ArchiveTune, ViMusic) could show song info or let me skip tracks from the Waze screen. So I found a way around it.
 
-Think: YT library sync, queue, downloads, lyrics (multi-provider), Android Auto, Cast on GMS builds, local files, backups, podcasts, dynamic themes, canvas art, crossfade, tempo/pitch — the full session, not a demo.
+Hush ships with tiny bridge APKs that impersonate those official apps just enough for Waze to pick them up. When you connect Hush to Waze through one of these bridges, Waze thinks it's talking to Spotify or Deezer — but it's actually controlling Hush. Song name, artist, album art, play/pause, skip, queue — all of it shows up on the Waze dashboard while you drive.
 
-Not a PR factory. Not taking donations. If something's broken in code that came from Metrolist or ArchiveTune, hit *their* issues when you can. **Hush-specific bugs** — weird on *this* build, this fork, your install — [open an issue here](https://github.com/maxinjohn/Hush/issues); I'll see what I can do.
+It started as a quick hack for my OnePlus and my car. Then I kept adding things I wanted: better lyrics, faster downloads, backup retention, mood chips that actually work when you're logged in, a Gen‑Z style explore page. Everything I missed from the other forks — I pulled it in and made it work together.
+
+One app. My daily driver. If it works for you too, cool.
 
 ---
 
 ## Waze Bridge
 
-Hush includes a **Waze Bridge** — a shim that intercepts Waze's "Play music" action and routes it to Hush instead of the default music app. When you tap the music note in Waze's navigation view, Hush launches and plays your library. Works with both Spotify and YouTube Music bridge intents. This is a standalone feature unique to Hush, not found in upstream forks.
+Hush ships with **bridge shim APKs** that make Waze think it's talking to Spotify, YouTube Music, or Deezer. When connected, Waze shows the current song, artist, album art, and lets you play/pause/skip right from the navigation screen.
+
+| Bridge | Package |
+|--------|---------|
+| Spotify | `com.spotify.music` |
+| YouTube Music | `com.google.android.apps.youtube.music` |
+| Deezer | `deezer.android.app` |
+
+This is how I get music controls in my car — Waze only talks to official apps, so Hush pretends to be one. Select which bridge to use in Settings → Waze Integration.
 
 ---
 
@@ -41,13 +51,13 @@ Real talk on what got ported from where. This table only moves when I add someth
 | Source | What landed in Hush |
 | --- | --- |
 | **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** | Core app, YT login & sync, playback engine, queue & downloads, crossfade, tempo/pitch, Chromecast, Music Together, Last.fm / ListenBrainz, local files, backup & restore, multi-provider lyrics, podcasts, Android Auto, dynamic theme & canvas art, onboarding, stream-source picker, custom extractor, hi-res / lossless |
-| **[Metrolist](https://github.com/metrolistgroup/metrolist)** | Wake-up **music alarms**, **loudness** presets, **playlist export** (CSV / M3U), **Android Auto** settings |
-| **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | Playlist **view-count prefetch**, **auto-backup before in-app update**, **JioSaavn streaming** (320 kbps primary, YT fallback) |
-| **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)** | **Settings search**, **IPv4 / IPv6 / Auto** network mode |
-| **Hush** | Parallel source fetch, app language selector, DOH/proxy, IP rotation UI, lyrics racing, library rewrite |
+| **[Metrolist](https://github.com/metrolistgroup/metrolist)** | Wake-up **music alarms**, **loudness** presets, **playlist export** (CSV / M3U), **sync dedup**, **Android Auto** settings |
+| **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | Playlist **view-count prefetch**, **auto-backup before update**, **backup retention**, **JioSaavn streaming** (320 kbps primary, YT fallback) |
+| **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)** | **5MB chunked downloads**, **isOfflinePlayback flag**, **Data Saver key**, **DoH diagnostics**, **Settings search**, **IPv4 / IPv6 / Auto** network mode |
+| **Hush** | **Waze Bridge** (Spotify + YT Music + Deezer), **Gen‑Z explore theme**, **Saavn beta warning**, **mood chip fix** (logged‑in fallback), parallel source fetch, app language selector, DOH/proxy, IP rotation UI, lyrics racing, library rewrite, auto-pause debounce, sleep timer pause fix |
 | **[ViMusic](https://github.com/vfsfitvnm/ViMusic)** | InnerTube foundations, bottom-sheet UI patterns, KuGou lyrics client |
 | **[OuterTune](https://github.com/OuterTune/OuterTune)** | Player carousel snap / parallax, network connectivity observer |
-| **[BetterLyrics](https://github.com/boidu-dev/BetterLyrics)** | Word-synced TTML lyrics module |
+| **[BetterLyrics](https://github.com/boidu-dev/BetterLyrics)** | Word-synced TTML lyrics module, QRC parser |
 
 Tiny fixes and UI polish are mixed in from everywhere. Full license wall → **About → Licenses** in the app.
 
