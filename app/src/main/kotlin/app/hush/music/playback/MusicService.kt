@@ -6389,7 +6389,6 @@ class MusicService :
         if (index < 0 || index >= player.mediaItemCount) return
         suppressAutoPlayback = false
         player.seekTo(index, C.TIME_UNSET)
-        player.prepare()
     }
 
     private fun scheduleDelayedWazeUpdate() {
