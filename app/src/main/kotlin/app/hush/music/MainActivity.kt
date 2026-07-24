@@ -2022,8 +2022,8 @@ class MainActivity : ComponentActivity() {
                                                     Modifier
                                                         .align(Alignment.BottomCenter)
                                                         .padding(
-                                                            start = FloatingToolbarHorizontalPadding,
-                                                            end = FloatingToolbarHorizontalPadding,
+                                                            start = 0.dp,
+                                                            end = 0.dp,
                                                             bottom = bottomInset + floatingBarsBottomPadding,
                                                         ).height(navVisibleHeight),
                                                 onShuffleClick =

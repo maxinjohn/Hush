@@ -116,7 +116,6 @@ fun FloatingNavigationToolbar(
 
         HorizontalFloatingToolbar(
             expanded = true,
-            modifier = Modifier.widthIn(max = 520.dp),
             colors = toolbarColors,
         ) {
             ToolbarItemsContainer(
