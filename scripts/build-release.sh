@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build + sign any Hush release APK locally (all flavors: foss/gms × mobile/tv × all ABIs).
+# Build + sign any Hush APK locally (release or debug, all flavors: foss/gms × mobile/tv × all ABIs).
+# Usage: scripts/build-release.sh [distribution] [device] [abi] [debug|release]
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -8,6 +9,8 @@ cd "$ROOT_DIR"
 DISTRIBUTIONS=(foss gms)
 DEVICES=(mobile tv)
 ABIS=(universal arm64 armeabi x86 x86_64)
+BUILD_TYPES=(release debug)
+BUILD_TYPE="release"
 
 capitalize() {
   local value="$1"
@@ -18,36 +21,40 @@ variant_paths() {
   local distribution="$1"
   local device="$2"
   local abi="$3"
-  local device_cap abi_cap
+  local build_type="${4:-release}"
+  local device_cap abi_cap build_type_cap
   device_cap="$(capitalize "$device")"
   abi_cap="$(capitalize "$abi")"
-  GRADLE_TASK=":app:assemble$(capitalize "$distribution")${device_cap}${abi_cap}Release"
-  APK_DIR="app/build/outputs/apk/${distribution}${device_cap}${abi_cap}/release"
-  APK_NAME="hush-${distribution}-${device}-${abi}-release.apk"
+  build_type_cap="$(capitalize "$build_type")"
+  GRADLE_TASK=":app:assemble$(capitalize "$distribution")${device_cap}${abi_cap}${build_type_cap}"
+  APK_DIR="app/build/outputs/apk/${distribution}${device_cap}${abi_cap}/${build_type}"
+  APK_NAME="hush-${distribution}-${device}-${abi}-${build_type}.apk"
   APK_PATH="${APK_DIR}/${APK_NAME}"
+  BUILD_TYPE="$build_type"
 }
 
 print_usage() {
   cat <<'EOF'
-Usage: scripts/build-release.sh [options] [distribution] [device] [abi]
+Usage: scripts/build-release.sh [distribution] [device] [abi] [debug|release]
 
-Local release builds only. Gradle assembles an unsigned APK; this script re-signs it
-(same flow as GitHub Actions).
+Local builds. Gradle assembles an APK; release builds are re-signed.
 
-Arguments (defaults: foss mobile arm64):
+Arguments (defaults: foss mobile arm64 release):
   distribution   foss | gms
   device         mobile | tv
   abi            universal | arm64 | armeabi | x86 | x86_64 | all
+  build type     debug | release  (default: release)
 
 Special targets:
   list, --list              Print every variant and Gradle task name
-  all                       Build all 20 release variants (slow)
-  mobile-all [distribution] Build all 5 mobile ABIs (default distribution: foss)
-  tv-all [distribution]     Build all 5 TV ABIs (default distribution: gms)
+  all                       Build all 20 variants (slow)
+  mobile-all [distribution] Build all 5 mobile ABIs
+  tv-all [distribution]     Build all 5 TV ABIs
 
 Examples:
-  scripts/build-release.sh foss mobile arm64
-  scripts/build-release.sh gms tv universal
+  scripts/build-release.sh gms mobile universal         # release
+  scripts/build-release.sh gms universal debug          # debug
+  scripts/build-release.sh foss arm64 debug             # debug
   scripts/build-release.sh gms mobile x86_64
   scripts/build-release.sh foss mobile all
   scripts/build-release.sh mobile-all gms
@@ -91,27 +98,39 @@ build_variant() {
   local distribution="$1"
   local device="$2"
   local abi="$3"
-  variant_paths "$distribution" "$device" "$abi"
+  local build_type="$4"
+  variant_paths "$distribution" "$device" "$abi" "$build_type"
+
+  local shim_suffix="Release"
+  if [ "$build_type" = "debug" ]; then
+    shim_suffix="Debug"
+  fi
+
   echo ""
   echo "==> Building Waze shim APKs"
-  ./gradlew :waze-shim:assembleSpotifyRelease :waze-shim:assembleYoutubeMusicRelease :waze-shim:assembleDeezerRelease --no-daemon --max-workers=2
-  (cd waze-shim/build/outputs/apk && rm -f waze-shims.zip && zip -j waze-shims.zip spotify/release/waze-shim-spotify-release.apk youtubeMusic/release/waze-shim-youtubeMusic-release.apk deezer/release/waze-shim-deezer-release.apk && cp waze-shims.zip "$ROOT_DIR/app/src/main/assets/")
+  ./gradlew ":waze-shim:assembleSpotify${shim_suffix}" ":waze-shim:assembleYoutubeMusic${shim_suffix}" ":waze-shim:assembleDeezer${shim_suffix}" --no-daemon --max-workers=2
+  (cd waze-shim/build/outputs/apk && rm -f waze-shims.zip && zip -j waze-shims.zip "spotify/${build_type}/waze-shim-spotify-${build_type}.apk" "youtubeMusic/${build_type}/waze-shim-youtubeMusic-${build_type}.apk" "deezer/${build_type}/waze-shim-deezer-${build_type}.apk" && cp waze-shims.zip "$ROOT_DIR/app/src/main/assets/")
   echo "==> Building ${APK_NAME}"
   run_gradle "$abi" "$GRADLE_TASK"
-  bash "$ROOT_DIR/scripts/resign-release-apk.sh" "$ROOT_DIR/$APK_PATH"
-  echo "    $ROOT_DIR/$APK_PATH"
+  if [ "$build_type" = "debug" ]; then
+    echo "    $ROOT_DIR/$APK_PATH"
+  else
+    bash "$ROOT_DIR/scripts/resign-release-apk.sh" "$ROOT_DIR/$APK_PATH"
+    echo "    $ROOT_DIR/$APK_PATH"
+  fi
 }
 
 build_abi_set() {
   local distribution="$1"
   local device="$2"
   local abi_arg="$3"
+  local build_type="$4"
   if [ "$abi_arg" = "all" ]; then
     for abi in "${ABIS[@]}"; do
-      build_variant "$distribution" "$device" "$abi"
+      build_variant "$distribution" "$device" "$abi" "$build_type"
     done
   else
-    build_variant "$distribution" "$device" "$abi_arg"
+    build_variant "$distribution" "$device" "$abi_arg" "$build_type"
   fi
 }
 
@@ -138,16 +157,41 @@ fi
 
 if [ "${1:-}" = "mobile-all" ]; then
   distribution="${2:-foss}"
-  build_abi_set "$distribution" mobile all
+  build_abi_set "$distribution" mobile all "${3:-release}"
   exit 0
 fi
 
 if [ "${1:-}" = "tv-all" ]; then
   distribution="${2:-gms}"
-  build_abi_set "$distribution" tv all
+  build_abi_set "$distribution" tv all "${3:-release}"
   exit 0
 fi
 
+DISTRIBUTION="${1:-foss}"
+DEVICE="${2:-mobile}"
+ABI="${3:-arm64}"
+BUILD_TYPE="${4:-release}"
+
+# Support "debug" or "release" as last argument anywhere
+for arg in "$@"; do
+  if [ "$arg" = "debug" ] || [ "$arg" = "release" ]; then
+    BUILD_TYPE="$arg"
+    break
+  fi
+done
+
+# Strip build_type from positional args so back-compat parsing works
+for arg in "$@"; do
+  if [ "$arg" = "debug" ] || [ "$arg" = "release" ]; then
+    continue
+  fi
+  if [ -z "${POS_ARGS:-}" ]; then
+    POS_ARGS="$arg"
+  else
+    POS_ARGS="$POS_ARGS $arg"
+  fi
+done
+set -- ${POS_ARGS:-foss mobile arm64}
 DISTRIBUTION="${1:-foss}"
 DEVICE="${2:-mobile}"
 ABI="${3:-arm64}"
@@ -191,7 +235,8 @@ case "$ABI" in
     ;;
 esac
 
-build_abi_set "$DISTRIBUTION" "$DEVICE" "$ABI"
+build_abi_set "$DISTRIBUTION" "$DEVICE" "$ABI" "$BUILD_TYPE"
 
 echo ""
+echo "Done ($BUILD_TYPE build)."
 echo "Done."
