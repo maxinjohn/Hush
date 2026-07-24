@@ -2,7 +2,7 @@
 
 ## Music for your mood.
 
-YT Music client for my phone and car — with Waze bridge support so you can control playback right from the dashboard. Unofficial. Sideloaded. Built for my daily drive.
+YT Music client for my phone and car — with Waze bridge support so you can control playback right from the dashboard. Unofficial. Sideloaded. Built for my daily drive. APKs are up. Issues are open. Use it or don't — I'm good either way, not for a crowd.
 
 Instead of hopping between a pile of forks, I combined the best from the whole open-source stack: **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** as the base, then pulled in the good stuff from **[Metrolist](https://github.com/metrolistgroup/metrolist)**, **[Vivi Music](https://github.com/vivizzz007/vivi-music)**, **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)**, and the shared libs behind **[ViMusic](https://github.com/vfsfitvnm/ViMusic)**, **[OuterTune](https://github.com/OuterTune/OuterTune)**, and **[BetterLyrics](https://github.com/boidu-dev/BetterLyrics)**. One app. Most of the features. No fork roulette.
 
