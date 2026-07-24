@@ -21,7 +21,7 @@ const val CONTENT_TYPE_PLAYLIST = 5
 
 val FloatingToolbarHeight = 64.dp
 val CompactFloatingToolbarHeight = 56.dp
-val FloatingToolbarHorizontalPadding = 16.dp
+val FloatingToolbarHorizontalPadding = 0.dp
 val FloatingToolbarBottomPadding = 8.dp
 val CompactFloatingToolbarBottomPadding = 6.dp
 val MiniPlayerHeight = 64.dp
