@@ -4,7 +4,8 @@ What's new in each release. Feature attribution lives in the [README](README.md#
 
 | Version | Notes |
 | --- | --- |
-| 13.11.8 | [13.11.8](release_notes/v13.11.8.md) · **current** |
+| 13.11.9 | [13.11.9](release_notes/v13.11.9.md) · **current** |
+| 13.11.8 | [13.11.8](release_notes/v13.11.8.md) |
 | 13.11.7 | [13.11.7](release_notes/v13.11.7.md) |
 | 13.11.5 | [13.11.5](release_notes/v13.11.5.md) |
 | 13.11.4 | [13.11.4](release_notes/v13.11.4.md) |
