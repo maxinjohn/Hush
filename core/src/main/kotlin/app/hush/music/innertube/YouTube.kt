@@ -853,7 +853,8 @@ object YouTube {
                         ?.content
                         ?.sectionListRenderer
                         ?.contents
-                        ?.mapNotNull(ArtistPage::fromSectionListRendererContent)!!,
+                        ?.mapNotNull(ArtistPage::fromSectionListRendererContent)
+                        .orEmpty(),
                 description =
                     immersiveHeader
                         ?.description
@@ -1572,7 +1573,8 @@ object YouTube {
                 ?.tabRenderer
                 ?.content
                 ?.sectionListRenderer
-                ?.contents!!
+                ?.contents
+                .orEmpty()
                 .mapNotNull(MoodAndGenres.Companion::fromSectionListRendererContent)
         }
 
