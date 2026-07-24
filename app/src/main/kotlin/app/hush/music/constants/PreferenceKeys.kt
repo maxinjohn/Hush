@@ -17,6 +17,7 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 
 val DynamicThemeKey = booleanPreferencesKey("dynamicTheme")
+val DataSaverEnabledKey = booleanPreferencesKey("dataSaverEnabled")
 val EnableDynamicIconKey = booleanPreferencesKey("enableDynamicIcon")
 val CustomThemeColorKey = stringPreferencesKey("customThemeColor")
 val RandomThemeOnStartupKey = booleanPreferencesKey("randomThemeOnStartup")

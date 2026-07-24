@@ -43,7 +43,6 @@ class WazeCommandReceiver : BroadcastReceiver() {
                 "next" -> {
                     if (svc.player.mediaItemCount > 0) {
                         svc.player.seekToNext()
-                        svc.player.prepare()
                         if (!svc.player.playWhenReady) {
                             svc.publishWazePausedTrackChange()
                         }
@@ -54,7 +53,6 @@ class WazeCommandReceiver : BroadcastReceiver() {
                 "previous" -> {
                     if (svc.player.mediaItemCount > 0) {
                         svc.player.seekToPrevious()
-                        svc.player.prepare()
                         if (!svc.player.playWhenReady) {
                             svc.publishWazePausedTrackChange()
                         }
