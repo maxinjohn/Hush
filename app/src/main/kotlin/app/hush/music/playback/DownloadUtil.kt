@@ -139,8 +139,10 @@ class DownloadUtil
                     .Factory()
                     .setCache(playerCache)
                     .setUpstreamDataSourceFactory(
-                        OkHttpDataSource.Factory(
-                            mediaOkHttpClient,
+                        ChunkingDataSourceFactory(
+                            OkHttpDataSource.Factory(
+                                mediaOkHttpClient,
+                            ),
                         ),
                     ).setCacheWriteDataSinkFactory(
                         CacheDataSink.Factory().setCache(playerCache).setBufferSize(DOWNLOAD_WRITE_BUFFER_SIZE),
