@@ -24,7 +24,7 @@ I built this for myself. My car has Waze, and Waze only shows music controls for
 
 Hush ships with tiny bridge APKs that impersonate those official apps just enough for Waze to pick them up. When you connect Hush to Waze through one of these bridges, Waze thinks it's talking to Spotify or Deezer — but it's actually controlling Hush. Song name, artist, album art, play/pause, skip, queue — all of it shows up on the Waze dashboard while you drive.
 
-It started as a quick hack for my OnePlus and my car. Then I kept adding things I wanted: better lyrics, faster downloads, backup retention, mood chips that actually work when you're logged in, a Gen‑Z style explore page. Everything I missed from the other forks — I pulled it in and made it work together.
+It started as a quick hack for my Android phone and my car. Then I kept adding things I wanted: better lyrics, faster downloads, backup retention, mood chips that actually work when you're logged in, a Gen‑Z style explore page. Everything I missed from the other forks — I pulled it in and made it work together.
 
 One app. My daily driver. If it works for you too, cool.
 
