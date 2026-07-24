@@ -7257,7 +7257,7 @@ class MusicService :
                     minimumRemainingMs = 0L,
                 )
             }?.let { cached ->
-                scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
+                scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
                 return dataSpec.withUri(cached.url.toUri())
             }
 
