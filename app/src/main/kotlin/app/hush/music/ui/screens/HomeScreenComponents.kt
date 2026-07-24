@@ -208,6 +208,7 @@ fun HomeCategoryChips(
                         null
                     },
                 shapes = FilterChipDefaults.shapes(),
+                modifier = Modifier.height(35.dp),
                 colors =
                     FilterChipDefaults.filterChipColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.78f),
