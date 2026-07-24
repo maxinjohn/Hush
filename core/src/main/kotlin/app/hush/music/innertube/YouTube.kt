@@ -2944,7 +2944,8 @@ object YouTube {
                         ?.content
                         ?.musicQueueRenderer
                         ?.content
-                        ?.playlistPanelRenderer!!
+                        ?.playlistPanelRenderer
+                    ?: error("playlistPanelRenderer is null")
             val title =
                 response.contents.singleColumnMusicWatchNextResultsRenderer
                     ?.tabbedRenderer

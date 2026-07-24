@@ -346,6 +346,8 @@ class MusicService :
     private var lastWazeMetadataUpdateTime = 0L
     private var wazePositionJob: Job? = null
     private val wazeSnapshotSequence = AtomicLong(0L)
+    private var wazePauseDebounceJob: Job? = null
+    private val wazePauseDebounceMs = 300L
     private var wakeLock: PowerManager.WakeLock? = null
     private var wakelockEnabled = false
     private var audioDeviceCallbackRegistered = false
@@ -6412,7 +6414,19 @@ class MusicService :
 
     private fun handleWazeCommand(intent: Intent) {
         if (player.mediaItemCount > 0) {
-            wazeCommandReceiver.onReceive(this, intent)
+            val command = intent.getStringExtra("command")
+            if (command == "stop" || command == "pause") {
+                wazePauseDebounceJob?.cancel()
+                wazePauseDebounceJob = scope.launch {
+                    delay(wazePauseDebounceMs)
+                    wazeCommandReceiver.onReceive(this@MusicService, intent)
+                }
+            } else {
+                wazePauseDebounceJob?.cancel()
+                wazePauseDebounceJob = null
+                wazeCommandReceiver.onReceive(this@MusicService, intent)
+            }
+        } else if (queueRestoreCompleted.value) {
         } else if (queueRestoreCompleted.value) {
             wazeColdStartRecovery(intent)
         } else {
