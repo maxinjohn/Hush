@@ -70,6 +70,8 @@ import app.hush.music.playback.PlayerConnection
 import app.hush.music.ui.component.ExpressivePullToRefreshBox
 import app.hush.music.ui.component.LocalMenuState
 import app.hush.music.ui.component.MenuState
+import app.hush.music.ui.component.rememberTvDevice
+import app.hush.music.ui.component.tvDpadScroll
 import app.hush.music.ui.utils.SnapLayoutInfoProvider
 import app.hush.music.viewmodels.HomeViewModel
 import timber.log.Timber
@@ -151,18 +153,6 @@ fun HomeScreen(
                 message = msg,
                 duration = SnackbarDuration.Short,
             )
-        }
-    }
-
-    // DIAGNOSTIC: Log each recomposition with state details
-    LaunchedEffect(screenState) {
-        if (screenState is HomeScreenState.Success) {
-            val s = screenState as HomeScreenState.Success
-            Timber.e("[ChipClick] COMPOSE RENDER: sections=%d isChipLoading=%s chips=%d selChip=%s",
-                s.uiState.homePage?.sections?.size ?: -1,
-                s.uiState.isChipLoading,
-                s.uiState.homePage?.chips?.size ?: -1,
-                s.uiState.selectedChip?.title ?: "null")
         }
     }
 
@@ -344,6 +334,7 @@ private fun HomeContent(
                         Modifier
                             .widthIn(max = HomeFeedMaxWidth)
                             .fillMaxWidth()
+                            .tvDpadScroll(lazyListState, scope)
                             .align(Alignment.TopCenter),
                 ) {
                     // Show a prominent progress indicator at the top when chips are loading

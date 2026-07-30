@@ -13,6 +13,12 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.focusGroup
+import app.hush.music.ui.component.tvDpadScroll
+import app.hush.music.ui.component.rememberTvDevice
+import kotlinx.coroutines.CoroutineScope
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,9 +43,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -81,6 +89,15 @@ fun SettingsScreen(
             }
         }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val isTvDevice = rememberTvDevice()
+    val tvFirstItemFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isTvDevice) {
+        if (isTvDevice) {
+            tvFirstItemFocusRequester.requestFocus()
+        }
+    }
 
     val storagePermission =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -212,6 +229,7 @@ fun SettingsScreen(
             modifier =
                 Modifier
                     .fillMaxSize()
+                    .tvDpadScroll(listState, scope)
                     .windowInsetsPadding(
                         LocalPlayerAwareWindowInsets.current.only(
                             WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
@@ -295,7 +313,9 @@ fun SettingsScreen(
                     item = settingsItem,
                     index = index,
                     count = settingsItems.size,
-                    modifier = Modifier.padding(horizontal = 26.dp),
+                    modifier = Modifier
+                        .padding(horizontal = 26.dp)
+                        .then(if (index == 0) Modifier.focusRequester(tvFirstItemFocusRequester) else Modifier),
                 )
             }
         }

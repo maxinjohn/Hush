@@ -22,10 +22,19 @@ import app.hush.music.ui.theme.hushCarouselLiveParallax
 import app.hush.music.ui.theme.hushHomeCarouselCard
 import app.hush.music.ui.theme.hushHomeRowCard
 import app.hush.music.ui.theme.rememberHushAccentGradient
+import app.hush.music.ui.component.tvFocusBorder
 import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import android.view.KeyEvent.KEYCODE_DPAD_DOWN
+import android.view.KeyEvent.KEYCODE_DPAD_UP
 import androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -239,7 +248,7 @@ fun HomeSectionHeader(
             modifier
                 .fillMaxWidth()
                 .heightIn(min = 64.dp)
-                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .then(if (onClick != null) Modifier.focusable().clickable(onClick = onClick) else Modifier)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         thumbnail?.invoke()
@@ -308,7 +317,7 @@ fun QuickPicksSection(
                             stiffness = Spring.StiffnessLow,
                         )
                     }
-                HorizontalCenteredHeroCarousel(
+HorizontalCenteredHeroCarousel(
                     state = carouselState,
                     maxItemWidth = heroMetrics.itemWidth,
                     itemSpacing = 10.dp,
@@ -321,7 +330,19 @@ fun QuickPicksSection(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .height(carouselHeight),
+                            .height(carouselHeight)
+                            .focusable()
+                            .onPreviewKeyEvent { event: androidx.compose.ui.input.key.KeyEvent ->
+                                if (event.type == KeyEventType.KeyDown) {
+                                    when (event.key) {
+                                        Key(android.view.KeyEvent.KEYCODE_DPAD_DOWN.toLong()),
+                                        Key(android.view.KeyEvent.KEYCODE_DPAD_UP.toLong()) -> false
+                                        else -> false
+                                    }
+                                } else {
+                                    false
+                                }
+                            },
                 ) { index ->
                 val song = distinctQuickPicks[index]
                 val isActive = song.id == mediaMetadata?.id
@@ -343,6 +364,7 @@ fun QuickPicksSection(
                             .hushHomeCarouselCard(shape = MaterialTheme.shapes.extraLarge)
                             .maskClip(MaterialTheme.shapes.extraLarge)
                             .focusable()
+                            .tvFocusBorder(MaterialTheme.shapes.extraLarge)
                             .hushCombinedPressable(
                                 onClick = {
                                     if (isActive) {
@@ -890,6 +912,7 @@ private fun SpeedDialRandomTile(
         modifier =
             modifier
                 .aspectRatio(1f)
+                .focusable()
                 .hushCombinedPressable(onClick = onClick),
     ) {
         Box(contentAlignment = Alignment.Center) {
@@ -1560,7 +1583,9 @@ fun SimilarRecommendationsTitle(
         onClick = {
             when (recommendation.title) {
                 is Song -> {
-                    navController.navigate("album/${recommendation.title.album!!.id}")
+                    recommendation.title.album?.id?.let { albumId ->
+                        navController.navigate("album/$albumId")
+                    }
                 }
 
                 is Album -> {

@@ -190,6 +190,15 @@ fun OnlinePlaylistScreen(
     var downloadsPaused by remember { mutableStateOf(false) }
     var downloadProgressToolbarDismissed by remember { mutableStateOf(true) }
 
+    val globalDownloadState =
+        remember(downloads) {
+            if (downloads.isEmpty()) {
+                HeaderDownloadState.None
+            } else {
+                headerDownloadState(downloads.keys.toList(), downloads)
+            }
+        }
+
     var selection by remember { mutableStateOf(false) }
     val hideExplicit by rememberPreference(key = HideExplicitKey, defaultValue = false)
     val (disableBlur) = rememberPreference(DisableBlurKey, false)
@@ -241,11 +250,6 @@ fun OnlinePlaylistScreen(
 
     LaunchedEffect(songs) {
         val songIds = songs.map { it.id }
-        if (songIds.isEmpty()) {
-            downloads = emptyMap()
-            downloadState = HeaderDownloadState.None
-            return@LaunchedEffect
-        }
         downloadUtil.downloads.collect { currentDownloads ->
             downloads = currentDownloads
             downloadState = headerDownloadState(songIds, currentDownloads)
@@ -661,17 +665,15 @@ fun OnlinePlaylistScreen(
                                                                         .primary,
                                                             ).toSpanStyle(),
                                                 ) {
-                                                    if (artist.id != null) {
+                                                    artist.id?.let { artistId ->
                                                         val link =
-                                                            LinkAnnotation.Clickable(artist.id!!) {
+                                                            LinkAnnotation.Clickable(artistId) {
                                                                 navController.navigate(
-                                                                    "artist/${artist.id}",
+                                                                    "artist/$artistId",
                                                                 )
                                                             }
                                                         withLink(link) { append(artist.name) }
-                                                    } else {
-                                                        append(artist.name)
-                                                    }
+                                                    } ?: append(artist.name)
                                                 }
                                             },
                                         textAlign = TextAlign.Center,
@@ -862,6 +864,10 @@ fun OnlinePlaylistScreen(
                                                 snackbarHostState = snackbarHostState,
                                             )
                                         }
+                                    },
+                                    globalDownloadState = globalDownloadState,
+                                    onGlobalDownloadClick = {
+                                        navController.navigate("downloads")
                                     },
                                 )
 
@@ -1159,12 +1165,13 @@ fun OnlinePlaylistScreen(
                                 SelectionMediaMetadataMenu(
                                     songSelection =
                                         wrappedSongs
-                                            .filter { it.isSelected }
+.filter { it.isSelected }
                                             .map {
                                                 it.item.second
                                                     .toMediaItem()
-                                                    .metadata!!
-                                            },
+                                                    .metadata?.also { it } // safe access
+                                            }
+                                            .filterNotNull(),
                                     onDismiss = menuState::dismiss,
                                     clearAction = { selection = false },
                                     currentItems = emptyList(),

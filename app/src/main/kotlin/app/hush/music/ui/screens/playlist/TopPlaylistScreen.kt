@@ -54,7 +54,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -151,11 +151,11 @@ fun TopPlaylistScreen(
     val haptic = LocalHapticFeedback.current
     val focusManager = LocalFocusManager.current
     val playerConnection = LocalPlayerConnection.current ?: return
-    val isPlaying by playerConnection.isPlaying.collectAsState()
-    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
+    val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
     val maxSize = viewModel.top
 
-    val songs by viewModel.topSongs.collectAsState(null)
+    val songs by viewModel.topSongs.collectAsStateWithLifecycle(null)
     val mutableSongs = remember { mutableStateListOf<Song>() }
 
     val likeLength =
@@ -192,12 +192,21 @@ fun TopPlaylistScreen(
         }
     }
 
-    val sortType by viewModel.topPeriod.collectAsState()
+    val sortType by viewModel.topPeriod.collectAsStateWithLifecycle()
     val name = stringResource(R.string.my_top) + " $maxSize"
 
     val downloadUtil = LocalDownloadUtil.current
     var downloads by remember { mutableStateOf<Map<String, Download>>(emptyMap()) }
     var downloadState by remember { mutableStateOf<HeaderDownloadState>(HeaderDownloadState.None) }
+
+    val globalDownloadState =
+        remember(downloads) {
+            if (downloads.isEmpty()) {
+                HeaderDownloadState.None
+            } else {
+                headerDownloadState(downloads.keys.toList(), downloads)
+            }
+        }
 
     LaunchedEffect(songs) {
         mutableSongs.apply {
@@ -205,11 +214,6 @@ fun TopPlaylistScreen(
             songs?.let { addAll(it) }
         }
         val songIds = songs?.map { it.song.id }.orEmpty()
-        if (songIds.isEmpty()) {
-            downloads = emptyMap()
-            downloadState = HeaderDownloadState.None
-            return@LaunchedEffect
-        }
         downloadUtil.downloads.collect { currentDownloads ->
             downloads = currentDownloads
             downloadState = headerDownloadState(songIds, currentDownloads)
@@ -484,7 +488,7 @@ fun TopPlaylistScreen(
             contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
         ) {
             if (songs != null) {
-                if (songs!!.isEmpty()) {
+                if (songs.orEmpty().isEmpty()) {
                     item {
                         EmptyPlaceholder(
                             icon = R.drawable.music_note,
@@ -517,7 +521,7 @@ fun TopPlaylistScreen(
                                             ),
                                 ) {
                                     AsyncImage(
-                                        model = songs!!.firstOrNull()?.song?.thumbnailUrl,
+                                        model = songs.orEmpty().firstOrNull()?.song?.thumbnailUrl,
                                         contentDescription = null,
                                         contentScale = ContentScale.Crop,
                                         modifier =
@@ -555,8 +559,8 @@ fun TopPlaylistScreen(
                                             text =
                                                 pluralStringResource(
                                                     R.plurals.n_song,
-                                                    songs!!.size,
-                                                    songs!!.size,
+                                                    songs.orEmpty().size,
+                                                    songs.orEmpty().size,
                                                 ),
                                             style = MaterialTheme.typography.labelMedium,
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -584,7 +588,7 @@ fun TopPlaylistScreen(
                                         playerConnection.playQueue(
                                             ListQueue(
                                                 title = name,
-                                                items = songs!!.map { it.toMediaItem() },
+                                                items = songs.orEmpty().map { it.toMediaItem() },
                                             ),
                                         )
                                     },
@@ -592,7 +596,7 @@ fun TopPlaylistScreen(
                                         playerConnection.playQueue(
                                             ListQueue(
                                                 title = name,
-                                                items = songs!!.shuffled().map { it.toMediaItem() },
+                                                items = songs.orEmpty().shuffled().map { it.toMediaItem() },
                                             ),
                                         )
                                     },
@@ -637,6 +641,10 @@ fun TopPlaylistScreen(
                                                 songList = songs.orEmpty(),
                                             )
                                         }
+                                    },
+                                    globalDownloadState = globalDownloadState,
+                                    onGlobalDownloadClick = {
+                                        navController.navigate("downloads")
                                     },
                                 )
 
@@ -715,8 +723,8 @@ fun TopPlaylistScreen(
                                                     playerConnection.playQueue(
                                                         ListQueue(
                                                             title = name,
-                                                            items = songs!!.map { it.toMediaItem() },
-                                                            startIndex = songs!!.indexOfFirst { it.id == songWrapper.item.id },
+                                                            items = songs.orEmpty().map { it.toMediaItem() },
+                                                            startIndex = songs.orEmpty().indexOfFirst { it.id == songWrapper.item.id },
                                                         ),
                                                     )
                                                 }

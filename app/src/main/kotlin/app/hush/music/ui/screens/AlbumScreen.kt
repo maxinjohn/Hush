@@ -241,13 +241,17 @@ fun AlbumScreen(
     var downloadsPaused by remember { mutableStateOf(false) }
     var downloadProgressToolbarDismissed by remember { mutableStateOf(true) }
 
+    val globalDownloadState =
+        remember(downloads) {
+            if (downloads.isEmpty()) {
+                HeaderDownloadState.None
+            } else {
+                headerDownloadState(downloads.keys.toList(), downloads)
+            }
+        }
+
     LaunchedEffect(albumWithSongs) {
         val songIds = albumWithSongs?.songs?.map { it.id }.orEmpty()
-        if (songIds.isEmpty()) {
-            downloads = emptyMap()
-            downloadState = HeaderDownloadState.None
-            return@LaunchedEffect
-        }
         downloadUtil.downloads.collect { currentDownloads ->
             downloads = currentDownloads
             downloadState = headerDownloadState(songIds, currentDownloads)
@@ -582,6 +586,10 @@ fun AlbumScreen(
                                         )
                                     }
                                 }
+                            },
+                            globalDownloadState = globalDownloadState,
+                            onGlobalDownloadClick = {
+                                navController.navigate("downloads")
                             },
                             onMoreClick = {
                                 menuState.show {

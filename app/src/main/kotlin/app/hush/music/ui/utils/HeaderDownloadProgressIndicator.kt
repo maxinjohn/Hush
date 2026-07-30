@@ -25,6 +25,8 @@ import app.hush.music.R
 fun HeaderDownloadProgressIndicator(
     progress: Float,
     modifier: Modifier = Modifier,
+    paused: Boolean = false,
+    icon: Int = R.drawable.download,
 ) {
     val boundedProgress =
         remember(progress) {
@@ -35,9 +37,9 @@ fun HeaderDownloadProgressIndicator(
         modifier = modifier.size(32.dp),
         contentAlignment = Alignment.Center,
     ) {
-        if (boundedProgress < 0.01f) {
+        if (boundedProgress < 0.01f || paused) {
             Icon(
-                painter = painterResource(R.drawable.download),
+                painter = painterResource(icon),
                 contentDescription = null,
                 modifier = Modifier.size(24.dp),
                 tint = LocalContentColor.current,

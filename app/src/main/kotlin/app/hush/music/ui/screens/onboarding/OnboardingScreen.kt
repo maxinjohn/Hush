@@ -18,6 +18,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -37,8 +39,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -57,9 +58,15 @@ import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -82,8 +89,11 @@ import app.hush.music.onboarding.OnboardingPermissionUiModel
 import app.hush.music.onboarding.OnboardingScreenState
 import app.hush.music.onboarding.OnboardingUiState
 import app.hush.music.onboarding.OnboardingViewModel
+import app.hush.music.ui.component.rememberTvDevice
+import app.hush.music.ui.component.tvDpadScroll
 import app.hush.music.ui.theme.HushAmbientBackground
 import app.hush.music.ui.theme.hushGradientPrimaryButton
+import kotlinx.coroutines.launch
 
 @Composable
 fun OnboardingRoute(
@@ -154,34 +164,34 @@ fun OnboardingScreen(
             containerColor = Color.Transparent,
         ) { padding ->
             when (state) {
-            OnboardingScreenState.Loading -> LoadingContent(contentPadding = padding)
-            OnboardingScreenState.Empty ->
-                MessageContent(
-                    title = stringResource(R.string.onboarding_empty_title),
-                    subtitle = stringResource(R.string.onboarding_empty_subtitle),
-                    actionLabel = stringResource(R.string.onboarding_finish),
-                    onAction = onComplete,
-                    contentPadding = padding,
-                )
-            is OnboardingScreenState.Error ->
-                MessageContent(
-                    title = stringResource(state.messageResId),
-                    subtitle = stringResource(R.string.onboarding_empty_subtitle),
-                    actionLabel = stringResource(R.string.onboarding_finish),
-                    onAction = onComplete,
-                    contentPadding = padding,
-                )
-            is OnboardingScreenState.Success ->
-                OnboardingSuccessContent(
-                    uiState = state.uiState,
-                    onNext = onNext,
-                    onBack = onBack,
-                    onPermissionAction = onPermissionAction,
-                    onCommunityAction = onCommunityAction,
-                    contentPadding = padding,
-                )
+                OnboardingScreenState.Loading -> LoadingContent(contentPadding = padding)
+                OnboardingScreenState.Empty ->
+                    MessageContent(
+                        title = stringResource(R.string.onboarding_empty_title),
+                        subtitle = stringResource(R.string.onboarding_empty_subtitle),
+                        actionLabel = stringResource(R.string.onboarding_finish),
+                        onAction = onComplete,
+                        contentPadding = padding,
+                    )
+                is OnboardingScreenState.Error ->
+                    MessageContent(
+                        title = stringResource(state.messageResId),
+                        subtitle = stringResource(R.string.onboarding_empty_subtitle),
+                        actionLabel = stringResource(R.string.onboarding_finish),
+                        onAction = onComplete,
+                        contentPadding = padding,
+                    )
+                is OnboardingScreenState.Success ->
+                    OnboardingSuccessContent(
+                        uiState = state.uiState,
+                        onNext = onNext,
+                        onBack = onBack,
+                        onPermissionAction = onPermissionAction,
+                        onCommunityAction = onCommunityAction,
+                        contentPadding = padding,
+                    )
+            }
         }
-    }
     }
 }
 
@@ -247,39 +257,24 @@ private fun OnboardingSuccessContent(
     onCommunityAction: (OnboardingCommunityActionUiModel) -> Unit,
     contentPadding: PaddingValues,
 ) {
-    val pagerState =
-        rememberPagerState(
-            initialPage = uiState.currentPage,
-            pageCount = { uiState.pages.size },
-        )
-
-    LaunchedEffect(uiState.currentPage, uiState.pages.size) {
-        val targetPage = uiState.currentPage.coerceIn(0, uiState.pages.lastIndex)
-        if (pagerState.currentPage != targetPage) {
-            pagerState.animateScrollToPage(targetPage)
-        }
-    }
-
-    HorizontalPager(
-        state = pagerState,
-        userScrollEnabled = false,
+    Box(
         modifier =
             Modifier
                 .fillMaxSize()
                 .padding(contentPadding),
-    ) { pageIndex ->
-        when (uiState.pages[pageIndex].id) {
+    ) {
+        when (uiState.pages[uiState.currentPage.coerceIn(0, uiState.pages.lastIndex)].id) {
             OnboardingPageId.WELCOME ->
                 WelcomePage(
                     uiState = uiState,
-                    pageIndex = pageIndex,
+                    pageIndex = uiState.currentPage.coerceIn(0, uiState.pages.lastIndex),
                     onBack = onBack,
                     onNext = onNext,
                 )
             OnboardingPageId.PERMISSIONS ->
                 PermissionsPage(
                     uiState = uiState,
-                    pageIndex = pageIndex,
+                    pageIndex = uiState.currentPage.coerceIn(0, uiState.pages.lastIndex),
                     onBack = onBack,
                     onNext = onNext,
                     onPermissionAction = onPermissionAction,
@@ -287,7 +282,7 @@ private fun OnboardingSuccessContent(
             OnboardingPageId.COMMUNITY ->
                 CommunityPage(
                     uiState = uiState,
-                    pageIndex = pageIndex,
+                    pageIndex = uiState.currentPage.coerceIn(0, uiState.pages.lastIndex),
                     onBack = onBack,
                     onNext = onNext,
                     onCommunityAction = onCommunityAction,
@@ -304,10 +299,24 @@ private fun WelcomePage(
     onBack: () -> Unit,
     onNext: () -> Unit,
 ) {
+    val isTvDevice = rememberTvDevice()
     val page = uiState.pages[pageIndex]
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val firstItemFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        if (isTvDevice) {
+            firstItemFocusRequester.requestFocus()
+        }
+    }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .fillMaxSize()
+            .tvDpadScroll(listState, scope),
+        state = listState,
         contentPadding = OnboardingPagePadding,
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(28.dp),
@@ -355,6 +364,8 @@ private fun WelcomePage(
                 pageCount = uiState.pages.size,
                 onBack = onBack,
                 onNext = onNext,
+                isTvDevice = isTvDevice,
+                firstButtonFocusRequester = firstItemFocusRequester,
             )
         }
     }
@@ -439,10 +450,24 @@ private fun PermissionsPage(
     onNext: () -> Unit,
     onPermissionAction: (OnboardingPermissionAction) -> Unit,
 ) {
+    val isTvDevice = rememberTvDevice()
     val page = uiState.pages[pageIndex]
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val firstItemFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        if (isTvDevice) {
+            firstItemFocusRequester.requestFocus()
+        }
+    }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .fillMaxSize()
+            .tvDpadScroll(listState, scope),
+        state = listState,
         contentPadding = OnboardingPagePadding,
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
@@ -464,6 +489,8 @@ private fun PermissionsPage(
                 index = index,
                 count = uiState.permissions.size,
                 onPermissionAction = onPermissionAction,
+                isTvDevice = isTvDevice,
+                modifier = if (index == 0) Modifier.focusRequester(firstItemFocusRequester) else Modifier,
             )
         }
         item(key = "permission-actions", contentType = "actions") {
@@ -472,6 +499,7 @@ private fun PermissionsPage(
                 pageCount = uiState.pages.size,
                 onBack = onBack,
                 onNext = onNext,
+                isTvDevice = isTvDevice,
             )
         }
     }
@@ -486,10 +514,24 @@ private fun CommunityPage(
     onNext: () -> Unit,
     onCommunityAction: (OnboardingCommunityActionUiModel) -> Unit,
 ) {
+    val isTvDevice = rememberTvDevice()
     val page = uiState.pages[pageIndex]
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val firstItemFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        if (isTvDevice) {
+            firstItemFocusRequester.requestFocus()
+        }
+    }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .fillMaxSize()
+            .tvDpadScroll(listState, scope),
+        state = listState,
         contentPadding = OnboardingPagePadding,
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
@@ -501,20 +543,36 @@ private fun CommunityPage(
                 subtitleResId = page.subtitleResId,
             )
         }
-        item(key = "community-spotlight", contentType = "spotlight") {
-            CommunitySpotlight(actions = uiState.communityActions)
-        }
-        itemsIndexed(
-            items = uiState.communityActions,
-            key = { _, item -> item.id },
-            contentType = { _, item -> "community-${item.id}" },
-        ) { index, item ->
-            CommunityRow(
-                action = item,
-                index = index,
-                count = uiState.communityActions.size,
-                onCommunityAction = onCommunityAction,
-            )
+        if (isTvDevice) {
+            itemsIndexed(
+                items = uiState.communityActions,
+                key = { _, item -> item.id },
+                contentType = { _, item -> "community-${item.id}" },
+            ) { index, item ->
+                CommunityRow(
+                    action = item,
+                    index = index,
+                    count = uiState.communityActions.size,
+                    onCommunityAction = onCommunityAction,
+                    modifier = if (index == 0) Modifier.focusRequester(firstItemFocusRequester) else Modifier,
+                )
+            }
+        } else {
+            item(key = "community-spotlight", contentType = "spotlight") {
+                CommunitySpotlight(actions = uiState.communityActions)
+            }
+            itemsIndexed(
+                items = uiState.communityActions,
+                key = { _, item -> item.id },
+                contentType = { _, item -> "community-${item.id}" },
+            ) { index, item ->
+                CommunityRow(
+                    action = item,
+                    index = index,
+                    count = uiState.communityActions.size,
+                    onCommunityAction = onCommunityAction,
+                )
+            }
         }
         item(key = "community-actions", contentType = "actions") {
             OnboardingInlineActions(
@@ -522,6 +580,7 @@ private fun CommunityPage(
                 pageCount = uiState.pages.size,
                 onBack = onBack,
                 onNext = onNext,
+                isTvDevice = isTvDevice,
             )
         }
     }
@@ -628,6 +687,8 @@ private fun PermissionRow(
     index: Int,
     count: Int,
     onPermissionAction: (OnboardingPermissionAction) -> Unit,
+    isTvDevice: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val onClick =
         remember(permission.action, onPermissionAction) {
@@ -643,10 +704,17 @@ private fun PermissionRow(
         onClick = onClick,
         shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
         modifier =
-            Modifier
+            modifier
                 .widthIn(max = OnboardingContentMaxWidth)
                 .fillMaxWidth()
-                .heightIn(min = 88.dp),
+                .then(
+                    if (isTvDevice) {
+                        Modifier.heightIn(min = 72.dp)
+                    } else {
+                        Modifier.heightIn(min = 88.dp)
+                    },
+                )
+                .tvFocusBorder(MaterialTheme.shapes.large),
         colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         leadingContent = {
@@ -742,6 +810,7 @@ private fun CommunityRow(
     index: Int,
     count: Int,
     onCommunityAction: (OnboardingCommunityActionUiModel) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val onClick = remember(action, onCommunityAction) { { onCommunityAction(action) } }
 
@@ -749,10 +818,11 @@ private fun CommunityRow(
         onClick = onClick,
         shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
         modifier =
-            Modifier
+            modifier
                 .widthIn(max = OnboardingContentMaxWidth)
                 .fillMaxWidth()
-                .heightIn(min = 88.dp),
+                .heightIn(min = 88.dp)
+                .tvFocusBorder(MaterialTheme.shapes.large),
         colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         leadingContent = {
@@ -798,6 +868,8 @@ private fun OnboardingInlineActions(
     pageCount: Int,
     onBack: () -> Unit,
     onNext: () -> Unit,
+    isTvDevice: Boolean = false,
+    firstButtonFocusRequester: FocusRequester? = null,
 ) {
     val showBack = currentPage > 0
     val isLastPage = currentPage >= pageCount - 1
@@ -828,7 +900,15 @@ private fun OnboardingInlineActions(
             OnboardingNextButton(
                 text = nextLabel,
                 onClick = onNext,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (isTvDevice && firstButtonFocusRequester != null) {
+                            Modifier.focusRequester(firstButtonFocusRequester)
+                        } else {
+                            Modifier
+                        },
+                    ),
             )
         }
         AnimatedVisibility(
@@ -847,7 +927,7 @@ private fun OnboardingInlineActions(
             ) {
                 OutlinedButton(
                     onClick = onBack,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).tvFocusBorder(MaterialTheme.shapes.large),
                     contentPadding = OnboardingActionButtonPadding,
                 ) {
                     Text(
@@ -859,7 +939,15 @@ private fun OnboardingInlineActions(
                 OnboardingNextButton(
                     text = nextLabel,
                     onClick = onNext,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(
+                            if (isTvDevice && firstButtonFocusRequester != null) {
+                                Modifier.focusRequester(firstButtonFocusRequester)
+                            } else {
+                                Modifier
+                            },
+                        ),
                 )
             }
         }
@@ -875,7 +963,7 @@ private fun OnboardingPrimaryButton(
     val buttonShape = MaterialTheme.shapes.extraLarge
     Button(
         onClick = onClick,
-        modifier = modifier.hushGradientPrimaryButton(shape = buttonShape),
+        modifier = modifier.hushGradientPrimaryButton(shape = buttonShape).tvFocusBorder(buttonShape),
         contentPadding = OnboardingActionButtonPadding,
         colors =
             ButtonDefaults.buttonColors(
@@ -913,6 +1001,26 @@ private fun OnboardingPermissionStatus.labelResId(): Int =
         OnboardingPermissionStatus.UNAVAILABLE -> R.string.onboarding_permission_unavailable
     }
 
-private val OnboardingContentMaxWidth = 680.dp
+private val OnboardingContentMaxWidth = 1100.dp
 private val OnboardingPagePadding = PaddingValues(horizontal = 24.dp, vertical = 28.dp)
 private val OnboardingActionButtonPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp)
+
+@Composable
+private fun Modifier.tvFocusBorder(
+    shape: androidx.compose.ui.graphics.Shape = MaterialTheme.shapes.medium,
+): Modifier {
+    var isFocused by remember { mutableStateOf(false) }
+    return this
+        .onFocusChanged { isFocused = it.isFocused }
+        .then(
+            if (isFocused) {
+                Modifier.border(
+                    width = 3.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = shape,
+                )
+            } else {
+                Modifier
+            },
+        )
+}

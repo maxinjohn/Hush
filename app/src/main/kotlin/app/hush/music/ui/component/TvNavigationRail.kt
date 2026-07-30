@@ -10,6 +10,8 @@ package app.hush.music.ui.component
 import android.view.KeyEvent.KEYCODE_DPAD_CENTER
 import android.view.KeyEvent.KEYCODE_ENTER
 import android.view.KeyEvent.KEYCODE_NUMPAD_ENTER
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -67,7 +69,7 @@ fun TvNavigationRail(
     }
 
     Surface(
-        modifier = modifier.fillMaxHeight(),
+        modifier = modifier.fillMaxHeight().focusGroup(),
         color = MaterialTheme.colorScheme.surfaceContainer,
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
@@ -171,7 +173,8 @@ private fun TvNavigationRailItem(
                     indication = null,
                     role = Role.Tab,
                     onClick = onClick,
-                ).padding(horizontal = 12.dp, vertical = 14.dp),
+                ).focusable(interactionSource = interactionSource)
+                .padding(horizontal = 12.dp, vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

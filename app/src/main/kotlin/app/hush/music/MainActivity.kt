@@ -2287,7 +2287,6 @@ class MainActivity : ComponentActivity() {
                                                     Modifier
                                                         .focusRequester(contentAreaFocusRequester)
                                                         .focusGroup()
-                                                        .focusable()
                                                 } else {
                                                     Modifier
                                                 },

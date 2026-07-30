@@ -298,6 +298,15 @@ fun LocalPlaylistScreen(
     var downloadsPaused by remember { mutableStateOf(false) }
     var downloadProgressToolbarDismissed by remember { mutableStateOf(true) }
 
+    val globalDownloadState =
+        remember(downloads) {
+            if (downloads.isEmpty()) {
+                HeaderDownloadState.None
+            } else {
+                headerDownloadState(downloads.keys.toList(), downloads)
+            }
+        }
+
     val editable: Boolean = playlist?.playlist?.isEditable == true
 
     LaunchedEffect(songs) {
@@ -306,11 +315,6 @@ fun LocalPlaylistScreen(
             addAll(songs)
         }
         val songIds = songs.map { it.song.id }
-        if (songIds.isEmpty()) {
-            downloads = emptyMap()
-            downloadState = HeaderDownloadState.None
-            return@LaunchedEffect
-        }
         downloadUtil.downloads.collect { currentDownloads ->
             downloads = currentDownloads
             downloadState = headerDownloadState(songIds, currentDownloads)
@@ -391,7 +395,7 @@ fun LocalPlaylistScreen(
                     text =
                         stringResource(
                             R.string.remove_download_playlist_confirm,
-                            playlist?.playlist!!.name,
+                            playlist?.playlist?.name.orEmpty(),
                         ),
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.padding(horizontal = 18.dp),
@@ -435,7 +439,7 @@ fun LocalPlaylistScreen(
                     text =
                         stringResource(
                             R.string.delete_playlist_confirm,
-                            playlist?.playlist!!.name,
+                            playlist?.playlist?.name.orEmpty(),
                         ),
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.padding(horizontal = 18.dp),
@@ -982,6 +986,10 @@ fun LocalPlaylistScreen(
                                             )
                                         }
                                     },
+                                    globalDownloadState = globalDownloadState,
+                                    onGlobalDownloadClick = {
+                                        navController.navigate("downloads")
+                                    },
                                 )
 
                                 Spacer(modifier = Modifier.height(24.dp))
@@ -1143,9 +1151,9 @@ fun LocalPlaylistScreen(
                                                 if (song.song.id == mediaMetadata?.id) {
                                                     playerConnection.player.togglePlayPause()
                                                 } else {
-                                                    playerConnection.playQueue(
+                                                        playerConnection.playQueue(
                                                         ListQueue(
-                                                            title = playlist!!.playlist.name,
+                                                            title = playlist?.playlist?.name.orEmpty(),
                                                             items = songs.map { it.song.toMediaItem() },
                                                             startIndex = songs.indexOfFirst { it.map.id == song.map.id },
                                                         ),
@@ -1278,7 +1286,7 @@ fun LocalPlaylistScreen(
                                                     } else {
                                                         playerConnection.playQueue(
                                                             ListQueue(
-                                                                title = playlist!!.playlist.name,
+                                                                title = playlist?.playlist?.name.orEmpty(),
                                                                 items = songs.map { it.song.toMediaItem() },
                                                                 startIndex = index,
                                                             ),

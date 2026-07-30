@@ -65,7 +65,8 @@ import androidx.compose.material3.carousel.CarouselDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -158,16 +159,16 @@ fun Queue(
     val bottomSheetPageState = LocalBottomSheetPageState.current
 
     val playerConnection = LocalPlayerConnection.current ?: return
-    val isPlaying by playerConnection.isPlaying.collectAsState()
-    val repeatMode by playerConnection.repeatMode.collectAsState()
+    val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
+    val repeatMode by playerConnection.repeatMode.collectAsStateWithLifecycle()
 
-    val currentWindowIndex by playerConnection.currentWindowIndex.collectAsState()
-    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
-    val currentSong by playerConnection.currentSong.collectAsState(initial = null)
+    val currentWindowIndex by playerConnection.currentWindowIndex.collectAsStateWithLifecycle()
+    val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
+    val currentSong by playerConnection.currentSong.collectAsStateWithLifecycle(initialValue = null)
     val currentSongLiked = currentSong?.song?.liked == true
 
-    val currentFormat by playerConnection.currentFormat.collectAsState(initial = null)
-    val queueTitle by playerConnection.queueTitle.collectAsState()
+    val currentFormat by playerConnection.currentFormat.collectAsStateWithLifecycle(initialValue = null)
+    val queueTitle by playerConnection.queueTitle.collectAsStateWithLifecycle()
 
     val selectedSongs = remember { mutableStateListOf<MediaMetadata>() }
     val selectedItems = remember { mutableStateListOf<Timeline.Window>() }
@@ -186,8 +187,8 @@ fun Queue(
 
     var locked by rememberPreference(QueueEditLockKey, defaultValue = true)
     var infiniteQueueEnabled by rememberPreference(AutoLoadMoreKey, defaultValue = true)
-    val infiniteQueueLoading by playerConnection.service.infiniteQueueLoading.collectAsState()
-    val togetherSessionState by playerConnection.service.togetherSessionState.collectAsState()
+    val infiniteQueueLoading by playerConnection.service.infiniteQueueLoading.collectAsStateWithLifecycle()
+    val togetherSessionState by playerConnection.service.togetherSessionState.collectAsStateWithLifecycle()
     val togetherForcesLock =
         togetherSessionState is app.hush.music.together.TogetherSessionState.Joined &&
             (togetherSessionState as app.hush.music.together.TogetherSessionState.Joined).role is app.hush.music.together.TogetherRole.Guest
@@ -297,7 +298,7 @@ fun Queue(
         )
     }
 
-    val queueWindows by playerConnection.queueWindows.collectAsState()
+    val queueWindows by playerConnection.queueWindows.collectAsStateWithLifecycle()
     val currentWindow =
         remember(currentWindowIndex, queueWindows) {
             queueWindows.getOrNull(currentWindowIndex)
@@ -621,7 +622,7 @@ fun Queue(
                             )
                         }
                     } else {
-                        val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
+                        val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
                         QueueCollapsedContentV9(
                         showCodecOnPlayer = queueShowCodecOnPlayer,
                         currentFormat = currentFormat,
@@ -743,7 +744,7 @@ fun Queue(
             }
         },
     ) {
-        val queueWindows by playerConnection.queueWindows.collectAsState()
+        val queueWindows by playerConnection.queueWindows.collectAsStateWithLifecycle()
         val mutableQueueWindows = remember { mutableStateListOf<Timeline.Window>() }
         val queueLength by remember {
             derivedStateOf {

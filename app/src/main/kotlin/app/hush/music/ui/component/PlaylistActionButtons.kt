@@ -91,6 +91,8 @@ fun StandardPlaylistHeaderActions(
     onShuffle: (() -> Unit)? = null,
     downloadState: HeaderDownloadState? = null,
     onDownloadClick: (() -> Unit)? = null,
+    globalDownloadState: HeaderDownloadState? = null,
+    onGlobalDownloadClick: (() -> Unit)? = null,
     onMoreClick: (() -> Unit)? = null,
     playEnabled: Boolean = true,
     shuffleEnabled: Boolean = true,
@@ -168,7 +170,7 @@ fun StandardPlaylistHeaderActions(
 
             if (showDownload) {
                 HeaderIconAction(
-                    onClick = onDownloadClick!!,
+                    onClick = { onDownloadClick?.invoke() },
                     contentDescription = stringResource(R.string.download),
                     active = downloadState == HeaderDownloadState.Completed,
                     activeTint = MaterialTheme.colorScheme.primary,
@@ -176,6 +178,21 @@ fun StandardPlaylistHeaderActions(
                     PlaylistDownloadButtonContent(
                         downloadState = downloadState ?: HeaderDownloadState.None,
                         iconSize = HeaderIconSize,
+                    )
+                }
+            }
+
+            if (globalDownloadState is HeaderDownloadState.Partial && onGlobalDownloadClick != null && downloadState !is HeaderDownloadState.Partial && downloadState !is HeaderDownloadState.Completed) {
+                HeaderIconAction(
+                    onClick = onGlobalDownloadClick,
+                    contentDescription = stringResource(R.string.download),
+                    active = true,
+                    activeTint = MaterialTheme.colorScheme.primary,
+                ) {
+                    HeaderDownloadProgressIndicator(
+                        progress = globalDownloadState.progress,
+                        modifier = Modifier.size(HeaderIconSize),
+                        paused = globalDownloadState.paused,
                     )
                 }
             }

@@ -60,7 +60,7 @@ object AiTextService {
                 temperature = 0.0,
                 maxTokens = 32,
             ).trim()
-        if (!response.equals("OK", ignoreCase = true)) {
+        if (!response.contains("OK", ignoreCase = true)) {
             throw AiServiceException("AI API returned an unexpected test response")
         }
     }

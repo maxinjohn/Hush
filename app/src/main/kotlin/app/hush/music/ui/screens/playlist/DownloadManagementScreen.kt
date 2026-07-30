@@ -8,6 +8,7 @@
 package app.hush.music.ui.screens.playlist
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -284,7 +285,7 @@ private fun CompletedDownloadSong(
         isActive = isActive,
         isPlaying = isPlaying,
         showInLibraryIcon = true,
-        modifier = Modifier.clickable(onClick = onPlay),
+        modifier = Modifier.clickable(onClick = onPlay).focusable(),
         trailingContent = {
             IconButton(onClick = onRemove) {
                 Icon(

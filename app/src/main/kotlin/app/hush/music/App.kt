@@ -21,6 +21,7 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.disk.directory
 import coil3.imageLoader
+import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.allowHardware
@@ -462,7 +463,7 @@ class App :
 
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         val smartTrimmer = dataStore[SmartTrimmerKey] ?: false
-        val imageCacheConfig = resolveImageDiskCacheConfig(dataStore[MaxImageCacheSizeKey])
+        val imageCacheConfig = resolveImageDiskCacheConfig(dataStore[MaxImageCacheSizeKey], isLowRamDevice())
 
         val diskCache =
             DiskCache
@@ -475,6 +476,8 @@ class App :
             applicationScope.launch(Dispatchers.IO) { trimImageDiskCache(diskCache) }
         }
 
+        val memoryCacheSizeBytes = if (isLowRamDevice()) 16L * 1024L * 1024L else 32L * 1024L * 1024L
+
         return ImageLoader
             .Builder(this)
             .components {
@@ -484,6 +487,11 @@ class App :
             .allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
             .diskCache(diskCache)
             .diskCachePolicy(imageCacheConfig.policy)
+            .memoryCache {
+                MemoryCache.Builder()
+                    .maxSizeBytes(memoryCacheSizeBytes)
+                    .build()
+            }
             .build()
     }
 
@@ -511,6 +519,11 @@ class App :
             }
         } catch (_: Exception) {
         }
+    }
+
+    private fun isLowRamDevice(): Boolean {
+        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
+        return activityManager.isLowRamDevice
     }
 
     companion object {
@@ -587,8 +600,9 @@ internal data class ImageDiskCacheConfig(
     val maxSizeBytes: Long,
 )
 
-internal fun resolveImageDiskCacheConfig(maxImageCacheSizeMb: Int?): ImageDiskCacheConfig {
-    val sizeMb = maxImageCacheSizeMb ?: 512
+internal fun resolveImageDiskCacheConfig(maxImageCacheSizeMb: Int?, isLowRam: Boolean = false): ImageDiskCacheConfig {
+    val defaultSizeMb = if (isLowRam) 128 else 512
+    val sizeMb = maxImageCacheSizeMb ?: defaultSizeMb
     if (sizeMb == 0) return ImageDiskCacheConfig(policy = CachePolicy.DISABLED, maxSizeBytes = 1L)
     if (sizeMb < 0) return ImageDiskCacheConfig(policy = CachePolicy.ENABLED, maxSizeBytes = Long.MAX_VALUE)
     val bytesPerMb = 1024L * 1024L
