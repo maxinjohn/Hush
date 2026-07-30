@@ -67,6 +67,7 @@ import app.hush.music.ui.screens.library.LocalSongScreen
 import app.hush.music.ui.screens.musicrecognition.MusicRecognitionScreen
 import app.hush.music.ui.screens.playlist.AutoPlaylistScreen
 import app.hush.music.ui.screens.playlist.CachePlaylistScreen
+import app.hush.music.ui.screens.playlist.DownloadManagementScreen
 import app.hush.music.ui.screens.playlist.LocalPlaylistScreen
 import app.hush.music.ui.screens.playlist.OnlinePlaylistScreen
 import app.hush.music.ui.screens.podcast.OnlinePodcastScreen
@@ -435,6 +436,10 @@ fun NavGraphBuilder.navigationBuilder(
     }
     composable("settings/lyrics") {
         LyricsSettings(navController)
+    }
+    composable("downloads") {
+        val nestedScrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+        DownloadManagementScreen(navController, nestedScrollBehavior)
     }
     composable("settings/internet") {
         InternetSettings(navController, scrollBehavior)

@@ -72,6 +72,7 @@ fun SpotifyPlaylistCarouselCard(
                 .width(130.dp)
                 .clip(RoundedCornerShape(32.dp))
                 .background(cardBgColor)
+                .focusable()
                 .hushPressable(onClick = onClick, pressScale = HushDesign.PressScale)
                 .padding(12.dp),
     ) {

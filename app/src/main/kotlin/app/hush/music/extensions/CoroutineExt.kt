@@ -7,11 +7,13 @@
 
 package app.hush.music.extensions
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 fun <T> Flow<T>.collect(
     scope: CoroutineScope,
@@ -31,4 +33,9 @@ fun <T> Flow<T>.collectLatest(
     }
 }
 
-val SilentHandler = CoroutineExceptionHandler { _, _ -> }
+val SilentHandler = CoroutineExceptionHandler { _, throwable ->
+    if (throwable is CancellationException) {
+        throw throwable
+    }
+    Timber.e(throwable, "Coroutine exception caught by SilentHandler")
+}

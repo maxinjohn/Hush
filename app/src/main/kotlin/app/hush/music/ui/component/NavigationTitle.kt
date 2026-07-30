@@ -7,6 +7,7 @@
 
 package app.hush.music.ui.component
 
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -49,7 +50,7 @@ fun NavigationTitle(
                 .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
                 .then(
                     if (onClick != null) {
-                        Modifier.hushPressable(onClick = onClick, pressScale = HushDesign.RowPressScale)
+                        Modifier.focusable().hushPressable(onClick = onClick, pressScale = HushDesign.RowPressScale)
                     } else {
                         Modifier
                     },

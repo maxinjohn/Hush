@@ -14,6 +14,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -39,7 +40,8 @@ class LocalSearchViewModel
         val result =
             combine(query, filter) { query, filter ->
                 query to filter
-            }.flatMapLatest { (query, filter) ->
+            }.debounce(300)
+            .flatMapLatest { (query, filter) ->
                 if (query.isEmpty()) {
                     flowOf(LocalSearchResult("", filter, emptyMap()))
                 } else {

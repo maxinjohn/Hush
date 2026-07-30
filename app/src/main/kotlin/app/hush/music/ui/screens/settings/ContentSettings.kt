@@ -93,6 +93,7 @@ fun ContentSettings(navController: NavController) {
     val (enablePaxsenixSpotify, _) = rememberPreference(key = EnablePaxsenixSpotifyLyricsKey, defaultValue = true)
     val (enablePaxsenixMusixmatch, _) = rememberPreference(key = EnablePaxsenixMusixmatchLyricsKey, defaultValue = true)
     val (enablePaxsenixYouTube, _) = rememberPreference(key = EnablePaxsenixYouTubeLyricsKey, defaultValue = true)
+    val (enableMegalobiz, _) = rememberPreference(key = EnableMegalobizLyricsKey, defaultValue = false)
     val (providerOrderStr, onProviderOrderStrChange) =
         rememberPreference(key = LyricsProviderOrderKey, defaultValue = "")
 
@@ -115,6 +116,7 @@ fun ContentSettings(navController: NavController) {
                     enablePaxsenixSpotify = enablePaxsenixSpotify,
                     enablePaxsenixMusixmatch = enablePaxsenixMusixmatch,
                     enablePaxsenixYouTube = enablePaxsenixYouTube,
+                    enableMegalobiz = enableMegalobiz,
                 ),
             onDismiss = { showProviderPriorityDialog = false },
             onOrderChange = onProviderOrderStrChange,

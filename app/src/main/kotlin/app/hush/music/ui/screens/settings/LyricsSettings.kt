@@ -69,6 +69,7 @@ import app.hush.music.R
 import app.hush.music.constants.EnableBetterLyricsKey
 import app.hush.music.constants.EnableKugouKey
 import app.hush.music.constants.EnableLrcLibKey
+import app.hush.music.constants.EnableMegalobizLyricsKey
 import app.hush.music.constants.EnablePaxsenixAppleMusicLyricsKey
 import app.hush.music.constants.EnablePaxsenixLyricsKey
 import app.hush.music.constants.EnablePaxsenixMusixmatchLyricsKey
@@ -196,6 +197,7 @@ fun LyricsSettings(
             defaultValue = true,
         )
     val (enableUnisonLyrics, onEnableUnisonLyricsChange) = rememberPreference(key = EnableUnisonLyricsKey, defaultValue = true)
+    val (enableMegalobizLyrics, onEnableMegalobizLyricsChange) = rememberPreference(key = EnableMegalobizLyricsKey, defaultValue = false)
     val (providerOrderStr, onProviderOrderStrChange) =
         rememberPreference(
             key = LyricsProviderOrderKey,
@@ -241,6 +243,7 @@ fun LyricsSettings(
                     enablePaxsenixSpotify = enablePaxsenixSpotifyLyrics,
                     enablePaxsenixMusixmatch = enablePaxsenixMusixmatchLyrics,
                     enablePaxsenixYouTube = enablePaxsenixYouTubeLyrics,
+                    enableMegalobiz = enableMegalobizLyrics,
                 ),
             onDismiss = { showProviderOrderDialog = false },
             onOrderChange = { newOrder ->
@@ -531,6 +534,15 @@ fun LyricsSettings(
 
             item {
                 SwitchPreference(
+                    title = { Text(stringResource(R.string.enable_megalobiz_lyrics)) },
+                    icon = { Icon(painterResource(R.drawable.lyrics), null) },
+                    checked = enableMegalobizLyrics,
+                    onCheckedChange = onEnableMegalobizLyricsChange,
+                )
+            }
+
+            item {
+                SwitchPreference(
                     title = { Text(stringResource(R.string.enable_paxsenix_lyrics)) },
                     icon = { Icon(painterResource(R.drawable.lyrics), null) },
                     checked = enablePaxsenixLyrics,
@@ -609,6 +621,7 @@ fun LyricsSettings(
                                 enablePaxsenixSpotify = enablePaxsenixSpotifyLyrics,
                                 enablePaxsenixMusixmatch = enablePaxsenixMusixmatchLyrics,
                                 enablePaxsenixYouTube = enablePaxsenixYouTubeLyrics,
+                                enableMegalobiz = enableMegalobizLyrics,
                             ).enabledProviders()
                     }.firstOrNull()?.displayName(),
                     icon = { Icon(painterResource(R.drawable.lyrics), null) },

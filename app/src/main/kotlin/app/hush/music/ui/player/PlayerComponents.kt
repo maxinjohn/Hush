@@ -69,9 +69,8 @@ import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -233,12 +232,12 @@ fun PlayerTopActions(
     landscape: Boolean = false,
 ) {
     val haptic = LocalHapticFeedback.current
-    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
+    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
     val database = LocalDatabase.current
     val download by LocalDownloadUtil.current
         .getDownload(mediaMetadata.id)
-        .collectAsState(initial = null)
-    val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
+        .collectAsStateWithLifecycle(initialValue = null)
+    val librarySong by database.song(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = null)
     val isLocalMedia =
         remember(librarySong?.song?.isLocal, mediaMetadata.id) {
             librarySong?.song?.isLocal == true || mediaMetadata.id.isLocalMediaId()
@@ -943,7 +942,7 @@ fun PlayerPlaybackControls(
     useWeightedTransportLayout: Boolean = false,
 ) {
     val haptic = LocalHapticFeedback.current
-    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
+    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
     val view = LocalView.current
     val (enableHapticFeedback) = rememberPreference(EnableHapticFeedbackKey, true)
 
@@ -1681,7 +1680,7 @@ fun PlayerControlsContent(
     onQueueClick: (() -> Unit)? = null,
     horizontalPadding: Dp? = null,
 ) {
-    val currentSong by playerConnection.currentSong.collectAsState(initial = null)
+    val currentSong by playerConnection.currentSong.collectAsStateWithLifecycle(initialValue = null)
     val currentSongLiked = currentSong?.song?.liked == true
 
     val playPauseRoundness by animateDpAsState(
@@ -1803,7 +1802,7 @@ fun PlayerControlsContent(
         }
     }
 
-    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
+    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
 
     val playbackControls: @Composable ColumnScope.() -> Unit = {
         if (landscape) {
@@ -2086,9 +2085,9 @@ fun V6PortraitControlsPanel(
     onSliderValueChangeFinished: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val currentSong by playerConnection.currentSong.collectAsState(initial = null)
+    val currentSong by playerConnection.currentSong.collectAsStateWithLifecycle(initialValue = null)
     val currentSongLiked = currentSong?.song?.liked == true
-    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
+    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
     val accent = MaterialTheme.colorScheme.primary
     val horizontalPadding = 20.dp
     val metadataGap = 6.dp
@@ -2205,8 +2204,8 @@ internal fun V6PortraitSingleActionRow(
     val database = LocalDatabase.current
     val download by LocalDownloadUtil.current
         .getDownload(mediaMetadata.id)
-        .collectAsState(initial = null)
-    val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
+        .collectAsStateWithLifecycle(initialValue = null)
+    val librarySong by database.song(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = null)
     val isLocalMedia =
         remember(librarySong?.song?.isLocal, mediaMetadata.id) {
             librarySong?.song?.isLocal == true || mediaMetadata.id.isLocalMediaId()
@@ -2457,9 +2456,9 @@ fun V6LandscapeControlsPanel(
     onSliderValueChange: (Long) -> Unit,
     onSliderValueChangeFinished: () -> Unit,
 ) {
-    val currentSong by playerConnection.currentSong.collectAsState(initial = null)
+    val currentSong by playerConnection.currentSong.collectAsStateWithLifecycle(initialValue = null)
     val currentSongLiked = currentSong?.song?.liked == true
-    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
+    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
 
     val playPauseRoundness by animateDpAsState(
         targetValue = if (isPlaying) 24.dp else 36.dp,
@@ -2579,8 +2578,8 @@ private fun V6LandscapeAllActionRows(
     val database = LocalDatabase.current
     val download by LocalDownloadUtil.current
         .getDownload(mediaMetadata.id)
-        .collectAsState(initial = null)
-    val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
+        .collectAsStateWithLifecycle(initialValue = null)
+    val librarySong by database.song(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = null)
     val isLocalMedia =
         remember(librarySong?.song?.isLocal, mediaMetadata.id) {
             librarySong?.song?.isLocal == true || mediaMetadata.id.isLocalMediaId()
@@ -3130,8 +3129,8 @@ fun V8PlayerControlsContent(
                 else -> if (compactHeight) 10.dp else 18.dp
             }
         val transportToVolumeGap = if (landscape && compactHeight) 0.dp else if (landscape) 12.dp else 18.dp
-        val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
-        val repeatMode by playerConnection.repeatMode.collectAsState()
+        val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
+        val repeatMode by playerConnection.repeatMode.collectAsStateWithLifecycle()
         val subtitle = queueTitle ?: mediaMetadata.album?.title.orEmpty()
 
         val controlsBody: @Composable ColumnScope.() -> Unit = {
@@ -3449,8 +3448,8 @@ private fun V8PortraitContent(
     playerConnection: PlayerConnection,
     modifier: Modifier = Modifier,
 ) {
-    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
-    val repeatMode by playerConnection.repeatMode.collectAsState()
+    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
+    val repeatMode by playerConnection.repeatMode.collectAsStateWithLifecycle()
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val contentPadding = if (maxWidth < 380.dp) 22.dp else 24.dp
@@ -5755,8 +5754,8 @@ fun WideLandscapePlayerContent(
     val foreground = Color.White
     val secondaryForeground = foreground.copy(alpha = 0.72f)
     val accent = MaterialTheme.colorScheme.primary
-    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
-    val repeatMode by playerConnection.repeatMode.collectAsState()
+    val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
+    val repeatMode by playerConnection.repeatMode.collectAsStateWithLifecycle()
     val playbackSourceLabel by playerConnection.activePlaybackClientLabel.collectAsStateWithLifecycle()
 
     val onMenuClick =
@@ -6247,8 +6246,8 @@ private fun PlayerLandscapeSecondaryActions(
     val database = LocalDatabase.current
     val download by LocalDownloadUtil.current
         .getDownload(mediaMetadata.id)
-        .collectAsState(initial = null)
-    val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
+        .collectAsStateWithLifecycle(initialValue = null)
+    val librarySong by database.song(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = null)
     val isLocalMedia =
         remember(librarySong?.song?.isLocal, mediaMetadata.id) {
             librarySong?.song?.isLocal == true || mediaMetadata.id.isLocalMediaId()

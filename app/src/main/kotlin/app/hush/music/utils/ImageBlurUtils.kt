@@ -39,7 +39,10 @@ object ImageBlurUtils {
         val scaledHeight = (source.height * scale).roundToInt().coerceAtLeast(1)
         val scaled = Bitmap.createScaledBitmap(source, scaledWidth, scaledHeight, true)
         val blurred = stackBlur(scaled, (safeRadius * scale).roundToInt().coerceAtLeast(1))
-        return Bitmap.createScaledBitmap(blurred, source.width, source.height, true)
+        if (scaled !== blurred && !scaled.isRecycled) scaled.recycle()
+        val result = Bitmap.createScaledBitmap(blurred, source.width, source.height, true)
+        if (blurred !== result && !blurred.isRecycled) blurred.recycle()
+        return result
     }
 
     /**

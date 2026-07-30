@@ -122,7 +122,11 @@ object NotificationArtworkLoader {
                     if (!response.isSuccessful) return@use null
                     val body = response.body?.bytes()?.takeIf { it.isNotEmpty() } ?: return@use null
                     val decoded = BitmapFactory.decodeByteArray(body, 0, body.size) ?: return@use null
-                    scaleBitmap(decoded, maxSizePx)?.copy(Bitmap.Config.ARGB_8888, false)
+                    val scaled = scaleBitmap(decoded, maxSizePx)
+                    if (scaled !== decoded && !decoded.isRecycled) decoded.recycle()
+                    val result = scaled?.copy(Bitmap.Config.ARGB_8888, false)
+                    if (result !== scaled && scaled != null && !scaled.isRecycled) scaled.recycle()
+                    result
                 }
         }.getOrNull()
     }

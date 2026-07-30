@@ -7,6 +7,7 @@
 
 package app.hush.music.di
 
+import android.app.ActivityManager
 import android.content.Context
 import androidx.media3.database.DatabaseProvider
 import androidx.media3.database.StandaloneDatabaseProvider
@@ -160,7 +161,13 @@ object AppModule {
         databaseProvider: DatabaseProvider,
     ): Cache =
         LazyCache {
-            val cacheSize = context.dataStore.get(MaxSongCacheSizeKey, 1024)
+            val userCacheSize = context.dataStore.get(MaxSongCacheSizeKey, -1)
+            val defaultCacheSize = if (isLowRamDevice(context)) 128 else 1024
+            val cacheSize = when {
+                userCacheSize == -1 -> -1
+                isLowRamDevice(context) && userCacheSize > defaultCacheSize -> defaultCacheSize
+                else -> userCacheSize
+            }
             val evictor =
                 when (cacheSize) {
                     -1 -> NoOpCacheEvictor()
@@ -192,3 +199,8 @@ object AppModule {
 private const val CacheSizeBytesPerMegabyte = 1024L * 1024L
 
 private fun cacheSizeMegabytesToBytes(sizeMegabytes: Int): Long = sizeMegabytes.toLong().coerceAtLeast(0L) * CacheSizeBytesPerMegabyte
+
+private fun isLowRamDevice(context: Context): Boolean {
+    val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
+    return activityManager.isLowRamDevice
+}

@@ -222,6 +222,15 @@ fun AutoPlaylistScreen(
     var downloads by remember { mutableStateOf<Map<String, Download>>(emptyMap()) }
     var downloadState by remember { mutableStateOf<HeaderDownloadState>(HeaderDownloadState.None) }
 
+    val globalDownloadState =
+        remember(downloads) {
+            if (downloads.isEmpty()) {
+                HeaderDownloadState.None
+            } else {
+                headerDownloadState(downloads.keys.toList(), downloads)
+            }
+        }
+
     LaunchedEffect(ytmSync, playlistType) {
         if (ytmSync && playlistType == PlaylistType.LIKE) {
             viewModel.syncLikedSongs()
@@ -230,11 +239,6 @@ fun AutoPlaylistScreen(
 
     LaunchedEffect(songs) {
         val songIds = songs.map { it.song.id }
-        if (songIds.isEmpty()) {
-            downloads = emptyMap()
-            downloadState = HeaderDownloadState.None
-            return@LaunchedEffect
-        }
         downloadUtil.downloads.collect { currentDownloads ->
             downloads = currentDownloads
             downloadState = headerDownloadState(songIds, currentDownloads)
@@ -668,6 +672,10 @@ fun AutoPlaylistScreen(
                                             songList = songs,
                                         )
                                     }
+                                },
+                                globalDownloadState = globalDownloadState,
+                                onGlobalDownloadClick = {
+                                    navController.navigate("downloads")
                                 },
                             )
 

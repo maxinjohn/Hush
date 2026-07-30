@@ -30,12 +30,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import timber.log.Timber
 import app.hush.music.constants.HISTORY_DURATION_LEGACY_FLOAT_KEY
 import app.hush.music.constants.HISTORY_DURATION_MAX
 import app.hush.music.constants.HISTORY_DURATION_MIN
 import app.hush.music.constants.HistoryDuration
 import app.hush.music.extensions.toEnum
-import timber.log.Timber
 import java.io.File
 import java.io.IOException
 import kotlin.properties.ReadOnlyProperty
@@ -132,6 +132,7 @@ object PreferenceStore {
 operator fun <T> DataStore<Preferences>.get(key: Preferences.Key<T>): T? =
     PreferenceStore.get(key)
         ?: if (Looper.getMainLooper().thread == Thread.currentThread()) {
+            Timber.v("DataStore.get(%s) on main thread returned null (PreferenceStore not yet ready)", key.name)
             null
         } else {
             runBlocking(Dispatchers.IO) {

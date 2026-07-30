@@ -126,6 +126,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import app.hush.music.MainActivity
 import app.hush.music.R
@@ -276,7 +277,9 @@ import app.hush.music.utils.isLocalMediaId
 import app.hush.music.utils.isLowDataModeActive
 import app.hush.music.utils.resolveEffectiveAudioQuality
 import app.hush.music.utils.reportException
+import app.hush.music.utils.refreshPlaybackLoginContext
 import app.hush.music.utils.retryWithoutPlaybackLoginContext
+import app.hush.music.utils.potoken.BotGuardTokenGenerator
 import app.hush.music.widget.LoadWidgetInsightsUseCase
 import okhttp3.OkHttpClient
 import timber.log.Timber
@@ -501,7 +504,7 @@ class MusicService :
     private var currentHistoryImmediateAttempted = false
     private var currentHistorySessionQueued = false
     private var historyThresholdJob: Job? = null
-    private val pendingHistoryFinalizations = mutableMapOf<String, MutableList<PendingHistoryFinalization>>()
+    private val pendingHistoryFinalizations = ConcurrentHashMap<String, MutableList<PendingHistoryFinalization>>()
     private val historyRecordingJobs = ConcurrentHashMap<Long, kotlinx.coroutines.Deferred<ImmediateHistoryResult>>()
 
     val currentMediaMetadata = MutableStateFlow<app.hush.music.models.MediaMetadata?>(null)
@@ -1134,6 +1137,35 @@ class MusicService :
             }
         }
 
+        // Eagerly pre-warm playback resolution components at service startup
+        // so the first playback URL resolution is fast regardless of queue state.
+        scope.launch(Dispatchers.IO) {
+            try {
+                val authState = YouTube.currentPlaybackAuthState()
+                val sessionId = authState.sessionId
+                if (!sessionId.isNullOrBlank()) {
+                    BotGuardTokenGenerator.preWarm(sessionId)
+                } else {
+                    val refreshedState = refreshPlaybackLoginContext(forceRefresh = false)
+                    val refreshedSessionId = refreshedState.sessionId
+                    if (!refreshedSessionId.isNullOrBlank()) {
+                        BotGuardTokenGenerator.preWarm(refreshedSessionId)
+                    }
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "Service-level BotGuard pre-warm failed (non-fatal)")
+            }
+        }
+
+        // Pre-warm caches on background thread so first playback doesn't block on
+        // SimpleCache SQLite init + directory scan.
+        scope.launch(Dispatchers.IO) {
+            try {
+                playerCache.cacheSpace
+                downloadCache.cacheSpace
+            } catch (_: Exception) { }
+        }
+
         combine(playerVolume, normalizeFactor, audioFocusVolumeFactor) { playerVolume, normalizeFactor, audioFocusVolumeFactor ->
             calculateEffectivePlayerVolume(playerVolume, normalizeFactor, audioFocusVolumeFactor)
         }.collectLatest(scope) { finalVolume ->
@@ -1449,6 +1481,12 @@ class MusicService :
                     pendingWazeCommand = null
                     handleWazeCommand(it)
                 }
+            }
+            val currentMediaId = withContext(Dispatchers.Main) {
+                player.currentMediaItem?.mediaId
+            }
+            if (!currentMediaId.isNullOrBlank() && !currentMediaId.isLocalMediaId()) {
+                startPlaybackUrlPrefetch(currentMediaId)
             }
         }
 
@@ -1990,6 +2028,11 @@ class MusicService :
         }
 
         releaseSecondaryCrossfadePlayer()
+
+        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        if (activityManager?.isLowRamDevice == true) {
+            return null
+        }
 
         val retries = secondaryCrossfadeRetryCount.get()
         if (retries >= MAX_SECONDARY_PLAYER_RETRIES) {
@@ -3451,8 +3494,23 @@ class MusicService :
 
         clearAutomix()
         autoAddedMediaIds.clear()
-        if (queue.preloadItem != null) {
-            player.setMediaItem(queue.preloadItem!!.toMediaItem())
+        val mediaItemForUi = queue.preloadItem
+        if (mediaItemForUi != null) {
+            player.setMediaItem(mediaItemForUi.toMediaItem())
+        }
+        val preloadMediaId = mediaItemForUi?.id?.takeIf { it.isNotBlank() && !it.isLocalMediaId() }
+        if (preloadMediaId != null) {
+            scope.launch(SilentHandler) {
+                warmPlaybackUrl(preloadMediaId, maxWaitMs = 30_000L)
+                if (queueLoadGeneration != playQueueGeneration.get() || currentQueue !== queue) {
+                    return@launch
+                }
+                withContext(Dispatchers.Main) {
+                    player.prepare()
+                    player.playWhenReady = playWhenReady
+                }
+            }
+        } else {
             player.prepare()
             player.playWhenReady = playWhenReady
         }
@@ -3492,9 +3550,9 @@ class MusicService :
                 queueTitle = initialStatus.title
             }
             if (initialStatus.items.isEmpty()) return@launch
-            if (queue.preloadItem != null) {
-                queue.preloadItem!!.id?.takeIf { it.isNotBlank() }?.let(::startPlaybackUrlPrefetch)
-                val preloadId = queue.preloadItem!!.id.orEmpty()
+            val preloadId = queue.preloadItem?.id
+            preloadId?.takeIf { it.isNotBlank() }?.let(::startPlaybackUrlPrefetch)
+            if (preloadId != null) {
                 val selectedIndex = initialStatus.mediaItemIndex.coerceIn(0, initialStatus.items.lastIndex)
                 val duplicateIndex =
                     initialStatus.items.indices
@@ -3521,8 +3579,17 @@ class MusicService :
             } else {
                 val items = initialStatus.items
                 val index = initialStatus.mediaItemIndex
-                items.getOrNull(index)?.mediaId?.takeIf { it.isNotBlank() }?.let(::startPlaybackUrlPrefetch)
+                val fallbackMediaId = items.getOrNull(index)?.mediaId?.takeIf { it.isNotBlank() && !it.isLocalMediaId() }
+                if (fallbackMediaId != null) {
+                    startPlaybackUrlPrefetch(fallbackMediaId)
+                }
                 player.setMediaItems(items, index, initialStatus.position)
+                if (fallbackMediaId != null) {
+                    warmPlaybackUrl(fallbackMediaId, maxWaitMs = 30_000L)
+                }
+                if (queueLoadGeneration != playQueueGeneration.get() || currentQueue !== queue) {
+                    return@launch
+                }
                 player.prepare()
                 player.playWhenReady = playWhenReady
                 if (player.shuffleModeEnabled) {
@@ -7115,7 +7182,7 @@ class MusicService :
         }
 
         runBlocking(Dispatchers.IO) {
-            awaitPlaybackUrlPrefetch(mediaId, timeoutMs = 1_500L)
+            awaitPlaybackUrlPrefetch(mediaId, timeoutMs = 30_000L)
         }
         cachedPlaybackUrl(mediaId)?.let { cached ->
             scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
@@ -7127,9 +7194,6 @@ class MusicService :
                 isSaavnStream = cached.isSaavnStream,
             )
         }
-
-        // A queued lookahead must not delay the track the user selected.
-        cancelPlaybackUrlPrefetch(mediaId)
 
         val networkMeteredHint =
             if (lowDataModeActive && audioQuality != AudioQuality.HIGHEST) {
@@ -8134,8 +8198,12 @@ class MusicService :
         if (::player.isInitialized) {
             try {
                 if (dataStore.get(PersistentQueueKey, true) && player.mediaItemCount > 0) {
-                    runBlocking {
-                        saveQueueToDisk()
+                    runCatching {
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            withTimeout(2000L) {
+                                saveQueueToDisk()
+                            }
+                        }
                     }
                 }
             } catch (_: Exception) {
@@ -8219,7 +8287,13 @@ class MusicService :
             }
 
             if (dataStore.get(PersistentQueueKey, true) && player.mediaItemCount > 0) {
-                runBlocking { saveQueueToDisk() }
+                runCatching {
+                    ioScope.launch {
+                        withTimeout(2000L) {
+                            saveQueueToDisk()
+                        }
+                    }
+                }
             }
         } catch (_: Exception) {
         }

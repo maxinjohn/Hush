@@ -25,8 +25,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import app.hush.music.LocalDatabase
 import app.hush.music.R
 import app.hush.music.constants.SearchSource
@@ -74,21 +76,24 @@ fun DynamicSearchPlaceholder(
 
     LaunchedEffect(database) {
         delay(1_500L)
-        runCatching {
-            database.likedSongsByRowIdAsc().first().shuffled().take(3).forEach { song ->
-                placeholders.add(templateSong.replace("%s", song.title))
-            }
+        val likedSongs = withContext(Dispatchers.Default) {
+            runCatching {
+                database.likedSongsByRowIdAsc().first().shuffled().take(3)
+            }.getOrElse { emptyList() }
         }
-        runCatching {
-            database.quickPicks().first().shuffled().take(3).forEach { song ->
-                placeholders.add(templateSongTry.replace("%s", song.title))
-            }
+        likedSongs.forEach { placeholders.add(templateSong.replace("%s", it.title)) }
+        val quickPicks = withContext(Dispatchers.Default) {
+            runCatching {
+                database.quickPicks().first().shuffled().take(3)
+            }.getOrElse { emptyList() }
         }
-        runCatching {
-            database.allArtistsByPlayTime().first().shuffled().take(2).forEach { artist ->
-                placeholders.add(templateArtist.replace("%s", artist.title))
-            }
+        quickPicks.forEach { placeholders.add(templateSongTry.replace("%s", it.title)) }
+        val topArtists = withContext(Dispatchers.Default) {
+            runCatching {
+                database.allArtistsByPlayTime().first().shuffled().take(2)
+            }.getOrElse { emptyList() }
         }
+        topArtists.forEach { placeholders.add(templateArtist.replace("%s", it.title)) }
     }
 
     var currentIndex by remember { mutableIntStateOf(0) }
