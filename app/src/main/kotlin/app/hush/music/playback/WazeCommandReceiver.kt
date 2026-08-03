@@ -35,51 +35,8 @@ class WazeCommandReceiver : BroadcastReceiver() {
         Log.d(TAG, "Command: $command")
 
         try {
-            when (command) {
-                "play" -> svc.player.play()
-                "pause" -> svc.player.pause()
-                "stop" -> svc.player.pause()
-                "play_pause" -> if (svc.player.isPlaying) svc.player.pause() else svc.player.play()
-                "next" -> {
-                    if (svc.player.mediaItemCount > 0) {
-                        svc.player.seekToNext()
-                        if (!svc.player.playWhenReady) {
-                            svc.publishWazePausedTrackChange()
-                        }
-                    } else {
-                        svc.player.play()
-                    }
-                }
-                "previous" -> {
-                    if (svc.player.mediaItemCount > 0) {
-                        svc.player.seekToPrevious()
-                        if (!svc.player.playWhenReady) {
-                            svc.publishWazePausedTrackChange()
-                        }
-                    } else {
-                        svc.player.play()
-                    }
-                }
-                "seek" -> {
-                    val pos = intent.getLongExtra("position", 0L)
-                    svc.player.seekTo(pos)
-                }
-                "skip_to_queue_item" -> {
-                    val queueItemId = intent.getLongExtra("queue_item_id", -1L)
-                    if (queueItemId >= 0L) {
-                        svc.playWazeQueueItem(queueItemId)
-                    }
-                }
-                "search" -> {
-                    val query = intent.getStringExtra("query") ?: return
-                    Log.d(TAG, "Search query: $query")
-                }
-                "like" -> svc.toggleLike()
-                "download" -> svc.toggleDownload()
-                "shuffle" -> svc.toggleShuffleMode()
-                "repeat" -> svc.toggleRepeatMode()
-                else -> Log.w(TAG, "Unknown command: $command")
-            }
+            // Route through MusicService's gating logic for cold-start handling, debounce, etc.
+            svc.routeWazeCommand(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Error executing command: $command", e)
         }

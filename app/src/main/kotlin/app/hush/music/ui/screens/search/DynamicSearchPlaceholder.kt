@@ -78,7 +78,7 @@ fun DynamicSearchPlaceholder(
         delay(1_500L)
         val likedSongs = withContext(Dispatchers.Default) {
             runCatching {
-                database.likedSongsByRowIdAsc().first().shuffled().take(3)
+                database.likedSongsByRowIdAsc(50).first().shuffled().take(3)
             }.getOrElse { emptyList() }
         }
         likedSongs.forEach { placeholders.add(templateSong.replace("%s", it.title)) }
@@ -90,7 +90,7 @@ fun DynamicSearchPlaceholder(
         quickPicks.forEach { placeholders.add(templateSongTry.replace("%s", it.title)) }
         val topArtists = withContext(Dispatchers.Default) {
             runCatching {
-                database.allArtistsByPlayTime().first().shuffled().take(2)
+                database.allArtistsByPlayTime(50).first().shuffled().take(2)
             }.getOrElse { emptyList() }
         }
         topArtists.forEach { placeholders.add(templateArtist.replace("%s", it.title)) }

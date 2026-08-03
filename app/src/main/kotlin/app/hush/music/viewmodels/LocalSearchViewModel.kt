@@ -58,19 +58,19 @@ class LocalSearchViewModel
                         }
 
                         LocalFilter.SONG -> {
-                            database.searchSongs(query)
+                            database.searchSongs(query, MAX_RESULTS_PER_FILTER)
                         }
 
                         LocalFilter.ALBUM -> {
-                            database.searchAlbums(query)
+                            database.searchAlbums(query, MAX_RESULTS_PER_FILTER)
                         }
 
                         LocalFilter.ARTIST -> {
-                            database.searchArtists(query)
+                            database.searchArtists(query, MAX_RESULTS_PER_FILTER)
                         }
 
                         LocalFilter.PLAYLIST -> {
-                            database.searchPlaylists(query)
+                            database.searchPlaylists(query, MAX_RESULTS_PER_FILTER)
                         }
                     }.map { list ->
                         val boundedList = list.take(MAX_RESULTS_PER_FILTER)

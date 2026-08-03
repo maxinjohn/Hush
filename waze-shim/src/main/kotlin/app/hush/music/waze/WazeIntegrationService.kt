@@ -52,7 +52,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
 
     @Volatile private var mediaSession: MediaSessionCompat? = null
     @Volatile private var metadataReceiver: WazeMetadataReceiver? = null
-    private var lastCommandTime = 0L
+    private val lastCommandTimeByType = mutableMapOf<String, Long>()
     private var lastSeekTime = 0L
     @Volatile private var cleanedUp = false
     @Volatile private var isForeground = false
@@ -193,18 +193,21 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 Log.d(TAG, "  -> Returning Messenger binder for App Protocol")
                 ensureForeground()
                 startHushMusicService()
+                sendSyncCommand()
                 return messenger.binder
             }
             SERVICE_INTERFACE -> {
                 Log.d(TAG, "  -> Returning MediaBrowserService binder")
                 ensureForeground()
                 startHushMusicService()
+                sendSyncCommand()
                 return super.onBind(intent)
             }
             ACTION_INIT -> {
                 Log.d(TAG, "  -> ACTION_INIT received - returning MediaBrowserService binder")
                 ensureForeground()
                 startHushMusicService()
+                sendSyncCommand()
                 return super.onBind(intent)
             }
             else -> {
@@ -221,6 +224,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 Log.d(TAG, "  -> ACTION_INIT via onStartCommand")
                 ensureForeground()
                 startHushMusicService()
+                sendSyncCommand()
                 val token = intent.getStringExtra("token")
                 if (token != null) {
                     bindToWazeSdkService(token)
@@ -230,6 +234,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 Log.d(TAG, "  -> reconnect requested by Hush")
                 ensureForeground()
                 startHushMusicService()
+                sendSyncCommand()
             }
         }
         return START_REDELIVER_INTENT
@@ -476,7 +481,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         if (cleanedUp || isStaleSnapshot(snapshot)) return
 
         val resolvedState = resolvePlaybackState(snapshot)
-        if (shouldIgnorePendingSnapshot(snapshot, resolvedState)) return
+        val ignorePending = shouldIgnorePendingSnapshot(snapshot, resolvedState)
 
         val session = mediaSession ?: return
         latestSnapshot = snapshot
@@ -529,10 +534,18 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                     }
                     .build(),
             )
+
+            // Apply state always; suppress position only if seek pending
+            val position = if (ignorePending && pendingSeekPositionMs != null) {
+                latestSnapshot?.positionMs ?: snapshot.positionMs
+            } else {
+                snapshot.positionMs
+            }
+
             session.setPlaybackState(
                 buildPlaybackState(
                     state = resolvedState,
-                    position = snapshot.positionMs,
+                    position = position,
                     speed = playbackSpeedFor(resolvedState, snapshot.playbackSpeed),
                     bufferedPosition = snapshot.bufferedPositionMs,
                     activeQueueItemId = snapshot.activeQueueItemId,
@@ -560,6 +573,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         snapshot: HushPlaybackSnapshot,
         resolvedState: Int,
     ): Boolean {
+        // Handle pending playback state echo suppression
         pendingPlaybackState?.let { expectedState ->
             val elapsedMs = snapshot.timestampMs - pendingPlaybackStateAtMs
             val isExpectedState =
@@ -568,17 +582,18 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                         expectedState == PlaybackStateCompat.STATE_PLAYING &&
                             resolvedState == PlaybackStateCompat.STATE_BUFFERING
                         )
-            if (isExpectedState || elapsedMs >= 2000L) {
-                pendingPlaybackState = null
-            } else {
-                return true
-            }
+            pendingPlaybackState = null
+            if (isExpectedState && elapsedMs < 2000L) return true
         }
+        // Handle pending seek: only suppress position update if still far from target,
+        // but always apply state/metadata changes
         pendingSeekPositionMs?.let { expectedPosition ->
             val elapsedMs = snapshot.timestampMs - pendingSeekAtMs
             if (kotlin.math.abs(snapshot.positionMs - expectedPosition) <= 1000L || elapsedMs >= 2000L) {
                 pendingSeekPositionMs = null
             } else {
+                // Position still far from seek target - suppress POSITION only
+                // by returning a special marker that the caller should handle
                 return true
             }
         }
@@ -768,8 +783,9 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
 
     private fun sendCommandToHush(command: String): Boolean {
         val now = SystemClock.elapsedRealtime()
-        if (now - lastCommandTime < 300) return false
-        lastCommandTime = now
+        val lastTime = lastCommandTimeByType[command] ?: 0L
+        if (now - lastTime < 300) return false
+        lastCommandTimeByType[command] = now
 
         try {
             val intent = Intent("app.hush.music.WAZE_COMMAND").apply {
@@ -781,6 +797,19 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send command to Hush", e)
             return false
+        }
+    }
+
+    private fun sendSyncCommand() {
+        // Send a sync request to Hush so it publishes current playback state
+        try {
+            val intent = Intent("app.hush.music.WAZE_COMMAND").apply {
+                putExtra("command", "sync")
+                component = ComponentName("app.hush.music", "app.hush.music.playback.MusicService")
+            }
+            startForegroundService(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send sync command to Hush", e)
         }
     }
 

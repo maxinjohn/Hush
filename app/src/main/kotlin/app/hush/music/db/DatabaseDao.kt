@@ -198,6 +198,10 @@ interface DatabaseDao {
     fun likedSongsByRowIdAsc(): Flow<List<Song>>
 
     @Transaction
+    @Query("SELECT * FROM song WHERE liked ORDER BY rowId LIMIT :limit")
+    fun likedSongsByRowIdAsc(limit: Int): Flow<List<Song>>
+
+    @Transaction
     @Query("SELECT * FROM song WHERE liked ORDER BY likedDate, rowId")
     fun likedSongsByCreateDateAsc(): Flow<List<Song>>
 
@@ -719,6 +723,35 @@ interface DatabaseDao {
     """,
     )
     fun allArtistsByPlayTime(): Flow<List<Artist>>
+
+    @Query(
+        """
+        SELECT DISTINCT artist.*,
+               (SELECT COUNT(1)
+                FROM song_artist_map
+                         JOIN event ON song_artist_map.songId = event.songId
+                WHERE artistId = artist.id) AS songCount
+        FROM artist
+                 LEFT JOIN(SELECT artistId, SUM(songTotalPlayTime) AS totalPlayTime
+                      FROM song_artist_map
+                               JOIN (SELECT songId, SUM(playTime) AS songTotalPlayTime
+                                     FROM event
+                                     GROUP BY songId) AS e
+                                    ON song_artist_map.songId = e.songId
+                      GROUP BY artistId
+                      ORDER BY totalPlayTime DESC) AS artistTotalPlayTime
+                     ON artist.id = artistId
+                     OR artist.bookmarkedAt IS NOT NULL
+                     ORDER BY 
+                      CASE 
+                        WHEN artistTotalPlayTime.artistId IS NULL THEN 1 
+                        ELSE 0 
+                      END, 
+                      artistTotalPlayTime.totalPlayTime DESC
+        LIMIT :limit
+    """,
+    )
+    fun allArtistsByPlayTime(limit: Int): Flow<List<Artist>>
 
     @Query("SELECT * FROM set_video_id WHERE videoId = :videoId")
     suspend fun getSetVideoId(videoId: String): SetVideoIdEntity?

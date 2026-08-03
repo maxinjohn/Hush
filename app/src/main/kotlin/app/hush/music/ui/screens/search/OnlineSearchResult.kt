@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -120,28 +121,49 @@ fun OnlineSearchResult(
             }
         }
     }
+    val songsLabel = stringResource(R.string.filter_songs)
+    val videosLabel = stringResource(R.string.filter_videos)
+    val albumsLabel = stringResource(R.string.filter_albums)
+    val artistsLabel = stringResource(R.string.filter_artists)
+    val communityPlaylistsLabel = stringResource(R.string.filter_community_playlists)
+    val featuredPlaylistsLabel = stringResource(R.string.filter_featured_playlists)
+    val allModeSectionsKey =
+        listOf(
+            searchSummary,
+            searchSort,
+            viewModel.viewStateMap[FILTER_SONG.value],
+            viewModel.viewStateMap[FILTER_VIDEO.value],
+            viewModel.viewStateMap[FILTER_ALBUM.value],
+            viewModel.viewStateMap[FILTER_ARTIST.value],
+            viewModel.viewStateMap[FILTER_COMMUNITY_PLAYLIST.value],
+            viewModel.viewStateMap[FILTER_FEATURED_PLAYLIST.value],
+        )
     val allModeSections =
-        buildList<SearchSummary> {
-            searchSummary
-                ?.summaries
-                ?.firstOrNull()
-                ?.takeIf { it.items.isNotEmpty() }
-                ?.let(::add)
-
-            listOf(
-                FILTER_SONG to stringResource(R.string.filter_songs),
-                FILTER_VIDEO to stringResource(R.string.filter_videos),
-                FILTER_ALBUM to stringResource(R.string.filter_albums),
-                FILTER_ARTIST to stringResource(R.string.filter_artists),
-                FILTER_COMMUNITY_PLAYLIST to stringResource(R.string.filter_community_playlists),
-                FILTER_FEATURED_PLAYLIST to stringResource(R.string.filter_featured_playlists),
-            ).forEach { (sectionFilter, sectionTitle) ->
-                viewModel.viewStateMap[sectionFilter.value]
-                    ?.items
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.let { items ->
-                        add(SearchSummary(title = sectionTitle, items = viewModel.sortedItems(items, searchSort)))
+        remember(allModeSectionsKey) {
+            buildList<SearchSummary> {
+                searchSummary
+                    ?.summaries
+                    ?.firstOrNull()
+                    ?.takeIf { it.items.isNotEmpty() }
+                    ?.let { summary ->
+                        add(SearchSummary(title = summary.title, items = viewModel.sortedItems(summary.items, searchSort)))
                     }
+
+                listOf(
+                    FILTER_SONG to songsLabel,
+                    FILTER_VIDEO to videosLabel,
+                    FILTER_ALBUM to albumsLabel,
+                    FILTER_ARTIST to artistsLabel,
+                    FILTER_COMMUNITY_PLAYLIST to communityPlaylistsLabel,
+                    FILTER_FEATURED_PLAYLIST to featuredPlaylistsLabel,
+                ).forEach { (sectionFilter, sectionTitle) ->
+                    viewModel.viewStateMap[sectionFilter.value]
+                        ?.items
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { items ->
+                            add(SearchSummary(title = sectionTitle, items = viewModel.sortedItems(items, searchSort)))
+                        }
+                }
             }
         }
     val isAllModeLoaded =
@@ -154,6 +176,18 @@ fun OnlineSearchResult(
                 FILTER_COMMUNITY_PLAYLIST,
                 FILTER_FEATURED_PLAYLIST,
             ).all { viewModel.viewStateMap.containsKey(it.value) }
+    val filteredItems =
+        remember(itemsPage, searchSort) {
+            viewModel.sortedItems(itemsPage?.items.orEmpty().distinctBy { it.id }, searchSort)
+        }
+    val summaryLoadFailed = viewModel.summaryLoadFailed
+    val filterLoadFailed = searchFilter?.let { viewModel.failedFilters.contains(it.value) } ?: false
+    val showInitialLoading =
+        if (searchFilter == null) {
+            allModeSections.isEmpty() && !isAllModeLoaded && !summaryLoadFailed
+        } else {
+            itemsPage == null && !filterLoadFailed
+        }
 
     LaunchedEffect(lazyListState) {
         snapshotFlow {
@@ -383,7 +417,7 @@ fun OnlineSearchResult(
                     }
 
                     itemsIndexed(
-                        items = viewModel.sortedItems(summary.items, searchSort),
+                        items = summary.items,
                         key = { itemIndex, item -> "${summary.title}/${item.id}/$itemIndex" },
                         contentType = { _, _ -> "search_result" },
                     ) { _, item ->
@@ -405,10 +439,17 @@ fun OnlineSearchResult(
                             text = stringResource(R.string.no_results_found),
                         )
                     }
+                } else if (allModeSections.isEmpty() && !isAllModeLoaded && summaryLoadFailed) {
+                    item(key = "error_all", contentType = "error") {
+                        SearchLoadErrorPlaceholder(
+                            onRetry = viewModel::retry,
+                            modifier = Modifier.fillParentMaxSize(),
+                        )
+                    }
                 }
             } else {
                 items(
-                    items = viewModel.sortedItems(itemsPage?.items.orEmpty().distinctBy { it.id }, searchSort),
+                    items = filteredItems,
                     key = { "filtered_${it.id}" },
                     contentType = { "search_result" },
                     itemContent = ytItemContent,
@@ -431,10 +472,17 @@ fun OnlineSearchResult(
                             text = stringResource(R.string.no_results_found),
                         )
                     }
+                } else if (itemsPage == null && filterLoadFailed) {
+                    item(key = "error_filtered", contentType = "error") {
+                        SearchLoadErrorPlaceholder(
+                            onRetry = viewModel::retry,
+                            modifier = Modifier.fillParentMaxSize(),
+                        )
+                    }
                 }
             }
 
-            if (searchFilter == null && allModeSections.isEmpty() && !isAllModeLoaded || searchFilter != null && itemsPage == null) {
+            if (showInitialLoading) {
                 item(key = "initial_loading", contentType = "loading") {
                     ShimmerHost {
                         repeat(8) {
@@ -442,6 +490,36 @@ fun OnlineSearchResult(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchLoadErrorPlaceholder(
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    androidx.compose.foundation.layout.Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier.padding(horizontal = 32.dp, vertical = 48.dp),
+    ) {
+        androidx.compose.foundation.layout.Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp),
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.search_off),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline,
+            )
+            Text(
+                text = stringResource(R.string.error_unknown),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(onClick = onRetry) {
+                Text(stringResource(R.string.retry_button))
             }
         }
     }

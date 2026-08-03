@@ -80,6 +80,8 @@ fun OnlineSearchScreen(
     val coroutineScope = rememberCoroutineScope()
     val viewState by viewModel.viewState.collectAsStateWithLifecycle()
 
+    val distinctItems = remember(viewState.items) { viewState.items.distinctBy { it.id } }
+
     val lazyListState = rememberLazyListState()
 
     LaunchedEffect(Unit) {
@@ -173,7 +175,7 @@ fun OnlineSearchScreen(
             }
         }
 
-        items(viewState.items.distinctBy { it.id }, key = { "item_${it.id}" }) { item ->
+        items(distinctItems, key = { "item_${it.id}" }) { item ->
             YouTubeListItem(
                 item = item,
                 isActive =
