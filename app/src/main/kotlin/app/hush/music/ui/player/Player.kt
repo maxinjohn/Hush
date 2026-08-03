@@ -241,7 +241,7 @@ import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 private const val V7BackdropMinArtworkSizePx = 1_024
-private const val V7BackdropMaxArtworkSizePx = 2_048
+private const val V7BackdropMaxArtworkSizePx = 1_536
 private const val V7BackdropBlurDp = 44
 private const val V7BackdropBlurScale = 1.18f
 private const val V7BackdropArtworkOverscanFactor = 1.15f

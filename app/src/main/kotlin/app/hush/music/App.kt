@@ -145,9 +145,15 @@ class App :
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
-            applicationContext.imageLoader.memoryCache?.clear()
-            applicationScope.launch { BotGuardTokenGenerator.onAppBackgrounded() }
+        when {
+            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> {
+                applicationContext.imageLoader.memoryCache?.clear()
+                applicationScope.launch { BotGuardTokenGenerator.onAppBackgrounded() }
+            }
+
+            level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
+                applicationContext.imageLoader.memoryCache?.clear()
+            }
         }
     }
 
@@ -186,6 +192,20 @@ class App :
                 val lastVersionCode = prefs[LastLaunchedVersionCodeKey] ?: 0
                 val shouldForceAuthRefresh = lastVersionCode != currentVersionCode
 
+                // Pre-warm the BotGuard engine from the stored session immediately,
+                // concurrently with the network refresh below, so the first playback
+                // URL resolution isn't blocked on either step.
+                prefs.toPlaybackAuthState().sessionId
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { storedSessionId ->
+                        applicationScope.launch(Dispatchers.IO) {
+                            BotGuardTokenGenerator.preWarm(storedSessionId)
+                        }
+                    }
+
+                // Track pre-warm sessionId so we can re-pre-warm if refresh changes it
+                val preWarmSessionId = prefs.toPlaybackAuthState().sessionId
+
                 if (shouldForceAuthRefresh) {
                     runCatching {
                         refreshPlaybackLoginContext(forceRefresh = true)
@@ -194,10 +214,19 @@ class App :
                         reportException(throwable)
                     }
                 } else {
-                    runCatching {
+                    val refreshedAuthState = runCatching {
                         refreshPlaybackLoginContext(forceRefresh = false)
-                    }.onFailure { throwable ->
-                        Timber.w(throwable, "Failed to refresh playback login context")
+                    }.getOrNull()
+
+                    // If refreshPlaybackLoginContext succeeded and sessionId changed,
+                    // re-pre-warm the BotGuard engine with the new session so the
+                    // first playback doesn't hit a cold 15 s WebView bootstrap.
+                    val newSessionId = refreshedAuthState?.sessionId
+                    if (newSessionId != null && newSessionId.isNotBlank() && newSessionId != preWarmSessionId) {
+                        Timber.d("BotGuard sessionId changed after refresh ($preWarmSessionId -> $newSessionId), re-pre-warming")
+                        applicationScope.launch(Dispatchers.IO) {
+                            BotGuardTokenGenerator.preWarm(newSessionId)
+                        }
                     }
                 }
 
@@ -303,14 +332,6 @@ class App :
 
                 if (prefs[UseLoginForBrowse] != false) {
                     YouTube.useLoginForBrowse = true
-                }
-
-                // Pre-warm BotGuard token generator
-                val initialSessionId = YouTube.currentPlaybackAuthState().sessionId
-                if (!initialSessionId.isNullOrBlank()) {
-                    applicationScope.launch(Dispatchers.IO) {
-                        BotGuardTokenGenerator.preWarm(initialSessionId)
-                    }
                 }
 
                 // Apply random theme on startup if enabled
@@ -476,8 +497,6 @@ class App :
             applicationScope.launch(Dispatchers.IO) { trimImageDiskCache(diskCache) }
         }
 
-        val memoryCacheSizeBytes = if (isLowRamDevice()) 16L * 1024L * 1024L else 32L * 1024L * 1024L
-
         return ImageLoader
             .Builder(this)
             .components {
@@ -489,7 +508,7 @@ class App :
             .diskCachePolicy(imageCacheConfig.policy)
             .memoryCache {
                 MemoryCache.Builder()
-                    .maxSizeBytes(memoryCacheSizeBytes)
+                    .maxSizePercent(this, 0.20)
                     .build()
             }
             .build()

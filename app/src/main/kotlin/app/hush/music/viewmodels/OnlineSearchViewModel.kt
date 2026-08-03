@@ -11,6 +11,7 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -58,6 +59,8 @@ class OnlineSearchViewModel
         val sort = MutableStateFlow(OnlineSearchSort.DEFAULT)
         var summaryPage by mutableStateOf<SearchSummaryPage?>(null)
         val viewStateMap = mutableStateMapOf<String, ItemsPage?>()
+        var summaryLoadFailed by mutableStateOf(false)
+        val failedFilters = mutableStateSetOf<String>()
 
         private var isSummaryLoading = false
         private val loadingFilters = mutableSetOf<String>()
@@ -80,6 +83,7 @@ class OnlineSearchViewModel
             if (summaryPage != null || isSummaryLoading) return
 
             isSummaryLoading = true
+            summaryLoadFailed = false
             try {
                 withContext(Dispatchers.IO) {
                     YouTube
@@ -90,6 +94,7 @@ class OnlineSearchViewModel
                                     .filterExplicit(context.dataStore.get(HideExplicitKey, false))
                                     .filterVideo(context.dataStore.get(HideVideoKey, false))
                         }.onFailure {
+                            summaryLoadFailed = true
                             reportException(it)
                         }
                 }
@@ -100,7 +105,7 @@ class OnlineSearchViewModel
 
         private suspend fun loadFilterIfNeeded(filter: YouTube.SearchFilter) {
             val filterKey = filter.value
-            if (viewStateMap.containsKey(filterKey) || !loadingFilters.add(filterKey)) return
+            if (viewStateMap.containsKey(filterKey) || failedFilters.contains(filterKey) || !loadingFilters.add(filterKey)) return
 
             try {
                 val result = withContext(Dispatchers.IO) {
@@ -116,9 +121,20 @@ class OnlineSearchViewModel
                                 .take(MAX_RESULTS_PER_FILTER),
                             result.continuation.takeIf { result.items.size < MAX_RESULTS_PER_FILTER },
                         )
+                } else {
+                    failedFilters.add(filterKey)
                 }
             } finally {
                 loadingFilters.remove(filterKey)
+            }
+        }
+
+        fun retry() {
+            summaryLoadFailed = false
+            failedFilters.clear()
+            summaryPage = null
+            viewModelScope.launch {
+                filter.value?.let { loadFilterIfNeeded(it) } ?: loadSummaryIfNeeded()
             }
         }
 
