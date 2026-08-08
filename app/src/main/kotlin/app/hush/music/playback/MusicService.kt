@@ -3504,7 +3504,7 @@ var originalQueueSize: Int = 0
         val preloadMediaId = mediaItemForUi?.id?.takeIf { it.isNotBlank() && !it.isLocalMediaId() }
         if (preloadMediaId != null) {
             scope.launch(SilentHandler) {
-                warmPlaybackUrl(preloadMediaId, maxWaitMs = 30_000L)
+                warmPlaybackUrl(preloadMediaId, maxWaitMs = 10_000L)
                 if (queueLoadGeneration != playQueueGeneration.get() || currentQueue !== queue) {
                     return@launch
                 }

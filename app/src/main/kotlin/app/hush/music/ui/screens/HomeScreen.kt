@@ -394,6 +394,33 @@ private fun HomeContent(
                         }
                     }
 
+                    // YouTube Playlists (Account Playlists) right after Quick Picks
+                    if (uiState.accountPlaylists.isNotEmpty()) {
+                        sectionSpacer("account_playlists")
+                        item(
+                            key = "home_account_playlists",
+                            contentType = "media_shelf",
+                        ) {
+                            Column(modifier = Modifier.animateItem()) {
+                                AccountPlaylistsTitle(
+                                    accountName = uiState.accountName,
+                                    accountImageUrl = uiState.accountImageUrl,
+                                    onClick = { navController.navigate("account") },
+                                )
+                                AccountPlaylistsSection(
+                                    accountPlaylists = uiState.accountPlaylists,
+                                    mediaMetadata = mediaMetadata,
+                                    isPlaying = isPlaying,
+                                    navController = navController,
+                                    playerConnection = playerConnection,
+                                    menuState = menuState,
+                                    haptic = haptic,
+                                    scope = scope,
+                                )
+                            }
+                        }
+                    }
+
                     // When a mood chip is active, show mood content right after Quick Picks
                     if (uiState.selectedChip != null) {
                         RemoteSections(
@@ -464,32 +491,6 @@ private fun HomeContent(
                                 scope = scope,
                                 modifier = Modifier.animateItem(),
                             )
-                        }
-                    }
-
-                    if (uiState.accountPlaylists.isNotEmpty()) {
-                        sectionSpacer("account_playlists")
-                        item(
-                            key = "home_account_playlists",
-                            contentType = "media_shelf",
-                        ) {
-                            Column(modifier = Modifier.animateItem()) {
-                                AccountPlaylistsTitle(
-                                    accountName = uiState.accountName,
-                                    accountImageUrl = uiState.accountImageUrl,
-                                    onClick = { navController.navigate("account") },
-                                )
-                                AccountPlaylistsSection(
-                                    accountPlaylists = uiState.accountPlaylists,
-                                    mediaMetadata = mediaMetadata,
-                                    isPlaying = isPlaying,
-                                    navController = navController,
-                                    playerConnection = playerConnection,
-                                    menuState = menuState,
-                                    haptic = haptic,
-                                    scope = scope,
-                                )
-                            }
                         }
                     }
 

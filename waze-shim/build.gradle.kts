@@ -1,3 +1,4 @@
+
 import org.gradle.api.tasks.bundling.Zip
 import org.gradle.api.tasks.Sync
 import java.io.FileInputStream
@@ -8,7 +9,7 @@ plugins {
 }
 
 val localProperties = Properties().apply {
-    file("local.properties").run {
+    file("../local.properties").run {
         if (exists()) {
             load(FileInputStream(this))
         }
@@ -28,7 +29,7 @@ val hasReleaseSigningConfig =
         releaseKeyAlias != null &&
         releaseKeyPassword != null
 val unsignedReleaseBuild = System.getenv("HUSH_UNSIGNED_RELEASE_BUILD") == "true"
-val generatedHushBridgeIconResources = layout.buildDirectory.dir("generated/hushBridgeIcon/res")
+val generatedHushBridgeIconResourcesDir = layout.buildDirectory.dir("generated/hushBridgeIcon/res")
 val syncHushBridgeIconResources = tasks.register<Sync>("syncHushBridgeIconResources") {
     from(rootProject.file("app/src/main/res")) {
         include("mipmap-*/ic_launcher*.png")
@@ -37,7 +38,7 @@ val syncHushBridgeIconResources = tasks.register<Sync>("syncHushBridgeIconResour
         include("values/ic_launcher_background.xml")
         exclude("**/ic_launcher_static*")
     }
-    into(generatedHushBridgeIconResources)
+    into(generatedHushBridgeIconResourcesDir)
 }
 
 android {
@@ -72,7 +73,6 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            // CI supplies a persistent release key so installed bridges can be updated.
             signingConfig =
                 when {
                     unsignedReleaseBuild -> null
@@ -96,49 +96,45 @@ android {
 
     sourceSets {
         getByName("main") {
-            res.srcDir(generatedHushBridgeIconResources.get().asFile)
-        }
-    }
-
-    flavorDimensions += "target"
-    productFlavors {
-        create("spotify") {
-            dimension = "target"
-            applicationId = "com.spotify.music"
-        }
-        create("youtubeMusic") {
-            dimension = "target"
-            applicationId = "com.google.android.apps.youtube.music"
-        }
-        create("deezer") {
-            dimension = "target"
-            applicationId = "deezer.android.app"
+            res.srcDir(file("build/generated/hushBridgeIcon/res"))
         }
     }
 }
 
-tasks.named("preBuild").configure {
-    dependsOn(syncHushBridgeIconResources)
+// Build Waze shim APKs and compress them into app assets
+// Run: ./gradlew :app:copyShimApks
+val copyShimApks = tasks.register<Copy>("copyShimApks") {
+    description = "Copies Waze shim APKs zip into app assets"
+    group = "hush"
+    dependsOn(":waze-shim:packageShimApks")
+    from(rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip"))
+    into(rootProject.file("app/src/mobile/assets"))
+    doLast {
+        println("Copied waze-shims.zip to app/src/mobile/assets/")
+    }
+}
+
+tasks.configureEach {
+    if (name.contains("Mobile")) {
+        dependsOn(copyShimApks)
+    }
 }
 
 dependencies {
-    implementation("androidx.media:media:1.7.0")
-    implementation("androidx.core:core-ktx:1.15.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("androidx.media:media:1.6.0")
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("com.google.android.material:material:1.11.0")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    implementation("androidx.appcompat:appcompat:1.6.1")
 }
 
 tasks.register<Zip>("packageShimApks") {
     group = "hush"
     description = "Packages the Waze bridge APKs for embedding in Hush."
-    dependsOn("assembleSpotifyRelease", "assembleYoutubeMusicRelease", "assembleDeezerRelease")
-    from(layout.buildDirectory.dir("outputs/apk/spotify/release")) {
-        include("waze-shim-spotify-release.apk")
-    }
-    from(layout.buildDirectory.dir("outputs/apk/youtubeMusic/release")) {
-        include("waze-shim-youtubeMusic-release.apk")
-    }
-    from(layout.buildDirectory.dir("outputs/apk/deezer/release")) {
-        include("waze-shim-deezer-release.apk")
+    dependsOn("assembleRelease")
+    from(layout.buildDirectory.dir("outputs/apk/release")) {
+        include("waze-shim-release.apk")
     }
     destinationDirectory.set(layout.buildDirectory.dir("outputs/apk"))
     archiveFileName.set("waze-shims.zip")
