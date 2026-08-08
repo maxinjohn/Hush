@@ -124,6 +124,7 @@ import androidx.core.content.ContextCompat
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.window.core.layout.WindowSizeClass
 import coil3.compose.AsyncImage
@@ -153,7 +154,7 @@ import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MusicRecognitionScreen(navController: NavHostController) {
+fun MusicRecognitionScreen(navController: NavHostController, backStackEntry: NavBackStackEntry? = null) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -168,13 +169,13 @@ fun MusicRecognitionScreen(navController: NavHostController) {
         }
     }.collectAsStateWithLifecycle(initialValue = emptyList())
     val historyCollection = remember(historyItems) { RecognitionHistoryCollection(historyItems) }
-    val backStackEntry = remember(navController) { navController.getBackStackEntry(MusicRecognitionRoute) }
+    val backStackEntry = remember(backStackEntry) { backStackEntry ?: navController.getBackStackEntry(MusicRecognitionRoute) }
     val autoStartRequestId by backStackEntry.savedStateHandle
         .getStateFlow(MusicRecognitionAutoStartRequestKey, 0L)
         .collectAsStateWithLifecycle()
 
     val strings =
-        remember {
+        remember(context) {
             MusicRecognitionStrings(
                 signatureFailed = context.getString(R.string.music_recognition_signature_failed),
                 noMatchFallback = context.getString(R.string.music_recognition_no_match),

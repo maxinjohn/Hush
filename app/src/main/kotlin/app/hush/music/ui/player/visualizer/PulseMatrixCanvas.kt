@@ -97,7 +97,7 @@ fun PulseMatrixCanvas(
             .coerceIn(barConfig.minBars, barConfig.maxBars)
 
         while (peaks.size < barCount) peaks.add(PeakState())
-        while (peaks.size > barCount) peaks.removeLast()
+        while (peaks.size > barCount) peaks.removeAt(peaks.lastIndex)
 
         val totalGapPx = barGapPx * (barCount - 1)
         val barWidthPx = (w - totalGapPx) / barCount

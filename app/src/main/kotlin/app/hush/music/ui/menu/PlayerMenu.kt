@@ -151,6 +151,7 @@ import app.hush.music.utils.shareLocalAudio
 import app.hush.music.utils.toggleSpeedDialPin
 import app.hush.music.ui.screens.equalizer.axion.AxionEqScreen
 import app.hush.music.ui.screens.equalizer.axion.AxionEqViewModel
+import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.log2
@@ -1412,7 +1413,7 @@ private fun isPitchSemitoneAligned(pitch: Float): Boolean {
     return abs(reconstructed - pitch) < 0.0015f
 }
 
-private fun formatMultiplier(multiplier: Float): String = String.format("%.2f", multiplier)
+private fun formatMultiplier(multiplier: Float): String = String.format(Locale.US, "%.2f", multiplier)
 
 private fun sliderToMultiplier(slider: Float): Float {
     val t = slider.coerceIn(0f, 1f)

@@ -28,7 +28,7 @@
     <string name="share_lyrics">Поділитися текстом пісні</string>
     <string name="share_as_text">Надіслати текстом</string>
     <string name="share_as_image">Надіслати зображенням</string>
-    <string name="max_selection_limit">Максимальний ліміт вибору</string>
+    <string name="max_selection_limit">Максимальний ліміт вибору: %1$d</string>
     <string name="share_selected">Поділитися вибраним</string>
     <string name="customize_colors">Налаштувати кольори</string>
     <string name="more_options">Додаткові параметри</string>

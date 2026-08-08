@@ -90,6 +90,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import app.hush.music.R
@@ -922,7 +923,7 @@ fun CrossfadeSliderPreference(
                             kotlin.math.abs(delta) < 0.001f
                         }
                     val displayValue =
-                        if (isWhole) rounded.roundToInt().toString() else String.format(java.util.Locale.getDefault(), "%.1f", rounded)
+                        if (isWhole) rounded.roundToInt().toString() else String.format(LocalConfiguration.current.locales[0], "%.1f", rounded)
                     Text(
                         text =
                             if (rounded <= 0f) {
@@ -976,7 +977,7 @@ fun CrossfadeSliderPreference(
             kotlin.math.abs(delta) < 0.001f
         }
     val displayValue =
-        if (isWhole) rounded.roundToInt().toString() else String.format(java.util.Locale.getDefault(), "%.1f", rounded)
+        if (isWhole) rounded.roundToInt().toString() else String.format(LocalConfiguration.current.locales[0], "%.1f", rounded)
     val descriptionText =
         if (rounded <= 0f) {
             stringResource(R.string.dark_theme_off)

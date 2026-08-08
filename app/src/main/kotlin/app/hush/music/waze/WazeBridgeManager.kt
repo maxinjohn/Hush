@@ -81,6 +81,8 @@ object WazeBridgeManager {
     private const val BRIDGE_ARCHIVE = "waze-shims.zip"
     private const val BRIDGE_PROTOCOL = "app.hush.music.waze.PROTOCOL_VERSION"
 
+    fun supported(): Boolean = BuildConfig.WAZE_SUPPORTED
+
     val definitions = listOf(
         WazeBridgeDefinition(
             id = "spotify",

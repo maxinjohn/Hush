@@ -79,6 +79,7 @@ import app.hush.music.ui.component.PreferenceGroup
 import app.hush.music.ui.component.SwitchPreference
 import app.hush.music.ui.utils.backToMain
 import app.hush.music.utils.rememberPreference
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -332,7 +333,7 @@ private fun NerdStatsSection(playerConnection: app.hush.music.playback.PlayerCon
                             value =
                                 currentFormat?.contentLength?.let {
                                     if (it > 0) {
-                                        "${String.format("%.2f", it / 1024.0 / 1024.0)} MB"
+                                        "${String.format(Locale.US, "%.2f", it / 1024.0 / 1024.0)} MB"
                                     } else {
                                         stringResource(R.string.unknown_content_length)
                                     }

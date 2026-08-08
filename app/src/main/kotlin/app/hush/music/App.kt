@@ -241,13 +241,15 @@ class App :
                             reportException(throwable)
                         }
                     }
-                    runCatching {
-                        WazeBridgeManager.inspectRelevantBridges(
-                            context = this@App,
-                            selectedPackageName = prefs[WazeIntegrationPackageKey],
-                        )
-                    }.onFailure { throwable ->
-                        Timber.w(throwable, "Failed to check Waze Bridge versions after app update")
+                    if (WazeBridgeManager.supported()) {
+                        runCatching {
+                            WazeBridgeManager.inspectRelevantBridges(
+                                context = this@App,
+                                selectedPackageName = prefs[WazeIntegrationPackageKey],
+                            )
+                        }.onFailure { throwable ->
+                            Timber.w(throwable, "Failed to check Waze Bridge versions after app update")
+                        }
                     }
                     safeDataStoreEdit { settings ->
                         settings[LastLaunchedVersionCodeKey] = currentVersionCode

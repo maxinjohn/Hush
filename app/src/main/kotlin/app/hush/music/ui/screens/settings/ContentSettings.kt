@@ -82,6 +82,7 @@ fun ContentSettings(navController: NavController) {
     val (quickPicks, onQuickPicksChange) = rememberEnumPreference(key = QuickPicksKey, defaultValue = QuickPicks.QUICK_PICKS)
 
     val (enableBetterLyrics, _) = rememberPreference(key = EnableBetterLyricsKey, defaultValue = true)
+    val (enableBetterLyricsPortato, _) = rememberPreference(key = EnableBetterLyricsPortatoKey, defaultValue = true)
     val (enableYouLyPlus, _) = rememberPreference(key = EnableYouLyPlusLyricsKey, defaultValue = true)
     val (enableLrcLib, _) = rememberPreference(key = EnableLrcLibKey, defaultValue = true)
     val (enableKugou, _) = rememberPreference(key = EnableKugouKey, defaultValue = true)
@@ -105,6 +106,7 @@ fun ContentSettings(navController: NavController) {
             enableState =
                 LyricsProviderEnableState(
                     enableBetterLyrics = enableBetterLyrics,
+                    enableBetterLyricsPortato = enableBetterLyricsPortato,
                     enableYouLyPlus = enableYouLyPlus,
                     enableLrcLib = enableLrcLib,
                     enableKugou = enableKugou,

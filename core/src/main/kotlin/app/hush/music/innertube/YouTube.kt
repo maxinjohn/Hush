@@ -3474,7 +3474,6 @@ private fun SectionListRenderer.Content.libraryContinuation(): String? =
 private fun SectionListRenderer.Content.playlistSongContents(): List<MusicShelfRenderer.Content> =
     buildList {
         addAll(musicPlaylistShelfRenderer?.contents.orEmpty())
-        addAll(musicShelfRenderer?.contents.orEmpty())
         itemSectionRenderer?.contents.orEmpty().forEach { content ->
             content.musicResponsiveListItemRenderer?.let { renderer ->
                 add(
@@ -3484,7 +3483,6 @@ private fun SectionListRenderer.Content.playlistSongContents(): List<MusicShelfR
                     ),
                 )
             }
-            addAll(content.musicShelfRenderer?.contents.orEmpty())
         }
     }
 
@@ -3514,25 +3512,6 @@ internal fun playlistContinuationPageFromResponse(
         listOf(
             PlaylistContinuationCandidate(
                 contents =
-                    buildList {
-                        response.continuationContents
-                            ?.sectionListContinuation
-                            ?.contents
-                            .orEmpty()
-                            .forEach { sectionContent ->
-                                addAll(sectionContent.playlistSongContents())
-                            }
-                        addAll(appendedContents)
-                    },
-                continuation =
-                    response.continuationContents
-                        ?.sectionListContinuation
-                        ?.continuations
-                        ?.getContinuation()
-                        ?: appendedContents.getContinuation(),
-            ),
-            PlaylistContinuationCandidate(
-                contents =
                     response.continuationContents
                         ?.musicPlaylistShelfContinuation
                         ?.contents
@@ -3542,6 +3521,22 @@ internal fun playlistContinuationPageFromResponse(
                         ?.musicPlaylistShelfContinuation
                         ?.continuations
                         ?.getContinuation(),
+            ),
+            PlaylistContinuationCandidate(
+                contents =
+                    response.continuationContents
+                        ?.sectionListContinuation
+                        ?.contents
+                        .orEmpty()
+                        .flatMap { sectionContent ->
+                            sectionContent.playlistSongContents()
+                        },
+                continuation =
+                    response.continuationContents
+                        ?.sectionListContinuation
+                        ?.continuations
+                        ?.getContinuation()
+                        ?: appendedContents.getContinuation(),
             ),
             PlaylistContinuationCandidate(
                 contents =

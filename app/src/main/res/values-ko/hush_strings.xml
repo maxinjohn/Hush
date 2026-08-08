@@ -93,7 +93,7 @@
     <string name="share_lyrics">가사 공유</string>
     <string name="share_as_text">텍스트로 공유</string>
     <string name="share_as_image">이미지로 공유</string>
-    <string name="max_selection_limit">최대 선택 한도</string>
+    <string name="max_selection_limit">최대 선택 한도: %1$d</string>
     <string name="share_selected">선택 항목 공유</string>
     <string name="customize_colors">색상 맞춤 설정</string>
     <string name="lyrics_share_layout">레이아웃</string>

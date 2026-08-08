@@ -1340,6 +1340,39 @@ interface DatabaseDao {
         previewSize: Int = Int.MAX_VALUE,
     ): Flow<List<Song>>
 
+    @Transaction
+    @Query(
+        """
+    SELECT * FROM song 
+    WHERE (
+        title LIKE '%' || :query || '%' 
+        OR EXISTS (
+            SELECT 1 FROM song_artist_map 
+            JOIN artist ON song_artist_map.artistId = artist.id 
+            WHERE song_artist_map.songId = song.id 
+            AND artist.name LIKE '%' || :query || '%'
+        ) 
+        OR EXISTS (
+            SELECT 1 FROM album 
+            WHERE album.id = song.albumId 
+            AND album.title LIKE '%' || :query || '%'
+        )
+        OR EXISTS (
+            SELECT 1 FROM playlist_song_map 
+            JOIN playlist ON playlist_song_map.playlistId = playlist.id 
+            WHERE playlist_song_map.songId = song.id 
+            AND playlist.name LIKE '%' || :query || '%'
+        )
+    )
+    ORDER BY totalPlayTime DESC, id ASC
+    LIMIT :previewSize
+    """
+    )
+    fun searchSongsExtended(
+        query: String,
+        previewSize: Int = Int.MAX_VALUE,
+    ): Flow<List<Song>>
+
     @Query("SELECT COUNT(1) FROM song WHERE title LIKE '%' || :query || '%' AND inLibrary IS NOT NULL")
     suspend fun searchSongsCount(query: String): Int
 

@@ -86,7 +86,8 @@
     <plurals name="n_selected">
         <item quantity="one">נבחר פריט אחד</item>
         <item quantity="two">נבחרו שני פריטים</item>
-        <item quantity="other">נבחרו %d פריטים</item>
+        <item quantity="many">נבחרו %d פריטים</item>
+        
     </plurals>
     <string name="grid_view">תצוגת רשת</string>
     <string name="personal_label">אישי</string>
@@ -220,7 +221,8 @@
     <plurals name="n_playlist">
         <item quantity="one">פלייליסט אחד</item>
         <item quantity="two">שני פלייליסטים</item>
-        <item quantity="other">%d פלייליסטים</item>
+        <item quantity="many">%d פלייליסטים</item>
+        
     </plurals>
     <string name="theme">ערכת נושא</string>
     <string name="enable_proxy">הפעל proxy</string>
@@ -253,7 +255,8 @@
     <plurals name="n_artist">
         <item quantity="one">אמן אחד</item>
         <item quantity="two">שני אמנים</item>
-        <item quantity="other">%d אמנים</item>
+        <item quantity="many">%d אמנים</item>
+        
     </plurals>
     <string name="eq_open_system_equalizer">פתיחת אקולייזר מערכת</string>
     <string name="delete">מחיקה</string>
@@ -285,7 +288,8 @@
     <plurals name="n_album">
         <item quantity="one">אלבום אחד</item>
         <item quantity="two">שני אלבומים</item>
-        <item quantity="other">%d אלבומים</item>
+        <item quantity="many">%d אלבומים</item>
+        
     </plurals>
     <string name="eq_profiles">פרופילים</string>
     <string name="retry">נסה שוב</string>
@@ -361,7 +365,8 @@
     <plurals name="n_song">
         <item quantity="one">שיר אחד</item>
         <item quantity="two">שני שירים</item>
-        <item quantity="other">%d שירים</item>
+        <item quantity="many">%d שירים</item>
+        
     </plurals>
     <string name="duplicates">כפילויות</string>
     <string name="widget_tap_to_open">לחץ כדי לפתוח את Hush</string>
@@ -407,7 +412,8 @@
     <plurals name="n_year">
         <item quantity="one">שנה אחת</item>
         <item quantity="two">שנתיים</item>
-        <item quantity="other">%d שנים</item>
+        <item quantity="many">%d שנים</item>
+        
     </plurals>
     <string name="not_logged_in">לא מחובר</string>
     <string name="palette_grape_purple">ענבים</string>
@@ -433,7 +439,8 @@
     <plurals name="n_month">
         <item quantity="one">חודש אחד</item>
         <item quantity="two">חודשיים</item>
-        <item quantity="other">%d חודשים</item>
+        <item quantity="many">%d חודשים</item>
+        
     </plurals>
     <string name="palette_aurora">זוהר קוטבי</string>
     <string name="settings">הגדרות</string>
@@ -455,7 +462,8 @@
     <plurals name="n_week">
         <item quantity="one">שבוע אחד</item>
         <item quantity="two">שבועיים</item>
-        <item quantity="other">%d שבועות</item>
+        <item quantity="many">%d שבועות</item>
+        
     </plurals>
     <string name="palette_crimson_red">ארגמן</string>
     <string name="permanent_shuffle">מצב ערבוב קבוע</string>
@@ -515,7 +523,8 @@
     <plurals name="minute">
         <item quantity="one">דקה אחת</item>
         <item quantity="two">שתי דקות</item>
-        <item quantity="other">%d דקות</item>
+        <item quantity="many">%d דקות</item>
+        
     </plurals>
     <string name="duration_sort">משך זמן</string>
     <string name="wakelock">השאר את המעבד ער במהלך השמעה</string>
@@ -618,7 +627,7 @@
     <string name="lastfm_login_network_error">שגיאת רשת. בדוק את החיבור שלך.</string>
     <string name="lastfm_login_failed">הכניסה נכשלה. נסה שוב.</string>
     <string name="duration_seconds_short">%1$d שניות</string>
-    <string name="percent_format">%1$d%</string>
+    <string name="percent_format">%1$d%%</string>
     <string name="listenbrainz_scrobbling">סקרובלינג של ListenBrainz</string>
     <string name="listenbrainz_scrobbling_description">אפשר שליחת האזנות מושמעות והאזנות שהושלמו ל-ListenBrainz</string>
     <string name="set_listenbrainz_token">הגדר טוקן ListenBrainz</string>

@@ -164,7 +164,7 @@
     <string name="share_lyrics">Bagekake lirik</string>
     <string name="share_as_text">Bagekake sebagai teks</string>
     <string name="share_as_image">Bagekake sebagai gambar</string>
-    <string name="max_selection_limit">Batas pilihan maksimal</string>
+    <string name="max_selection_limit">Batas pilihan maksimal: %1$d</string>
     <string name="share_selected">Bagekake yang dipilih</string>
     <string name="customize_colors">Sesuaikan warna</string>
     <string name="lyrics_share_layout">Tata Letak</string>

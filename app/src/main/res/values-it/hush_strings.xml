@@ -28,7 +28,7 @@
     <string name="share_lyrics">Condividi testo</string>
     <string name="share_as_text">Condividi come testo</string>
     <string name="share_as_image">Condividi come immagine</string>
-    <string name="max_selection_limit">Limite massimo di selezione</string>
+    <string name="max_selection_limit">Limite massimo di selezione: %1$d</string>
     <string name="share_selected">Condividi selezionati</string>
     <string name="customize_colors">Personalizza colori</string>
     <string name="more_options">Più opzioni</string>

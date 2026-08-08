@@ -58,6 +58,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.painterResource
@@ -126,7 +127,7 @@ fun AlarmSettings(navController: NavController) {
 @Composable
 fun AlarmSettingsContent() {
     val context = LocalContext.current
-    val locale = Locale.getDefault()
+    val locale = LocalConfiguration.current.locales[0]
     val database = LocalDatabase.current
     val scope = rememberCoroutineScope()
     val playlists by database.playlistsByNameAsc().collectAsStateWithLifecycle(initialValue = emptyList())
@@ -385,7 +386,7 @@ private fun AlarmEditorDialog(
     onSave: (MusicAlarmEntry) -> Unit,
 ) {
     val context = LocalContext.current
-    val locale = Locale.getDefault()
+    val locale = LocalConfiguration.current.locales[0]
     val noPlaylistsText = stringResource(R.string.alarm_no_playlists)
     val selectPlaylistText = stringResource(R.string.alarm_select_playlist)
 

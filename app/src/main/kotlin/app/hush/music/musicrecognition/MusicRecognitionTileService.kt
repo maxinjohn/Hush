@@ -7,6 +7,7 @@
 
 package app.hush.music.musicrecognition
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Intent
 import android.graphics.drawable.Icon
@@ -22,6 +23,7 @@ class MusicRecognitionTileService : TileService() {
         updateTile()
     }
 
+    @SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
 

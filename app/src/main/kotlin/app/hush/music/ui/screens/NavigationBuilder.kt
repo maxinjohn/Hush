@@ -169,8 +169,8 @@ fun NavGraphBuilder.navigationBuilder(
             initialYear = selectedYear,
         )
     }
-    composable(MusicRecognitionRoute) {
-        MusicRecognitionScreen(navController)
+    composable(MusicRecognitionRoute) { entry ->
+        MusicRecognitionScreen(navController, entry)
     }
     composable(Screens.ROUTE_MOOD_AND_GENRES) {
         MoodAndGenresScreen(navController)

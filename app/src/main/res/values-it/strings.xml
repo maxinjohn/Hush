@@ -6,6 +6,7 @@
     <string name="albums">Album</string>
     <string name="playlists">Playlist</string>
     <plurals name="n_selected">
+                <item quantity="one">%d selezionato</item>
         <item quantity="other">%d selezionato</item>
     </plurals>
     <string name="history">Cronologia</string>
