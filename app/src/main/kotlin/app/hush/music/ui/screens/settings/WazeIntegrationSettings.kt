@@ -163,7 +163,7 @@ fun WazeIntegrationSettings(
             val previousVersionCode = preInspection.installedVersionCode
             val operation = if (wasInstalled) "Update" else "Install"
 
-            val delays = listOf(0L, 300L, 700L, 1200L)
+            val delays = listOf(0L, 500L, 1500L, 3000L, 5000L)
             var finalInspection = preInspection
 
             for (delay in delays) {

@@ -658,7 +658,7 @@ enum class PlayerDesignStyle {
 
         /** Styles shown in Settings → Player design style. */
         val selectableValues: List<PlayerDesignStyle> =
-            listOf(V6)
+            listOf(V9, V8, V6)
     }
 }
 

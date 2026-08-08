@@ -1,19 +1,32 @@
 import org.gradle.api.tasks.bundling.Zip
 import org.gradle.api.tasks.Sync
+import java.io.FileInputStream
+import java.util.Properties
 
 plugins {
     id("com.android.application")
 }
 
-val shimKeystoreFile = System.getenv("HUSH_SHIM_KEYSTORE")?.let(::file)
-val shimStorePassword = System.getenv("HUSH_SHIM_STORE_PASSWORD")
-val shimKeyAlias = System.getenv("HUSH_SHIM_KEY_ALIAS")
-val shimKeyPassword = System.getenv("HUSH_SHIM_KEY_PASSWORD")
+val localProperties = Properties().apply {
+    file("local.properties").run {
+        if (exists()) {
+            load(FileInputStream(this))
+        }
+    }
+}
+fun signingProperty(name: String): String? =
+    localProperties.getProperty(name)?.trim()?.takeIf { it.isNotBlank() }
+        ?: System.getenv(name)?.trim()?.takeIf { it.isNotBlank() }
+
+val releaseKeystoreFile = file("../app/keystore/release.keystore")
+val releaseStorePassword = signingProperty("STORE_PASSWORD") ?: signingProperty("KEYSTORE_PASSWORD")
+val releaseKeyAlias = signingProperty("KEY_ALIAS")
+val releaseKeyPassword = signingProperty("KEY_PASSWORD")
 val hasReleaseSigningConfig =
-    shimKeystoreFile?.isFile == true &&
-        !shimStorePassword.isNullOrBlank() &&
-        !shimKeyAlias.isNullOrBlank() &&
-        !shimKeyPassword.isNullOrBlank()
+    releaseKeystoreFile.isFile &&
+        releaseStorePassword != null &&
+        releaseKeyAlias != null &&
+        releaseKeyPassword != null
 val unsignedReleaseBuild = System.getenv("HUSH_UNSIGNED_RELEASE_BUILD") == "true"
 val generatedHushBridgeIconResources = layout.buildDirectory.dir("generated/hushBridgeIcon/res")
 val syncHushBridgeIconResources = tasks.register<Sync>("syncHushBridgeIconResources") {
@@ -45,10 +58,10 @@ android {
             enableV2Signing = true
         }
         create("release") {
-            storeFile = shimKeystoreFile
-            storePassword = shimStorePassword
-            keyAlias = shimKeyAlias
-            keyPassword = shimKeyPassword
+            storeFile = releaseKeystoreFile
+            storePassword = releaseStorePassword
+            keyAlias = releaseKeyAlias
+            keyPassword = releaseKeyPassword
             enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
