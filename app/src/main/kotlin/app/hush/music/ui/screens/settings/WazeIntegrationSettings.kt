@@ -163,6 +163,9 @@ fun WazeIntegrationSettings(
             val previousVersionCode = preInspection.installedVersionCode
             val operation = if (wasInstalled) "Update" else "Install"
 
+            // Show immediate feedback
+            statusMessage = if (wasInstalled) "Updating ${definition.displayName}..." else "Installing ${definition.displayName}..."
+
             val delays = listOf(0L, 500L, 1500L, 3000L, 5000L)
             var finalInspection = preInspection
 

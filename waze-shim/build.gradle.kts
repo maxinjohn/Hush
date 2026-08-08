@@ -53,6 +53,22 @@ android {
         versionName = "13.13.1"
     }
 
+    flavorDimensions += "bridge"
+    productFlavors {
+        create("spotify") {
+            dimension = "bridge"
+            applicationId = "com.spotify.music"
+        }
+        create("youtubeMusic") {
+            dimension = "bridge"
+            applicationId = "com.google.android.youtubeMusic"
+        }
+        create("deezer") {
+            dimension = "bridge"
+            applicationId = "deezer.android.app"
+        }
+    }
+
     signingConfigs {
         getByName("debug") {
             enableV1Signing = true
@@ -94,11 +110,20 @@ android {
         }
     }
 
-    sourceSets {
-        getByName("main") {
-            res.srcDir(file("build/generated/hushBridgeIcon/res"))
-        }
+sourceSets {
+    getByName("main") {
+        res.srcDir(file("build/generated/hushBridgeIcon/res"))
     }
+    getByName("spotify") {
+        res.srcDir(file("build/generated/hushBridgeIcon/res"))
+    }
+    getByName("youtubeMusic") {
+        res.srcDir(file("build/generated/hushBridgeIcon/res"))
+    }
+    getByName("deezer") {
+        res.srcDir(file("build/generated/hushBridgeIcon/res"))
+    }
+}
 }
 
 // Build Waze shim APKs and compress them into app assets
@@ -132,10 +157,36 @@ dependencies {
 tasks.register<Zip>("packageShimApks") {
     group = "hush"
     description = "Packages the Waze bridge APKs for embedding in Hush."
-    dependsOn("assembleRelease")
-    from(layout.buildDirectory.dir("outputs/apk/release")) {
-        include("waze-shim-release.apk")
+    dependsOn("assembleSpotifyRelease", "assembleYoutubeMusicRelease", "assembleDeezerRelease")
+    from(layout.buildDirectory.dir("outputs/apk/spotify/release")) {
+        include("waze-shim-spotify-release.apk")
+    }
+    from(layout.buildDirectory.dir("outputs/apk/youtubeMusic/release")) {
+        include("waze-shim-youtubeMusic-release.apk")
+    }
+    from(layout.buildDirectory.dir("outputs/apk/deezer/release")) {
+        include("waze-shim-deezer-release.apk")
     }
     destinationDirectory.set(layout.buildDirectory.dir("outputs/apk"))
     archiveFileName.set("waze-shims.zip")
+}
+
+// Ensure generated icons are available before resource processing for all flavors
+tasks.withType<com.android.build.gradle.tasks.MergeResources> {
+    dependsOn(syncHushBridgeIconResources)
+}
+tasks.withType<com.android.build.gradle.tasks.ProcessApplicationManifest> {
+    dependsOn(syncHushBridgeIconResources)
+}
+tasks.matching { it.name.startsWith("process") && it.name.contains("NavigationResources") }.configureEach {
+    dependsOn(syncHushBridgeIconResources)
+}
+tasks.matching { it.name.startsWith("generate") && it.name.contains("Resources") }.configureEach {
+    dependsOn(syncHushBridgeIconResources)
+}
+tasks.matching { it.name.startsWith("map") && it.name.contains("SourceSetPaths") }.configureEach {
+    dependsOn(syncHushBridgeIconResources)
+}
+tasks.matching { it.name.startsWith("extractDeepLinks") }.configureEach {
+    dependsOn(syncHushBridgeIconResources)
 }

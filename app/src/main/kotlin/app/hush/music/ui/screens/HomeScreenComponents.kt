@@ -1128,92 +1128,49 @@ fun AccountPlaylistsSection(
     val distinctPlaylists = remember(accountPlaylists) { accountPlaylists.distinctBy { it.id } }
     val context = LocalContext.current
 
-    BoxWithConstraints(
-        modifier =
-            modifier
-                .fillMaxWidth(),
-    ) {
-        val heroMetrics = rememberHeroCarouselMetrics(maxWidth)
-        val carouselHeight = heroMetrics.heroCarouselHeight()
-        val carouselState = rememberCarouselState { distinctPlaylists.size }
-        val heroSnapSpec =
-            remember {
-                spring<Float>(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessLow,
-                )
-            }
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val carouselMetrics = rememberHorizontalCarouselMetrics(maxWidth)
+        val (lazyListState, flingBehavior) = rememberLazyRowCarouselScroll(carouselMetrics.widthFactor)
 
-        HorizontalCenteredHeroCarousel(
-            state = carouselState,
-            maxItemWidth = heroMetrics.itemWidth,
-            itemSpacing = 10.dp,
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            flingBehavior =
-                CarouselDefaults.multiBrowseFlingBehavior(
-                    state = carouselState,
-                    snapAnimationSpec = heroSnapSpec,
-                ),
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(carouselHeight)
-                    .focusable()
-                    .onPreviewKeyEvent { event: androidx.compose.ui.input.key.KeyEvent ->
-                        if (event.type == KeyEventType.KeyDown) {
-                            when (event.key) {
-                                Key(android.view.KeyEvent.KEYCODE_DPAD_DOWN.toLong()),
-                                Key(android.view.KeyEvent.KEYCODE_DPAD_UP.toLong()) -> false
-                                else -> false
-                            }
-                        } else {
-                            false
-                        }
-                    },
-        ) { index ->
-            val playlist = distinctPlaylists[index]
-            val drawInfo = carouselItemDrawInfo
-            val artworkRequest =
-                remember(playlist.id, playlist.thumbnail, context) {
-                    ImageRequest
-                        .Builder(context)
-                        .data(playlist.thumbnail)
-                        .crossfade(false)
-                        .build()
-                }
-
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .hushCarouselLiveParallax(drawInfo)
-                        .hushHomeCarouselCard(shape = MaterialTheme.shapes.extraLarge)
-                        .maskClip(MaterialTheme.shapes.extraLarge)
-                        .focusable()
-                        .tvFocusBorder(MaterialTheme.shapes.extraLarge)
-                        .hushCombinedPressable(
-                            onClick = {
-                                navController.navigate("youtubePlaylist/${distinctPlaylists[index].id}")
-                            },
-                            onLongClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                menuState.show {
-                                    YouTubePlaylistMenu(
-                                        playlist = distinctPlaylists[index],
-                                        coroutineScope = scope,
-                                        onDismiss = menuState::dismiss,
-                                    )
-                                }
-                            },
-                        ),
-            ) {
-                AsyncImage(
-                    model = artworkRequest,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
+        LazyRow(
+            state = lazyListState,
+            flingBehavior = flingBehavior,
+            contentPadding =
+                WindowInsets.systemBars
+                    .only(WindowInsetsSides.Horizontal)
+                    .asPaddingValues(),
+        ) {
+            items(
+                items = distinctPlaylists,
+                key = { it.id },
+            ) { playlist ->
+                YouTubeGridItem(
+                    item = playlist,
+                    isActive = playlist.id in listOf(mediaMetadata?.album?.id, mediaMetadata?.id),
+                    isPlaying = isPlaying,
+                    coroutineScope = scope,
+                    thumbnailRatio = 1f,
+                    thumbnailWidth = carouselMetrics.itemWidth,
                     modifier =
                         Modifier
-                            .fillMaxSize()
+                            .padding(horizontal = 4.dp)
+                            .hushHomeRowCard()
+                            .focusable()
+                            .hushCombinedPressable(
+                                onClick = {
+                                    navController.navigate("youtubePlaylist/${playlist.id}")
+                                },
+                                onLongClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    menuState.show {
+                                        YouTubePlaylistMenu(
+                                            playlist = playlist,
+                                            coroutineScope = scope,
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
+                                },
+                            ),
                 )
             }
         }
