@@ -96,7 +96,7 @@ object WazeBridgeManager {
             id = "youtube_music",
             displayName = "YouTube Music Bridge",
             providerName = "YouTube Music",
-            packageName = "com.google.android.apps.youtube.music",
+            packageName = "com.google.android.youtubeMusic",
             assetPath = "waze-shim-youtubeMusic-release.apk",
             requiredProtocolVersion = 3,
         ),
