@@ -67,6 +67,7 @@ import androidx.navigation.NavController
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.constants.EnableBetterLyricsKey
+import app.hush.music.constants.EnableBetterLyricsPortatoKey
 import app.hush.music.constants.EnableKugouKey
 import app.hush.music.constants.EnableLrcLibKey
 import app.hush.music.constants.EnableMegalobizLyricsKey
@@ -120,6 +121,7 @@ import app.hush.music.viewmodels.PaxsenixStatsState
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import kotlin.math.roundToInt
+import java.util.Locale
 
 @Composable
 fun LyricsSettings(
@@ -167,6 +169,8 @@ fun LyricsSettings(
     val (enableLrclib, onEnableLrclibChange) = rememberPreference(key = EnableLrcLibKey, defaultValue = true)
     val (enableKugou, onEnableKugouChange) = rememberPreference(key = EnableKugouKey, defaultValue = true)
     val (enableBetterLyrics, onEnableBetterLyricsChange) = rememberPreference(key = EnableBetterLyricsKey, defaultValue = true)
+    val (enableBetterLyricsPortato, onEnableBetterLyricsPortatoChange) =
+        rememberPreference(key = EnableBetterLyricsPortatoKey, defaultValue = true)
     val (enableYouLyPlusLyrics, onEnableYouLyPlusLyricsChange) =
         rememberPreference(key = EnableYouLyPlusLyricsKey, defaultValue = true)
     val (enableSimpMusicLyrics, onEnableSimpMusicLyricsChange) = rememberPreference(key = EnableSimpMusicLyricsKey, defaultValue = true)
@@ -232,6 +236,7 @@ fun LyricsSettings(
             enableState =
                 LyricsProviderEnableState(
                     enableBetterLyrics = enableBetterLyrics,
+                    enableBetterLyricsPortato = enableBetterLyricsPortato,
                     enableYouLyPlus = enableYouLyPlusLyrics,
                     enableLrcLib = enableLrclib,
                     enableKugou = enableKugou,
@@ -377,7 +382,7 @@ fun LyricsSettings(
                     )
 
                     Text(
-                        text = "${String.format("%.1f", tempLineSpacing)}x",
+                        text = "${String.format(Locale.US, "%.1f", tempLineSpacing)}x",
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.padding(bottom = 16.dp),
                     )
@@ -467,7 +472,7 @@ fun LyricsSettings(
             item {
                 PreferenceEntry(
                     title = { Text(stringResource(R.string.lyrics_line_spacing)) },
-                    description = "${String.format("%.1f", lyricsLineSpacing)}x",
+                    description = "${String.format(Locale.US, "%.1f", lyricsLineSpacing)}x",
                     icon = { Icon(painterResource(R.drawable.text_fields), null) },
                     onClick = { showLyricsLineSpacingDialog = true },
                 )
@@ -481,6 +486,15 @@ fun LyricsSettings(
                     icon = { Icon(painterResource(R.drawable.lyrics), null) },
                     checked = enableBetterLyrics,
                     onCheckedChange = onEnableBetterLyricsChange,
+                )
+            }
+
+            item {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.enable_betterlyrics_portato)) },
+                    icon = { Icon(painterResource(R.drawable.lyrics), null) },
+                    checked = enableBetterLyricsPortato,
+                    onCheckedChange = onEnableBetterLyricsPortatoChange,
                 )
             }
 
@@ -608,9 +622,10 @@ fun LyricsSettings(
                     title = { Text(stringResource(R.string.lyrics_provider_priority)) },
                     description = providerOrder.filter { provider ->
                         provider in
-                            LyricsProviderEnableState(
-                                enableBetterLyrics = enableBetterLyrics,
-                                enableYouLyPlus = enableYouLyPlusLyrics,
+LyricsProviderEnableState(
+                    enableBetterLyrics = enableBetterLyrics,
+                    enableBetterLyricsPortato = enableBetterLyricsPortato,
+                    enableYouLyPlus = enableYouLyPlusLyrics,
                                 enableLrcLib = enableLrclib,
                                 enableKugou = enableKugou,
                                 enableSimpMusic = enableSimpMusicLyrics,

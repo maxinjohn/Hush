@@ -475,8 +475,9 @@ class MusicService :
                 }
             }
 
-    private var currentQueue: Queue = EmptyQueue
-    var queueTitle: String? = null
+private var currentQueue: Queue = EmptyQueue
+var queueTitle: String? = null
+var originalQueueSize: Int = 0
     private val persistentStateLock = Any()
     private val persistentSaveGeneration = AtomicLong(0L)
     private val playQueueGeneration = AtomicLong(0L)
@@ -1089,14 +1090,12 @@ class MusicService :
         updateNotification()
         player.repeatMode = REPEAT_MODE_OFF
 
-        wazeCommandReceiver.attachService(this)
-        val wazeFilter = IntentFilter("app.hush.music.WAZE_COMMAND")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (app.hush.music.BuildConfig.WAZE_SUPPORTED) {
+            wazeCommandReceiver.attachService(this)
+            val wazeFilter = IntentFilter("app.hush.music.WAZE_COMMAND")
             registerReceiver(wazeCommandReceiver, wazeFilter, RECEIVER_EXPORTED)
-        } else {
-            registerReceiver(wazeCommandReceiver, wazeFilter)
+            wazeReceiverRegistered = true
         }
-        wazeReceiverRegistered = true
 
         val sessionToken = SessionToken(this, ComponentName(this, MusicService::class.java))
         val controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
@@ -3744,6 +3743,12 @@ class MusicService :
 
             currentQueue = radioQueue
         }
+    }
+
+    fun adoptQueue(queue: Queue, title: String? = null, initialQueueSize: Int = 0) {
+        currentQueue = queue
+        queueTitle = title
+        originalQueueSize = initialQueueSize
     }
 
     fun clearAutomix() {
@@ -6396,6 +6401,7 @@ class MusicService :
     internal fun publishWazePlaybackSnapshot(
         force: Boolean = false,
     ) {
+        if (!app.hush.music.BuildConfig.WAZE_SUPPORTED) return
         val shimPackages = mutableListOf<String>()
         for (app in WazeTargetApp.entries) {
             try {
@@ -6542,6 +6548,7 @@ class MusicService :
     }
 
     private fun handleWazeCommand(intent: Intent) {
+        if (!app.hush.music.BuildConfig.WAZE_SUPPORTED) return
         val command = intent.getStringExtra("command")
         if (command == "sync") {
             publishWazePlaybackSnapshot(force = true)
@@ -6569,6 +6576,7 @@ class MusicService :
     }
 
     fun routeWazeCommand(intent: Intent) {
+        if (!app.hush.music.BuildConfig.WAZE_SUPPORTED) return
         handleWazeCommand(intent)
     }
 

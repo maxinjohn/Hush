@@ -6,6 +6,7 @@
     <string name="albums">Álbuns</string>
     <string name="playlists">Playlists</string>
     <plurals name="n_selected">
+                <item quantity="one">%d selecionado</item>
         <item quantity="other">%d selecionados</item>
     </plurals>
     <string name="history">Histórico</string>
@@ -147,7 +148,7 @@
     <string name="widget_listening_time_minutes">%1$d min</string>
     <string name="widget_listening_time_hours_minutes">%1$d h %2$d min</string>
     <plurals name="widget_total_plays">
-        <item quantity="one">1 reprodução</item>
+        <item quantity="one">%d reprodução</item>
         <item quantity="other">%d reproduções</item>
     </plurals>
     <string name="widget_top_song_summary">Mais ouvida ultimamente: %1$s</string>
@@ -294,7 +295,7 @@
     <string name="sleep_timer">Temporizador de sono</string>
     <string name="end_of_song">Fim da música</string>
     <plurals name="minute">
-        <item quantity="one">1 minuto</item>
+        <item quantity="one">%d minuto</item>
         <item quantity="other">%d minutos</item>
     </plurals>
     <string name="error_no_stream">Nenhum stream disponível</string>

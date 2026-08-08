@@ -20,6 +20,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import app.hush.music.BuildConfig
 import app.hush.music.R
+import app.hush.music.waze.WazeBridgeManager
 
 @Composable
 fun buildSettingsGroups(
@@ -127,7 +128,7 @@ fun buildSettingsGroups(
                                 onClick = { navController.navigate("settings/ai_integration") },
                             ),
                         )
-                        if (BuildConfig.DEVICE == "mobile") {
+                        if (WazeBridgeManager.supported()) {
                             add(
                                 SettingsItem(
                                     key = "waze_integration",

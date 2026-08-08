@@ -170,11 +170,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             metadataReceiver = WazeMetadataReceiver().also { receiver ->
                 receiver.attach(this)
                 val filter = IntentFilter("app.hush.music.WAZE_METADATA_UPDATE")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    registerReceiver(receiver, filter, RECEIVER_EXPORTED)
-                } else {
-                    registerReceiver(receiver, filter)
-                }
+                registerReceiver(receiver, filter, RECEIVER_EXPORTED)
             }
             Log.d(TAG, "Metadata receiver registered")
         } catch (e: Exception) {

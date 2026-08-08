@@ -28,7 +28,7 @@
     <string name="share_lyrics">Partager les paroles</string>
     <string name="share_as_text">Partager comme texte</string>
     <string name="share_as_image">Partager comme image</string>
-    <string name="max_selection_limit">Limite maximale de sélection</string>
+    <string name="max_selection_limit">Limite maximale de sélection : %1$d</string>
     <string name="share_selected">Partager la sélection</string>
     <string name="customize_colors">Personnaliser les couleurs</string>
     <string name="more_options">Plus d\'options</string>
@@ -135,7 +135,7 @@
     <string name="empty_playlist">Playlist vide</string>
     <string name="empty_playlist_desc">Cette playlist ne contient aucun titre</string>
     <plurals name="seconds">
-        <item quantity="one">1 seconde</item>
+        <item quantity="one">%d seconde</item>
         <item quantity="many">%d secondes</item>
         <item quantity="other">%d secondes</item>
     </plurals>

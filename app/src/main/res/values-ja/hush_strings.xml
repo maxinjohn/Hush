@@ -179,7 +179,7 @@
     <string name="share_lyrics">歌詞を共有</string>
     <string name="share_as_text">テキストとして共有</string>
     <string name="share_as_image">画像として共有</string>
-    <string name="max_selection_limit">最大選択数</string>
+    <string name="max_selection_limit">最大選択数: %1$d</string>
     <string name="share_selected">選択項目を共有</string>
     <string name="customize_colors">色をカスタマイズ</string>
     <string name="lyrics_share_layout">レイアウト</string>

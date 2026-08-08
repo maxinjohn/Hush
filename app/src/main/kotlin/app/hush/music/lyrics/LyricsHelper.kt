@@ -45,6 +45,7 @@ class LyricsHelper
         private val baseProviders =
             listOf(
                 BetterLyricsProvider,
+                BetterLyricsPortatoProvider,
                 YouLyPlusLyricsProvider,
                 LrcLibLyricsProvider,
                 KuGouLyricsProvider,
@@ -245,15 +246,22 @@ class LyricsHelper
                 val jobs = requests.mapIndexed { _, d ->
                     async {
                         val lyrics = d.await() ?: return@async null
-                        val score = LyricsLanguageFilter.relevanceScore(
-                            lyrics = lyrics,
-                            title = mediaMetadata.title,
-                            artist = artist,
-                            contentLanguage = contentLanguage,
-                            contentCountry = contentCountry,
-                        )
+                        val score =
+                            LyricsLanguageFilter.relevanceScore(
+                                lyrics = lyrics,
+                                title = mediaMetadata.title,
+                                artist = artist,
+                                contentLanguage = contentLanguage,
+                                contentCountry = contentCountry,
+                            )
                         if (score < 0) return@async null
-                        score to lyrics
+                        val syncedPriority =
+                            when {
+                                LyricsUtils.hasWordSyncedLyrics(lyrics) -> 200
+                                LyricsUtils.isLineSyncedLrc(lyrics) -> 100
+                                else -> 0
+                            }
+                        score + syncedPriority to lyrics
                     }
                 }
 
@@ -320,6 +328,7 @@ class LyricsHelper
                     PreferredLyricsProvider.LRCLIB to LrcLibLyricsProvider,
                     PreferredLyricsProvider.KUGOU to KuGouLyricsProvider,
                     PreferredLyricsProvider.BETTER_LYRICS to BetterLyricsProvider,
+                    PreferredLyricsProvider.BETTER_LYRICS_PORTATO to BetterLyricsPortatoProvider,
                     PreferredLyricsProvider.YOULY_PLUS to YouLyPlusLyricsProvider,
                     PreferredLyricsProvider.SIMPMUSIC to SimpMusicLyricsProvider,
                     PreferredLyricsProvider.PAXSENIX_APPLE_MUSIC to PaxsenixAppleMusicLyricsProvider,

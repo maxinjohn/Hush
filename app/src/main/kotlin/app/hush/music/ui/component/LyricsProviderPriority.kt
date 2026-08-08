@@ -27,6 +27,7 @@ import app.hush.music.constants.deserializeLyricsProviderOrder
 
 data class LyricsProviderEnableState(
     val enableBetterLyrics: Boolean,
+    val enableBetterLyricsPortato: Boolean,
     val enableYouLyPlus: Boolean,
     val enableLrcLib: Boolean,
     val enableKugou: Boolean,
@@ -43,6 +44,7 @@ data class LyricsProviderEnableState(
     fun enabledProviders(): Set<PreferredLyricsProvider> =
         buildSet {
             if (enableBetterLyrics) add(PreferredLyricsProvider.BETTER_LYRICS)
+            if (enableBetterLyricsPortato) add(PreferredLyricsProvider.BETTER_LYRICS_PORTATO)
             if (enableYouLyPlus) add(PreferredLyricsProvider.YOULY_PLUS)
             if (enableLrcLib) add(PreferredLyricsProvider.LRCLIB)
             if (enableKugou) add(PreferredLyricsProvider.KUGOU)
@@ -64,6 +66,7 @@ fun PreferredLyricsProvider.displayName(): String =
         PreferredLyricsProvider.LRCLIB -> "LrcLib"
         PreferredLyricsProvider.KUGOU -> "KuGou"
         PreferredLyricsProvider.BETTER_LYRICS -> "Better Lyrics"
+        PreferredLyricsProvider.BETTER_LYRICS_PORTATO -> "Better Lyrics Portato"
         PreferredLyricsProvider.YOULY_PLUS -> "YouLyPlus"
         PreferredLyricsProvider.SIMPMUSIC -> "SimpMusic"
         PreferredLyricsProvider.PAXSENIX_APPLE_MUSIC -> "Paxsenix"

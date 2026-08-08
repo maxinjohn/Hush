@@ -81,7 +81,8 @@
     <plurals name="news_article_count">
         <item quantity="one">כתבה אחת</item>
         <item quantity="two">שתי כתבות</item>
-        <item quantity="other">%d כתבות</item>
+        <item quantity="many">%d כתבות</item>
+        
     </plurals>
     <string name="no_title">ללא כותרת</string>
     <string name="unknown_artist">אמן לא ידוע</string>
@@ -179,7 +180,7 @@
     <string name="share_lyrics">שתף מילות שיר</string>
     <string name="share_as_text">שתף כטקסט</string>
     <string name="share_as_image">שתף כתמונה</string>
-    <string name="max_selection_limit">מגבלת בחירה מקסימלית</string>
+    <string name="max_selection_limit">מגבלת בחירה מקסימלית: %1$d</string>
     <string name="share_selected">שתף את הנבחרים</string>
     <string name="customize_colors">התאמה אישית של צבעים</string>
     <string name="lyrics_share_layout">פריסה</string>
@@ -191,7 +192,7 @@
     <string name="lyrics_share_background_blur_value">%1$d px</string>
     <string name="lyrics_line_blur">שורות מילים של טשטוש</string>
     <string name="lyrics_share_background_dim">רקע עמום</string>
-    <string name="lyrics_share_background_dim_value">%1$d%</string>
+    <string name="lyrics_share_background_dim_value">%1$d%%</string>
     <string name="lyrics_share_show_cover">הצג עטיפת אלבום</string>
     <string name="lyrics_share_show_cover_desc">כלול את הגרפיקה בכותרת העליונה של התמונה המיוצאת.</string>
     <string name="lyrics_share_style_album_tint">גוון האלבום</string>
@@ -237,12 +238,14 @@
     <plurals name="n_element">
         <item quantity="one">פריט אחד</item>
         <item quantity="two">שני פריטים</item>
-        <item quantity="other">%d פריטים</item>
+        <item quantity="many">%d פריטים</item>
+        
     </plurals>
     <plurals name="n_time">
         <item quantity="one">פעם אחת</item>
         <item quantity="two">פעמיים</item>
-        <item quantity="other">%d פעמים</item>
+        <item quantity="many">%d פעמים</item>
+        
     </plurals>
     <string name="seek_forward_dynamic">+%1$d שניות קדימה</string>
     <string name="seek_backward_dynamic">-%1$d שניות אחורה</string>

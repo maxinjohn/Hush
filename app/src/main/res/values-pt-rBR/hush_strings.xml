@@ -179,7 +179,7 @@
     <string name="share_lyrics">Compartilhar letras</string>
     <string name="share_as_text">Compartilhar como texto</string>
     <string name="share_as_image">Compartilhar como imagem</string>
-    <string name="max_selection_limit">Limite máximo de seleção</string>
+    <string name="max_selection_limit">Limite máximo de seleção: %1$d</string>
     <string name="share_selected">Compartilhar selecionadas</string>
     <string name="customize_colors">Personalizar cores</string>
     <string name="lyrics_share_layout">Layout</string>
@@ -382,7 +382,7 @@
     <string name="empty_album">Álbum vazio</string>
     <string name="empty_album_desc">Este álbum não contém nenhuma música</string>
     <plurals name="seconds">
-        <item quantity="one">1 segundo</item>
+        <item quantity="one">%d segundo</item>
         <item quantity="other">%d segundos</item>
     </plurals>
     <string name="audio_crossfade_title">Crossfade</string>

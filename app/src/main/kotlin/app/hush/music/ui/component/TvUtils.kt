@@ -22,6 +22,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -31,14 +32,15 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun rememberTvDevice(): Boolean {
-    val context = LocalContext.current
-    return remember {
+    val configuration = LocalConfiguration.current
+    val packageManager = LocalContext.current.packageManager
+    return remember(configuration, packageManager) {
         val isTelevisionUiMode =
-            (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+            (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
                 Configuration.UI_MODE_TYPE_TELEVISION
         isTelevisionUiMode ||
-            context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
-            context.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
+            packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+            packageManager.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
     }
 }
 

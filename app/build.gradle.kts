@@ -47,8 +47,8 @@ android {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 161
-        versionName = "13.13.0"
+        versionCode = 162
+        versionName = "13.13.1"
 
         ndk {
             // ABI filters are set per product flavor (arm64, universal, etc.).
@@ -122,10 +122,12 @@ android {
         create("mobile") {
             dimension = "device"
             buildConfigField("String", "DEVICE", "\"mobile\"")
+            buildConfigField("boolean", "WAZE_SUPPORTED", "true")
         }
         create("tv") {
             dimension = "device"
             buildConfigField("String", "DEVICE", "\"tv\"")
+            buildConfigField("boolean", "WAZE_SUPPORTED", "false")
         }
         create("universal") {
             dimension = "abi"
@@ -156,11 +158,14 @@ android {
         }
     }
 
+    // Waze shims are mobile-only: bundle them into the mobile flavor's own
+    // assets dir so TV/other variants never carry the ~1 MB archive.
     sourceSets {
         getByName("mobile") {
-            assets.directories.add("src/mobile/assets")
+            assets.srcDirs("src/mobile/assets")
         }
     }
+
 
     signingConfigs {
         getByName("debug") {
