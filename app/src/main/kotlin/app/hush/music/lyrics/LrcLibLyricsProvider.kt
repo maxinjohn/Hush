@@ -9,7 +9,7 @@ package app.hush.music.lyrics
 
 import android.content.Context
 import app.hush.music.constants.EnableLrcLibKey
-import app.hush.music.lrclib.LrcLib
+import moe.rukamori.archivetune.lrclib.LrcLib
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 

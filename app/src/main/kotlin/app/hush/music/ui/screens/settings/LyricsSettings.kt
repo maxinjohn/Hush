@@ -99,8 +99,8 @@ import app.hush.music.constants.PreferredLyricsProvider
 import app.hush.music.constants.PreloadQueueLyricsEnabledKey
 import app.hush.music.constants.QueueLyricsPreloadCountKey
 import app.hush.music.constants.deserializeLyricsProviderOrder
-import app.hush.music.paxsenix.models.PaxsenixStats
-import app.hush.music.paxsenix.models.ProviderStats
+import moe.rukamori.archivetune.paxsenix.models.PaxsenixStats
+import moe.rukamori.archivetune.paxsenix.models.ProviderStats
 import app.hush.music.ui.component.ActionPromptDialog
 import app.hush.music.ui.component.LyricsProviderEnableState
 import app.hush.music.ui.component.LyricsProviderPriorityDialog

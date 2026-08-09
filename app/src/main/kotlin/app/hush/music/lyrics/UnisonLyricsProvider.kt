@@ -10,7 +10,7 @@ package app.hush.music.lyrics
 import android.content.Context
 import android.util.Log
 import app.hush.music.constants.EnableUnisonLyricsKey
-import app.hush.music.unison.Unison
+import moe.rukamori.archivetune.unison.Unison
 import app.hush.music.utils.GlobalLog
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get

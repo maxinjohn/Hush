@@ -9,7 +9,7 @@ package app.hush.music.lyrics
 
 import android.content.Context
 import app.hush.music.constants.EnablePaxsenixNeteaseLyricsKey
-import app.hush.music.paxsenix.PaxsenixLyrics
+import moe.rukamori.archivetune.paxsenix.PaxsenixLyrics
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 

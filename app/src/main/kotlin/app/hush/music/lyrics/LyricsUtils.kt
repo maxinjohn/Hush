@@ -12,8 +12,8 @@ import android.os.Build
 import android.text.format.DateUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import app.hush.music.betterlyrics.QRCParser
-import app.hush.music.betterlyrics.TTMLParser
+import moe.rukamori.archivetune.betterlyrics.QRCParser
+import moe.rukamori.archivetune.betterlyrics.TTMLParser
 import app.hush.music.db.entities.LyricsEntity
 import java.lang.Character.UnicodeScript
 

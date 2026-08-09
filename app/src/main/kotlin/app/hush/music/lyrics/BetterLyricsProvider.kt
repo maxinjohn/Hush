@@ -9,7 +9,7 @@ package app.hush.music.lyrics
 
 import android.content.Context
 import android.util.Log
-import app.hush.music.betterlyrics.BetterLyrics
+import moe.rukamori.archivetune.betterlyrics.BetterLyrics
 import app.hush.music.constants.EnableBetterLyricsKey
 import app.hush.music.utils.GlobalLog
 import app.hush.music.utils.dataStore

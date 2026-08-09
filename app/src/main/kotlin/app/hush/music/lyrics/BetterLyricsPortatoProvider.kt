@@ -8,7 +8,7 @@
 package app.hush.music.lyrics
 
 import android.content.Context
-import app.hush.music.betterlyrics.BetterLyrics
+import moe.rukamori.archivetune.betterlyrics.BetterLyrics
 import app.hush.music.constants.EnableBetterLyricsPortatoKey
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get

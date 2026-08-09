@@ -9,7 +9,7 @@ package app.hush.music.lyrics
 
 import android.content.Context
 import app.hush.music.constants.EnableSimpMusicLyricsKey
-import app.hush.music.simpmusic.SimpMusicLyrics
+import moe.rukamori.archivetune.simpmusic.SimpMusicLyrics
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 

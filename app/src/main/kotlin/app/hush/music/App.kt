@@ -43,9 +43,9 @@ import app.hush.music.innertube.VersionedOkHttpClient
 import app.hush.music.innertube.YouTube
 import app.hush.music.innertube.models.IpVersion
 import app.hush.music.innertube.models.YouTubeLocale
-import app.hush.music.kugou.KuGou
+import moe.rukamori.archivetune.kugou.KuGou
 import app.hush.music.lastfm.LastFM
-import app.hush.music.paxsenix.PaxsenixLyrics
+import moe.rukamori.archivetune.paxsenix.PaxsenixLyrics
 import app.hush.music.scrobbling.LastFmServiceConfig
 import app.hush.music.storage.StorageFolderKind
 import app.hush.music.storage.StorageLocationRepository

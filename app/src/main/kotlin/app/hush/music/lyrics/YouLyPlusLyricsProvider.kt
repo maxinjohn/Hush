@@ -13,7 +13,7 @@ import app.hush.music.constants.EnableYouLyPlusLyricsKey
 import app.hush.music.utils.GlobalLog
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
-import app.hush.music.youlyplus.YouLyPlus
+import moe.rukamori.archivetune.youlyplus.YouLyPlus
 
 object YouLyPlusLyricsProvider : LyricsProvider {
     init {

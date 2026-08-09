@@ -9,7 +9,7 @@ package app.hush.music.lyrics
 
 import android.content.Context
 import app.hush.music.constants.EnableKugouKey
-import app.hush.music.kugou.KuGou
+import moe.rukamori.archivetune.kugou.KuGou
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 
