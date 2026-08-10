@@ -668,9 +668,15 @@ fun AppearanceSettings(
                         values = PlayerDesignStyle.selectableValues,
                         valueText = {
                             when (it) {
-                                PlayerDesignStyle.V2 -> stringResource(R.string.player_design_v2)
-                                PlayerDesignStyle.V4 -> stringResource(R.string.player_design_v4)
+                                PlayerDesignStyle.V9 -> stringResource(R.string.player_design_v9)
+                                PlayerDesignStyle.V8 -> stringResource(R.string.player_design_v8)
+                                PlayerDesignStyle.V7 -> stringResource(R.string.player_design_v7)
                                 PlayerDesignStyle.V6 -> stringResource(R.string.player_design_v6)
+                                PlayerDesignStyle.V5 -> stringResource(R.string.player_design_v5)
+                                PlayerDesignStyle.V4 -> stringResource(R.string.player_design_v4)
+                                PlayerDesignStyle.V3 -> stringResource(R.string.player_design_v3)
+                                PlayerDesignStyle.V2 -> stringResource(R.string.player_design_v2)
+                                PlayerDesignStyle.V1 -> stringResource(R.string.player_design_v1)
                                 else -> stringResource(R.string.player_design_v6)
                             }
                         },
