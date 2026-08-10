@@ -8,6 +8,7 @@
 package app.hush.music.lyrics
 
 import android.icu.text.Transliterator
+import android.os.Build
 import android.text.format.DateUtils
 import com.atilika.kuromoji.ipadic.Tokenizer
 import kotlinx.coroutines.Dispatchers
@@ -58,9 +59,13 @@ object LyricsUtils {
             UnicodeScript.HANGUL,
             UnicodeScript.DEVANAGARI,
         )
-    private val genericRomanizationTransliterator =
-        ThreadLocal.withInitial {
-            Transliterator.getInstance(GENERIC_ROMANIZATION_TRANSFORM)
+    private val genericRomanizationTransliterator: ThreadLocal<Transliterator>? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ThreadLocal.withInitial {
+                Transliterator.getInstance(GENERIC_ROMANIZATION_TRANSFORM)
+            }
+        } else {
+            null
         }
 
     // Lazy initialized Tokenizer
@@ -1070,7 +1075,11 @@ object LyricsUtils {
 
     private suspend fun romanizeWithIcu(text: String): String =
         withContext(Dispatchers.Default) {
-            genericRomanizationTransliterator.get().transliterate(text)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                genericRomanizationTransliterator?.get()?.transliterate(text) ?: text
+            } else {
+                text
+            }
         }
 
     private fun normalizeRomanizedText(
