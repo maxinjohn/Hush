@@ -383,8 +383,6 @@ dependencies {
     implementation(libs.markwon.linkify)
     implementation(libs.markwon.simple.ext)
 
-    implementation(libs.kuromoji.ipadic)
-
     implementation(libs.coil)
     implementation(libs.coil.gif)
     implementation(libs.coil.network.okhttp)
