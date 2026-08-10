@@ -25,6 +25,8 @@ object GlobalLog {
     private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val logs = _logs.asStateFlow()
 
+    private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+
     fun append(
         level: Int,
         tag: String?,
@@ -40,7 +42,7 @@ object GlobalLog {
     }
 
     fun format(entry: LogEntry): String {
-        val ts = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date(entry.time))
+        val ts = timeFormat.format(Date(entry.time))
         val lvl =
             when (entry.level) {
                 android.util.Log.VERBOSE -> "V"
@@ -56,7 +58,7 @@ object GlobalLog {
 }
 
 /** Timber Tree that forwards logs to GlobalLog */
-class GlobalLogTree : Timber.Tree() {
+class GlobalLogTree : Timber.DebugTree() {
     override fun log(
         priority: Int,
         tag: String?,

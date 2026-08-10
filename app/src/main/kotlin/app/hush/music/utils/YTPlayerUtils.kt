@@ -26,9 +26,7 @@ import app.hush.music.innertube.models.YouTubeClient.Companion.ANDROID_CREATOR
 import app.hush.music.innertube.models.YouTubeClient.Companion.ANDROID_MUSIC
 import app.hush.music.innertube.models.YouTubeClient.Companion.ANDROID_TESTSUITE
 import app.hush.music.innertube.models.YouTubeClient.Companion.ANDROID_UNPLUGGED
-import app.hush.music.innertube.models.YouTubeClient.Companion.ANDROID_VR_1_43_32
-import app.hush.music.innertube.models.YouTubeClient.Companion.ANDROID_VR_1_61_48
-import app.hush.music.innertube.models.YouTubeClient.Companion.ANDROID_VR_NO_AUTH
+import app.hush.music.innertube.models.YouTubeClient.Companion.ANDROID_VR_1_65_10
 import app.hush.music.innertube.models.YouTubeClient.Companion.IOS
 import app.hush.music.innertube.models.YouTubeClient.Companion.IOS_MUSIC
 import app.hush.music.innertube.models.YouTubeClient.Companion.IPADOS
@@ -174,9 +172,7 @@ object YTPlayerUtils {
             MOBILE,
             ANDROID_MUSIC,
             IOS_MUSIC,
-            ANDROID_VR_NO_AUTH,
-            ANDROID_VR_1_61_48,
-            ANDROID_VR_1_43_32,
+            ANDROID_VR_1_65_10,
             ANDROID_CREATOR,
             ANDROID_TESTSUITE,
             ANDROID_UNPLUGGED,
@@ -417,7 +413,7 @@ object YTPlayerUtils {
 
         return when (preferredStreamClient) {
             PlayerStreamClient.ANDROID_VR -> {
-                ANDROID_VR_1_61_48
+                ANDROID_VR_1_65_10
             }
 
             PlayerStreamClient.WEB_REMIX -> {

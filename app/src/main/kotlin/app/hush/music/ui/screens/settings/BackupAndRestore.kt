@@ -96,12 +96,14 @@ import kotlinx.coroutines.launch
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.constants.ShowSpotifyPlaylistsKey
+import app.hush.music.constants.ImportSourcePriorityKey
 import app.hush.music.db.entities.Song
 import app.hush.music.spotify.SpotifyAccountUiState
 import app.hush.music.spotify.SpotifyAccountViewModel
 import app.hush.music.spotify.SpotifyAuth
 import app.hush.music.ui.component.DefaultDialog
 import app.hush.music.ui.component.IconButton
+import app.hush.music.ui.component.ListPreference
 import app.hush.music.ui.component.PreferenceEntry
 import app.hush.music.ui.component.PreferenceGroup
 import app.hush.music.ui.component.PreferenceGroupScope
@@ -158,6 +160,7 @@ fun BackupAndRestore(
     val backupRestoreProgress by viewModel.backupRestoreProgress.collectAsStateWithLifecycle()
     val spotifyState by spotifyAccountViewModel.uiState.collectAsStateWithLifecycle()
     val (showSpotifyPlaylists, onShowSpotifyPlaylistsChange) = rememberPreference(ShowSpotifyPlaylistsKey, false)
+    val (importLocalFirst, onImportLocalFirstChange) = rememberPreference(ImportSourcePriorityKey, false)
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -271,6 +274,26 @@ fun BackupAndRestore(
                         description = stringResource(R.string.import_csv_format),
                         icon = { Icon(painterResource(R.drawable.playlist_add), null) },
                         onClick = { importPlaylistFromCsv.launch(CSV_MIME_TYPES) },
+                    )
+                }
+
+                item {
+                    ListPreference(
+                        title = { Text(stringResource(R.string.import_source_priority_setting_title)) },
+                        description = stringResource(R.string.import_source_priority_setting_desc),
+                        icon = { Icon(painterResource(R.drawable.playlist_import), null) },
+                        selectedValue = importLocalFirst,
+                        values = listOf(true, false),
+                        valueText = { localFirst ->
+                            stringResource(
+                                if (localFirst) {
+                                    R.string.import_source_priority_local_first
+                                } else {
+                                    R.string.import_source_priority_youtube_only
+                                },
+                            )
+                        },
+                        onValueSelected = onImportLocalFirstChange,
                     )
                 }
             }

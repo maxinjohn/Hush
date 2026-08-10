@@ -83,10 +83,12 @@ import app.hush.music.constants.EnableSaavnStreamingKey
 import app.hush.music.constants.PrimaryAudioScraper
 import app.hush.music.constants.PrimaryAudioScraperKey
 import app.hush.music.db.entities.FormatEntity
+import app.hush.music.db.entities.autoRateDisplay
 import app.hush.music.db.entities.containerLabel
 import app.hush.music.db.entities.formattedBitrate
 import app.hush.music.db.entities.formattedFileSize
 import app.hush.music.db.entities.formattedSampleRate
+import app.hush.music.models.ActiveOutputDevice
 import app.hush.music.models.MediaMetadata
 import app.hush.music.ui.component.ActionPromptDialog
 import app.hush.music.ui.component.BottomSheetPageState
@@ -1693,14 +1695,14 @@ fun QueueCollapsedContentV7(
     onShowLyrics: () -> Unit,
     onSleepTimerClick: () -> Unit,
     onDeviceClick: () -> Unit,
-    deviceName: String,
+    device: ActiveOutputDevice,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         PlaybackSourceRow(textColor = textBackgroundColor)
         if (showCodecOnPlayer && currentFormat != null) {
             val container = currentFormat.containerLabel()
-            val bitrate = currentFormat.formattedBitrate()
+            val bitrate = currentFormat.autoRateDisplay()
             val fileSize = currentFormat.formattedFileSize()
 
             CodecInfoRow(
@@ -1824,14 +1826,14 @@ fun QueueCollapsedContentV7(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {
                     Icon(
-                        painter = painterResource(id = R.drawable.bluetooth),
+                        imageVector = device.type.imageVector,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                         tint = textBackgroundColor,
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = deviceName,
+                        text = device.name,
                         style = MaterialTheme.typography.labelMedium,
                         color = textBackgroundColor,
                         maxLines = 1,

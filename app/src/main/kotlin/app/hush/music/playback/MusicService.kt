@@ -39,6 +39,7 @@ import android.media.session.PlaybackState
 import android.net.ConnectivityManager
 import app.hush.music.eq.HushEqualizerService
 import app.hush.music.eq.audio.CustomEqualizerAudioProcessor
+import app.hush.music.playback.AudioOutputResolver
 import android.net.Uri
 import android.os.Binder
 import android.os.Bundle
@@ -213,6 +214,7 @@ import app.hush.music.di.PlayerCache
 import app.hush.music.extensions.SilentHandler
 import app.hush.music.extensions.collect
 import app.hush.music.extensions.collectLatest
+import app.hush.music.extensions.ExtraIsMusicVideo
 import app.hush.music.extensions.currentMetadata
 import app.hush.music.models.artistsDisplayText
 import app.hush.music.extensions.directorySizeBytes
@@ -360,6 +362,8 @@ class MusicService :
     private var lastAudioOutputDeviceSignature: String? = null
     private var lastAudioRouteRecoveryRealtimeMs = 0L
 
+    private lateinit var audioOutputResolver: AudioOutputResolver
+
     private val audioDeviceCallback =
         object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
@@ -494,6 +498,8 @@ var originalQueueSize: Int = 0
     @Volatile
     private var suppressAutoPlayback = false
     @Volatile
+    private var hideMusicVideos = false
+    @Volatile
     private var lastLoginRecoveryPrompt: Pair<String, Long>? = null
     private val playbackStreamRecoveryTracker = PlaybackStreamRecoveryTracker()
     private var nextHistorySessionToken = 0L
@@ -511,6 +517,9 @@ var originalQueueSize: Int = 0
 
     val currentMediaMetadata = MutableStateFlow<app.hush.music.models.MediaMetadata?>(null)
     val activePlaybackClientLabel = MutableStateFlow<String?>(null)
+    val activeAudioDevice get() = audioOutputResolver.activeAudioDevice
+
+    fun refreshActiveDevice() = audioOutputResolver.refresh()
     val queueRestoreCompleted = MutableStateFlow(false)
     val infiniteQueueLoading = MutableStateFlow(false)
     private val playerInitialized = MutableStateFlow(false)
@@ -1055,9 +1064,11 @@ var originalQueueSize: Int = 0
                 ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Hush:Playback")
                 ?.also { it.setReferenceCounted(false) }
         setupAudioFocusRequest()
+        audioOutputResolver = AudioOutputResolver(audioManager)
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, android.os.Handler(mainLooper))
         audioDeviceCallbackRegistered = true
         lastAudioOutputDeviceSignature = currentAudioOutputDeviceSignature()
+        audioOutputResolver.refresh()
 
         mediaLibrarySessionCallback.apply {
             toggleLike = ::toggleLike
@@ -1439,6 +1450,16 @@ var originalQueueSize: Int = 0
                 YTPlayerUtils.disabledStreamClients = disabledClients
             }
 
+        dataStore.data
+            .map { prefs -> prefs[HideVideoKey] ?: false }
+            .distinctUntilChanged()
+            .collect(scope) { shouldHideMusicVideos ->
+                hideMusicVideos = shouldHideMusicVideos
+                if (shouldHideMusicVideos) {
+                    removeMusicVideoItems()
+                }
+            }
+
         scope.launch(Dispatchers.IO) {
             runCatching {
                 // Fetch all restore-related prefs in a single blocking call to avoid
@@ -1653,6 +1674,7 @@ var originalQueueSize: Int = 0
         val outputSignature = currentAudioOutputDeviceSignature()
         if (outputSignature == lastAudioOutputDeviceSignature) return
         lastAudioOutputDeviceSignature = outputSignature
+        audioOutputResolver.refresh()
         cancelCrossfade(resetVolume = true, resetPauseAtEnd = true)
         player.setAudioAttributes(playbackAudioAttributes(), false)
         audioRouteRecoveryJob?.cancel()
@@ -3753,6 +3775,33 @@ var originalQueueSize: Int = 0
 
     fun clearAutomix() {
         autoAddedMediaIds.clear()
+    }
+
+    private fun removeMusicVideoItems() {
+        if (player.mediaItemCount == 0) return
+
+        var blockedRangeEnd = C.INDEX_UNSET
+        for (index in player.mediaItemCount - 1 downTo 0) {
+            val item = player.getMediaItemAt(index)
+            val isMusicVideo = item.mediaMetadata.extras?.getBoolean(ExtraIsMusicVideo, false) == true
+            if (isMusicVideo) {
+                autoAddedMediaIds.remove(item.mediaId)
+                if (blockedRangeEnd == C.INDEX_UNSET) {
+                    blockedRangeEnd = index + 1
+                }
+            } else if (blockedRangeEnd != C.INDEX_UNSET) {
+                player.removeMediaItems(index + 1, blockedRangeEnd)
+                blockedRangeEnd = C.INDEX_UNSET
+            }
+        }
+        if (blockedRangeEnd != C.INDEX_UNSET) {
+            player.removeMediaItems(0, blockedRangeEnd)
+        }
+        if (player.mediaItemCount == 0) {
+            infiniteQueueLoading.value = false
+            infiniteQueueGeneration.incrementAndGet()
+            currentQueue = EmptyQueue
+        }
     }
 
     fun onInfiniteQueueDisabled() {

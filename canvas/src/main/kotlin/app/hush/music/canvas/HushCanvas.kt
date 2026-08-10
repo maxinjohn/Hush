@@ -21,8 +21,10 @@ import io.ktor.client.request.parameter
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import app.hush.music.canvas.models.CanvasArtwork
+import app.hush.music.canvas.models.matchesSongIdentity
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
@@ -97,43 +99,59 @@ object HushCanvas {
         song: String,
         artist: String,
         storefront: String = "us",
+        forceRefresh: Boolean = false,
     ): CanvasArtwork? {
         val key = cacheKey("sa", song, artist, storefront)
-        cache[key]?.let { entry ->
-            if (entry.expiresAtMs > System.currentTimeMillis()) return entry.value
+        if (forceRefresh) {
             cache.remove(key)
+        } else {
+            cache[key]?.let { entry ->
+                if (entry.expiresAtMs > System.currentTimeMillis()) return entry.value
+                cache.remove(key)
+            }
         }
 
         val response =
-            runCatching {
+            try {
                 client.get {
                     parameter("s", song)
                     parameter("a", artist)
                     parameter("storefront", storefront)
+                    if (forceRefresh) header(HttpHeaders.CacheControl, "no-cache")
                 }
-            }.getOrNull()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                null
+            }
 
         val primary =
             when (response?.status) {
                 HttpStatusCode.OK -> runCatching { response.body<CanvasArtwork>() }.getOrNull()
                 else -> null
-            }
+            }?.takeIf { artwork -> artwork.matchesSongIdentity(song, artist) }
 
         val value =
             primary ?: run {
                 val fallbackResponse =
-                    runCatching {
+                    try {
                         fallbackClient.get {
                             parameter("s", song)
                             parameter("a", artist)
                             parameter("storefront", storefront)
+                            if (forceRefresh) header(HttpHeaders.CacheControl, "no-cache")
                         }
-                    }.getOrNull()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        null
+                    }
                 when (fallbackResponse?.status) {
                     HttpStatusCode.OK -> runCatching { fallbackResponse.body<CanvasArtwork>() }.getOrNull()
                     else -> null
-                }
-            } ?: AppleMusicProvider.getBySongArtist(song, artist, null, storefront)
+                }?.takeIf { artwork -> artwork.matchesSongIdentity(song, artist) }
+            } ?: AppleMusicProvider.getBySongArtist(song, artist, null, storefront, forceRefresh)
+                ?.takeIf { artwork -> artwork.matchesSongIdentity(song, artist) }
 
         cache[key] =
             CacheEntry(

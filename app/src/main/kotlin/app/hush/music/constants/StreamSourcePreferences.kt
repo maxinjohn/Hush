@@ -53,7 +53,7 @@ object StreamSourcePreferences {
     /** Collapse versioned client names into the families shown in Stream sources settings. */
     fun normalizeClientFamily(clientName: String): String =
         when {
-            clientName == "ANDROID_VR_NO_AUTH" || clientName.startsWith("ANDROID_VR") -> "ANDROID_VR"
+            clientName.startsWith("ANDROID_VR") -> "ANDROID_VR"
             clientName.startsWith("TVHTML5") -> "TVHTML5"
             clientName == "IOS_MUSIC" || clientName == "IPADOS" -> "IOS"
             else -> clientName

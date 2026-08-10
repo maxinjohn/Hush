@@ -52,3 +52,31 @@ fun FormatEntity.formattedSampleRate(): String? =
     }
 
 fun FormatEntity.formattedFileSize(): String = if (contentLength > 0) "${(contentLength / 1024.0 / 1024.0).roundToInt()} MB" else ""
+
+enum class RatePriority {
+    BITRATE_FIRST,
+    SAMPLE_RATE_FIRST,
+}
+
+fun FormatEntity.autoRateDisplay(priority: RatePriority = RatePriority.BITRATE_FIRST): String {
+    val hasBitrate = bitrate > 0
+    val hasSampleRate = sampleRate != null && sampleRate > 0
+
+    return when (priority) {
+        RatePriority.BITRATE_FIRST -> {
+            when {
+                hasBitrate -> formattedBitrate()
+                hasSampleRate -> formattedSampleRate() ?: "Unknown"
+                else -> "Unknown"
+            }
+        }
+
+        RatePriority.SAMPLE_RATE_FIRST -> {
+            when {
+                hasSampleRate -> formattedSampleRate() ?: "Unknown"
+                hasBitrate -> formattedBitrate()
+                else -> "Unknown"
+            }
+        }
+    }
+}

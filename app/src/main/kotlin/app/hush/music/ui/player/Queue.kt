@@ -12,6 +12,7 @@ package app.hush.music.ui.player
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.Configuration
+import android.view.ViewTreeObserver
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -64,6 +65,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.carousel.CarouselDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -86,6 +88,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.TextFieldValue
@@ -129,6 +132,7 @@ import app.hush.music.ui.menu.AddToPlaylistDialog
 import app.hush.music.ui.menu.PlayerMenu
 import app.hush.music.ui.utils.ShowMediaInfo
 import app.hush.music.utils.makeTimeString
+import app.hush.music.utils.oem.SystemMediaControlResolver
 import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberPreference
 import sh.calvin.reorderable.ReorderableItem
@@ -690,18 +694,21 @@ fun Queue(
                             )
                         }
                     } else {
-                        val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager }
-                        val activeDevice =
-                            remember(audioManager) {
-                                audioManager
-                                    .getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
-                                    .firstOrNull {
-                                        it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                                            it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                                            it.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET
-                                    }?.productName
-                                    ?.toString() ?: "Speaker"
+                        val audioDevice by playerConnection.service.activeAudioDevice.collectAsStateWithLifecycle()
+
+                        val view = LocalView.current
+                        DisposableEffect(view) {
+                            val listener =
+                                ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
+                                    if (hasFocus) {
+                                        playerConnection.service.refreshActiveDevice()
+                                    }
+                                }
+                            view.viewTreeObserver.addOnWindowFocusChangeListener(listener)
+                            onDispose {
+                                view.viewTreeObserver.removeOnWindowFocusChangeListener(listener)
                             }
+                        }
                         QueueCollapsedContentV7(
                             showCodecOnPlayer = queueShowCodecOnPlayer,
                             currentFormat = currentFormat,
@@ -718,11 +725,9 @@ fun Queue(
                                 }
                             },
                             onDeviceClick = {
-                                val intent = android.content.Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
-                                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                context.startActivity(intent)
+                                SystemMediaControlResolver.openMediaOutputSwitcher(context)
                             },
-                            deviceName = activeDevice,
+                            device = audioDevice,
                         )
                     }
                 }

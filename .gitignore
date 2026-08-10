@@ -32,7 +32,6 @@ proguard/
 # Spurious build copies
 app/build 2/
 waze-shim/src/amazon/
-waze-shim/src/deezer/
 waze-shim/src/tidal/
 
 # Android Studio Navigation editor temp files

@@ -644,7 +644,7 @@ fun TopPlaylistScreen(
                                     },
                                     globalDownloadState = globalDownloadState,
                                     onGlobalDownloadClick = {
-                                        navController.navigate("downloads")
+                                        navController.navigate("downloads?tab=progress")
                                     },
                                 )
 

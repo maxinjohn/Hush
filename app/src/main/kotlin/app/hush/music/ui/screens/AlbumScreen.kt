@@ -589,7 +589,7 @@ fun AlbumScreen(
                             },
                             globalDownloadState = globalDownloadState,
                             onGlobalDownloadClick = {
-                                navController.navigate("downloads")
+                                navController.navigate("downloads?tab=progress")
                             },
                             onMoreClick = {
                                 menuState.show {

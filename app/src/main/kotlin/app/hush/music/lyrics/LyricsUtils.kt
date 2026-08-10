@@ -8,8 +8,8 @@
 package app.hush.music.lyrics
 
 import android.icu.text.Transliterator
-import android.os.Build
 import android.text.format.DateUtils
+import com.atilika.kuromoji.ipadic.Tokenizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.betterlyrics.QRCParser
@@ -58,14 +58,15 @@ object LyricsUtils {
             UnicodeScript.HANGUL,
             UnicodeScript.DEVANAGARI,
         )
-    private val genericRomanizationTransliterator: ThreadLocal<Transliterator>? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ThreadLocal.withInitial {
-                Transliterator.getInstance(GENERIC_ROMANIZATION_TRANSFORM)
-            }
-        } else {
-            null
+    private val genericRomanizationTransliterator =
+        ThreadLocal.withInitial {
+            Transliterator.getInstance(GENERIC_ROMANIZATION_TRANSFORM)
         }
+
+    // Lazy initialized Tokenizer
+    private val kuromojiTokenizer: Tokenizer by lazy {
+        Tokenizer()
+    }
 
     private val KANA_ROMAJI_MAP: Map<String, String> =
         mapOf(
@@ -499,9 +500,6 @@ object LyricsUtils {
             }
 
         val trimmed = normalized.trim { it.isWhitespace() || it == NBSP }
-        if (trimmed.startsWith("{") && trimmed.contains("\"provider\"")) {
-            return ""
-        }
         return trimmed
     }
 
@@ -750,16 +748,30 @@ object LyricsUtils {
      * Expected impact: Faster tokenization due to reused Tokenizer instance and faster
      * per-token romanization.
      */
-        suspend fun romanizeJapanese(text: String): String =
+    suspend fun romanizeJapanese(text: String): String =
         withContext(Dispatchers.Default) {
-            // Convert Hiragana to Katakana (offset 0x60), then use the katakanaToRomaji map
-            val katakanaText = text.map { ch ->
-                when {
-                    ch in '぀'..'ゟ' -> (ch.code + 0x60).toChar()
-                    else -> ch
+            // Use the lazily initialized tokenizer
+            val tokens = kuromojiTokenizer.tokenize(text)
+
+            val romanizedTokens =
+                tokens.mapIndexed { index, token ->
+                    val currentReading =
+                        if (token.reading.isNullOrEmpty() || token.reading == "*") {
+                            token.surface
+                        } else {
+                            token.reading
+                        }
+
+                    // Pass the next token's reading for sokuon handling if applicable
+                    val nextTokenReading =
+                        if (index + 1 < tokens.size) {
+                            tokens[index + 1].reading?.takeIf { it.isNotEmpty() && it != "*" } ?: tokens[index + 1].surface
+                        } else {
+                            null
+                        }
+                    katakanaToRomaji(currentReading, nextTokenReading)
                 }
-            }.joinToString("")
-            katakanaToRomaji(katakanaText)
+            romanizedTokens.joinToString(" ")
         }
 
     /**
@@ -1058,11 +1070,7 @@ object LyricsUtils {
 
     private suspend fun romanizeWithIcu(text: String): String =
         withContext(Dispatchers.Default) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                genericRomanizationTransliterator?.get()?.transliterate(text) ?: text
-            } else {
-                text
-            }
+            genericRomanizationTransliterator.get().transliterate(text)
         }
 
     private fun normalizeRomanizedText(

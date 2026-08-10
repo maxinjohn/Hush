@@ -47,8 +47,8 @@ android {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 162
-        versionName = "13.13.1"
+        versionCode = 163
+        versionName = "13.13.2"
 
         ndk {
             // ABI filters are set per product flavor (arm64, universal, etc.).
@@ -382,6 +382,8 @@ dependencies {
     implementation(libs.markwon.image)
     implementation(libs.markwon.linkify)
     implementation(libs.markwon.simple.ext)
+
+    implementation(libs.kuromoji.ipadic)
 
     implementation(libs.coil)
     implementation(libs.coil.gif)

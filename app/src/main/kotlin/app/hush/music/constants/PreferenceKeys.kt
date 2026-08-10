@@ -196,6 +196,7 @@ val LocalSongsIncludedFoldersKey = stringSetPreferencesKey("local_songs_included
 val LocalSongsExcludedFoldersKey = stringSetPreferencesKey("local_songs_excluded_folders")
 val LocalSongsSortTypeKey = stringPreferencesKey("local_songs_sort_type")
 val LocalSongsSortDescendingKey = booleanPreferencesKey("local_songs_sort_descending")
+val ImportSourcePriorityKey = booleanPreferencesKey("import_local_first")
 
 val TogetherDisplayNameKey = stringPreferencesKey("together_display_name")
 val TogetherClientIdKey = stringPreferencesKey("together_client_id")
