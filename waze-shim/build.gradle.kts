@@ -49,8 +49,8 @@ android {
         applicationId = "com.spotify.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 164
-        versionName = "13.13.2"
+        versionCode = 165
+        versionName = "13.13.3"
     }
 
     flavorDimensions += "bridge"
@@ -61,7 +61,7 @@ android {
         }
         create("youtubeMusic") {
             dimension = "bridge"
-            applicationId = "com.google.android.youtubeMusic"
+            applicationId = "com.google.android.apps.youtube.music"
         }
         create("deezer") {
             dimension = "bridge"
