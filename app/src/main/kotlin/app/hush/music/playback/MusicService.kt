@@ -1711,16 +1711,10 @@ var originalQueueSize: Int = 0
         }
 
         player.playWhenReady = false
-        player.prepare()
         player.seekTo(mediaItemIndex, playbackPosition)
         delay(AUDIO_ROUTE_RECOVERY_RESUME_DELAY_MS)
 
-        if (
-            shouldResumePlayback &&
-            player.currentMediaItem != null &&
-            player.playbackState != Player.STATE_ENDED &&
-            requestAudioFocus()
-        ) {
+        if (shouldResumePlayback && requestAudioFocus()) {
             player.playWhenReady = true
         }
     }
