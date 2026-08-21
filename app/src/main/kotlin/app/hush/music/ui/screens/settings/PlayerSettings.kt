@@ -301,6 +301,14 @@ fun PlayerSettings(
                     onClick = { navController.navigate("settings/player/stream_sources") },
                 )
             }
+            item {
+                PreferenceEntry(
+                    title = { Text("Audio Sources") },
+                    description = "YouTube & SpotiFLAC source priority",
+                    icon = { Icon(painterResource(R.drawable.integration), null) },
+                    onClick = { navController.navigate("settings/player/audio_sources") },
+                )
+            }
         }
 
         PreferenceGroup(title = stringResource(R.string.playback_settings)) {

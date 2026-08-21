@@ -109,7 +109,12 @@ fun MediaMetadata.toMediaItem() =
                 .setAlbumTitle(album?.title)
                 .setIsPlayable(true)
                 .setMediaType(MEDIA_TYPE_MUSIC)
-                .setExtras(Bundle().apply { putBoolean(ExtraIsMusicVideo, false) })
+                .setExtras(Bundle().apply {
+                    putBoolean(ExtraIsMusicVideo, false)
+                    if (!spotifyTrackId.isNullOrBlank()) {
+                        putString("spotify_track_id", spotifyTrackId)
+                    }
+                })
                 .build(),
         ).build()
 

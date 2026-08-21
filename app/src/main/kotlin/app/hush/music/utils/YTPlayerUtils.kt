@@ -12,7 +12,6 @@ import android.net.ConnectivityManager
 import androidx.media3.common.PlaybackException
 import io.ktor.client.plugins.ClientRequestException
 import io.ktor.http.HttpStatusCode
-import app.hush.music.playback.SaavnPlaybackResolver
 import app.hush.music.constants.AudioQuality
 import app.hush.music.constants.PlayerStreamClient
 import app.hush.music.constants.StreamSourcePreferences
@@ -482,10 +481,9 @@ object YTPlayerUtils {
         val streamExpiresInSeconds: Int,
         val authFingerprint: String,
         val playbackClientLabel: String? = null,
-        /** Audio bytes come from JioSaavn; YT metadata/history/likes still use [videoDetails]. */
-        val isSaavnStream: Boolean = false,
         /** Alternate CDN hosts for the same stream, used for transparent CDN failover. */
         val alternateCdnUrls: List<String> = emptyList(),
+        val isYouTubeStream: Boolean = true,
     )
 
     /**
@@ -493,7 +491,7 @@ object YTPlayerUtils {
      * Metadata like audioConfig and videoDetails are from [MAIN_CLIENT].
      * Format & stream can be from [MAIN_CLIENT] or [STREAM_FALLBACK_CLIENTS].
      */
-    suspend fun playerResponseForPlayback(
+suspend fun playerResponseForPlayback(
         videoId: String,
         playlistId: String? = null,
         audioQuality: AudioQuality,
@@ -503,43 +501,10 @@ object YTPlayerUtils {
         networkMetered: Boolean? = null,
         fastResolution: Boolean = true,
         context: Context? = null,
-        trySaavnFirst: Boolean = false,
-        saavnHints: SaavnPlaybackResolver.PlaybackHints? = null,
         parallelFetch: Boolean = false,
     ): Result<PlaybackData> =
         runCatching {
-            if (parallelFetch && context != null) {
-                return@runCatching resolveInParallel(
-                    context = context,
-                    videoId = videoId,
-                    playlistId = playlistId,
-                    audioQuality = audioQuality,
-                    connectivityManager = connectivityManager,
-                    preferredStreamClient = preferredStreamClient,
-                    networkMetered = networkMetered,
-                    fastResolution = fastResolution,
-                    saavnHints = saavnHints,
-                    trySaavnFirst = trySaavnFirst,
-                )
-            }
-
             if (context != null) {
-                if (trySaavnFirst) {
-                    withTimeoutOrNull(8_000L) {
-                        SaavnPlaybackResolver.tryResolve(
-                            context = context,
-                            videoId = videoId,
-                            playlistId = playlistId,
-                            hints = saavnHints,
-                            force = false,
-                        )
-                    }?.let {
-                        Timber.tag(logTag).i("Using JioSaavn stream for %s", videoId)
-                        return@runCatching it
-                    }
-                    Timber.tag(logTag).d("JioSaavn did not match %s — falling back to YouTube", videoId)
-                }
-
                 try {
                     val ytResult = playerResponseYouTubeOnly(
                         videoId = videoId,
@@ -552,21 +517,6 @@ object YTPlayerUtils {
                     )
                     return@runCatching ytResult
                 } catch (e: Exception) {
-                    if (!trySaavnFirst) {
-                        Timber.tag(logTag).d("YouTube failed for %s — falling back to JioSaavn", videoId)
-                        withTimeoutOrNull(8_000L) {
-                            SaavnPlaybackResolver.tryResolve(
-                                context = context,
-                                videoId = videoId,
-                                playlistId = playlistId,
-                                hints = saavnHints,
-                                force = false,
-                            )
-                        }?.let {
-                            Timber.tag(logTag).i("Using JioSaavn stream (fallback) for %s", videoId)
-                            return@runCatching it
-                        }
-                    }
                     throw e
                 }
             }
@@ -582,123 +532,6 @@ object YTPlayerUtils {
             )
         }
 
-    private suspend fun resolveInParallel(
-        context: Context,
-        videoId: String,
-        playlistId: String?,
-        audioQuality: AudioQuality,
-        connectivityManager: ConnectivityManager,
-        preferredStreamClient: PlayerStreamClient,
-        networkMetered: Boolean?,
-        fastResolution: Boolean,
-        saavnHints: SaavnPlaybackResolver.PlaybackHints?,
-        trySaavnFirst: Boolean,
-    ): PlaybackData = coroutineScope {
-        val saavnError = AtomicReference<Throwable?>()
-        val ytError = AtomicReference<Throwable?>()
-
-        val saavnDeferred = async {
-            try {
-                withTimeoutOrNull(10_000L) {
-                    SaavnPlaybackResolver.tryResolve(
-                        context = context,
-                        videoId = videoId,
-                        playlistId = playlistId,
-                        hints = saavnHints,
-                        force = true,
-                    )
-                }
-            } catch (e: Exception) {
-                saavnError.set(e)
-                null
-            }
-        }
-        val ytDeferred = async {
-            try {
-                withTimeoutOrNull(15_000L) {
-                    playerResponseYouTubeOnly(
-                        videoId = videoId,
-                        playlistId = playlistId,
-                        audioQuality = audioQuality,
-                        connectivityManager = connectivityManager,
-                        preferredStreamClient = preferredStreamClient,
-                        networkMetered = networkMetered,
-                        fastResolution = fastResolution,
-                    )
-                }
-            } catch (e: Exception) {
-                ytError.set(e)
-                null
-            }
-        }
-
-        var saavnResult: PlaybackData? = null
-        var ytResult: PlaybackData? = null
-
-        select<Unit> {
-            saavnDeferred.onAwait { result ->
-                saavnResult = result
-                Unit
-            }
-            ytDeferred.onAwait { result ->
-                ytResult = result
-                Unit
-            }
-        }
-
-        fun fail(): Nothing {
-            val reasons = buildList {
-                add("YT: ${ytError.get()?.message ?: "timed out / no match"}")
-                add("Saavn: ${saavnError.get()?.message ?: "timed out / no match"}")
-            }
-            error("Both sources failed for $videoId — ${reasons.joinToString(" | ")}")
-        }
-
-        if (trySaavnFirst) {
-            if (saavnResult != null) {
-                ytDeferred.cancel()
-                Timber.tag(logTag).i("Parallel fetch: JioSaavn (primary) for %s", videoId)
-                saavnResult!!
-            } else if (ytResult != null) {
-                val delayedSaavn = withTimeoutOrNull(1_500L) { saavnDeferred.await() }
-                if (delayedSaavn != null) {
-                    Timber.tag(logTag).i("Parallel fetch: JioSaavn (primary, arrived late) for %s", videoId)
-                    delayedSaavn
-                } else {
-                    Timber.tag(logTag).d("Parallel fetch: YouTube (Saavn too slow) for %s", videoId)
-                    ytResult!!
-                }
-            } else {
-                Timber.tag(logTag).d("Parallel fetch: JioSaavn no match — waiting for YouTube for %s", videoId)
-                ytDeferred.await() ?: fail()
-            }
-        } else {
-            if (ytResult != null) {
-                saavnDeferred.cancel()
-                Timber.tag(logTag).i("Parallel fetch: YouTube (primary) for %s", videoId)
-                ytResult!!
-            } else if (saavnResult != null) {
-                val delayedYt = withTimeoutOrNull(2_500L) { ytDeferred.await() }
-                if (delayedYt != null) {
-                    Timber.tag(logTag).i("Parallel fetch: YouTube (primary, arrived late) for %s", videoId)
-                    delayedYt
-                } else {
-                    Timber.tag(logTag).d("Parallel fetch: Saavn (YouTube too slow) for %s", videoId)
-                    saavnResult!!
-                }
-            } else {
-                val yt = ytDeferred.await()
-                if (yt != null) {
-                    saavnDeferred.cancel()
-                    Timber.tag(logTag).i("Parallel fetch: YouTube (primary) for %s", videoId)
-                    yt
-                } else {
-                    Timber.tag(logTag).d("Parallel fetch: YouTube failed — falling back to Saavn for %s", videoId)
-                    saavnDeferred.await() ?: fail()
-                }
-            }
-        }
-    }
 
     private suspend fun playerResponseYouTubeOnly(
         videoId: String,
@@ -766,13 +599,9 @@ object YTPlayerUtils {
         audioQuality: AudioQuality,
         connectivityManager: ConnectivityManager,
         networkMetered: Boolean? = null,
-        context: Context? = null,
     ): Result<PlaybackData> =
         runCatching {
             Timber.tag(logTag).i("Fetching download response for videoId: $videoId, playlistId: $playlistId")
-            if (context != null) {
-                SaavnPlaybackResolver.tryResolve(context, videoId, playlistId)?.let { return@runCatching it }
-            }
             var lastError: Throwable? = null
 
             for (preferredStreamClient in downloadPreferredStreamClientAttempts) {
@@ -784,8 +613,6 @@ object YTPlayerUtils {
                         connectivityManager = connectivityManager,
                         preferredStreamClient = preferredStreamClient,
                         networkMetered = networkMetered,
-                        context = context,
-                        trySaavnFirst = false,
                     )
 
                 if (attemptResult.isSuccess) return@runCatching attemptResult.getOrThrow()

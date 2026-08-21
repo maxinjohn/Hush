@@ -255,24 +255,19 @@ private fun NerdStatsSection(playerConnection: app.hush.music.playback.PlayerCon
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 val sourceLabel = when {
-                    playbackSourceLabel?.contains("JioSaavn", ignoreCase = true) == true -> "JioSaavn"
                     playbackSourceLabel?.contains("Hi-Res", ignoreCase = true) == true -> playbackSourceLabel ?: "Hi-Res"
+                    playbackSourceLabel?.contains("SpotiFLAC", ignoreCase = true) == true -> playbackSourceLabel ?: "SpotiFLAC"
                     else -> "YouTube"
                 }
-                val isSaavn = playbackSourceLabel?.contains("JioSaavn", ignoreCase = true) == true
                 NerdStatChip(
                     icon = R.drawable.graphic_eq,
                     label = stringResource(R.string.player_info_source),
                     value = sourceLabel,
                     modifier = Modifier.weight(1f),
-                    valueColor = if (isSaavn) Color(0xFF43B581) else MaterialTheme.colorScheme.primary,
+                    valueColor = MaterialTheme.colorScheme.primary,
                 )
 
                 val formatLabel = when {
-                    playbackSourceLabel?.contains("JioSaavn", ignoreCase = true) == true -> {
-                        val quality = currentFormat?.bitrate?.let { "${it / 1000} kbps" } ?: "AAC"
-                        quality
-                    }
                     currentFormat?.mimeType?.substringAfter("/")?.uppercase()?.startsWith("MP") == true -> "AAC"
                     else -> currentFormat?.mimeType?.substringAfter("/")?.uppercase() ?: "N/A"
                 }

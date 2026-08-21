@@ -42,6 +42,8 @@ import app.hush.music.eq.audio.CustomEqualizerAudioProcessor
 import app.hush.music.playback.AudioOutputResolver
 import android.net.Uri
 import android.os.Binder
+import android.content.ContentValues
+import android.provider.MediaStore
 import android.os.Bundle
 import android.os.Build
 import android.os.Handler
@@ -149,10 +151,11 @@ import app.hush.music.constants.CrossfadeDurationKey
 import app.hush.music.constants.CrossfadeEnabledKey
 import app.hush.music.constants.CrossfadeGaplessKey
 import app.hush.music.constants.PrefetchCountKey
+import app.hush.music.constants.UrlCacheRefreshIntervalKey
 import app.hush.music.constants.DeviceMutePlaybackRecoveryVolumeKey
 import app.hush.music.constants.EnableLastFMScrobblingKey
-import app.hush.music.constants.EnableSaavnStreamingKey
 import app.hush.music.constants.ParallelSourceFetchKey
+import app.hush.music.constants.PrimaryAudioScraper
 import app.hush.music.constants.PrimaryAudioScraperKey
 import app.hush.music.constants.EqualizerBandLevelsMbKey
 import app.hush.music.constants.EqualizerBassBoostEnabledKey
@@ -195,6 +198,7 @@ import app.hush.music.constants.ContentLanguageKey
 import app.hush.music.constants.SkipSilenceKey
 import app.hush.music.constants.SmartTrimmerKey
 import app.hush.music.constants.StreamSourcePreferences
+import app.hush.music.constants.SpotiFLACQualityKey
 import app.hush.music.constants.StopMusicOnTaskClearKey
 import app.hush.music.constants.TogetherClientIdKey
 import app.hush.music.constants.WakelockKey
@@ -243,7 +247,9 @@ import app.hush.music.lyrics.LyricsUtils.displayLyricsText
 import app.hush.music.moriextractor.HushExtractorException
 import app.hush.music.moriextractor.ExtractorAudioQuality
 import app.hush.music.moriextractor.StreamingExtractionManager
+import app.hush.music.models.CachedUrlEntry
 import app.hush.music.models.MediaMetadata
+import app.hush.music.models.PersistPlaybackUrlCache
 import app.hush.music.models.PersistPlayerState
 import app.hush.music.models.PersistQueue
 import app.hush.music.models.QueueData
@@ -332,6 +338,15 @@ class MusicService :
 
     @Inject
     internal lateinit var loadWidgetInsightsUseCase: LoadWidgetInsightsUseCase
+
+    @Inject
+    lateinit var spotiflacClient: app.hush.music.spotiflac.SpotiFLACClient
+
+    @Inject
+    lateinit var extensionRepoManager: app.hush.music.spotiflac.ExtensionRepositoryManager
+
+    @Inject
+    lateinit var spotiflacSessionManager: app.hush.music.spotiflac.SpotiFLACSessionManager
 
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -1101,6 +1116,9 @@ var originalQueueSize: Int = 0
         updateNotification()
         player.repeatMode = REPEAT_MODE_OFF
 
+        loadPersistentUrlCache()
+        startUrlCacheRefreshJob()
+
         if (app.hush.music.BuildConfig.WAZE_SUPPORTED) {
             wazeCommandReceiver.attachService(this)
             val wazeFilter = IntentFilter("app.hush.music.WAZE_COMMAND")
@@ -1270,23 +1288,72 @@ var originalQueueSize: Int = 0
             }
 
         dataStore.data
-            .map { it[EnableSaavnStreamingKey] ?: false }
+            .map { it[PrimaryAudioScraperKey] }
             .distinctUntilChanged()
-            .collectLatest(scope) { enabled ->
-                val wasEnabled = saavnStreamingEnabled
-                saavnStreamingEnabled = enabled
-                if (enabled && !wasEnabled) {
-                    clearSaavnIncompatiblePlaybackCache()
+            .collectLatest(scope) { scraper ->
+                val isYouTube = scraper == PrimaryAudioScraper.YOUTUBE.name
+                youtubeStreamingEnabled = isYouTube
+                if (isYouTube && !youtubeStreamingEnabled) {
+                    clearIncompatiblePlaybackCache()
                 }
             }
 
         dataStore.data
-            .map { it[PrimaryAudioScraperKey] ?: "" }
+            .map { it[PrimaryAudioScraperKey] }
             .distinctUntilChanged()
             .collectLatest(scope) { scraper ->
-                clearSaavnIncompatiblePlaybackCache()
-                playbackUrlCache.clear()
+                val isYouTube = scraper == PrimaryAudioScraper.YOUTUBE.name
+                if (isYouTube) {
+                    clearIncompatiblePlaybackCache()
+                    playbackUrlCache.clear()
+                }
             }
+
+        dataStore.data
+            .map { it[app.hush.music.constants.SpotiFLACEnabledKey] ?: false }
+            .distinctUntilChanged()
+            .collectLatest(scope) { enabled ->
+                spotiflacEnabled = enabled
+                if (!enabled) {
+                    clearIncompatiblePlaybackCache()
+                } else if (spotiflacSessionManager.currentSession == null) {
+                    scope.launch(Dispatchers.IO) {
+                        spotiflacSessionManager.bootstrap()
+                    }
+                }
+            }
+
+        dataStore.data
+            .map { it[app.hush.music.constants.SpotiFLACDevGateKey] ?: false }
+            .distinctUntilChanged()
+            .collectLatest(scope) { gate ->
+                spotiflacDevGate = gate
+            }
+
+        dataStore.data
+            .map { it[app.hush.music.constants.DevModeKey] ?: false }
+            .distinctUntilChanged()
+            .collectLatest(scope) { dev ->
+                devMode = dev
+            }
+
+        dataStore.data
+            .map { it[app.hush.music.constants.SourcePriorityKey] ?: "SPOTIFLAC,YOUTUBE" }
+            .distinctUntilChanged()
+            .collectLatest(scope) { priority ->
+                sourcePriorityList = priority.split(",").filter { it.isNotBlank() }
+            }
+
+        extensionRepoManager.initialize(dataStore)
+        scope.launch(Dispatchers.IO) {
+            extensionRepoManager.syncRegistries()
+        }
+
+        if (spotiflacEnabled) {
+            scope.launch(Dispatchers.IO) {
+                spotiflacSessionManager.bootstrap()
+            }
+        }
 
         combine(
             dataStore.data.map { it[AudioOffload] ?: false },
@@ -2528,42 +2595,31 @@ var originalQueueSize: Int = 0
     private var lastPublishedPlaybackClient: Pair<String, String>? = null
 
     @Volatile
-    private var saavnStreamingEnabled = false
+    private var youtubeStreamingEnabled = false
+    @Volatile
+    private var spotiflacEnabled = false
+    @Volatile
+    private var spotiflacDevGate = false
+    @Volatile
+    private var devMode = false
+    @Volatile
+    private var sourcePriorityList: List<String> = listOf("SPOTIFLAC", "YOUTUBE")
 
-    private fun isSaavnStreamingEnabled(): Boolean {
-        val primaryScraper = PreferenceStore.get(PrimaryAudioScraperKey)
-        return when (primaryScraper) {
-            "JIOSAAVN" -> true
-            "YOUTUBE" -> false
-            else -> PreferenceStore.get(EnableSaavnStreamingKey) ?: false
-        }
-    }
+    private fun isYouTubeStreamingEnabled(): Boolean = youtubeStreamingEnabled
 
     private fun isParallelSourceFetchEnabled(): Boolean {
         return dataStore.get(ParallelSourceFetchKey, false)
     }
 
-    private suspend fun saavnHintsFor(mediaId: String): SaavnPlaybackResolver.PlaybackHints? {
-        currentMediaMetadata.value?.takeIf { it.id == mediaId }?.let {
-            return SaavnPlaybackResolver.hintsFrom(it)
-        }
-        return withContext(Dispatchers.Main) {
-            val mediaItem =
-                player.findNextMediaItemById(mediaId)
-                    ?: player.currentMediaItem?.takeIf { it.mediaId == mediaId }
-            mediaItem?.metadata?.let { SaavnPlaybackResolver.hintsFrom(it) }
-                ?: mediaItem?.mediaMetadata?.let { SaavnPlaybackResolver.hintsFrom(it) }
-        }
-    }
+
 
     private fun cachedPlaybackUrl(mediaId: String): AuthScopedCacheValue? {
         val authFingerprint = playbackAuthFingerprint()
-        val saavnEnabled = isSaavnStreamingEnabled()
         return playbackUrlCache[mediaId]?.takeIf { cached ->
             cached.isValidFor(
                 authFingerprint = authFingerprint,
                 minimumRemainingMs = YTPlayerUtils.STREAM_URL_EXPIRY_SAFETY_MS,
-            ) && (!cached.isSaavnStream || saavnEnabled)
+            )
         }?.also { cached ->
             publishPlaybackClientLabel(mediaId, cached.playbackClientLabel)
         }
@@ -2601,41 +2657,32 @@ var originalQueueSize: Int = 0
                 }
         val hiResLosslessSelected = activeStreamClient == PlayerStreamClient.HI_RES_LOSSLESS
         val parallelFetch = isParallelSourceFetchEnabled()
-        val playbackData =
-                if (hiResLosslessSelected) {
-                    resolveHiResLosslessPlayback(mediaId).recoverCatching { youtubeFailure ->
-                        if (youtubeFailure is YTPlayerUtils.BotDetectionPlaybackException) {
-                            throw youtubeFailure
-                        }
-                        retryWithoutPlaybackLoginContext {
-                            YTPlayerUtils.playerResponseForPlayback(
-                                videoId = mediaId,
-                                audioQuality = effectiveAudioQuality,
-                                connectivityManager = connectivityManager,
-                                preferredStreamClient = PlayerStreamClient.WEB_REMIX,
-                                networkMetered = networkMeteredHint,
-                                context = this@MusicService,
-                                trySaavnFirst = false,
-                            )
-                        }.getOrThrow()
-                    }.getOrThrow()
-                } else {
-                    val saavnEnabled = isSaavnStreamingEnabled()
-                    val shouldTrySaavn = saavnEnabled || parallelFetch
-                    retryWithoutPlaybackLoginContext {
-                        YTPlayerUtils.playerResponseForPlayback(
-                            videoId = mediaId,
-                            audioQuality = effectiveAudioQuality,
-                            connectivityManager = connectivityManager,
-                            preferredStreamClient = activeStreamClient,
-                            networkMetered = networkMeteredHint,
-                            context = this@MusicService,
-                            trySaavnFirst = saavnEnabled,
-                            saavnHints = if (shouldTrySaavn) saavnHintsFor(mediaId) else null,
-                            parallelFetch = parallelFetch,
-                        )
-                    }.getOrThrow()
-                }
+
+        val spotiflacAvailable = spotiflacEnabled && (!spotiflacDevGate || devMode)
+        val ytAvailable = isYouTubeStreamingEnabled()
+        val spotiflacFirst = spotiflacAvailable && (
+            sourcePriorityList.firstOrNull() == "SPOTIFLAC" || !ytAvailable
+        )
+        val youtubeFirst = !spotiflacFirst && ytAvailable
+
+        val playbackData: YTPlayerUtils.PlaybackData
+
+        if (spotiflacFirst) {
+            playbackData = resolveSpotiFLACWithFallback(
+                mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch,
+                hiResLosslessSelected,
+            )
+        } else if (youtubeFirst) {
+            playbackData = resolveYouTubeWithSpotiFLACFallback(
+                mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch,
+                hiResLosslessSelected, spotiflacAvailable,
+            )
+        } else {
+            playbackData = resolveSpotiFLACWithFallback(
+                mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch,
+                hiResLosslessSelected,
+            )
+        }
 
         applyResolvedPlaybackData(mediaId, playbackData)
 
@@ -2645,10 +2692,157 @@ var originalQueueSize: Int = 0
                     expiresAtMs = System.currentTimeMillis() + (playbackData.streamExpiresInSeconds * 1000L),
                     authFingerprint = playbackData.authFingerprint,
                     playbackClientLabel = playbackData.playbackClientLabel,
-                    isSaavnStream = playbackData.isSaavnStream,
+                    isYouTubeStream = playbackData.isYouTubeStream,
                 )
         playbackUrlCache[mediaId] = cacheValue
         return cacheValue
+    }
+
+    private suspend fun resolveSpotiFLACWithFallback(
+        mediaId: String,
+        effectiveAudioQuality: AudioQuality,
+        networkMeteredHint: Boolean?,
+        parallelFetch: Boolean,
+        hiResLosslessSelected: Boolean,
+    ): YTPlayerUtils.PlaybackData {
+        val spotiflacResult = resolveSpotiFLACTrack()
+
+        if (spotiflacResult != null) return spotiflacResult
+
+        if (!isYouTubeStreamingEnabled()) {
+            throw java.io.IOException("SpotiFLAC failed and YouTube is disabled")
+        }
+
+        return resolveYouTubePlayback(
+            mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch, hiResLosslessSelected,
+        )
+    }
+
+    private suspend fun resolveYouTubeWithSpotiFLACFallback(
+        mediaId: String,
+        effectiveAudioQuality: AudioQuality,
+        networkMeteredHint: Boolean?,
+        parallelFetch: Boolean,
+        hiResLosslessSelected: Boolean,
+        spotiflacAvailable: Boolean,
+    ): YTPlayerUtils.PlaybackData {
+        val ytError = runCatching {
+            val result = resolveYouTubePlayback(
+                mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch, hiResLosslessSelected,
+            )
+            return result
+        }.exceptionOrNull()
+
+        if (!spotiflacAvailable) {
+            throw ytError ?: java.io.IOException("YouTube playback failed and SpotiFLAC is not available")
+        }
+
+        val spotiflacResult = resolveSpotiFLACTrack()
+        if (spotiflacResult != null) return spotiflacResult
+
+        throw ytError ?: java.io.IOException("Both YouTube and SpotiFLAC playback failed")
+    }
+
+    private suspend fun resolveSpotiFLACTrack(): YTPlayerUtils.PlaybackData? {
+        if (!spotiflacSessionManager.hasActiveSession()) {
+            Timber.tag("MusicService").d("SpotiFLAC: no active session, attempting restore")
+            spotiflacSessionManager.forceRestoreSession()
+        }
+        if (!spotiflacSessionManager.hasActiveSession()) {
+            Timber.tag("MusicService").w("SpotiFLAC: still no active session after restore attempt")
+            return null
+        }
+
+        val item = player.currentMediaItem ?: return null
+        val title = item.mediaMetadata.title?.toString() ?: return null
+        val artist = item.mediaMetadata.artist?.toString() ?: ""
+        val durationMs = item.mediaMetadata.durationMs ?: 0L
+        val isrc = item.mediaMetadata.extras?.getString("isrc")?.takeIf { it.isNotBlank() }
+
+        val meta = item.metadata
+        val spotifyTrackId = meta?.spotifyTrackId
+            ?: item.mediaMetadata.extras?.getString("spotify_track_id")?.takeIf { it.isNotBlank() }
+
+        Timber.tag("MusicService").d("SpotiFLAC resolve: title=$title, artist=$artist, isrc=$isrc, spotifyId=$spotifyTrackId")
+
+        if (title.isBlank()) return null
+
+        val qualityName = dataStore.get(SpotiFLACQualityKey, "BEST")
+        val quality = try {
+            app.hush.music.spotiflac.SpotiFLACPlaybackResolver.Quality.valueOf(qualityName)
+        } catch (_: Exception) {
+            app.hush.music.spotiflac.SpotiFLACPlaybackResolver.Quality.BEST
+        }
+
+        val enabledSourceIds = extensionRepoManager.getEnabledSourceIds()
+
+        return try {
+            val result = app.hush.music.spotiflac.SpotiFLACPlaybackResolver.resolve(
+                identity = app.hush.music.spotiflac.SpotiFLACPlaybackResolver.TrackIdentity(
+                    title = title,
+                    artists = if (artist.isNotBlank()) listOf(artist) else emptyList(),
+                    durationSeconds = (durationMs / 1000).toInt(),
+                    spotifyTrackId = spotifyTrackId,
+                    isrc = isrc,
+                ),
+                client = spotiflacClient,
+                quality = quality,
+                enabledSourceIds = enabledSourceIds,
+            )
+            if (result.isFailure) {
+                Timber.tag("MusicService").w(result.exceptionOrNull(), "SpotiFLAC resolution returned failure for: $title")
+            }
+            result.getOrNull()
+        } catch (e: Exception) {
+            Timber.tag("MusicService").w(e, "SpotiFLAC resolution threw exception for: $title")
+            null
+        }
+    }
+
+    private fun extractIsrcFromMediaItem(mediaId: String): String? {
+        val item = player.currentMediaItem ?: return null
+        val isrc = item.mediaMetadata.extras?.getString("isrc")
+        if (!isrc.isNullOrBlank()) return isrc
+        return null
+    }
+
+    private suspend fun resolveYouTubePlayback(
+        mediaId: String,
+        effectiveAudioQuality: AudioQuality,
+        networkMeteredHint: Boolean?,
+        parallelFetch: Boolean,
+        hiResLosslessSelected: Boolean,
+    ): YTPlayerUtils.PlaybackData {
+        return if (hiResLosslessSelected) {
+            resolveHiResLosslessPlayback(mediaId).recoverCatching { youtubeFailure ->
+                if (youtubeFailure is YTPlayerUtils.BotDetectionPlaybackException) {
+                    throw youtubeFailure
+                }
+                retryWithoutPlaybackLoginContext {
+                    YTPlayerUtils.playerResponseForPlayback(
+                        videoId = mediaId,
+                        audioQuality = effectiveAudioQuality,
+                        connectivityManager = connectivityManager,
+                        preferredStreamClient = PlayerStreamClient.WEB_REMIX,
+                        networkMetered = networkMeteredHint,
+                        context = this@MusicService,
+                        parallelFetch = parallelFetch,
+                    )
+                }.getOrThrow()
+            }.getOrThrow()
+        } else {
+            retryWithoutPlaybackLoginContext {
+                YTPlayerUtils.playerResponseForPlayback(
+                    videoId = mediaId,
+                    audioQuality = effectiveAudioQuality,
+                    connectivityManager = connectivityManager,
+                    preferredStreamClient = activeStreamClient,
+                    networkMetered = networkMeteredHint,
+                    context = this@MusicService,
+                    parallelFetch = parallelFetch,
+                )
+            }.getOrThrow()
+        }
     }
 
     private fun applyResolvedPlaybackData(
@@ -2765,10 +2959,10 @@ var originalQueueSize: Int = 0
         }
     }
 
-    fun clearSaavnIncompatiblePlaybackCache() {
+    fun clearIncompatiblePlaybackCache() {
         playbackUrlCache.clear()
+        extractorPlaybackUrlCache.clear()
         cancelPlaybackUrlPrefetches()
-        SaavnPlaybackResolver.clearCaches()
         lastPublishedPlaybackClient = null
     }
 
@@ -3428,6 +3622,9 @@ var originalQueueSize: Int = 0
         queue: Queue,
         playWhenReady: Boolean = true,
     ) {
+        Timber.tag(TAG).d(
+            "playQueue: queue=${queue.javaClass.simpleName} preloadId=${queue.preloadItem?.id?.take(32)} playWhenReady=$playWhenReady",
+        )
         val joined = togetherSessionState.value as? app.hush.music.together.TogetherSessionState.Joined
         if (!isTogetherApplyingRemote() && joined?.role is app.hush.music.together.TogetherRole.Guest) {
             if (!joined.roomState.settings.allowGuestsToControlPlayback) {
@@ -3502,7 +3699,6 @@ var originalQueueSize: Int = 0
         currentQueue = queue
         queueTitle = null
         val queueLoadGeneration = playQueueGeneration.incrementAndGet()
-        cancelPlaybackUrlPrefetches()
 
         queue.preloadItem?.id?.takeIf { it.isNotBlank() }?.let(::startPlaybackUrlPrefetch)
 
@@ -3518,20 +3714,12 @@ var originalQueueSize: Int = 0
             player.setMediaItem(mediaItemForUi.toMediaItem())
         }
         val preloadMediaId = mediaItemForUi?.id?.takeIf { it.isNotBlank() && !it.isLocalMediaId() }
+        player.prepare()
+        player.playWhenReady = playWhenReady
         if (preloadMediaId != null) {
             scope.launch(SilentHandler) {
-                warmPlaybackUrl(preloadMediaId, maxWaitMs = 10_000L)
-                if (queueLoadGeneration != playQueueGeneration.get() || currentQueue !== queue) {
-                    return@launch
-                }
-                withContext(Dispatchers.Main) {
-                    player.prepare()
-                    player.playWhenReady = playWhenReady
-                }
+                warmPlaybackUrl(preloadMediaId, maxWaitMs = 0L)
             }
-        } else {
-            player.prepare()
-            player.playWhenReady = playWhenReady
         }
         scope.launch(SilentHandler) {
             val hideExplicit = dataStore.get(HideExplicitKey, false)
@@ -3603,14 +3791,13 @@ var originalQueueSize: Int = 0
                     startPlaybackUrlPrefetch(fallbackMediaId)
                 }
                 player.setMediaItems(items, index, initialStatus.position)
-                if (fallbackMediaId != null) {
-                    warmPlaybackUrl(fallbackMediaId, maxWaitMs = 30_000L)
-                }
-                if (queueLoadGeneration != playQueueGeneration.get() || currentQueue !== queue) {
-                    return@launch
-                }
                 player.prepare()
                 player.playWhenReady = playWhenReady
+                if (fallbackMediaId != null) {
+                    scope.launch(SilentHandler) {
+                        warmPlaybackUrl(fallbackMediaId, maxWaitMs = 0L)
+                    }
+                }
                 if (player.shuffleModeEnabled) {
                     applyCurrentFirstShuffleOrder()
                 }
@@ -5402,6 +5589,7 @@ var originalQueueSize: Int = 0
         val mediaId = metadata.id.trim()
         if (mediaId.isBlank()) return
 
+        Timber.tag(TAG).d("toggleLike: mediaId=$mediaId")
         ioScope.launch {
             val updatedSong =
                 database.withTransaction {
@@ -5415,14 +5603,21 @@ var originalQueueSize: Int = 0
                             ?: return@withTransaction null
 
                     val toggled = baseSong.toggleLike()
+                    Timber.tag(TAG).d(
+                        "toggleLike: ${baseSong.id} liked=${baseSong.liked} -> toggled=${toggled.liked}",
+                    )
                     update(toggled)
                     toggled
-                } ?: return@launch
+                } ?: run {
+                    Timber.tag(TAG).w("toggleLike: failed to resolve song for mediaId=$mediaId")
+                    return@launch
+                }
 
             withContext(Dispatchers.Main.immediate) {
                 updateNotification()
             }
 
+            Timber.tag(TAG).d("toggleLike: calling syncUtils.likeSong for ${updatedSong.id} liked=${updatedSong.liked}")
             syncUtils.likeSong(updatedSong)
 
             if (!mediaId.isLocalMediaId()) {
@@ -6133,11 +6328,6 @@ var originalQueueSize: Int = 0
 
         mediaItem?.let { item ->
             ensureNotificationArtworkUri(item)
-            if (isSaavnStreamingEnabled()) {
-                playbackUrlCache[item.mediaId]?.takeIf { !it.isSaavnStream }?.let {
-                    playbackUrlCache.remove(item.mediaId)
-                }
-            }
             scope.launch(SilentHandler) {
                 hydrateNotificationArtwork(item)
             }
@@ -7343,7 +7533,7 @@ var originalQueueSize: Int = 0
                 streamUrl = cached.url,
                 knownContentLength = knownContentLength,
                 mimeType = storedFormat?.mimeType,
-                isSaavnStream = cached.isSaavnStream,
+                isYouTubeStream = cached.isYouTubeStream,
             )
         }
 
@@ -7357,7 +7547,7 @@ var originalQueueSize: Int = 0
                 streamUrl = cached.url,
                 knownContentLength = knownContentLength,
                 mimeType = storedFormat?.mimeType,
-                isSaavnStream = cached.isSaavnStream,
+                isYouTubeStream = cached.isYouTubeStream,
             )
         }
 
@@ -7368,7 +7558,6 @@ var originalQueueSize: Int = 0
                 null
             }
 
-        val saavnEnabled = isSaavnStreamingEnabled()
         val parallelFetch = isParallelSourceFetchEnabled()
         val playbackData =
             try {
@@ -7383,8 +7572,6 @@ var originalQueueSize: Int = 0
                                 networkMetered = networkMeteredHint,
                                 fastResolution = true,
                                 context = this@MusicService,
-                                trySaavnFirst = saavnEnabled,
-                                saavnHints = if (saavnEnabled) saavnHintsFor(mediaId) else null,
                                 parallelFetch = parallelFetch,
                             )
                         }.getOrThrow()
@@ -7411,7 +7598,7 @@ var originalQueueSize: Int = 0
                     expiresAtMs = System.currentTimeMillis() + (playbackData.streamExpiresInSeconds * 1000L),
                     authFingerprint = playbackData.authFingerprint,
                     playbackClientLabel = playbackData.playbackClientLabel,
-                    isSaavnStream = playbackData.isSaavnStream,
+                    isYouTubeStream = playbackData.isYouTubeStream,
                 )
         }
         scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
@@ -7420,7 +7607,7 @@ var originalQueueSize: Int = 0
             streamUrl = playbackData.streamUrl,
             knownContentLength = knownContentLength ?: playbackData.format.contentLength,
             mimeType = playbackData.format.mimeType,
-            isSaavnStream = playbackData.isSaavnStream,
+            isYouTubeStream = playbackData.isYouTubeStream,
         )
     }
 
@@ -7429,10 +7616,10 @@ var originalQueueSize: Int = 0
         streamUrl: String,
         knownContentLength: Long?,
         mimeType: String?,
-        isSaavnStream: Boolean = false,
+        isYouTubeStream: Boolean = false,
     ): DataSpec {
         val resolvedDataSpec = dataSpec.withUri(streamUrl.toUri())
-        if (isSaavnStream) return resolvedDataSpec
+        if (isYouTubeStream) return resolvedDataSpec
         val length =
             resolveStreamChunkLength(
                 requestedLength = dataSpec.length,
@@ -8222,6 +8409,185 @@ var originalQueueSize: Int = 0
         }
     }
 
+    private fun loadPersistentUrlCache() {
+        val cached = readPersistentObject<PersistPlaybackUrlCache>(PERSISTENT_URL_CACHE_FILE)
+            ?: loadPersistentUrlCacheFromMediaStore()
+            ?: return
+        val now = System.currentTimeMillis()
+        var loaded = 0
+        cached.entries.forEach { entry ->
+            if (entry.expiresAtMs > now) {
+                playbackUrlCache[entry.mediaId] = AuthScopedCacheValue(
+                    url = entry.url,
+                    expiresAtMs = entry.expiresAtMs,
+                    authFingerprint = entry.authFingerprint,
+                    playbackClientLabel = entry.playbackClientLabel,
+                    isYouTubeStream = entry.isYouTubeStream,
+                )
+                loaded++
+            }
+        }
+        Timber.tag(TAG).d("loadPersistentUrlCache: loaded $loaded entries from disk")
+    }
+
+    private fun loadPersistentUrlCacheFromMediaStore(): PersistPlaybackUrlCache? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        return try {
+            val resolver = contentResolver
+            val projection = arrayOf(MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME)
+            val selection = "${MediaStore.Downloads.DISPLAY_NAME} = ? AND ${MediaStore.Downloads.RELATIVE_PATH} = ?"
+            val selectionArgs = arrayOf(PERSISTENT_URL_CACHE_FILE, "Download/Hush/")
+            resolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI, projection, selection, selectionArgs, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) return null
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID))
+                val uri = android.content.ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id)
+                resolver.openInputStream(uri)?.use { inputStream ->
+                    java.io.ObjectInputStream(inputStream).use { ois ->
+                        val payload = ois.readObject()
+                        if (payload is PersistPlaybackUrlCache) {
+                            Timber.tag(TAG).d("loadPersistentUrlCache: restored from MediaStore")
+                            payload
+                        } else null
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Timber.tag(TAG).w(e, "loadPersistentUrlCache: MediaStore read failed")
+            null
+        }
+    }
+
+    private fun savePersistentUrlCache() {
+        if (playbackUrlCache.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val entries = playbackUrlCache.entries.mapNotNull { (mediaId, value) ->
+            if (value.expiresAtMs > now) {
+                CachedUrlEntry(
+                    mediaId = mediaId,
+                    url = value.url,
+                    expiresAtMs = value.expiresAtMs,
+                    authFingerprint = value.authFingerprint,
+                    playbackClientLabel = value.playbackClientLabel,
+                    isYouTubeStream = value.isYouTubeStream,
+                )
+            } else {
+                null
+            }
+        }
+        if (entries.isEmpty()) return
+        val payload = PersistPlaybackUrlCache(entries)
+        writePersistentObject(PERSISTENT_URL_CACHE_FILE, payload)
+        savePersistentUrlCacheToMediaStore(payload)
+        Timber.tag(TAG).d("savePersistentUrlCache: persisted ${entries.size} entries")
+    }
+
+    private fun savePersistentUrlCacheToMediaStore(payload: PersistPlaybackUrlCache) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        try {
+            val resolver = contentResolver
+            val projection = arrayOf(MediaStore.Downloads._ID)
+            val selection = "${MediaStore.Downloads.DISPLAY_NAME} = ? AND ${MediaStore.Downloads.RELATIVE_PATH} = ?"
+            val selectionArgs = arrayOf(PERSISTENT_URL_CACHE_FILE, "Download/Hush/")
+            val existingUri = resolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI, projection, selection, selectionArgs, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID))
+                    android.content.ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id)
+                } else null
+            }
+            val uri = existingUri ?: run {
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, PERSISTENT_URL_CACHE_FILE)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+                    put(MediaStore.Downloads.RELATIVE_PATH, "Download/Hush")
+                }
+                resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+            } ?: return
+            java.io.ByteArrayOutputStream().use { baos ->
+                java.io.ObjectOutputStream(baos).use { oos ->
+                    oos.writeObject(payload)
+                    oos.flush()
+                }
+                resolver.openOutputStream(uri, "wt")?.use { outputStream ->
+                    baos.writeTo(outputStream)
+                }
+            }
+        } catch (e: Exception) {
+            Timber.tag(TAG).w(e, "savePersistentUrlCacheToMediaStore: failed")
+        }
+    }
+
+    private var urlCacheRefreshJob: kotlinx.coroutines.Job? = null
+    private var urlCachePersistJob: kotlinx.coroutines.Job? = null
+
+    private fun startUrlCacheRefreshJob() {
+        urlCacheRefreshJob?.cancel()
+        urlCacheRefreshJob = ioScope.launch {
+            dataStore.data
+                .map { prefs -> prefs[UrlCacheRefreshIntervalKey] ?: 0 }
+                .distinctUntilChanged()
+                .collectLatest(ioScope) { intervalIndex ->
+                    val intervalHours = when (intervalIndex) {
+                        1 -> 6
+                        2 -> 12
+                        3 -> 24
+                        4 -> 168
+                        else -> 0
+                    }
+                    if (intervalHours <= 0) {
+                        Timber.tag(TAG).d("URL cache refresh: disabled")
+                        return@collectLatest
+                    }
+                    val intervalMs = intervalHours.toLong() * 60 * 60 * 1000L
+                    Timber.tag(TAG).d("URL cache refresh: enabled, interval=${intervalHours}h")
+                    while (true) {
+                        val jitter = (0..URL_CACHE_REFRESH_JITTER_MS).random()
+                        delay(intervalMs + jitter)
+                        runCatching { backgroundRefreshPlaybackUrls() }
+                            .onFailure { Timber.tag(TAG).w(it, "URL cache refresh failed") }
+                    }
+                }
+        }
+        urlCachePersistJob?.cancel()
+        urlCachePersistJob = ioScope.launch {
+            while (true) {
+                delay(30 * 60 * 1000L)
+                savePersistentUrlCache()
+            }
+        }
+    }
+
+    private fun stopUrlCacheRefreshJob() {
+        urlCacheRefreshJob?.cancel()
+        urlCacheRefreshJob = null
+        urlCachePersistJob?.cancel()
+        urlCachePersistJob = null
+    }
+
+    private suspend fun backgroundRefreshPlaybackUrls() {
+        val now = System.currentTimeMillis()
+        val authFingerprint = playbackAuthFingerprint()
+        val entriesToRefresh = playbackUrlCache.entries.filter { (_, value) ->
+            value.authFingerprint == authFingerprint &&
+                value.expiresAtMs > now &&
+                value.expiresAtMs - now < 60 * 60 * 1000L
+        }
+        if (entriesToRefresh.isEmpty()) return
+        Timber.tag(TAG).d("backgroundRefresh: ${entriesToRefresh.size} entries approaching expiry")
+        for ((mediaId, oldEntry) in entriesToRefresh) {
+            val still = playbackUrlCache[mediaId] ?: continue
+            if (still.expiresAtMs > now + 60 * 60 * 1000L) continue
+            try {
+                val newData = resolveAndCachePlaybackUrl(mediaId)
+                if (newData.isValidFor(authFingerprint)) {
+                    playbackUrlCache[mediaId] = newData
+                }
+            } catch (_: Exception) {
+            }
+            delay(200L)
+        }
+        savePersistentUrlCache()
+    }
+
     private fun MediaItem.toPersistableMetadata(): app.hush.music.models.MediaMetadata? {
         val tagged = metadata
         if (tagged != null) return tagged
@@ -8337,6 +8703,12 @@ var originalQueueSize: Int = 0
 
     override fun onDestroy() {
         super.onDestroy()
+        stopUrlCacheRefreshJob()
+        runCatching {
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                withTimeout(1000L) { savePersistentUrlCache() }
+            }
+        }
         effectiveVolumeRampJob?.cancel()
         effectiveVolumeRampJob = null
         cancelCrossfade(resetVolume = false, resetPauseAtEnd = true)
@@ -8671,6 +9043,8 @@ var originalQueueSize: Int = 0
         const val PERSISTENT_QUEUE_FILE = "persistent_queue.data"
         const val PERSISTENT_AUTOMIX_FILE = "persistent_automix.data"
         const val PERSISTENT_PLAYER_STATE_FILE = "persistent_player_state.data"
+        const val PERSISTENT_URL_CACHE_FILE = "persistent_url_cache.data"
+        const val URL_CACHE_REFRESH_JITTER_MS = 30 * 60 * 1000L
         const val MAX_CONSECUTIVE_ERR = 5
         const val AUDIO_ROUTE_CHANGE_DEBOUNCE_MS = 350L
         const val AUDIO_EFFECT_ROUTE_REBIND_DELAY_MS = 200L

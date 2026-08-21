@@ -256,10 +256,19 @@ val AudioQualityKey = stringPreferencesKey("audioQuality")
 
 enum class PrimaryAudioScraper {
     YOUTUBE,
-    JIOSAAVN,
+    SPOTIFLAC,
 }
 
 val PrimaryAudioScraperKey = stringPreferencesKey("primaryAudioScraper")
+
+val YoutubeStreamingEnabledKey = booleanPreferencesKey("youtubeStreamingEnabled")
+val SpotiFLACEnabledKey = booleanPreferencesKey("spotiflacEnabled")
+val SpotiFLACDevGateKey = booleanPreferencesKey("spotiflacDevGate")
+val SpotiFLACQualityKey = stringPreferencesKey("spotiflacQuality")
+val SourcePriorityKey = stringPreferencesKey("sourcePriority")
+val SpotiFLACEnabledSourcesKey = stringPreferencesKey("spotiflacEnabledSources")
+val SpotiFLACSourceOrderKey = stringPreferencesKey("spotiflacSourceOrder")
+val DevModeKey = booleanPreferencesKey("devMode")
 
 val NetworkMeteredKey = booleanPreferencesKey("networkMetered")
 val LowDataModeKey = NetworkMeteredKey
@@ -275,9 +284,7 @@ enum class AudioQuality {
 
 val PlayerStreamClientKey = stringPreferencesKey("playerStreamClient")
 
-val EnableSaavnStreamingKey = booleanPreferencesKey("enableSaavnStreaming")
 val ParallelSourceFetchKey = booleanPreferencesKey("parallelSourceFetch")
-val SaavnAudioQualityKey = stringPreferencesKey("saavnAudioQuality")
 
 enum class PlayerStreamClient {
     ANDROID_VR,
@@ -351,6 +358,7 @@ val MaxImageCacheSizeKey = intPreferencesKey("maxImageCacheSize")
 val SmartTrimmerKey = booleanPreferencesKey("smartTrimmer")
 val MaxSongCacheSizeKey = intPreferencesKey("maxSongCacheSize")
 val MaxCanvasCacheSizeKey = intPreferencesKey("maxCanvasCacheSize")
+val UrlCacheRefreshIntervalKey = intPreferencesKey("urlCacheRefreshInterval")
 val StorageFolderIdKey = stringPreferencesKey("storageFolderId")
 val StorageFolderTreeUriKey = stringPreferencesKey("storageFolderTreeUri")
 val StorageFolderPathKey = stringPreferencesKey("storageFolderPath")

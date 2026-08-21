@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    ArchiveTune (2026)
+    © Rukamori — github.com/rukamori
+    GPL-3.0 License | Contributors: see git history
+    Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+-->
+
+<resources>
+    <!-- Cast strings for GMS variant -->
+    <string name="cast">Cast</string>
+    <string name="cast_devices">Cast devices</string>
+    <string name="cast_sheet_subtitle">Choose a device</string>
+    <string name="cast_available_devices">Available devices</string>
+    <string name="cast_searching_devices">Searching for devices…</string>
+    <string name="cast_no_devices">No devices found</string>
+    <string name="cast_no_devices_desc">Make sure your device is on the same Wi-Fi network</string>
+    <string name="cast_connected_to">Connected to %1$s</string>
+    <string name="cast_disconnect">Disconnect</string>
+    <string name="cast_available_device">%1$s is available</string>
+    <string name="cast_available_device_count">%1$d devices available</string>
+    <string name="cast_route_picker_unavailable">Route picker unavailable</string>
+</resources>

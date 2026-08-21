@@ -80,6 +80,7 @@ import app.hush.music.constants.MaxCanvasCacheSizeKey
 import app.hush.music.constants.MaxImageCacheSizeKey
 import app.hush.music.constants.MaxSongCacheSizeKey
 import app.hush.music.constants.SmartTrimmerKey
+import app.hush.music.constants.UrlCacheRefreshIntervalKey
 import app.hush.music.extensions.directorySizeBytes
 import app.hush.music.extensions.tryOrNull
 import app.hush.music.storage.StorageFolderKind
@@ -88,6 +89,7 @@ import app.hush.music.storage.StorageLocationRepository
 import app.hush.music.ui.component.ActionPromptDialog
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.ListPreference
+import app.hush.music.ui.component.NumberPickerPreference
 import app.hush.music.ui.component.PreferenceEntry
 import app.hush.music.ui.component.PreferenceGroup
 import app.hush.music.ui.component.SwitchPreference
@@ -174,6 +176,11 @@ fun StorageSettings(
         rememberPreference(
             key = MaxCanvasCacheSizeKey,
             defaultValue = 256,
+        )
+    val (urlCacheRefreshInterval, onUrlCacheRefreshIntervalChange) =
+        rememberPreference(
+            key = UrlCacheRefreshIntervalKey,
+            defaultValue = 0,
         )
     var clearCacheDialog by remember { mutableStateOf(false) }
     var clearDownloads by remember { mutableStateOf(false) }
@@ -402,6 +409,34 @@ fun StorageSettings(
                         Text(text = stringResource(R.string.clear_song_cache_dialog))
                     },
                 )
+            }
+
+            PreferenceGroup(title = stringResource(R.string.url_cache_refresh)) {
+                item {
+                    NumberPickerPreference(
+                        title = { Text(stringResource(R.string.url_cache_refresh)) },
+                        icon = {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_music),
+                                contentDescription = null,
+                            )
+                        },
+                        value = urlCacheRefreshInterval,
+                        onValueChange = onUrlCacheRefreshIntervalChange,
+                        minValue = 0,
+                        maxValue = 4,
+                        valueText = {
+                            when (it) {
+                                0 -> "Off"
+                                1 -> "Every 6 hours"
+                                2 -> "Every 12 hours"
+                                3 -> "Every day"
+                                4 -> "Every week"
+                                else -> "Off"
+                            }
+                        },
+                    )
+                }
             }
 
             PreferenceGroup(title = stringResource(R.string.image_cache)) {

@@ -66,8 +66,6 @@ import app.hush.music.utils.clearPlaybackWebAuthSession
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 import app.hush.music.utils.potoken.BotGuardTokenGenerator
-import app.hush.music.jiosaavn.DeviceRouter
-import app.hush.music.jiosaavn.SaavnService
 import app.hush.music.utils.CipherConfigFetcher
 import app.hush.music.utils.reportException
 import app.hush.music.utils.safeDataStoreEdit
@@ -180,7 +178,6 @@ class App :
             secret = BuildConfig.LASTFM_SECRET,
         )
 
-        DeviceRouter.init(this)
         CipherConfigFetcher.init(this)
     }
 
@@ -314,7 +311,7 @@ class App :
                     customUrl = prefs[stringPreferencesKey("customDnsUrl")] ?: "https://",
                 )
 
-                applySaavnProxySettings(
+                applyProxySettings(
                     proxyEnabled = prefs[ProxyEnabledKey] == true,
                     proxyType = prefs[ProxyTypeKey].toEnum(defaultValue = Proxy.Type.HTTP),
                     proxyHost = prefs[ProxyHostKey],
@@ -370,7 +367,7 @@ class App :
                 }.distinctUntilChanged()
                 .collect { (enabled, provider, customUrl) ->
                     applyDnsOverHttpsSettings(enabled, provider, customUrl)
-                    applySaavnProxySettings(
+                    applyProxySettings(
                         proxyEnabled = false,
                         proxyType = Proxy.Type.HTTP,
                         proxyHost = null,
@@ -592,7 +589,7 @@ class App :
         YTPlayerUtils.invalidateStreamClient()
     }
 
-    private fun applySaavnProxySettings(
+    private fun applyProxySettings(
         proxyEnabled: Boolean,
         proxyType: Proxy.Type,
         proxyHost: String?,
@@ -612,7 +609,6 @@ class App :
             ProxyUtils.createProxyOrNull(proxyType, proxyHost, proxyPort)
         } else null
 
-        SaavnService.reconfigure(dns = dns ?: Dns.SYSTEM, proxy = proxy)
     }
 }
 

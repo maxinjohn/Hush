@@ -12,7 +12,7 @@ data class AuthScopedCacheValue(
     val expiresAtMs: Long,
     val authFingerprint: String,
     val playbackClientLabel: String? = null,
-    val isSaavnStream: Boolean = false,
+    val isYouTubeStream: Boolean = true,
 ) {
     fun isValidFor(
         authFingerprint: String,

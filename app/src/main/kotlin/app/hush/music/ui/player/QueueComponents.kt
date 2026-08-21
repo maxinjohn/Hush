@@ -79,7 +79,6 @@ import androidx.media3.common.Player
 import coil3.compose.AsyncImage
 import app.hush.music.R
 import app.hush.music.constants.EnableHapticFeedbackKey
-import app.hush.music.constants.EnableSaavnStreamingKey
 import app.hush.music.constants.PrimaryAudioScraper
 import app.hush.music.constants.PrimaryAudioScraperKey
 import app.hush.music.db.entities.FormatEntity
@@ -672,13 +671,13 @@ fun CodecInfoRow(
     modifier: Modifier = Modifier,
     playbackClient: String? = null,
 ) {
+    val fallbackFlow = remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }
+    val fallbackPlayingFlow = remember { kotlinx.coroutines.flow.MutableStateFlow(false) }
     val activeClientLabel by (
-        LocalPlayerConnection.current?.activePlaybackClientLabel
-            ?: kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+        LocalPlayerConnection.current?.activePlaybackClientLabel ?: fallbackFlow
     ).collectAsStateWithLifecycle(initialValue = null)
     val isPlaying by (
-        LocalPlayerConnection.current?.isPlaying
-            ?: kotlinx.coroutines.flow.MutableStateFlow(false)
+        LocalPlayerConnection.current?.isPlaying ?: fallbackPlayingFlow
     ).collectAsStateWithLifecycle(initialValue = false)
     val resolvedPlaybackClient =
         playbackClient
@@ -721,13 +720,13 @@ fun CodecInfoRow(
 
 private fun formatPlaybackClientLabel(label: String): String =
     when {
-        label.contains("JioSaavn", ignoreCase = true) -> "JioSaavn"
         label.contains("Hi-Res", ignoreCase = true) -> label
+        label.contains("SpotiFLAC", ignoreCase = true) -> label
         else -> "YouTube"
     }
 
 /**
- * Shows the active playback source when JioSaavn streaming is enabled.
+ * Shows the active playback source.
  */
 @Composable
 fun PlaybackSourceRow(
@@ -735,33 +734,29 @@ fun PlaybackSourceRow(
     modifier: Modifier = Modifier,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
-    val (legacySaavnEnabled) = rememberPreference(EnableSaavnStreamingKey, defaultValue = false)
     val (primaryScraper) =
         rememberEnumPreference(
             PrimaryAudioScraperKey,
-            defaultValue = if (legacySaavnEnabled) PrimaryAudioScraper.JIOSAAVN else PrimaryAudioScraper.YOUTUBE,
+            defaultValue = PrimaryAudioScraper.YOUTUBE,
         )
-    val saavnEnabled = primaryScraper == PrimaryAudioScraper.JIOSAAVN
-    if (!saavnEnabled) return
+    val isYouTube = primaryScraper == PrimaryAudioScraper.YOUTUBE
 
     val clientLabel by playerConnection.activePlaybackClientLabel.collectAsStateWithLifecycle()
     val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
+    val clientLabelValue = clientLabel
     val sourceLabel =
         when {
-            clientLabel?.contains("JioSaavn", ignoreCase = true) == true ->
-                stringResource(R.string.playback_source_jiosaavn)
-            !clientLabel.isNullOrBlank() ->
+            !clientLabelValue.isNullOrBlank() &&
+                clientLabelValue.contains("SpotiFLAC", ignoreCase = true) ->
+                clientLabelValue
+            isYouTube && clientLabelValue?.contains("YouTube", ignoreCase = true) == true ->
+                stringResource(R.string.primary_scraper_youtube)
+            !clientLabelValue.isNullOrBlank() &&
+                clientLabelValue.contains("YouTube", ignoreCase = true) ->
                 stringResource(R.string.playback_source_youtube)
-            isPlaying ->
+            isPlaying && isYouTube ->
                 stringResource(R.string.playback_source_youtube)
             else -> return
-        }
-    val isSaavn = clientLabel?.contains("JioSaavn", ignoreCase = true) == true
-    val badgeColor =
-        if (isSaavn) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            textColor.copy(alpha = 0.72f)
         }
 
     Row(
@@ -772,22 +767,12 @@ fun PlaybackSourceRow(
                 .fillMaxWidth()
                 .padding(start = 30.dp, end = 30.dp, top = 4.dp, bottom = 2.dp),
     ) {
-        Surface(
-            shape = RoundedCornerShape(999.dp),
-            color = badgeColor.copy(alpha = if (isSaavn) 0.18f else 0.1f),
-            border =
-                androidx.compose.foundation.BorderStroke(
-                    width = 1.dp,
-                    color = badgeColor.copy(alpha = 0.35f),
-                ),
-        ) {
-            Text(
-                text = sourceLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = badgeColor,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            )
-        }
+        Text(
+            text = sourceLabel,
+            style = MaterialTheme.typography.labelSmall,
+            color = textColor,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
     }
 }
 
@@ -1016,7 +1001,7 @@ fun QueueCollapsedContentV2(
                     Modifier
                         .size(buttonSize)
                         .clip(CircleShape)
-                        .background(textButtonColor)
+                        .background(textBackgroundColor)
                         .clickable { onMenuClick() },
                 contentAlignment = Alignment.Center,
             ) {
@@ -1024,7 +1009,7 @@ fun QueueCollapsedContentV2(
                     painter = painterResource(id = R.drawable.more_vert),
                     contentDescription = null,
                     modifier = Modifier.size(iconSize),
-                    tint = iconButtonColor,
+                    tint = textBackgroundColor,
                 )
             }
         }
@@ -1529,7 +1514,6 @@ fun QueueCollapsedContentV4(
     showCodecOnPlayer: Boolean,
     currentFormat: FormatEntity?,
     textBackgroundColor: Color,
-    textButtonColor: Color,
     iconButtonColor: Color,
     sleepTimerEnabled: Boolean,
     sleepTimerTimeLeft: Long,

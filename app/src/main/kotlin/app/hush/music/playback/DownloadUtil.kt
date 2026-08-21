@@ -168,7 +168,6 @@ class DownloadUtil
                                 audioQuality = requestedAudioQuality,
                                 connectivityManager = connectivityManager,
                                 networkMetered = lowDataModeActive,
-                                context = context,
                             )
                         }
                     }.getOrThrow()
@@ -263,7 +262,6 @@ class DownloadUtil
                             audioQuality = resolveDownloadAudioQuality(false),
                             connectivityManager = connectivityManager,
                             networkMetered = false,
-                            context = appContext,
                         )
                     }
                 }.getOrThrow()

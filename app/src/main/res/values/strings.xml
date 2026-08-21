@@ -761,6 +761,13 @@
     <string name="clear_image_cache">Clear image cache</string>
     <string name="max_song_cache_size">Max song cache size</string>
     <string name="clear_song_cache">Clear song cache</string>
+    <string name="url_cache_refresh">Background URL refresh</string>
+    <string name="url_cache_refresh_description">Proactively refresh playback URLs in the background so songs start instantly. Does not interrupt playback.</string>
+    <string name="url_refresh_off">Off</string>
+    <string name="url_refresh_daily">Every day</string>
+    <string name="url_refresh_12h">Every 12 hours</string>
+    <string name="url_refresh_6h">Every 6 hours</string>
+    <string name="url_refresh_weekly">Every week</string>
     <string name="clear_lyrics_cache">Clear lyrics cache</string>
     <string name="clear_lyrics_cache_confirm">Are you sure you want to clear all lyrics cache?</string>
     <string name="paxsenix_stats">Paxsenix API Stats</string>

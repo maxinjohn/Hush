@@ -189,7 +189,7 @@ fun InternetSettings(
                                             YouTube
                                                 .createDnsOverHttps(providerUrl)
                                                 .withIpVersionPreference(YouTube.ipVersion)
-                                        val testHosts = listOf("music.youtube.com", "googlevideo.com", "jiosaavn.com", "www.jiosaavn.com")
+                                        val testHosts = listOf("music.youtube.com", "googlevideo.com")
                                         testHosts.forEach { host ->
                                             val addresses = testDns.lookup(host)
                                             check(addresses.isNotEmpty()) { "No addresses for $host" }
@@ -203,7 +203,6 @@ fun InternetSettings(
                                                 .build()
                                         val probeUrls = listOf(
                                             "https://music.youtube.com/generate_204",
-                                            "https://www.jiosaavn.com/api.php?__call=song.getDetails&_format=json&pids=test",
                                         )
                                         var allSuccess = true
                                         for (url in probeUrls) {

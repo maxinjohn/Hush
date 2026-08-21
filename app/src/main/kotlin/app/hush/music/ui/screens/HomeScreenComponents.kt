@@ -371,11 +371,11 @@ HorizontalCenteredHeroCarousel(
                                         playerConnection.player.togglePlayPause()
                                     } else {
                                         playerConnection.playQueue(
-                                            if (song.song.isLocal) {
-                                                ListQueue(items = listOf(song.toMediaItem()))
-                                            } else {
-                                                YouTubeQueue.radio(song.toMediaMetadata())
-                                            },
+                                            ListQueue(
+                                                title = context.getString(R.string.quick_picks),
+                                                items = distinctQuickPicks.map { it.toMediaItem() },
+                                                startIndex = index,
+                                            ),
                                         )
                                     }
                                 },
@@ -500,6 +500,8 @@ HorizontalCenteredHeroCarousel(
                         key = { it.id },
                         contentType = { "quick_pick_song" },
                     ) { song ->
+                        @Suppress("NAME_SHADOWING")
+                        val index = distinctQuickPicks.indexOf(song)
                         SongListItem(
                             song = song,
                             showInLibraryIcon = true,
@@ -533,11 +535,11 @@ HorizontalCenteredHeroCarousel(
                                                 playerConnection.player.togglePlayPause()
                                             } else {
                                                 playerConnection.playQueue(
-                                                    if (song.song.isLocal) {
-                                                        ListQueue(items = listOf(song.toMediaItem()))
-                                                    } else {
-                                                        YouTubeQueue.radio(song.toMediaMetadata())
-                                                    },
+                                                    ListQueue(
+                                                        title = context.getString(R.string.quick_picks),
+                                                        items = distinctQuickPicks.map { it.toMediaItem() },
+                                                        startIndex = index,
+                                                    ),
                                                 )
                                             }
                                         },

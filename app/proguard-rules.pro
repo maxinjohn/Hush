@@ -1,6 +1,3 @@
-# JioSaavn native API models (release playback resolution)
--keep class app.hush.music.jiosaavn.** { *; }
-
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.kts.
 #

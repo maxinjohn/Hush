@@ -8,6 +8,8 @@
 package app.hush.music.playback
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
@@ -15,6 +17,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM
 import androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM
 import androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM
+import androidx.media3.common.Player.REPEAT_MODE_ALL
 import androidx.media3.common.Player.REPEAT_MODE_OFF
 import androidx.media3.common.Player.STATE_ENDED
 import androidx.media3.common.Timeline
@@ -44,6 +47,7 @@ class PlayerConnection(
     val service = binder.service
     val player = service.player
     val localPlayer = service.localPlayer
+    private val handler = Handler(Looper.getMainLooper())
 
     val playbackState = MutableStateFlow(player.playbackState)
     private val playWhenReady = MutableStateFlow(player.playWhenReady)
@@ -182,6 +186,7 @@ class PlayerConnection(
     override fun onPlaybackStateChanged(state: Int) {
         playbackState.value = state
         error.value = player.playerError
+        updateCanSkipPreviousAndNext()
     }
 
     override fun onPlayWhenReadyChanged(
@@ -212,7 +217,9 @@ class PlayerConnection(
         queueTitle.value = service.queueTitle
         currentMediaItemIndex.value = player.currentMediaItemIndex
         currentWindowIndex.value = player.getCurrentQueueIndex()
-        updateCanSkipPreviousAndNext()
+        updateCanSkipPreviousAndNext(timeline)
+        handler.removeCallbacksAndMessages(null)
+        handler.postDelayed({ updateCanSkipPreviousAndNext() }, 200)
     }
 
     override fun onShuffleModeEnabledChanged(enabled: Boolean) {
@@ -234,23 +241,21 @@ class PlayerConnection(
         error.value = playbackError
     }
 
-    private fun updateCanSkipPreviousAndNext() {
-        if (!player.currentTimeline.isEmpty) {
-            val window =
-                player.currentTimeline.getWindow(player.currentMediaItemIndex, Timeline.Window())
-            canSkipPrevious.value = player.isCommandAvailable(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM) ||
-                !window.isLive ||
-                player.isCommandAvailable(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-            canSkipNext.value = window.isLive &&
-                window.isDynamic ||
-                player.isCommandAvailable(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-        } else {
+    private fun updateCanSkipPreviousAndNext(timeline: Timeline? = null) {
+        val t = timeline ?: player.currentTimeline
+        if (t.isEmpty) {
             canSkipPrevious.value = false
             canSkipNext.value = false
+            return
         }
+        val itemCount = t.windowCount
+        val index = player.currentMediaItemIndex
+        canSkipPrevious.value = itemCount > 1 || player.repeatMode != REPEAT_MODE_OFF
+        canSkipNext.value = index < itemCount - 1 || player.repeatMode == REPEAT_MODE_ALL
     }
 
     fun dispose() {
+        handler.removeCallbacksAndMessages(null)
         player.removeListener(this)
     }
 }

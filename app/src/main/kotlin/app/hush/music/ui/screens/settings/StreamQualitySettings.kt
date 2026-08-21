@@ -48,17 +48,12 @@ import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
 import app.hush.music.constants.AudioQuality
 import app.hush.music.constants.AudioQualityKey
-import app.hush.music.constants.EnableSaavnStreamingKey
 import app.hush.music.constants.ParallelSourceFetchKey
-import app.hush.music.constants.PrimaryAudioScraper
-import app.hush.music.constants.PrimaryAudioScraperKey
-import app.hush.music.constants.SaavnAudioQuality
-import app.hush.music.constants.SaavnAudioQualityKey
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.ListPreference
 import app.hush.music.ui.component.PreferenceEntry
-import app.hush.music.ui.component.SwitchPreference
 import app.hush.music.ui.component.PreferenceGroup
+import app.hush.music.ui.component.SwitchPreference
 import app.hush.music.ui.theme.HushAmbientBackground
 import app.hush.music.ui.utils.backToMain
 import app.hush.music.utils.rememberEnumPreference
@@ -72,34 +67,8 @@ fun StreamQualitySettings(
 ) {
     val (audioQuality, onAudioQualityChange) =
         rememberEnumPreference(AudioQualityKey, defaultValue = AudioQuality.AUTO)
-    val (legacySaavnEnabled, onLegacySaavnEnabledChange) =
-        rememberPreference(EnableSaavnStreamingKey, defaultValue = false)
-    val (primaryScraper, onPrimaryScraperChange) =
-        rememberEnumPreference(
-            PrimaryAudioScraperKey,
-            defaultValue = PrimaryAudioScraper.JIOSAAVN,
-        )
-    val saavnEnabled = primaryScraper == PrimaryAudioScraper.JIOSAAVN
-    var showBetaWarning by remember { mutableStateOf(false) }
-    val pendingSaavnScraper = remember { mutableStateOf<PrimaryAudioScraper?>(null) }
-    val playerConnection = LocalPlayerConnection.current
-    val applySaavnScraper: (PrimaryAudioScraper) -> Unit = { scraper ->
-        onPrimaryScraperChange(scraper)
-        onLegacySaavnEnabledChange(scraper == PrimaryAudioScraper.JIOSAAVN)
-        playerConnection?.service?.clearSaavnIncompatiblePlaybackCache()
-    }
-    val onSaavnToggle: (Boolean) -> Unit = { enabled ->
-        // This is now controlled by Primary Scraper, but kept for cache clearing
-        if (enabled) {
-            playerConnection?.service?.clearSaavnIncompatiblePlaybackCache()
-        }
-    }
-    val (saavnQuality, onSaavnQualityChange) =
-        rememberEnumPreference(SaavnAudioQualityKey, defaultValue = SaavnAudioQuality.QUALITY_320)
-    val onSaavnQualitySelected: (SaavnAudioQuality) -> Unit = { quality ->
-        onSaavnQualityChange(quality)
-        playerConnection?.service?.clearSaavnIncompatiblePlaybackCache()
-    }
+    val (parallelFetch, onParallelFetchChange) =
+        rememberPreference(ParallelSourceFetchKey, defaultValue = false)
 
     Box(modifier = Modifier.fillMaxSize()) {
         HushAmbientBackground(
@@ -124,35 +93,17 @@ fun StreamQualitySettings(
 
             PreferenceGroup(title = stringResource(R.string.audio_source)) {
                 item {
-                    ListPreference(
-                        title = { Text(stringResource(R.string.primary_audio_scraper)) },
-                        description = when (primaryScraper) {
-                            PrimaryAudioScraper.YOUTUBE -> stringResource(R.string.primary_scraper_yt_only)
-                            PrimaryAudioScraper.JIOSAAVN -> stringResource(R.string.primary_scraper_saavn_fallback)
-                        },
-                        icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
-                        selectedValue = primaryScraper,
-                        values = PrimaryAudioScraper.entries,
-                        onValueSelected = { newScraper ->
-                            if (newScraper == PrimaryAudioScraper.JIOSAAVN && primaryScraper != PrimaryAudioScraper.JIOSAAVN) {
-                                pendingSaavnScraper.value = newScraper
-                                showBetaWarning = true
-                            } else {
-                                applySaavnScraper(newScraper)
-                            }
-                        },
-                        valueText = {
-                            when (it) {
-                                PrimaryAudioScraper.YOUTUBE -> stringResource(R.string.primary_scraper_youtube)
-                                PrimaryAudioScraper.JIOSAAVN -> stringResource(R.string.primary_scraper_jiosaavn)
-                            }
-                        },
+                    Text(
+                        text = stringResource(R.string.primary_scraper_yt_only),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
 
                 item {
-                    val (parallelFetch, onParallelFetchChange) =
-                        rememberPreference(ParallelSourceFetchKey, defaultValue = false)
                     SwitchPreference(
                         title = { Text(stringResource(R.string.parallel_source_fetch)) },
                         description = stringResource(R.string.parallel_source_fetch_desc),
@@ -191,46 +142,6 @@ fun StreamQualitySettings(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            PreferenceGroup(title = stringResource(R.string.jiosaavn_quality)) {
-                if (!saavnEnabled) {
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.info),
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Text(
-                                text = "Set Primary Scraper to JioSaavn in Audio Source to enable.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                } else {
-                    item {
-                        ListPreference(
-                            title = { Text(stringResource(R.string.jiosaavn_quality)) },
-                            description = stringResource(R.string.jiosaavn_quality_desc),
-                            icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
-                            selectedValue = saavnQuality,
-                            values = SaavnAudioQuality.entries,
-                            onValueSelected = onSaavnQualitySelected,
-                            valueText = { it.toLabel() },
-                        )
-                    }
-                }
-            }
-
             Spacer(modifier = Modifier.height(SettingsDimensions.ScreenBottomPadding))
         }
 
@@ -260,18 +171,6 @@ fun StreamQualitySettings(
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
                     navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                 ),
-        )
-    }
-
-    if (showBetaWarning) {
-        SaavnBetaWarningDialog(
-            onDismiss = {
-                showBetaWarning = false
-                pendingSaavnScraper.value = null
-            },
-            onConfirm = {
-                pendingSaavnScraper.value?.let { applySaavnScraper(it) }
-            },
         )
     }
 }

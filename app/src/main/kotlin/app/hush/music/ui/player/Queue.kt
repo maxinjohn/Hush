@@ -543,7 +543,6 @@ fun Queue(
                         showCodecOnPlayer = queueShowCodecOnPlayer,
                         currentFormat = currentFormat,
                         textBackgroundColor = TextBackgroundColor,
-                        textButtonColor = textButtonColor,
                         iconButtonColor = iconButtonColor,
                         sleepTimerEnabled = sleepTimerEnabled,
                         sleepTimerTimeLeft = sleepTimerTimeLeft,

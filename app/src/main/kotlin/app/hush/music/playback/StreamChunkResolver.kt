@@ -44,5 +44,7 @@ private fun String?.requiresOpenEndedRead(): Boolean {
         normalizedMimeType == "video/webm" ||
         normalizedMimeType == "application/webm" ||
         normalizedMimeType == "audio/ogg" ||
-        normalizedMimeType == "application/ogg"
+        normalizedMimeType == "application/ogg" ||
+        normalizedMimeType == "audio/flac" ||
+        normalizedMimeType == "audio/opus"
 }

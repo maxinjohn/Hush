@@ -60,7 +60,6 @@ include(":canvas")
 include(":shazamkit")
 include(":spotifycore")
 include(":moriextractor")
-include(":jiosaavn")
 include(":waze-shim")
 
 // Use a local copy of NewPipe Extractor by uncommenting the lines below.
