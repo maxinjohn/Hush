@@ -125,8 +125,8 @@ import app.hush.music.extensions.metadata
 import app.hush.music.extensions.toMediaItem
 import app.hush.music.extensions.togglePlayPause
 import app.hush.music.innertube.models.SongItem
-import app.hush.music.innertube.models.WatchEndpoint
 import app.hush.music.models.toMediaMetadata
+import app.hush.music.playback.queues.GrowingListQueue
 import app.hush.music.playback.queues.ListQueue
 import app.hush.music.playback.queues.YouTubeQueue
 import app.hush.music.ui.component.DraggableScrollbar
@@ -940,16 +940,15 @@ fun OnlinePlaylistScreen(
                                                     playerConnection.player.togglePlayPause()
                                                 } else {
                                                     playerConnection.playQueue(
-                                                        YouTubeQueue.playlist(
-                                                            endpoint =
-                                                                song.item.second
-                                                                    .toPlaylistPlaybackEndpoint(
-                                                                        playlistId = playlist.id,
-                                                                        playlistPlayParams =
-                                                                            playlist.playEndpoint
-                                                                                ?.params,
-                                                                    ),
-                                                            preloadItem = song.item.second.toMediaMetadata(),
+                                                        GrowingListQueue(
+                                                            title = playlist.title,
+                                                            itemsProvider = {
+                                                                viewModel.playlistSongs.value.map { it.toMediaItem() }
+                                                            },
+                                                            startIndex =
+                                                                songs
+                                                                    .indexOfFirst { it.id == song.item.second.id }
+                                                                    .coerceAtLeast(0),
                                                         ),
                                                     )
                                                 }
@@ -1243,17 +1242,4 @@ fun OnlinePlaylistScreen(
                     ).align(Alignment.BottomCenter),
         )
     }
-}
-
-private fun SongItem.toPlaylistPlaybackEndpoint(
-    playlistId: String,
-    playlistPlayParams: String?,
-): WatchEndpoint {
-    val baseEndpoint = endpoint ?: WatchEndpoint(videoId = id)
-    return baseEndpoint.copy(
-        videoId = baseEndpoint.videoId ?: id,
-        playlistId = baseEndpoint.playlistId ?: playlistId,
-        playlistSetVideoId = baseEndpoint.playlistSetVideoId ?: setVideoId,
-        params = baseEndpoint.params ?: playlistPlayParams,
-    )
 }

@@ -128,6 +128,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -348,6 +350,9 @@ class MusicService :
     @Inject
     lateinit var spotiflacSessionManager: app.hush.music.spotiflac.SpotiFLACSessionManager
 
+    @Inject
+    lateinit var connectivityObserver: NetworkConnectivityObserver
+
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
     private var lastAudioFocusState = AudioManager.AUDIOFOCUS_NONE
@@ -365,8 +370,13 @@ class MusicService :
     private var pendingWazeCommands: MutableList<Intent> = mutableListOf()
     private var wazeColdStartRecoveryJob: Job? = null
     private var lastWazeMetadataUpdateTime = 0L
+    private var cachedShimPackages: List<String>? = null
+    private var cachedShimPackagesCheckedAt = 0L
     private var wazePositionJob: Job? = null
     private val wazeSnapshotSequence = AtomicLong(0L)
+    private val wazeQueueRevision = AtomicLong(0L)
+    private var wazeLikedState = false
+    private var wazeLikedMediaId: String? = null
     private var wazePauseDebounceJob: Job? = null
     private val wazePauseDebounceMs = 300L
     private var wakeLock: PowerManager.WakeLock? = null
@@ -396,9 +406,11 @@ class MusicService :
     private val binder = MusicBinder()
     private var hasBoundClients = false
     private var idleStopJob: Job? = null
+    private var urlRefreshJob: Job? = null
+    /** How often (ms) to check whether the current stream URL needs proactive refresh. */
+    private val URL_REFRESH_POLL_INTERVAL_MS = 30_000L
 
     private lateinit var connectivityManager: ConnectivityManager
-    lateinit var connectivityObserver: NetworkConnectivityObserver
     val waitingForNetworkConnection = MutableStateFlow(false)
     private val isNetworkConnected = MutableStateFlow(false)
 
@@ -517,6 +529,7 @@ var originalQueueSize: Int = 0
     @Volatile
     private var lastLoginRecoveryPrompt: Pair<String, Long>? = null
     private val playbackStreamRecoveryTracker = PlaybackStreamRecoveryTracker()
+    private val likeToggleMutex = Mutex()
     private var nextHistorySessionToken = 0L
     private var currentHistorySessionToken = 0L
     private var currentHistoryMediaId: String? = null
@@ -1149,7 +1162,6 @@ var originalQueueSize: Int = 0
             stopSelf()
             return
         }
-        connectivityObserver = NetworkConnectivityObserver(this)
 
         scope.launch {
             connectivityObserver.networkStatus.collect { isConnected ->
@@ -1288,22 +1300,13 @@ var originalQueueSize: Int = 0
             }
 
         dataStore.data
-            .map { it[PrimaryAudioScraperKey] }
+            .map { it[PrimaryAudioScraperKey] ?: PrimaryAudioScraper.YOUTUBE.name }
             .distinctUntilChanged()
             .collectLatest(scope) { scraper ->
+                val wasYouTube = youtubeStreamingEnabled
                 val isYouTube = scraper == PrimaryAudioScraper.YOUTUBE.name
                 youtubeStreamingEnabled = isYouTube
-                if (isYouTube && !youtubeStreamingEnabled) {
-                    clearIncompatiblePlaybackCache()
-                }
-            }
-
-        dataStore.data
-            .map { it[PrimaryAudioScraperKey] }
-            .distinctUntilChanged()
-            .collectLatest(scope) { scraper ->
-                val isYouTube = scraper == PrimaryAudioScraper.YOUTUBE.name
-                if (isYouTube) {
+                if (isYouTube && !wasYouTube) {
                     clearIncompatiblePlaybackCache()
                     playbackUrlCache.clear()
                 }
@@ -1650,9 +1653,27 @@ var originalQueueSize: Int = 0
                 relativeIndex,
                 initialStatus.position,
             )
-            player.prepare()
             player.playWhenReady = false
             currentMediaMetadata.value = player.currentMetadata
+
+            val restoredMediaId = player.currentMediaItem?.mediaId?.takeIf {
+                it.isNotBlank() && !it.isLocalMediaId()
+            }
+            if (restoredMediaId == null) {
+                player.prepare()
+            } else {
+                scope.launch(SilentHandler) {
+                    warmPlaybackUrl(restoredMediaId, maxWaitMs = STARTUP_PREFETCH_WAIT_MS)
+                    withContext(Dispatchers.Main.immediate) {
+                        if (
+                            player.currentMediaItem?.mediaId == restoredMediaId &&
+                            player.playbackState == Player.STATE_IDLE
+                        ) {
+                            player.prepare()
+                        }
+                    }
+                }
+            }
             updateNotification()
 
             if (items.size > initialChunk.size) {
@@ -2595,7 +2616,7 @@ var originalQueueSize: Int = 0
     private var lastPublishedPlaybackClient: Pair<String, String>? = null
 
     @Volatile
-    private var youtubeStreamingEnabled = false
+    private var youtubeStreamingEnabled = true
     @Volatile
     private var spotiflacEnabled = false
     @Volatile
@@ -2644,7 +2665,10 @@ var originalQueueSize: Int = 0
         }
     }
 
-    private suspend fun resolveAndCachePlaybackUrl(mediaId: String): AuthScopedCacheValue {
+    private suspend fun resolveAndCachePlaybackUrl(
+        mediaId: String,
+        preferredClientOverride: PlayerStreamClient? = null,
+    ): AuthScopedCacheValue {
         cachedPlaybackUrl(mediaId)?.let { return it }
 
         val lowDataModeActive = isLowDataModeActive()
@@ -2655,7 +2679,8 @@ var originalQueueSize: Int = 0
                 } else {
                     null
                 }
-        val hiResLosslessSelected = activeStreamClient == PlayerStreamClient.HI_RES_LOSSLESS
+        val effectiveStreamClient = preferredClientOverride ?: activeStreamClient
+        val hiResLosslessSelected = effectiveStreamClient == PlayerStreamClient.HI_RES_LOSSLESS
         val parallelFetch = isParallelSourceFetchEnabled()
 
         val spotiflacAvailable = spotiflacEnabled && (!spotiflacDevGate || devMode)
@@ -2670,31 +2695,52 @@ var originalQueueSize: Int = 0
         if (spotiflacFirst) {
             playbackData = resolveSpotiFLACWithFallback(
                 mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch,
-                hiResLosslessSelected,
+                hiResLosslessSelected, effectiveStreamClient,
             )
         } else if (youtubeFirst) {
             playbackData = resolveYouTubeWithSpotiFLACFallback(
                 mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch,
-                hiResLosslessSelected, spotiflacAvailable,
+                hiResLosslessSelected, spotiflacAvailable, effectiveStreamClient,
             )
         } else {
             playbackData = resolveSpotiFLACWithFallback(
                 mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch,
-                hiResLosslessSelected,
+                hiResLosslessSelected, effectiveStreamClient,
             )
         }
 
         applyResolvedPlaybackData(mediaId, playbackData)
+
+        // For YouTube streams, derive a source label from the ACTUAL stream client
+        // that produced the URL (not the preferred one, which may have fallen back).
+        val resolvedLabel =
+            if (playbackData.isYouTubeStream) {
+                val clientName = playbackData.playbackClientLabel
+                val friendly =
+                    when (clientName?.uppercase()) {
+                        "WEB_REMIX" -> "YouTube • Web"
+                        "ANDROID_VR" -> "YouTube • VR"
+                        "ANDROID_MUSIC" -> "YouTube • YTMusic"
+                        "IOS" -> "YouTube • iOS"
+                        "TVHTML5", "TVHTML5_SIMPLIFIED" -> "YouTube • TV"
+                        "ARCHIVETUNE_EXTRACTOR" -> "YouTube • Extractor"
+                        "HI_RES_LOSSLESS" -> "YouTube • Hi-Res"
+                        "VISIONOS" -> "YouTube • Vision"
+                        else -> null
+                    }
+                friendly ?: clientName?.takeIf { it.isNotBlank() }
+            } else null
 
         val cacheValue =
                 AuthScopedCacheValue(
                     url = playbackData.streamUrl,
                     expiresAtMs = System.currentTimeMillis() + (playbackData.streamExpiresInSeconds * 1000L),
                     authFingerprint = playbackData.authFingerprint,
-                    playbackClientLabel = playbackData.playbackClientLabel,
+                    playbackClientLabel = resolvedLabel,
                     isYouTubeStream = playbackData.isYouTubeStream,
                 )
         playbackUrlCache[mediaId] = cacheValue
+        publishPlaybackClientLabel(mediaId, resolvedLabel)
         return cacheValue
     }
 
@@ -2704,8 +2750,12 @@ var originalQueueSize: Int = 0
         networkMeteredHint: Boolean?,
         parallelFetch: Boolean,
         hiResLosslessSelected: Boolean,
+        preferredStreamClient: PlayerStreamClient = activeStreamClient,
     ): YTPlayerUtils.PlaybackData {
-        val spotiflacResult = resolveSpotiFLACTrack()
+        val spotiflacResult =
+            withTimeoutOrNull(SOURCE_FALLBACK_TIMEOUT_MS) {
+                resolveSpotiFLACTrack()
+            }
 
         if (spotiflacResult != null) return spotiflacResult
 
@@ -2715,6 +2765,7 @@ var originalQueueSize: Int = 0
 
         return resolveYouTubePlayback(
             mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch, hiResLosslessSelected,
+            preferredStreamClient,
         )
     }
 
@@ -2725,10 +2776,12 @@ var originalQueueSize: Int = 0
         parallelFetch: Boolean,
         hiResLosslessSelected: Boolean,
         spotiflacAvailable: Boolean,
+        preferredStreamClient: PlayerStreamClient = activeStreamClient,
     ): YTPlayerUtils.PlaybackData {
         val ytError = runCatching {
             val result = resolveYouTubePlayback(
                 mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch, hiResLosslessSelected,
+                preferredStreamClient,
             )
             return result
         }.exceptionOrNull()
@@ -2737,7 +2790,10 @@ var originalQueueSize: Int = 0
             throw ytError ?: java.io.IOException("YouTube playback failed and SpotiFLAC is not available")
         }
 
-        val spotiflacResult = resolveSpotiFLACTrack()
+        val spotiflacResult =
+            withTimeoutOrNull(SOURCE_FALLBACK_TIMEOUT_MS) {
+                resolveSpotiFLACTrack()
+            }
         if (spotiflacResult != null) return spotiflacResult
 
         throw ytError ?: java.io.IOException("Both YouTube and SpotiFLAC playback failed")
@@ -2749,7 +2805,11 @@ var originalQueueSize: Int = 0
             spotiflacSessionManager.forceRestoreSession()
         }
         if (!spotiflacSessionManager.hasActiveSession()) {
-            Timber.tag("MusicService").w("SpotiFLAC: still no active session after restore attempt")
+            Timber.tag("MusicService").w("SpotiFLAC: still no active session after restore attempt — triggering background bootstrap")
+            // Re-bootstrap in background so the next track can use SpotiFLAC
+            scope.launch(Dispatchers.IO) {
+                spotiflacSessionManager.bootstrap()
+            }
             return null
         }
 
@@ -2812,6 +2872,7 @@ var originalQueueSize: Int = 0
         networkMeteredHint: Boolean?,
         parallelFetch: Boolean,
         hiResLosslessSelected: Boolean,
+        preferredStreamClient: PlayerStreamClient = activeStreamClient,
     ): YTPlayerUtils.PlaybackData {
         return if (hiResLosslessSelected) {
             resolveHiResLosslessPlayback(mediaId).recoverCatching { youtubeFailure ->
@@ -2823,7 +2884,7 @@ var originalQueueSize: Int = 0
                         videoId = mediaId,
                         audioQuality = effectiveAudioQuality,
                         connectivityManager = connectivityManager,
-                        preferredStreamClient = PlayerStreamClient.WEB_REMIX,
+                        preferredStreamClient = preferredStreamClient,
                         networkMetered = networkMeteredHint,
                         context = this@MusicService,
                         parallelFetch = parallelFetch,
@@ -2836,7 +2897,7 @@ var originalQueueSize: Int = 0
                     videoId = mediaId,
                     audioQuality = effectiveAudioQuality,
                     connectivityManager = connectivityManager,
-                    preferredStreamClient = activeStreamClient,
+                    preferredStreamClient = preferredStreamClient,
                     networkMetered = networkMeteredHint,
                     context = this@MusicService,
                     parallelFetch = parallelFetch,
@@ -2963,7 +3024,73 @@ var originalQueueSize: Int = 0
         playbackUrlCache.clear()
         extractorPlaybackUrlCache.clear()
         cancelPlaybackUrlPrefetches()
+        cancelUrlRefresh()
         lastPublishedPlaybackClient = null
+    }
+
+    /**
+     * Proactively refresh the currently-playing stream URL before it expires.
+     * Runs a periodic check every [URL_REFRESH_POLL_INTERVAL_MS] and, when the
+     * cached URL is within [YTPlayerUtils.STREAM_URL_EXPIRY_SAFETY_MS] of expiry,
+     * fetches a fresh URL in the background so the player never hits an HTTP 403/410.
+     */
+    private fun scheduleUrlRefresh() {
+        cancelUrlRefresh()
+        urlRefreshJob = scope.launch {
+            while (isActive) {
+                delay(URL_REFRESH_POLL_INTERVAL_MS)
+                try {
+                    val mediaId = withContext(Dispatchers.Main) {
+                        player.currentMediaItem?.mediaId
+                    } ?: continue
+                    if (mediaId.isBlank() || mediaId.isLocalMediaId()) continue
+
+                    val cached = playbackUrlCache[mediaId] ?: continue
+                    val authFingerprint = playbackAuthFingerprint()
+                    val remainingMs = cached.expiresAtMs - System.currentTimeMillis()
+
+                    if (cached.authFingerprint != authFingerprint) {
+                        // Auth changed — invalidate so next resolve picks up the new context.
+                        playbackUrlCache.remove(mediaId)
+                        continue
+                    }
+
+                    if (remainingMs > YTPlayerUtils.STREAM_URL_EXPIRY_SAFETY_MS) {
+                        continue // URL still valid
+                    }
+
+                    Timber.tag(TAG).i(
+                        "Proactive URL refresh for %s — %.0fs remaining",
+                        mediaId,
+                        remainingMs / 1000.0,
+                    )
+
+                    // Invalidate so resolveAndCachePlaybackUrl fetches a fresh URL.
+                    playbackUrlCache.remove(mediaId)
+                    extractorPlaybackUrlCache.remove(mediaId)
+                    YTPlayerUtils.invalidateCachedStreamUrls(mediaId)
+
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            playbackUrlPrefetchSemaphore.withPermit {
+                                resolveAndCachePlaybackUrl(mediaId)
+                            }
+                        }.onFailure { e ->
+                            Timber.tag(TAG).w(e, "Proactive URL refresh failed for %s", mediaId)
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.tag(TAG).w(e, "URL refresh poll error")
+                }
+            }
+        }
+    }
+
+    private fun cancelUrlRefresh() {
+        urlRefreshJob?.cancel()
+        urlRefreshJob = null
     }
 
     private fun prefetchNextTracks() {
@@ -3327,8 +3454,16 @@ var originalQueueSize: Int = 0
          * To prevent a "runaway diesel engine" scenario, force the user to take action after
          * too many errors come up too quickly. Pause to show player "stopped" state
          */
-        consecutivePlaybackErr += 2
+        consecutivePlaybackErr += 1
         val nextWindowIndex = player.nextMediaItemIndex
+
+        android.util.Log.w(TAG, "skipOnError: consecutive=$consecutivePlaybackErr max=$MAX_CONSECUTIVE_ERR next=$nextWindowIndex mediaId=${player.currentMediaItem?.mediaId?.take(30)} pos=${player.currentPosition}ms")
+        Timber.tag(TAG).w(
+            "skipOnError: consecutivePlaybackErr=%d (max=%d), nextIndex=%d",
+            consecutivePlaybackErr,
+            MAX_CONSECUTIVE_ERR,
+            nextWindowIndex,
+        )
 
         if (consecutivePlaybackErr <= MAX_CONSECUTIVE_ERR && nextWindowIndex != C.INDEX_UNSET) {
             player.seekTo(nextWindowIndex, C.TIME_UNSET)
@@ -3337,6 +3472,7 @@ var originalQueueSize: Int = 0
             return
         }
 
+        Timber.tag(TAG).w("skipOnError: pausing after %d consecutive errors", consecutivePlaybackErr)
         player.pause()
         consecutivePlaybackErr = 0
     }
@@ -3358,6 +3494,20 @@ var originalQueueSize: Int = 0
             throwable = throwable.cause
         }
         return null
+    }
+
+    /** Check if the error is a retryable HTTP error by inspecting cause messages. */
+    private fun isRetryableHttpError(error: PlaybackException): Boolean {
+        var throwable: Throwable? = error.cause
+        while (throwable != null) {
+            val msg = throwable.message ?: ""
+            if (msg.startsWith("Response code:", ignoreCase = true)) {
+                val code = msg.substringAfter("Response code:").trim().substringBefore(" ").toIntOrNull()
+                if (code != null && code in RETRYABLE_STREAM_RESPONSE_CODES) return true
+            }
+            throwable = throwable.cause
+        }
+        return false
     }
 
     private fun isRetryableRemoteParserFailure(error: PlaybackException): Boolean {
@@ -3489,27 +3639,34 @@ var originalQueueSize: Int = 0
             YTPlayerUtils.markStreamClientFailed(mediaId, requestProfile.clientKey, responseException.responseCode)
         }
 
-        if (!playbackStreamRecoveryTracker.registerRetryAttempt(mediaId)) {
+        // Always allow retry for expired URLs — the fix is just fetching a fresh URL.
+        // Only block retries for non-expired failures (bot detection, rate-limit, etc.).
+        if (!failedExpiredUrl && !playbackStreamRecoveryTracker.registerRetryAttempt(mediaId)) {
+            Timber.tag(TAG).w(
+                "Retry budget exhausted for %s (HTTP %d, expired=%b)",
+                mediaId,
+                responseException.responseCode,
+                failedExpiredUrl,
+            )
             return false
         }
 
-        Timber.tag("MusicService").i(
-            "Retrying playback for %s after stream HTTP %d from %s failed",
+        Timber.tag(TAG).i(
+            "Retrying playback for %s after stream HTTP %d from %s (expired=%b)",
             mediaId,
             responseException.responseCode,
             requestProfile.variantLabel,
+            failedExpiredUrl,
         )
         player.prepare()
         return true
     }
 
     private fun currentPlaybackSongLiked(): Boolean {
-        val mediaId =
-            currentMediaMetadata.value?.id?.takeIf { it.isNotBlank() }
-                ?: player.currentMediaItem?.mediaId?.takeIf { it.isNotBlank() }
-                ?: return currentSong.value?.song?.liked == true
-
-        return database.getSongByIdBlocking(mediaId)?.song?.liked == true
+        // Player callbacks and notification updates run on the main thread. Never
+        // use the blocking Room accessor here; it crashes the app as soon as a
+        // queue item transitions on recent Android versions.
+        return currentSong.value?.song?.liked == true
     }
 
     private fun updateNotification() {
@@ -3714,11 +3871,27 @@ var originalQueueSize: Int = 0
             player.setMediaItem(mediaItemForUi.toMediaItem())
         }
         val preloadMediaId = mediaItemForUi?.id?.takeIf { it.isNotBlank() && !it.isLocalMediaId() }
-        player.prepare()
-        player.playWhenReady = playWhenReady
-        if (preloadMediaId != null) {
+        player.playWhenReady = false
+        if (preloadMediaId == null) {
+            // Local media and already-resolved items should start without waiting on IO.
+            player.prepare()
+            player.playWhenReady = playWhenReady
+        } else {
+            // Resolve the first remote URL before prepare so the data-source callback does not
+            // perform a cold network lookup on the playback path. The timeout is bounded; a
+            // failed prefetch falls through to the normal resolver when prepare() runs.
             scope.launch(SilentHandler) {
-                warmPlaybackUrl(preloadMediaId, maxWaitMs = 0L)
+                warmPlaybackUrl(preloadMediaId, maxWaitMs = STARTUP_PREFETCH_WAIT_MS)
+                withContext(Dispatchers.Main.immediate) {
+                    if (
+                        queueLoadGeneration == playQueueGeneration.get() &&
+                        player.currentMediaItem?.mediaId == preloadMediaId &&
+                        player.playbackState == Player.STATE_IDLE
+                    ) {
+                        player.prepare()
+                        player.playWhenReady = playWhenReady
+                    }
+                }
             }
         }
         scope.launch(SilentHandler) {
@@ -4070,6 +4243,7 @@ var originalQueueSize: Int = 0
         player.clearMediaItems()
         abandonAudioFocus()
         closeAudioEffectSession()
+        cancelUrlRefresh()
         consecutivePlaybackErr = 0
         if (clearPersistentState) {
             clearPersistedQueueFiles()
@@ -5577,6 +5751,7 @@ var originalQueueSize: Int = 0
         }.getOrNull()
 
     private fun toggleLibrary() {
+        ensureScopesActive()
         database.query {
             currentSong.value?.let {
                 update(it.song.toggleLibrary())
@@ -5585,43 +5760,66 @@ var originalQueueSize: Int = 0
     }
 
     fun toggleLike() {
-        val metadata = currentMediaMetadata.value ?: return
-        val mediaId = metadata.id.trim()
-        if (mediaId.isBlank()) return
+        ensureScopesActive()
+        val metadata = currentMediaMetadata.value ?: player.currentMediaItem?.metadata ?: return
+        val mediaId =
+            metadata.id.trim().ifBlank {
+                player.currentMediaItem?.mediaId?.trim().orEmpty()
+            }
+        if (mediaId.isBlank()) {
+            android.util.Log.w(TAG, "toggleLike ignored: current item has no media id")
+            return
+        }
 
         Timber.tag(TAG).d("toggleLike: mediaId=$mediaId")
         ioScope.launch {
             val updatedSong =
-                database.withTransaction {
-                    val existing = getSongById(mediaId)?.song
-                    val baseSong =
-                        existing
-                            ?: run {
-                                database.insert(metadata.copy(duration = metadata.duration.takeIf { it > 0 } ?: -1))
-                                getSongById(mediaId)?.song
-                            }
-                            ?: return@withTransaction null
+                likeToggleMutex.withLock {
+                    database.withTransaction {
+                        val existing = getSongById(mediaId)?.song
+                        val baseSong =
+                            existing
+                                ?: run {
+                                    database.insert(
+                                        metadata.copy(
+                                            duration = metadata.duration.takeIf { it > 0 } ?: -1,
+                                        ),
+                                    )
+                                    getSongById(mediaId)?.song
+                                }
+                                ?: return@withTransaction null
 
-                    val toggled = baseSong.toggleLike()
-                    Timber.tag(TAG).d(
-                        "toggleLike: ${baseSong.id} liked=${baseSong.liked} -> toggled=${toggled.liked}",
-                    )
-                    update(toggled)
-                    toggled
+                        val toggled = baseSong.toggleLike()
+                        android.util.Log.w(
+                            TAG,
+                            "toggleLike: mediaId=$mediaId liked=${baseSong.liked} -> toggled=${toggled.liked}",
+                        )
+                        update(toggled)
+                        toggled
+                    }
                 } ?: run {
-                    Timber.tag(TAG).w("toggleLike: failed to resolve song for mediaId=$mediaId")
+                    android.util.Log.w(TAG, "toggleLike failed: no database song for mediaId=$mediaId")
                     return@launch
                 }
 
             withContext(Dispatchers.Main.immediate) {
+                // Keep notification/Waze state correct immediately; Room will update the
+                // Compose Flow used by the player controls as the transaction is observed.
+                currentMediaMetadata.value = currentMediaMetadata.value?.copy(liked = updatedSong.liked)
+                wazeLikedState = updatedSong.liked
+                wazeLikedMediaId = updatedSong.id
                 updateNotification()
+                publishWazePlaybackSnapshot(force = true)
             }
 
-            Timber.tag(TAG).d("toggleLike: calling syncUtils.likeSong for ${updatedSong.id} liked=${updatedSong.liked}")
+            Timber.tag(TAG).d(
+                "toggleLike: calling syncUtils.likeSong for ${updatedSong.id} liked=${updatedSong.liked}",
+            )
             syncUtils.likeSong(updatedSong)
 
             if (!mediaId.isLocalMediaId()) {
-                ioScope.launch { recoverSong(mediaId) }
+                runCatching { recoverSong(mediaId) }
+                    .onFailure { error -> Timber.tag(TAG).w(error, "toggleLike metadata recovery failed for $mediaId") }
             }
 
             val autoDownloadOnLike = dataStore.get(AutoDownloadOnLikeKey, false)
@@ -5646,6 +5844,7 @@ var originalQueueSize: Int = 0
         val metadata = currentMediaMetadata.value ?: return
         val mediaId = metadata.id.trim()
         if (mediaId.isBlank()) return
+        ensureScopesActive()
         ioScope.launch {
             val song = database.getSongById(mediaId)?.song ?: run {
                 database.insert(metadata.copy(duration = metadata.duration.takeIf { it > 0 } ?: -1))
@@ -6262,6 +6461,14 @@ var originalQueueSize: Int = 0
         reason: Int,
     ) {
         super.onMediaItemTransition(mediaItem, reason)
+        val reasonLabel = when (reason) {
+            Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> "AUTO"
+            Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> "PLAYLIST_CHANGED"
+            Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> "REPEAT"
+            Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> "SEEK"
+            else -> "UNKNOWN($reason)"
+        }
+        android.util.Log.w(TAG, "onMediaItemTransition: id=${mediaItem?.mediaId?.take(30)}, reason=$reasonLabel, pos=${player.currentPosition}ms, dur=${mediaItem?.mediaMetadata?.durationMs}ms")
 
         if (sleepTimer?.pauseWhenSongEnd == true) {
             pauseFromSleepTimer()
@@ -6318,7 +6525,25 @@ var originalQueueSize: Int = 0
 
         val timelineEmpty = player.currentTimeline.isEmpty || player.mediaItemCount == 0 || player.currentMediaItem == null
         currentMediaMetadata.value = if (timelineEmpty) null else (mediaItem?.metadata ?: player.currentMetadata)
+        wazeLikedMediaId = currentMediaMetadata.value?.id
+        wazeLikedState = if (timelineEmpty) false else currentPlaybackSongLiked()
         publishWazePlaybackSnapshot(force = true)
+
+        // currentSong is a database-backed StateFlow and may lag the Media3
+        // transition by one emission. Refresh Waze's like state off the main
+        // thread, then publish only if this track is still current.
+        val transitionedMediaId = currentMediaMetadata.value?.id?.takeIf { it.isNotBlank() }
+        if (transitionedMediaId != null) {
+            scope.launch(Dispatchers.IO) {
+                val liked = database.song(transitionedMediaId).first()?.song?.liked == true
+                withContext(Dispatchers.Main.immediate) {
+                    if (wazeLikedMediaId == transitionedMediaId) {
+                        wazeLikedState = liked
+                        publishWazePlaybackSnapshot(force = true)
+                    }
+                }
+            }
+        }
 
         mediaItem?.mediaId?.takeIf { it.isNotBlank() && !it.isLocalMediaId() }?.let { mediaId ->
             cachedPlaybackUrl(mediaId)?.playbackClientLabel?.let { label ->
@@ -6368,7 +6593,23 @@ var originalQueueSize: Int = 0
                     currentQueue === queue &&
                     player.playbackState != STATE_IDLE
                 ) {
-                    player.addMediaItems(mediaItems.drop(1))
+                    // Some queues (e.g. YouTube continuation pages) repeat the current item
+                    // as the first entry of the next page; drop it only when it actually
+                    // duplicates the last item already queued, so growing local lists keep
+                    // every real song.
+                    val lastQueuedMediaId =
+                        if (player.mediaItemCount > 0) {
+                            player.getMediaItemAt(player.mediaItemCount - 1).mediaId
+                        } else {
+                            null
+                        }
+                    val itemsToAdd =
+                        if (mediaItems.firstOrNull()?.mediaId == lastQueuedMediaId) {
+                            mediaItems.drop(1)
+                        } else {
+                            mediaItems
+                        }
+                    player.addMediaItems(itemsToAdd)
                 }
             }
         }
@@ -6629,33 +6870,41 @@ var originalQueueSize: Int = 0
         val queueBundles: List<Bundle> = emptyList(),
         val queueRevision: Long = -1L,
         val queueTitle: String = "",
+        val liked: Boolean = false,
     )
 
     internal fun publishWazePlaybackSnapshot(
         force: Boolean = false,
     ) {
         if (!app.hush.music.BuildConfig.WAZE_SUPPORTED) return
-        val shimPackages = mutableListOf<String>()
-        for (app in WazeTargetApp.entries) {
-            try {
-                val appInfo = packageManager.getApplicationInfo(
-                    app.packageName,
-                    PackageManager.GET_META_DATA,
-                )
-                val isCurrentShim = appInfo.metaData?.getBoolean("app.hush.music.waze.SHIM", false) == true
-                val isLegacyShim = appInfo.loadLabel(packageManager).toString() == when (app) {
-                    WazeTargetApp.SPOTIFY -> "Hush (Spotify)"
-                    WazeTargetApp.YOUTUBE_MUSIC -> "Hush (YouTube Music)"
-                    WazeTargetApp.DEEZER -> "Hush (Deezer)"
-                }
-                if (isCurrentShim || isLegacyShim) {
-                    shimPackages.add(app.packageName)
-                }
-            } catch (_: PackageManager.NameNotFoundException) {}
-        }
-        if (shimPackages.isEmpty()) return
-
         val now = SystemClock.elapsedRealtime()
+        val shimPackages =
+            cachedShimPackages
+                ?.takeIf { now - cachedShimPackagesCheckedAt < SHIM_PACKAGE_CACHE_TTL_MS }
+                ?: run {
+                    val detected = mutableListOf<String>()
+                    for (target in WazeTargetApp.entries) {
+                        try {
+                            val appInfo = packageManager.getApplicationInfo(
+                                target.packageName,
+                                PackageManager.GET_META_DATA,
+                            )
+                            val isCurrentShim = appInfo.metaData?.getBoolean("app.hush.music.waze.SHIM", false) == true
+                            val isLegacyShim = appInfo.loadLabel(packageManager).toString() == when (target) {
+                                WazeTargetApp.SPOTIFY -> "Hush (Spotify)"
+                                WazeTargetApp.YOUTUBE_MUSIC -> "Hush (YouTube Music)"
+                                WazeTargetApp.DEEZER -> "Hush (Deezer)"
+                            }
+                            if (isCurrentShim || isLegacyShim) {
+                                detected.add(target.packageName)
+                            }
+                        } catch (_: PackageManager.NameNotFoundException) {}
+                    }
+                    cachedShimPackages = detected
+                    cachedShimPackagesCheckedAt = now
+                    detected
+                }
+        if (shimPackages.isEmpty()) return
         if (!force && now - lastWazeMetadataUpdateTime < 200) return
         lastWazeMetadataUpdateTime = now
 
@@ -6673,9 +6922,8 @@ var originalQueueSize: Int = 0
         // Build queue bundles for Waze
         val queueBundles = mutableListOf<Bundle>()
         val queueTitle = "Hush Queue"
-        var queueRevision = -1L
+        val queueRevision = wazeQueueRevision.get()
         if (player.mediaItemCount > 0) {
-            queueRevision = (player.mediaItemCount * 1000L) + player.currentMediaItemIndex.toLong()
             for (i in 0 until player.mediaItemCount) {
                 val item = player.getMediaItemAt(i)
                 val mediaMeta = item.mediaMetadata
@@ -6705,6 +6953,11 @@ var originalQueueSize: Int = 0
             playbackSpeed = player.playbackParameters.speed,
             activeQueueItemId = player.currentMediaItemIndex.toLong(),
             sequenceNumber = wazeSnapshotSequence.incrementAndGet(),
+            liked = if (wazeLikedMediaId == player.currentMediaItem?.mediaId) {
+                wazeLikedState
+            } else {
+                currentSong.value?.song?.liked ?: false
+            },
             timestampMs = now,
             queueBundles = queueBundles,
             queueRevision = queueRevision,
@@ -6726,6 +6979,7 @@ var originalQueueSize: Int = 0
                     putExtra("playback_speed", snapshot.playbackSpeed)
                     putExtra("track_id", snapshot.trackId)
                     putExtra("queue_item_id", snapshot.activeQueueItemId)
+                    putExtra("liked", snapshot.liked)
                     putExtra("sequence_number", snapshot.sequenceNumber)
                     putExtra("timestamp_elapsed_realtime", snapshot.timestampMs)
                     putExtra("state", resolveWazePlaybackState(snapshot))
@@ -6803,8 +7057,12 @@ var originalQueueSize: Int = 0
         } else if (queueRestoreCompleted.value) {
             wazeColdStartRecovery(intent)
         } else {
-            pendingWazeCommands.add(intent)
-            Timber.tag(TAG).d("Deferred Waze command: ${intent.getStringExtra("command")} (queue size: ${pendingWazeCommands.size})")
+            if (pendingWazeCommands.size < MAX_PENDING_WAZE_COMMANDS) {
+                pendingWazeCommands.add(intent)
+                Timber.tag(TAG).d("Deferred Waze command: ${intent.getStringExtra("command")} (queue size: ${pendingWazeCommands.size})")
+            } else {
+                Timber.tag(TAG).w("Dropping Waze command: ${intent.getStringExtra("command")} (queue full)")
+            }
         }
     }
 
@@ -6941,12 +7199,26 @@ var originalQueueSize: Int = 0
         if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
             playbackStreamRecoveryTracker.onMediaItemChanged(currentMediaId)
         }
+        if (events.contains(Player.EVENT_TIMELINE_CHANGED)) {
+            wazeQueueRevision.incrementAndGet()
+        }
         if (
             (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) && player.playbackState == Player.STATE_READY) ||
             (events.contains(Player.EVENT_IS_PLAYING_CHANGED) && player.isPlaying)
         ) {
             playbackStreamRecoveryTracker.onPlaybackRecovered(currentMediaId)
+            if (consecutivePlaybackErr > 0) {
+                Timber.tag(TAG).d("Playback recovered — resetting consecutivePlaybackErr (was %d)", consecutivePlaybackErr)
+                consecutivePlaybackErr = 0
+            }
+            if (player.isPlaying && urlRefreshJob?.isActive != true) {
+                scheduleUrlRefresh()
+            }
             ensureAudiblePlaybackVolume("player_event")
+        }
+        // Stop proactive URL refresh when playback pauses or stops.
+        if (events.contains(Player.EVENT_IS_PLAYING_CHANGED) && !player.isPlaying) {
+            cancelUrlRefresh()
         }
         if (events.containsAny(
                 Player.EVENT_PLAYBACK_STATE_CHANGED,
@@ -7173,6 +7445,12 @@ var originalQueueSize: Int = 0
     }
 
     override fun onPlayerError(error: PlaybackException) {
+        // The OPPO/ColorOS battery killer cancels the service coroutine scope while the
+        // service stays alive. Every recovery path below launches on `scope`/`ioScope`;
+        // if the scope is dead those launches silently no-op and the player sits in
+        // ERROR forever (the mid-song skip). Resurrect the scope first.
+        ensureScopesActive()
+        android.util.Log.w(TAG, "onPlayerError: code=${error.errorCode}, msg=${error.message}, cause=${error.cause?.message}")
         super.onPlayerError(error)
         publishWazePlaybackSnapshot(force = true)
 
@@ -7199,8 +7477,83 @@ var originalQueueSize: Int = 0
             (error.cause?.cause is PlaybackException) &&
                 (error.cause?.cause as PlaybackException).errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
 
+        // Detect any IO-level error (connection reset, socket timeout, etc.)
+        // which commonly occurs after OPPO/OnePlus battery optimizer freezes/unfreezes the process.
+        val isTransientIoError =
+            !isLocalMedia && (
+                error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+            )
+
         if (!isLocalMedia && !isFullyCachedMedia && (!isNetworkConnected.value || isConnectionError)) {
             waitOnNetworkError()
+            return
+        }
+
+        // For transient IO errors on streaming media, always retry with a fresh URL.
+        // This is the most common cause of mid-playback skips: YouTube stream URLs
+        // expire after ~2 minutes and ExoPlayer gets HTTP 403/410.
+        android.util.Log.w(TAG, "onPlayerError: isTransientIoError=$isTransientIoError, local=$isLocalMedia, fullyCached=$isFullyCachedMedia, code=${error.errorCode}")
+        if (isTransientIoError && playbackStreamRecoveryTracker.registerRetryAttempt(currentMediaId)) {
+            val retryNumber = playbackStreamRecoveryTracker.retryCountFor(currentMediaId)
+            android.util.Log.w(TAG, "Transient IO error (code=${error.errorCode}) for $currentMediaId — retrying with fresh URL (attempt $retryNumber)")
+            Timber.tag(TAG).w(
+                "Transient IO error (code=%d) for %s — retrying with fresh URL (attempt %d)",
+                error.errorCode,
+                currentMediaId,
+                retryNumber,
+            )
+            val shouldResetAuth = retryNumber >= 2
+            // Rotate the stream client on retry: YouTube's CDN escalates bot detection
+            // against the client that served the revoked URL, so re-resolving with the
+            // same client returns another URL that dies in seconds. Try a different
+            // client on each retry so the request genuinely differs.
+            val rotatedClient =
+                when (retryNumber) {
+                    2 -> PlayerStreamClient.ANDROID_VR
+                    3 -> PlayerStreamClient.TVHTML5
+                    4 -> PlayerStreamClient.IOS
+                    else -> activeStreamClient
+                }
+            android.util.Log.w(TAG, "Transient IO retry $retryNumber for $currentMediaId using client $rotatedClient")
+            scope.launch {
+                // Clear all cached URLs so the next resolve gets a fresh one
+                playbackUrlCache.remove(currentMediaId)
+                extractorPlaybackUrlCache.remove(currentMediaId)
+                YTPlayerUtils.invalidateCachedStreamUrls(currentMediaId)
+                // Stale partial spans from the expired URL poison the re-prepare because
+                // the player cache is keyed by mediaId. Purge them so the fresh URL is
+                // used from position 0 of the re-resolved stream.
+                runCatching { playerCache.removeResource(currentMediaId) }
+                // If the same client context keeps returning 403, drop the stale logged-in
+                // playback context (keep the account cookie) so the next resolve changes
+                // request state instead of replaying the exact same rejected session.
+                if (shouldResetAuth) {
+                    withContext(Dispatchers.IO) {
+                        runCatching { YTPlayerUtils.recoverFromBadStreamPlayerResponse(currentMediaId) }
+                            .onFailure {
+                                Timber.tag(TAG).w(
+                                    it,
+                                    "Failed to reset playback auth context for %s",
+                                    currentMediaId,
+                                )
+                            }
+                    }
+                }
+                // Wait briefly for network to stabilize, then re-resolve on IO thread
+                delay(500L)
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        resolveAndCachePlaybackUrl(currentMediaId, preferredClientOverride = rotatedClient)
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    if (player.currentMediaItem?.mediaId == currentMediaId) {
+                        player.prepare()
+                    }
+                }
+            }
             return
         }
 
@@ -7315,6 +7668,29 @@ var originalQueueSize: Int = 0
                     error.errorCode,
                 )
                 player.prepare()
+                return
+            }
+        }
+
+        // Catch HTTP 403/404/410/416 errors that Media3 wraps in generic IOExceptions.
+        // This is the most common mid-playback skip cause.
+        if (!isLocalMedia && isRetryableHttpError(error)) {
+            android.util.Log.w(TAG, "Retryable HTTP error for $currentMediaId — refreshing URL and retrying")
+            playbackUrlCache.remove(currentMediaId)
+            extractorPlaybackUrlCache.remove(currentMediaId)
+            YTPlayerUtils.invalidateCachedStreamUrls(currentMediaId)
+            if (playbackStreamRecoveryTracker.registerRetryAttempt(currentMediaId)) {
+                scope.launch {
+                    delay(500L)
+                    withContext(Dispatchers.IO) {
+                        runCatching { resolveAndCachePlaybackUrl(currentMediaId) }
+                    }
+                    withContext(Dispatchers.Main) {
+                        if (player.currentMediaItem?.mediaId == currentMediaId) {
+                            player.prepare()
+                        }
+                    }
+                }
                 return
             }
         }
@@ -8703,9 +9079,12 @@ var originalQueueSize: Int = 0
 
     override fun onDestroy() {
         super.onDestroy()
+        cancelUrlRefresh()
+        cachedShimPackages = null
+        cachedShimPackagesCheckedAt = 0L
         stopUrlCacheRefreshJob()
         runCatching {
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            runBlocking(kotlinx.coroutines.Dispatchers.IO) {
                 withTimeout(1000L) { savePersistentUrlCache() }
             }
         }
@@ -8724,10 +9103,6 @@ var originalQueueSize: Int = 0
             scope.launch { stopTogetherInternal() }
         } catch (_: Exception) {
         }
-        try {
-            connectivityObserver.unregister()
-        } catch (_: Exception) {
-        }
         abandonAudioFocus()
         try {
             releaseAudioEffects()
@@ -8737,7 +9112,7 @@ var originalQueueSize: Int = 0
             try {
                 if (dataStore.get(PersistentQueueKey, true) && player.mediaItemCount > 0) {
                     runCatching {
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        runBlocking {
                             withTimeout(2000L) {
                                 saveQueueToDisk()
                             }
@@ -9045,7 +9420,11 @@ var originalQueueSize: Int = 0
         const val PERSISTENT_PLAYER_STATE_FILE = "persistent_player_state.data"
         const val PERSISTENT_URL_CACHE_FILE = "persistent_url_cache.data"
         const val URL_CACHE_REFRESH_JITTER_MS = 30 * 60 * 1000L
+        private const val MAX_PENDING_WAZE_COMMANDS = 5
+        private const val SHIM_PACKAGE_CACHE_TTL_MS = 30_000L
         const val MAX_CONSECUTIVE_ERR = 5
+        private const val STARTUP_PREFETCH_WAIT_MS = 2_500L
+        private const val SOURCE_FALLBACK_TIMEOUT_MS = 2_500L
         const val AUDIO_ROUTE_CHANGE_DEBOUNCE_MS = 350L
         const val AUDIO_EFFECT_ROUTE_REBIND_DELAY_MS = 200L
         const val AUDIO_ROUTE_RECOVERY_MIN_INTERVAL_MS = 1_500L

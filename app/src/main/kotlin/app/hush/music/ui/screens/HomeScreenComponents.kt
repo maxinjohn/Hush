@@ -1221,6 +1221,8 @@ fun SimilarRecommendationsSection(
                     haptic = haptic,
                     scope = scope,
                     thumbnailWidth = carouselMetrics.itemWidth,
+                    shelfSongs = recommendation.items.filterIsInstance<SongItem>(),
+                    queueTitle = recommendation.title.title,
                 )
             }
         }
@@ -1269,6 +1271,8 @@ fun HomePageSectionContent(
                     haptic = haptic,
                     scope = scope,
                     thumbnailWidth = carouselMetrics.itemWidth,
+                    shelfSongs = section.items.filterIsInstance<SongItem>(),
+                    queueTitle = section.title,
                 )
             }
         }
@@ -1313,6 +1317,8 @@ private fun YouTubeGridItemWrapper(
     haptic: HapticFeedback,
     scope: CoroutineScope,
     thumbnailWidth: Dp? = null,
+    shelfSongs: List<SongItem> = emptyList(),
+    queueTitle: String? = null,
     modifier: Modifier = Modifier,
 ) {
     YouTubeGridItem(
@@ -1331,12 +1337,24 @@ private fun YouTubeGridItemWrapper(
                     onClick = {
                         when (item) {
                             is SongItem -> {
-                                playerConnection.playQueue(
-                                    YouTubeQueue(
-                                        item.endpoint ?: WatchEndpoint(videoId = item.id),
-                                        item.toMediaMetadata(),
-                                    ),
-                                )
+                                if (shelfSongs.isNotEmpty()) {
+                                    val startIndex =
+                                        shelfSongs.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
+                                    playerConnection.playQueue(
+                                        ListQueue(
+                                            title = queueTitle ?: item.title,
+                                            items = shelfSongs.map { it.toMediaItem() },
+                                            startIndex = startIndex,
+                                        ),
+                                    )
+                                } else {
+                                    playerConnection.playQueue(
+                                        YouTubeQueue(
+                                            item.endpoint ?: WatchEndpoint(videoId = item.id),
+                                            item.toMediaMetadata(),
+                                        ),
+                                    )
+                                }
                             }
 
                             is AlbumItem -> {

@@ -57,6 +57,7 @@ class WazeMetadataReceiver : BroadcastReceiver() {
             playerState = intent.getIntExtra("player_state", 0),
             playbackSpeed = intent.getFloatExtra("playback_speed", 1f),
             activeQueueItemId = intent.getLongExtra("queue_item_id", -1L),
+            liked = intent.getBooleanExtra("liked", false),
             queue = HushQueueSnapshot(
                 title = intent.getStringExtra("queue_title") ?: "Hush Queue",
                 revision = intent.getLongExtra("queue_revision", 0L),

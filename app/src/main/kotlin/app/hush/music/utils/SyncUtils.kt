@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -232,12 +233,35 @@ class SyncUtils
                 }
                 val gen = syncGeneration.get()
                 if (!isSyncStillEnabled(gen)) return@launch
-                YouTube
-                    .likeVideo(s.id, s.liked)
+                likeVideoWithRetry(s, gen)
                     .onFailure { error ->
                         Timber.w(error, "likeSong: Failed to sync like for ${s.id}")
                     }
             }
+        }
+
+        private suspend fun likeVideoWithRetry(
+            song: SongEntity,
+            gen: Long,
+        ): Result<io.ktor.client.statement.HttpResponse> {
+            var result = Result.failure<io.ktor.client.statement.HttpResponse>(IllegalStateException("Like sync did not start"))
+            repeat(2) { attempt ->
+                if (!isSyncStillEnabled(gen)) return result
+                val targetVideoId =
+                    database
+                        .getSetVideoId(song.id)
+                        ?.setVideoId
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?: song.id
+                Timber.d(
+                    "likeVideoWithRetry: catalogId=${song.id}, targetVideoId=$targetVideoId, liked=${song.liked}, attempt=${attempt + 1}",
+                )
+                result = YouTube.likeVideo(targetVideoId, song.liked)
+                if (result.isSuccess || attempt == 1) return result
+                delay(250L)
+            }
+            return result
         }
 
         fun likeSongs(songs: Collection<SongEntity>) {
@@ -263,8 +287,7 @@ class SyncUtils
                             .map { song ->
                                 async {
                                     if (!isSyncStillEnabled(gen)) return@async
-                                    YouTube
-                                        .likeVideo(song.id, song.liked)
+                                    likeVideoWithRetry(song, gen)
                                         .onFailure { error ->
                                             Timber.w(error, "likeSongs: Failed to sync like for ${song.id}")
                                         }
@@ -292,12 +315,16 @@ class SyncUtils
                     .onSuccess { page ->
                         if (!isSyncStillEnabled(gen)) return@onSuccess
                         val remoteSongs = page.songs.orEmpty()
-                        if (remoteSongs.isEmpty() && !authoritative) {
-                            Timber.w("syncLikedSongs: Remote playlist is empty")
+                        val remoteSongCount =
+                            page.playlist.songCountText
+                                ?.let { Regex("\\d+").find(it)?.value?.toIntOrNull() }
+                        val remoteIsExplicitlyEmpty = remoteSongs.isEmpty() && remoteSongCount == 0
+                        if (remoteSongs.isEmpty() && !remoteIsExplicitlyEmpty) {
+                            Timber.w("syncLikedSongs: Remote playlist returned no parseable songs; preserving local likes")
                             return@onSuccess
                         }
                         val remoteIds = remoteSongs.map { it.id }.toSet()
-                        if (authoritative) {
+                        if (authoritative || remoteIsExplicitlyEmpty) {
                             val localLikedSongs = database.likedSongsByNameAsc().first()
                             if (!isSyncStillEnabled(gen)) return@onSuccess
                             val staleLikedSongs =
@@ -696,7 +723,8 @@ class SyncUtils
             }
 
         suspend fun syncAutoSyncPlaylists() =
-            coroutineScope {
+            playlistSyncMutex.withLock {
+                coroutineScope {
                 if (!isLoggedIn()) {
                     Timber.w("Skipping syncAutoSyncPlaylists - user not logged in")
                     return@coroutineScope
@@ -742,6 +770,7 @@ class SyncUtils
                         }
                     }
                 }
+                }
             }
 
         suspend fun syncPlaylistNow(
@@ -785,22 +814,29 @@ class SyncUtils
             val songs =
                 page.songs
                     .orEmpty()
-                    .filter { song -> song.setVideoId?.isNotBlank() == true }
+                    .filter { song -> song.id.isNotBlank() }
+                    .distinctBy(SongItem::id)
                     .map(SongItem::toMediaMetadata)
             Timber.d("syncPlaylist: Fetched ${songs.size} songs from remote")
 
             if (songs.isEmpty()) {
-                if (authoritative) {
+                val remoteSongCount =
+                    page.playlist.songCountText
+                        ?.let { Regex("\\d+").find(it)?.value?.toIntOrNull() }
+                if (remoteSongCount == 0) {
                     database.withTransaction {
                         if (!isSyncStillEnabled(gen)) return@withTransaction
                         database.clearPlaylist(playlistId)
                     }
+                    onProgress(0, 0)
+                    Timber.d("syncPlaylist: Remote playlist is explicitly empty; cleared local playlist")
+                } else {
+                    Timber.w("syncPlaylist: Remote playlist returned no parseable songs; preserving local playlist")
                 }
-                Timber.w("syncPlaylist: Remote playlist is empty, skipping sync")
                 return@coroutineScope
             }
 
-            val remoteIds = songs.mapNotNull { it.id }
+            val remoteIds = songs.map { it.id }
             if (remoteIds.isEmpty()) {
                 Timber.w("syncPlaylist: No valid song IDs found, skipping sync")
                 return@coroutineScope

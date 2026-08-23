@@ -29,6 +29,7 @@ data class HushPlaybackSnapshot(
     val playerState: Int,
     val playbackSpeed: Float,
     val activeQueueItemId: Long,
+    val liked: Boolean,
     val queue: HushQueueSnapshot,
     val sequenceNumber: Long,
     val timestampMs: Long,

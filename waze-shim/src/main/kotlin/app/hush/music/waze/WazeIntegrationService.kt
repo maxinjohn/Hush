@@ -29,6 +29,11 @@ import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media.MediaBrowserServiceCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListener {
 
@@ -48,6 +53,11 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         private const val PLAYER_STATE_BUFFERING = 2
         private const val PLAYER_STATE_READY = 3
         private const val PLAYER_STATE_ENDED = 4
+        private const val RECONNECT_BASE_DELAY_MS = 1000L
+        private const val RECONNECT_MAX_DELAY_MS = 30_000L
+        private const val MAX_RECONNECT_ATTEMPTS = 10
+        private const val HEARTBEAT_INTERVAL_MS = 30_000L
+        private const val HEARTBEAT_WHAT = 99
     }
 
     @Volatile private var mediaSession: MediaSessionCompat? = null
@@ -62,6 +72,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
     private val wazeSdkConnectionImpl = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
             Log.d(TAG, "Connected to Waze SdkService!")
+            synchronized(lock) { reconnectAttempt = 0 }
             val token = this@WazeIntegrationService.wazeToken
             if (token != null) {
                 callConnect(service, token)
@@ -72,6 +83,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             Log.d(TAG, "Disconnected from Waze SdkService")
             wazeSdkConnection = null
             wazeMessenger = null
+            stopHeartbeat()
             scheduleWazeReconnect()
         }
 
@@ -79,6 +91,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             Log.w(TAG, "Waze SdkService binding died")
             wazeSdkConnection = null
             wazeMessenger = null
+            stopHeartbeat()
             scheduleWazeReconnect()
         }
 
@@ -86,6 +99,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             Log.w(TAG, "Waze SdkService returned a null binding")
             wazeSdkConnection = null
             wazeMessenger = null
+            stopHeartbeat()
             scheduleWazeReconnect()
         }
     }
@@ -93,6 +107,8 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
     private var notificationSubtitle = "Ready to play"
     private var wazeToken: String? = null
     private var reconnectScheduled = false
+    private var reconnectAttempt = 0
+    private var heartbeatJob: kotlinx.coroutines.Job? = null
     private var latestSnapshot: HushPlaybackSnapshot? = null
     private var latestSnapshotSequence = -1L
     private var latestSnapshotTimestampMs = Long.MIN_VALUE
@@ -218,6 +234,10 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         when (intent?.action) {
             ACTION_INIT -> {
                 Log.d(TAG, "  -> ACTION_INIT via onStartCommand")
+                synchronized(lock) {
+                    reconnectAttempt = 0
+                    reconnectScheduled = false
+                }
                 ensureForeground()
                 startHushMusicService()
                 sendSyncCommand()
@@ -228,6 +248,10 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             }
             ACTION_RECONNECT -> {
                 Log.d(TAG, "  -> reconnect requested by Hush")
+                synchronized(lock) {
+                    reconnectAttempt = 0
+                    reconnectScheduled = false
+                }
                 ensureForeground()
                 startHushMusicService()
                 sendSyncCommand()
@@ -287,9 +311,9 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             val intent = Intent("app.hush.music.WAZE_COMMAND").apply {
                 putExtra("command", "search")
                 putExtra("query", query)
-                setPackage("app.hush.music")
+                component = ComponentName("app.hush.music", "app.hush.music.playback.MusicService")
             }
-            sendBroadcast(intent)
+            startForegroundService(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send search command", e)
         }
@@ -308,7 +332,6 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
     private fun ensureForeground() {
         synchronized(lock) {
             if (isForeground) return
-            isForeground = true
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                     startForeground(
@@ -319,11 +342,13 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 } else {
                     startForeground(NOTIFICATION_ID, buildNotification())
                 }
+                isForeground = true
                 Log.d(TAG, "startForeground succeeded (on demand)")
             } catch (e: Exception) {
                 Log.e(TAG, "startForeground failed", e)
                 try {
                     startForeground(NOTIFICATION_ID, buildFallbackNotification())
+                    isForeground = true
                 } catch (e2: Exception) {
                     Log.e(TAG, "Fallback startForeground also failed", e2)
                 }
@@ -393,8 +418,10 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         }
 
         override fun onSetRating(rating: RatingCompat?) {
-            if (rating?.rating == 1f) {
-                Log.d(TAG, "onSetRating: thumbs up")
+            // Waze sends a rated heart for both like and unlike. Hush owns the
+            // current state, so treat the interaction as a toggle.
+            if (rating?.isRated == true) {
+                Log.d(TAG, "onSetRating: toggling like (value=${rating.rating})")
                 sendCommandToHush("like")
             }
         }
@@ -521,7 +548,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                     .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, displaySubtitle)
                     .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, snapshot.album)
                     .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, snapshot.durationMs.coerceAtLeast(0L))
-                    .putRating(MediaMetadataCompat.METADATA_KEY_USER_RATING, RatingCompat.newHeartRating(false))
+                    .putRating(MediaMetadataCompat.METADATA_KEY_USER_RATING, RatingCompat.newHeartRating(snapshot.liked))
                     .apply {
                         if (!snapshot.artworkUrl.isNullOrEmpty()) {
                             putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, snapshot.artworkUrl)
@@ -666,7 +693,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             .addCustomAction(
                 PlaybackStateCompat.CustomAction.Builder(
                     "THUMBS_UP",
-                    "Like",
+                    if (latestSnapshot?.liked == true) "Unlike" else "Like",
                     R.drawable.ic_heart,
                 ).apply {
                     setExtras(Bundle().apply {
@@ -901,13 +928,29 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 replyMessenger.writeToParcel(data, 0)
 
                 val success = binder.transact(TRANSACTION_CONNECT, data, reply, 0)
+                if (!success) {
+                    Log.w(TAG, "connect() transact returned false")
+                    scheduleWazeReconnect()
+                    return
+                }
                 reply.readException()
+                if (reply.dataAvail() < Int.SIZE_BYTES) {
+                    Log.w(TAG, "connect() reply too short (${reply.dataAvail()} bytes)")
+                    scheduleWazeReconnect()
+                    return
+                }
                 val wazeMessengerSent = reply.readInt() != 0
                 Log.d(TAG, "connect() transact success=$success wazeMessengerSent=$wazeMessengerSent")
 
                 if (wazeMessengerSent) {
-                    wazeMessenger = Messenger.CREATOR.createFromParcel(reply)
-                    Log.d(TAG, "Got Waze Messenger, connection established!")
+                    if (reply.dataAvail() > 0) {
+                        wazeMessenger = Messenger.CREATOR.createFromParcel(reply)
+                        Log.d(TAG, "Got Waze Messenger, connection established!")
+                        startHeartbeat()
+                    } else {
+                        Log.w(TAG, "Waze indicated messenger but reply has no parcel data")
+                        scheduleWazeReconnect()
+                    }
                 } else {
                     scheduleWazeReconnect()
                 }
@@ -929,22 +972,58 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             if (cleanedUp || wazeToken == null || reconnectScheduled) return
             reconnectScheduled = true
         }
+        val attempt = synchronized(lock) { ++reconnectAttempt }
+        if (attempt > MAX_RECONNECT_ATTEMPTS) {
+            Log.w(TAG, "Exceeded max reconnect attempts ($MAX_RECONNECT_ATTEMPTS), giving up")
+            synchronized(lock) { reconnectScheduled = false }
+            return
+        }
+        val delayMs = minOf(
+            RECONNECT_BASE_DELAY_MS * (1L shl (attempt - 1).coerceAtMost(5)),
+            RECONNECT_MAX_DELAY_MS,
+        )
+        Log.d(TAG, "Scheduling Waze reconnect attempt $attempt in ${delayMs}ms")
         Handler(Looper.getMainLooper()).postDelayed({
             val token = synchronized(lock) {
                 reconnectScheduled = false
                 wazeToken?.takeIf { !cleanedUp }
             }
             if (token != null) {
-                Log.d(TAG, "Retrying Waze SdkService connection")
+                Log.d(TAG, "Retrying Waze SdkService connection (attempt $attempt)")
                 bindToWazeSdkService(token)
             }
-        }, 1000)
+        }, delayMs)
+    }
+
+    private fun startHeartbeat() {
+        stopHeartbeat()
+        heartbeatJob = CoroutineScope(Dispatchers.Main).launch {
+            while (true) {
+                delay(HEARTBEAT_INTERVAL_MS)
+                val messenger = wazeMessenger ?: continue
+                try {
+                    val msg = Message.obtain(null, HEARTBEAT_WHAT, 0, 0)
+                    messenger.send(msg)
+                } catch (e: RemoteException) {
+                    Log.w(TAG, "Waze heartbeat failed, scheduling reconnect", e)
+                    wazeMessenger = null
+                    scheduleWazeReconnect()
+                    break
+                }
+            }
+        }
+    }
+
+    private fun stopHeartbeat() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
     }
 
     private fun cleanup() {
         if (cleanedUp) return
         cleanedUp = true
         reconnectScheduled = false
+        stopHeartbeat()
         wazeMessenger = null
         wazeToken = null
         wazeSdkConnection?.let {

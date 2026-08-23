@@ -35,8 +35,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.hush.music.R
-import app.hush.music.constants.DevModeKey
-import app.hush.music.constants.SpotiFLACDevGateKey
 import app.hush.music.constants.SpotiFLACEnabledKey
 import app.hush.music.constants.SpotiFLACQualityKey
 import app.hush.music.constants.YoutubeStreamingEnabledKey
@@ -59,8 +57,6 @@ fun SpotiFLACSettingsScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
-    val (devMode, setDevMode) = rememberPreference(DevModeKey, defaultValue = false)
-    val (spotiflacDevGate, setSpotiflacDevGate) = rememberPreference(SpotiFLACDevGateKey, defaultValue = false)
     val (spotiflacEnabled, setSpotiflacEnabled) = rememberPreference(SpotiFLACEnabledKey, defaultValue = false)
     val (spotiflacQuality, setSpotiflacQuality) = rememberPreference(SpotiFLACQualityKey, defaultValue = "BEST")
     val (youtubeEnabled, setYoutubeEnabled) = rememberPreference(YoutubeStreamingEnabledKey, defaultValue = true)
@@ -70,7 +66,7 @@ fun SpotiFLACSettingsScreen(
     val sources by repoManager.sources.collectAsState()
     val isSyncing by repoManager.isSyncing.collectAsState()
 
-    var sessionState by remember { mutableStateOf(sessionManager.sessionState) }
+    val sessionState by sessionManager.sessionStateFlow.collectAsState()
     var isBootstrapping by remember { mutableStateOf(false) }
     var bootstrapError by remember { mutableStateOf<String?>(null) }
     var grantInput by remember { mutableStateOf("") }
@@ -80,6 +76,19 @@ fun SpotiFLACSettingsScreen(
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             repoManager.syncRegistries()
+        }
+    }
+
+    // A failed source test can have been recorded while a Cloudflare challenge
+    // was pending. Clear that stale error as soon as the grant exchange succeeds.
+    LaunchedEffect(sessionState) {
+        if (sessionState == SessionState.ACTIVE) {
+            bootstrapError = null
+            sources
+                .filter { it.testState == SourceTestState.FAILED }
+                .forEach { source ->
+                    repoManager.setSourceTestState(source.source.id, SourceTestState.IDLE)
+                }
         }
     }
 
@@ -112,32 +121,6 @@ fun SpotiFLACSettingsScreen(
             item {
                 Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                     Text(
-                        text = "Dev Mode",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        text = "Unlock experimental audio sources",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    SettingsSwitchRow(
-                        title = "Developer Mode",
-                        checked = devMode,
-                        onCheckedChange = setDevMode,
-                    )
-                }
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-                androidx.compose.material3.HorizontalDivider()
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            item {
-                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    Text(
                         text = "YouTube",
                         style = MaterialTheme.typography.titleMedium,
                     )
@@ -150,7 +133,8 @@ fun SpotiFLACSettingsScreen(
                     SettingsSwitchRow(
                         title = "YouTube Enabled",
                         checked = youtubeEnabled,
-                        onCheckedChange = setYoutubeEnabled,
+                        onCheckedChange = if (spotiflacEnabled) setYoutubeEnabled else null,
+                        enabled = spotiflacEnabled,
                     )
                 }
             }
@@ -172,24 +156,15 @@ fun SpotiFLACSettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "⚠ Experimental — currently in testing and may not work. Do not enable.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    AnimatedVisibility(visible = devMode) {
-                        Column {
-                            SettingsSwitchRow(
-                                title = "Enable Dev Gate",
-                                checked = spotiflacDevGate,
-                                onCheckedChange = setSpotiflacDevGate,
-                            )
-                            SettingsSwitchRow(
-                                title = "SpotiFLAC Enabled",
-                                checked = spotiflacEnabled,
-                                onCheckedChange = setSpotiflacEnabled,
-                            )
-                        }
-                    }
-
-                    AnimatedVisibility(visible = spotiflacEnabled && (!spotiflacDevGate || devMode)) {
+                    AnimatedVisibility(visible = spotiflacEnabled) {
                         Column {
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
@@ -220,14 +195,7 @@ fun SpotiFLACSettingsScreen(
                         }
                     }
 
-                    if (!devMode) {
-                        Text(
-                            text = "Enable Developer Mode to access SpotiFLAC settings",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(vertical = 8.dp),
-                        )
-                    }
+
                 }
             }
 
@@ -237,7 +205,7 @@ fun SpotiFLACSettingsScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            if (spotiflacEnabled && (!spotiflacDevGate || devMode)) {
+            if (spotiflacEnabled) {
                 item {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                         Text(
@@ -262,7 +230,6 @@ fun SpotiFLACSettingsScreen(
                                 androidx.compose.material3.TextButton(onClick = {
                                     scope.launch {
                                         sessionManager.clearSession()
-                                        sessionState = SessionState.NONE
                                     }
                                 }) {
                                     Text("Clear Session")
@@ -300,15 +267,62 @@ fun SpotiFLACSettingsScreen(
                                     var grantCaptured by remember { mutableStateOf(false) }
                                     val capturedGrant = remember { mutableStateOf("") }
 
-                                    androidx.compose.material3.Card(
+                                    fun extractGrant(raw: String): String? {
+                                        if (raw.contains("grant=")) {
+                                            return android.net.Uri.parse(raw).getQueryParameter("grant")
+                                                ?.takeIf { it.isNotBlank() }
+                                        }
+                                        return raw.trim().takeIf { it.isNotBlank() }
+                                    }
+
+                                    fun captureGrant(raw: String) {
+                                        if (grantCaptured) return
+                                        val grant = extractGrant(raw) ?: return
+                                        grantCaptured = true
+                                        capturedGrant.value = grant
+                                        Timber.tag("SpotiFLACSettings").d("Grant captured (len=${grant.length})")
+                                        showChallengeWebView = false
+                                        scope.launch {
+                                            isExchanging = true
+                                            val result = sessionManager.exchangeGrant(grant)
+                                            if (result.isSuccess) {
+                                                sessionManager.forceRestoreSession()
+                                            }
+                                            bootstrapError = result.exceptionOrNull()?.message
+                                            isExchanging = false
+                                        }
+                                    }
+
+                                    androidx.compose.foundation.layout.Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(400.dp),
+                                            .height(450.dp),
                                     ) {
                                         val webView = remember {
                                             android.webkit.WebView(context).apply {
                                                 settings.javaScriptEnabled = true
                                                 settings.domStorageEnabled = true
+                                                settings.userAgentString =
+                                                    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+                                                settings.setSupportMultipleWindows(true)
+
+                                                // The relay challenge page delivers the grant through a
+                                                // window.SpotiflacGrant.postMessage(...) JS bridge, because
+                                                // Chromium WebView silently drops script-initiated
+                                                // custom-scheme navigation without a user gesture. Expose that
+                                                // bridge so the grant is captured reliably after Turnstile
+                                                // succeeds.
+                                                addJavascriptInterface(
+                                                    object : Any() {
+                                                        @android.webkit.JavascriptInterface
+                                                        fun postMessage(message: String) {
+                                                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                                captureGrant(message)
+                                                            }
+                                                        }
+                                                    },
+                                                    "SpotiflacGrant",
+                                                )
 
                                                 webViewClient = object : android.webkit.WebViewClient() {
                                                     override fun shouldOverrideUrlLoading(
@@ -319,29 +333,14 @@ fun SpotiFLACSettingsScreen(
                                                         Timber.tag("SpotiFLACSettings").d("WebView redirect: $url")
 
                                                         if (url.contains("spotiflac://session-grant") || url.contains("grant=")) {
-                                                            val uri = android.net.Uri.parse(url)
-                                                            val grant = uri.getQueryParameter("grant")
-                                                            if (!grant.isNullOrBlank() && !grantCaptured) {
-                                                                grantCaptured = true
-                                                                Timber.tag("SpotiFLACSettings").d("Auto-captured grant from redirect")
-                                                                showChallengeWebView = false
-                                                                scope.launch {
-                                                                    isExchanging = true
-                                                                    val result = sessionManager.exchangeGrant(grant)
-                                                                    if (result.isSuccess) {
-                                                                        sessionManager.forceRestoreSession()
-                                                                    }
-                                                                    sessionState = result.getOrElse { SessionState.ERROR }
-                                                                    bootstrapError = result.exceptionOrNull()?.message
-                                                                    isExchanging = false
-                                                                }
+                                                            Timber.tag("SpotiFLACSettings").d("Auto-captured grant from redirect")
+                                                            captureGrant(url)
+                                                            if (grantCaptured) {
                                                                 return true
                                                             }
                                                         }
                                                         return false
-                                                    }
-
-                                                    override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                                                    }                                                        override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
                                                         super.onPageFinished(view, url)
                                                         Timber.tag("SpotiFLACSettings").d("WebView page finished: $url")
 
@@ -350,6 +349,11 @@ fun SpotiFLACSettingsScreen(
                                                                 """
                                                                 (function() {
                                                                     try {
+                                                                        // Check for relay error responses (expired challenge, etc.)
+                                                                        var body = document.body ? document.body.innerText : '';
+                                                                        if (body.indexOf('"error"') !== -1) {
+                                                                            return 'RELAY_ERROR:' + body.substring(0, 200);
+                                                                        }
                                                                         var grant = new URLSearchParams(window.location.search).get('grant');
                                                                         if (grant) {
                                                                             window.__hushGrant = grant;
@@ -361,22 +365,19 @@ fun SpotiFLACSettingsScreen(
                                                                 """.trimIndent(),
                                                             ) { result ->
                                                                 Timber.tag("SpotiFLACSettings").d("JS grant check: $result")
-                                                                if (result.contains("GRANT_FOUND:") && !grantCaptured) {
+                                                                if (result.contains("RELAY_ERROR:")) {
+                                                                    val errorBody = result.substringAfter("RELAY_ERROR:").removeSurrounding("\"")
+                                                                    Timber.tag("SpotiFLACSettings").w("Relay error in WebView: $errorBody")
+                                                                    // Challenge expired or invalid — close WebView so user can retry
+                                                                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                                        showChallengeWebView = false
+                                                                        bootstrapError = "Challenge expired — tap 'Try Again' to get a fresh verification"
+                                                                    }
+                                                                } else if (result.contains("GRANT_FOUND:") && !grantCaptured) {
                                                                     val grant = result.substringAfter("GRANT_FOUND:").removeSurrounding("\"")
                                                                     if (grant.isNotBlank()) {
-                                                                        grantCaptured = true
                                                                         Timber.tag("SpotiFLACSettings").d("Auto-captured grant from JS")
-                                                                        showChallengeWebView = false
-                                                                        scope.launch {
-                                                                            isExchanging = true
-                                                                            val res = sessionManager.exchangeGrant(grant)
-                                                                            if (res.isSuccess) {
-                                                                                sessionManager.forceRestoreSession()
-                                                                            }
-                                                                            sessionState = res.getOrElse { SessionState.ERROR }
-                                                                            bootstrapError = res.exceptionOrNull()?.message
-                                                                            isExchanging = false
-                                                                        }
+                                                                        captureGrant(grant)
                                                                     }
                                                                 }
                                                             }
@@ -402,10 +403,39 @@ fun SpotiFLACSettingsScreen(
                                         Text("Cancel")
                                     }
                                 } else {
+                                    val retryError = bootstrapError
+                                    if (retryError != null) {
+                                        Text(
+                                            text = retryError,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                    }
                                     androidx.compose.material3.TextButton(onClick = {
-                                        showChallengeWebView = true
-                                    }) {
-                                        Text("Start Verification")
+                                        scope.launch {
+                                            bootstrapError = null
+                                            isBootstrapping = true
+                                            val result = sessionManager.bootstrap()
+                                            val newState = result.getOrElse { SessionState.ERROR }
+                                            bootstrapError = result.exceptionOrNull()?.message
+                                                ?: if (newState == SessionState.CHALLENGE_PENDING) null
+                                                else if (newState == SessionState.ACTIVE) null
+                                                else "Failed to start verification"
+                                            isBootstrapping = false
+                                            if (newState == SessionState.CHALLENGE_PENDING || newState == SessionState.ACTIVE) {
+                                                showChallengeWebView = true
+                                            }
+                                        }
+                                    }, enabled = !isBootstrapping) {
+                                        if (isBootstrapping) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.height(16.dp).width(16.dp),
+                                                strokeWidth = 2.dp,
+                                            )
+                                        } else {
+                                            Text("Try Again")
+                                        }
                                     }
                                 }
                             }
@@ -421,7 +451,6 @@ fun SpotiFLACSettingsScreen(
                                         isBootstrapping = true
                                         bootstrapError = null
                                         val result = sessionManager.bootstrap()
-                                        sessionState = result.getOrElse { SessionState.ERROR }
                                         bootstrapError = result.exceptionOrNull()?.message
                                         isBootstrapping = false
                                     }
@@ -458,7 +487,6 @@ fun SpotiFLACSettingsScreen(
                                             bootstrapError = null
                                             val result = sessionManager.bootstrap()
                                             val newState = result.getOrElse { SessionState.ERROR }
-                                            sessionState = newState
                                             bootstrapError = result.exceptionOrNull()?.message
                                                 ?: if (newState == SessionState.NONE) "Relay does not support direct authentication" else null
                                             isBootstrapping = false
@@ -487,7 +515,7 @@ fun SpotiFLACSettingsScreen(
                 }
             }
 
-            if (spotiflacEnabled && (!spotiflacDevGate || devMode)) {
+            if (spotiflacEnabled) {
                 item {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                         Row(
@@ -661,7 +689,8 @@ private fun SourceRow(
 private fun SettingsSwitchRow(
     title: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
+    onCheckedChange: ((Boolean) -> Unit)?,
+    enabled: Boolean = true,
 ) {
     androidx.compose.foundation.layout.Row(
         modifier = Modifier
@@ -673,10 +702,12 @@ private fun SettingsSwitchRow(
         Text(
             text = title,
             style = MaterialTheme.typography.bodyLarge,
+            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
         )
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = { if (enabled) onCheckedChange?.invoke(it) },
+            enabled = enabled,
             colors = SwitchDefaults.colors(
                 checkedTrackColor = MaterialTheme.colorScheme.primary,
             ),

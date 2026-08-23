@@ -24,6 +24,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
@@ -175,6 +176,11 @@ class DownloadUtil
 
                 val streamUrl = playbackData.streamUrl
 
+                android.util.Log.w(
+                    TAG,
+                    "resolve: $mediaId resolved stream (itag=${playbackData.format.itag}, len=${playbackData.format.contentLength ?: -1}, approx=${playbackData.format.approxDurationMs}ms)",
+                )
+
                 cacheStreamUrl(streamCacheKey, playbackData)
                 dataSpec.withUri(streamUrl.toUri())
             }
@@ -198,6 +204,25 @@ class DownloadUtil
                             download: Download,
                             finalException: Exception?,
                         ) {
+                            android.util.Log.w(
+                                TAG,
+                                "state: ${download.request.id} -> ${download.state} pct=${download.getPercentDownloaded()}" +
+                                    (finalException?.let { " err=${it.message}" } ?: ""),
+                            )
+                            when (download.state) {
+                                // A fresh start (manual retry or new request), a completed
+                                // download, or removal resets the retry budget so the song
+                                // gets a full retry window again instead of being permanently
+                                // blocked after the first 3 failures.
+                                Download.STATE_QUEUED, Download.STATE_COMPLETED -> {
+                                    downloadFailureCounts.remove(download.request.id)
+                                }
+                                Download.STATE_FAILED -> {
+                                    if (isRetryableDownloadFailure(finalException)) {
+                                        handleRetryableDownloadFailure(download)
+                                    }
+                                }
+                            }
                             downloads.update { map ->
                                 map.toMutableMap().apply {
                                     set(download.request.id, download)
@@ -210,6 +235,7 @@ class DownloadUtil
                             download: Download,
                         ) {
                             downloads.update { map -> map - download.request.id }
+                            downloadFailureCounts.remove(download.request.id)
                         }
                     },
                 )
@@ -250,6 +276,56 @@ class DownloadUtil
                         }
                     }
                 }
+            }
+        }
+
+        private val downloadFailureCounts = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+        private fun isRetryableDownloadFailure(exception: Exception?): Boolean {
+            var t: Throwable? = exception
+            while (t != null) {
+                val msg = t.message ?: ""
+                if (msg.contains("Response code:", ignoreCase = true)) {
+                    val code = msg.substringAfter("Response code:").trim().substringBefore(" ").toIntOrNull()
+                    if (code != null && code in RETRYABLE_DOWNLOAD_RESPONSE_CODES) return true
+                }
+                if (t is java.net.SocketTimeoutException) return true
+                t = t.cause
+            }
+            return false
+        }
+
+        /**
+         * YouTube revokes stream URLs mid-transfer (HTTP 403/410). Evict the stale URL,
+         * drop any partial cache spans, and resume the download so it re-resolves a fresh
+         * URL. Bounded to a few retries per song to avoid hammering the CDN.
+         */
+        private fun handleRetryableDownloadFailure(download: Download) {
+            val mediaId = download.request.id
+            val failures = downloadFailureCounts.merge(mediaId, 1, Int::plus) ?: 1
+            if (failures > MAX_DOWNLOAD_RETRIES) {
+                android.util.Log.w(TAG, "Download $mediaId giving up after $failures retries")
+                return
+            }
+            android.util.Log.w(TAG, "Download $mediaId failed ($failures) — evicting URL and retrying")
+            synchronized(songUrlCache) {
+                songUrlCache.keys
+                    .filter { it.startsWith("$mediaId:") }
+                    .forEach { songUrlCache.remove(it) }
+            }
+            // Also invalidate the global stream-URL cache in YTPlayerUtils, otherwise the
+            // next resolve returns the exact same revoked URL and the retry loops forever.
+            YTPlayerUtils.invalidateCachedStreamUrls(mediaId)
+            // Purge partial spans from the download cache (the DownloadManager stores its
+            // progress there, NOT in playerCache). Keeping them means every resume replays
+            // the capped prefix and 403s at the exact same byte offset.
+            runCatching { downloadCache.removeResource(mediaId) }
+            runCatching { playerCache.removeResource(mediaId) }
+            downloadScope.launch {
+                delay(RETRY_DOWNLOAD_DELAY_MS)
+                // A FAILED download is not resumed by resumeDownloads(); re-adding the
+                // request restarts it from a fresh resolve against the evicted URL cache.
+                runCatching { downloadManager.addDownload(download.request) }
             }
         }
 
@@ -378,5 +454,8 @@ class DownloadUtil
             private const val DOWNLOAD_CONNECTION_KEEP_ALIVE_MINUTES = 5L
             private const val DOWNLOAD_WRITE_BUFFER_SIZE = 256 * 1024
             private const val SONG_URL_CACHE_CAPACITY = 64
+            private const val MAX_DOWNLOAD_RETRIES = 3
+            private const val RETRY_DOWNLOAD_DELAY_MS = 2_000L
+            private val RETRYABLE_DOWNLOAD_RESPONSE_CODES = setOf(403, 404, 410, 416)
         }
     }

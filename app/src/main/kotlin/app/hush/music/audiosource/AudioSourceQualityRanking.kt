@@ -25,7 +25,7 @@ object AudioSourceQualityRanking {
             it.sampleRateHz ?: 0
         }.thenByDescending {
             it.bitrateKbps ?: 0
-        }.thenBy {
+        }.thenByDescending {
             providerPriority(it.providerId)
         })
     }

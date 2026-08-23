@@ -2,6 +2,7 @@
 import org.gradle.api.tasks.bundling.Zip
 import org.gradle.api.tasks.Sync
 import java.io.FileInputStream
+import java.util.Base64
 import java.util.Properties
 
 plugins {
@@ -19,7 +20,31 @@ fun signingProperty(name: String): String? =
     localProperties.getProperty(name)?.trim()?.takeIf { it.isNotBlank() }
         ?: System.getenv(name)?.trim()?.takeIf { it.isNotBlank() }
 
-val releaseKeystoreFile = file("../app/keystore/release.keystore")
+val releaseKeystoreFile = run {
+    val source = file("../app/keystore/release.keystore")
+    if (!source.isFile) {
+        source
+    } else {
+        val encoded = source.readText(Charsets.US_ASCII).trim()
+        val looksBase64 =
+            encoded.length >= 64 &&
+                encoded.length % 4 == 0 &&
+                encoded.all { it.isLetterOrDigit() || it == '+' || it == '/' || it == '=' }
+        if (!looksBase64) {
+            source
+        } else {
+            runCatching {
+                val decodedBytes = Base64.getDecoder().decode(encoded)
+                val decoded = layout.buildDirectory.file("signing/release.keystore").get().asFile
+                if (!decoded.exists() || !decoded.readBytes().contentEquals(decodedBytes)) {
+                    decoded.parentFile.mkdirs()
+                    decoded.writeBytes(decodedBytes)
+                }
+                decoded
+            }.getOrElse { source }
+        }
+    }
+}
 val releaseStorePassword = signingProperty("STORE_PASSWORD") ?: signingProperty("KEYSTORE_PASSWORD")
 val releaseKeyAlias = signingProperty("KEY_ALIAS")
 val releaseKeyPassword = signingProperty("KEY_PASSWORD")
@@ -49,8 +74,8 @@ android {
         applicationId = "com.spotify.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 166
-        versionName = "13.13.4"
+        versionCode = 167
+        versionName = "13.13.5"
     }
 
     flavorDimensions += "bridge"

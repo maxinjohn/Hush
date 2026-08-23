@@ -9,22 +9,37 @@ package app.hush.music.playback
 
 internal class PlaybackStreamRecoveryTracker {
     private var attemptedMediaId: String? = null
+    private var attemptCount = 0
+
+    /** Allow up to 4 retries per media item so stream-client rotation gets a chance. */
+    private val maxAttempts = 4
 
     fun registerRetryAttempt(mediaId: String): Boolean {
-        if (attemptedMediaId == mediaId) return false
+        if (attemptedMediaId == mediaId) {
+            if (attemptCount >= maxAttempts) return false
+            attemptCount++
+            return true
+        }
         attemptedMediaId = mediaId
+        attemptCount = 1
         return true
     }
+
+    /** Current retry count for [mediaId], or 0 if no retries have been registered. */
+    fun retryCountFor(mediaId: String): Int =
+        if (attemptedMediaId == mediaId) attemptCount else 0
 
     fun onPlaybackRecovered(mediaId: String?) {
         if (mediaId != null && attemptedMediaId == mediaId) {
             attemptedMediaId = null
+            attemptCount = 0
         }
     }
 
     fun onMediaItemChanged(currentMediaId: String?) {
         if (attemptedMediaId != currentMediaId) {
             attemptedMediaId = null
+            attemptCount = 0
         }
     }
 }

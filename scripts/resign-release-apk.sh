@@ -37,6 +37,36 @@ read_prop() {
 STORE_PASS="$(read_prop STORE_PASSWORD || read_prop KEYSTORE_PASSWORD || true)"
 KEY_ALIAS="$(read_prop KEY_ALIAS || true)"
 KEY_PASS="$(read_prop KEY_PASSWORD || true)"
+DECODED_KEYSTORE=""
+
+# Some local checkouts store the binary keystore as Base64 text. Decode it
+# outside the repository so Gradle/apksigner receive the required binary file.
+if [ -f "$KEYSTORE" ]; then
+  DECODED_CANDIDATE="$(mktemp "${TMPDIR:-/tmp}/hush-release-keystore.XXXXXX")"
+  if python3 - "$KEYSTORE" "$DECODED_CANDIDATE" <<'PY'
+import base64
+import sys
+from pathlib import Path
+
+try:
+    source = Path(sys.argv[1]).read_text(encoding="ascii").strip()
+except Exception:
+    raise SystemExit(1)
+if len(source) < 64 or len(source) % 4 != 0:
+    raise SystemExit(1)
+try:
+    decoded = base64.b64decode(source, validate=True)
+except Exception:
+    raise SystemExit(1)
+Path(sys.argv[2]).write_bytes(decoded)
+PY
+  then
+    KEYSTORE="$DECODED_CANDIDATE"
+    DECODED_KEYSTORE="$DECODED_CANDIDATE"
+  else
+    rm -f "$DECODED_CANDIDATE"
+  fi
+fi
 
 if [ ! -f "$KEYSTORE" ]; then
   echo "Missing keystore: $KEYSTORE"
@@ -108,6 +138,9 @@ ALIGNED_APK="${APK_PATH%.apk}-aligned-temp.apk"
 SIGNED_APK="${APK_PATH%.apk}-signed-temp.apk"
 cleanup() {
   rm -f "$ALIGNED_APK" "$SIGNED_APK"
+  if [ -n "$DECODED_KEYSTORE" ]; then
+    rm -f "$DECODED_KEYSTORE"
+  fi
 }
 trap cleanup EXIT
 

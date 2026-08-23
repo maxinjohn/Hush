@@ -20,6 +20,10 @@ class WazeInitReceiver : BroadcastReceiver() {
             action = intent.action
             token?.let { putExtra("token", it) }
         }
-        context.startForegroundService(serviceIntent)
+        try {
+            context.startForegroundService(serviceIntent)
+        } catch (error: Exception) {
+            Log.e(TAG, "Unable to start Waze integration service", error)
+        }
     }
 }

@@ -154,6 +154,7 @@ fun Modifier.archiveTuneHeaderActionPressable(
     onClick: () -> Unit,
     enabled: Boolean = true,
     role: Role? = null,
+    showRipple: Boolean = true,
 ): Modifier =
     composed {
         val interactionSource = remember { MutableInteractionSource() }
@@ -167,7 +168,12 @@ fun Modifier.archiveTuneHeaderActionPressable(
             .alpha(alpha)
             .clickable(
                 interactionSource = interactionSource,
-                indication = null,
+                indication =
+                    if (showRipple) {
+                        androidx.compose.material3.ripple()
+                    } else {
+                        null
+                    },
                 enabled = enabled,
                 role = role,
                 onClick = onClick,

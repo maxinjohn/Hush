@@ -176,7 +176,9 @@ class InnerTube {
                         proxy(Proxy.NO_PROXY)
                     } else if (this@InnerTube.proxy != null && !proxyUsername.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
                         proxyAuthenticator { _, response ->
-                            val credential = okhttp3.Credentials.basic(proxyUsername!!, proxyPassword!!)
+                            val username = proxyUsername ?: return@proxyAuthenticator response.request
+                            val password = proxyPassword ?: return@proxyAuthenticator response.request
+                            val credential = okhttp3.Credentials.basic(username, password)
                             response.request
                                 .newBuilder()
                                 .header("Proxy-Authorization", credential)

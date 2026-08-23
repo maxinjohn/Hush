@@ -157,7 +157,7 @@ class PlayerConnection(
         if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
             player.prepare()
         }
-        player.playWhenReady = true
+        player.play()
     }
 
     fun seekToPrevious() {
@@ -176,7 +176,7 @@ class PlayerConnection(
         if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
             player.prepare()
         }
-        player.playWhenReady = true
+        player.play()
     }
 
     override fun onAudioSessionIdChanged(sessionId: Int) {

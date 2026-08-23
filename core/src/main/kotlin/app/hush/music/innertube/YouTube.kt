@@ -139,25 +139,6 @@ object YouTube {
             }
         }
 
-    /** Updates Web PoTokens only when the session that minted them is still active. */
-    fun updateWebPoTokensIfSessionMatches(
-        sessionId: String,
-        sessionToken: String,
-        playerToken: String,
-    ): PlaybackAuthState? =
-        synchronized(authStateLock) {
-            val currentAuthState = mutableAuthState.value
-            if (currentAuthState.sessionId != sessionId) {
-                null
-            } else {
-                currentAuthState.copy(
-                    poTokenGvs = sessionToken,
-                    poTokenPlayer = playerToken,
-                    webClientPoTokenEnabled = true,
-                ).also(::applyAuthState)
-            }
-        }
-
     private fun applyAuthState(value: PlaybackAuthState) {
         val normalized = value.normalized()
         mutableAuthState.value = normalized
@@ -210,6 +191,30 @@ object YouTube {
         set(value) {
             updateAuthState { it.copy(poTokenPlayer = value) }
         }
+
+    /** Updates Web PoTokens only when the session that minted them is still active. */
+    fun updateWebPoTokensIfSessionMatches(
+        sessionId: String,
+        sessionToken: String,
+        playerToken: String,
+    ): PlaybackAuthState? =
+        synchronized(authStateLock) {
+            val currentAuthState = mutableAuthState.value
+            if (currentAuthState.sessionId != sessionId) {
+                null
+            } else {
+                currentAuthState.copy(
+                    poTokenGvs = sessionToken,
+                    poTokenPlayer = playerToken,
+                    webClientPoTokenEnabled = true,
+                ).also { value ->
+                    val normalized = value.normalized()
+                    mutableAuthState.value = normalized
+                    innerTube.applyAuthState(normalized)
+                }
+            }
+        }
+
     var proxy: Proxy?
         get() = innerTube.proxy
         set(value) {
@@ -309,34 +314,6 @@ object YouTube {
 
     fun createDnsOverHttps(url: String): Dns {
         val httpUrl = url.toHttpUrl()
-        return object : Dns {
-            @Volatile
-            private var cached: Dns? = null
-            private val cacheLock = Any()
-
-            private fun getOrCreateDelegate(): Dns {
-                return cached
-                    ?: synchronized(cacheLock) {
-                        cached
-                            ?: buildDnsOverHttps(httpUrl).also { cached = it }
-                    }
-            }
-
-            override fun lookup(hostname: String): List<InetAddress> {
-                return try {
-                    getOrCreateDelegate().lookup(hostname)
-                } catch (e: Exception) {
-                    // Clear cache on failure so next lookup tries fresh
-                    synchronized(cacheLock) {
-                        cached = null
-                    }
-                    throw e
-                }
-            }
-        }
-    }
-
-    private fun buildDnsOverHttps(httpUrl: okhttp3.HttpUrl): Dns {
         val bootstrapClient =
             OkHttpClient
                 .Builder()
@@ -1575,8 +1552,8 @@ object YouTube {
                 ?.content
                 ?.sectionListRenderer
                 ?.contents
+                ?.mapNotNull(MoodAndGenres.Companion::fromSectionListRendererContent)
                 .orEmpty()
-                .mapNotNull(MoodAndGenres.Companion::fromSectionListRendererContent)
         }
 
     suspend fun browse(
@@ -2948,7 +2925,7 @@ object YouTube {
                         ?.musicQueueRenderer
                         ?.content
                         ?.playlistPanelRenderer
-                    ?: error("playlistPanelRenderer is null")
+                    ?: throw IllegalStateException("PLAYLIST_QUEUE_MISSING")
             val title =
                 response.contents.singleColumnMusicWatchNextResultsRenderer
                     ?.tabbedRenderer
@@ -3149,7 +3126,7 @@ object YouTube {
                             .trim('♪')
                             .trim(' ')
                     "[%02d:%02d.%03d]$text".format(time / 60000, (time / 1000) % 60, time % 1000)
-                }!!
+                }.orEmpty()
         }
 
     suspend fun visitorData(): Result<String> =
@@ -3474,6 +3451,7 @@ private fun SectionListRenderer.Content.libraryContinuation(): String? =
 private fun SectionListRenderer.Content.playlistSongContents(): List<MusicShelfRenderer.Content> =
     buildList {
         addAll(musicPlaylistShelfRenderer?.contents.orEmpty())
+        addAll(musicShelfRenderer?.contents.orEmpty())
         itemSectionRenderer?.contents.orEmpty().forEach { content ->
             content.musicResponsiveListItemRenderer?.let { renderer ->
                 add(
@@ -3483,6 +3461,7 @@ private fun SectionListRenderer.Content.playlistSongContents(): List<MusicShelfR
                     ),
                 )
             }
+            addAll(content.musicShelfRenderer?.contents.orEmpty())
         }
     }
 
@@ -3512,6 +3491,25 @@ internal fun playlistContinuationPageFromResponse(
         listOf(
             PlaylistContinuationCandidate(
                 contents =
+                    buildList {
+                        response.continuationContents
+                            ?.sectionListContinuation
+                            ?.contents
+                            .orEmpty()
+                            .forEach { sectionContent ->
+                                addAll(sectionContent.playlistSongContents())
+                            }
+                        addAll(appendedContents)
+                    },
+                continuation =
+                    response.continuationContents
+                        ?.sectionListContinuation
+                        ?.continuations
+                        ?.getContinuation()
+                        ?: appendedContents.getContinuation(),
+            ),
+            PlaylistContinuationCandidate(
+                contents =
                     response.continuationContents
                         ?.musicPlaylistShelfContinuation
                         ?.contents
@@ -3521,22 +3519,6 @@ internal fun playlistContinuationPageFromResponse(
                         ?.musicPlaylistShelfContinuation
                         ?.continuations
                         ?.getContinuation(),
-            ),
-            PlaylistContinuationCandidate(
-                contents =
-                    response.continuationContents
-                        ?.sectionListContinuation
-                        ?.contents
-                        .orEmpty()
-                        .flatMap { sectionContent ->
-                            sectionContent.playlistSongContents()
-                        },
-                continuation =
-                    response.continuationContents
-                        ?.sectionListContinuation
-                        ?.continuations
-                        ?.getContinuation()
-                        ?: appendedContents.getContinuation(),
             ),
             PlaylistContinuationCandidate(
                 contents =

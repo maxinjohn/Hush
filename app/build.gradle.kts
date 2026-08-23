@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Base64
 import java.util.Properties
 
 plugins {
@@ -24,7 +25,31 @@ val discordApplicationId =
         ).trim()
 val discordApplicationIdLong = discordApplicationId.toLongOrNull() ?: 1165706613961789445L
 val discordRedirectScheme = "discord-$discordApplicationId"
-val releaseKeystoreFile = file("keystore/release.keystore")
+val releaseKeystoreFile = run {
+    val source = file("keystore/release.keystore")
+    if (!source.isFile) {
+        source
+    } else {
+        val encoded = source.readText(Charsets.US_ASCII).trim()
+        val looksBase64 =
+            encoded.length >= 64 &&
+                encoded.length % 4 == 0 &&
+                encoded.all { it.isLetterOrDigit() || it == '+' || it == '/' || it == '=' }
+        if (!looksBase64) {
+            source
+        } else {
+            runCatching {
+                val decodedBytes = Base64.getDecoder().decode(encoded)
+                val decoded = layout.buildDirectory.file("signing/release.keystore").get().asFile
+                if (!decoded.exists() || !decoded.readBytes().contentEquals(decodedBytes)) {
+                    decoded.parentFile.mkdirs()
+                    decoded.writeBytes(decodedBytes)
+                }
+                decoded
+            }.getOrElse { source }
+        }
+    }
+}
 fun signingProperty(name: String): String? =
     localProperties.getProperty(name)?.trim()?.takeIf { it.isNotBlank() }
         ?: System.getenv(name)?.trim()?.takeIf { it.isNotBlank() }
@@ -47,8 +72,8 @@ android {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 165
-        versionName = "13.13.4"
+        versionCode = 166
+        versionName = "13.13.5"
 
         ndk {
             // ABI filters are set per product flavor (arm64, universal, etc.).
@@ -213,6 +238,10 @@ android {
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 
     buildFeatures {
@@ -445,6 +474,9 @@ dependencies {
     implementation(libs.timber)
     testImplementation(libs.junit)
     testImplementation(libs.turbine)
+    testImplementation("io.ktor:ktor-client-mock:${libs.versions.ktor.get()}")
+    testImplementation("io.ktor:ktor-client-content-negotiation:${libs.versions.ktor.get()}")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     implementation(libs.translator)
     implementation("androidx.lifecycle:lifecycle-process:2.11.0")
     implementation("androidx.compose.material3.adaptive:adaptive:1.3.0-rc01")

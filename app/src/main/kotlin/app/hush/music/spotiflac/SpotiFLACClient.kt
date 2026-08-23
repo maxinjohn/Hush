@@ -130,6 +130,13 @@ class SpotiFLACClient @Inject constructor(
     }
 
     private suspend fun handleRelayError(body: String, statusCode: Int) {
+        // 401/403 means the session is invalid — always clear regardless of body content
+        if (statusCode == 401 || statusCode == 403) {
+            Timber.tag(TAG).w("Auth failed ($statusCode), clearing session")
+            sessionManager.clearSession()
+            return
+        }
+
         val errorResponse = try {
             json.decodeFromString<RelayErrorResponse>(body)
         } catch (_: Exception) {
@@ -297,11 +304,11 @@ class SpotiFLACClient @Inject constructor(
             Timber.tag(TAG).d("No active session (state=$state), bootstrapping")
             val bootstrapResult = sessionManager.bootstrap()
             val postState = bootstrapResult.getOrElse { SessionState.ERROR }
-            if (postState == SessionState.CHALLENGE_PENDING) {
-                throw SpotiFLACException("Cloudflare verification required — open SpotiFLAC settings to authenticate")
-            }
-            if (postState != SessionState.ACTIVE) {
-                throw SpotiFLACException("Could not establish session (state=$postState)")
+            when (postState) {
+                SessionState.ACTIVE -> { /* session ready */ }
+                else -> throw SpotiFLACException(
+                    "Cloudflare verification required — open SpotiFLAC settings to authenticate",
+                )
             }
         }
 
@@ -310,20 +317,41 @@ class SpotiFLACClient @Inject constructor(
 
         val response = getSignedRequest(path)
         val body = response.bodyAsText()
+        val status = response.status.value
 
-        Timber.tag(TAG).d("Test response for $source: status=${response.status.value}, body=${body.take(200)}")
+        Timber.tag(TAG).d("Test response for $source: status=$status, body=${body.take(300)}")
 
-        if (response.status.value == 403 || response.status.value == 401) {
-            Timber.tag(TAG).w("Auth failed for $source: status=${response.status.value}, body=$body")
-            handleRelayError(body, response.status.value)
-            throw SpotiFLACException("Auth failed (${response.status.value}) for source $source: ${body.take(200)}")
+        if (status == 401 || status == 403) {
+            // Do NOT call handleRelayError or bootstrap here — they destroy the
+            // session. A 401 on the test endpoint may be a signing issue; the
+            // session may still work fine for playback. Just report the failure.
+            val sess = sessionManager.currentSession
+            val diag = buildString {
+                append("401 on test for $source\n")
+                append("  sessionId=${sess?.sessionId ?: "null"}\n")
+                append("  secret_len=${sess?.sessionSecret?.length ?: 0}\n")
+                append("  expires=${sess?.expiresAt ?: 0}\n")
+                append("  now=${System.currentTimeMillis()}\n")
+                append("  body=${body.take(300)}")
+            }
+            android.util.Log.w(TAG, diag)
+            Timber.tag(TAG).w("401 details: %s", diag)
+            throw SpotiFLACException("Source test failed (HTTP $status) — try playing a track")
         }
-        if (response.status.value == 429) {
+        if (status == 429) {
             throw SpotiFLACException("Rate limited (429) for source $source")
         }
 
         if (isHexBlob(body)) {
             throw SpotiFLACException("Relay returned encrypted response - session may be invalid")
+        }
+
+        // Process structured errors returned with HTTP 200.
+        val bodyIndicatesInvalidSession =
+            body.contains("SESSION_INVALID", ignoreCase = true) ||
+                body.contains("REQUEST_AUTH_INVALID", ignoreCase = true)
+        if (bodyIndicatesInvalidSession) {
+            throw SpotiFLACException("Session invalid for source $source — re-authenticate in Settings")
         }
 
         val results = parseSearchResults(body)
@@ -382,13 +410,17 @@ class SpotiFLACClient @Inject constructor(
         val fullPath = java.net.URI(url).path ?: path
         val signedHeaders = sessionManager.getSignedHeaders("GET", fullPath)
 
-        Timber.tag(TAG).d("GET $url (signedPath=$fullPath, headers=${signedHeaders.size})")
+        android.util.Log.w(TAG, "=== GET $url ===")
+        android.util.Log.w(TAG, "  signedPath=$fullPath headers=${signedHeaders.size}")
+        signedHeaders.forEach { (k, v) -> android.util.Log.w(TAG, "  $k: $v") }
 
-        return httpClient.get(url) {
+        val response = httpClient.get(url) {
             header("User-Agent", "SpotiFLAC-Mobile/${SpotiFLACSessionManager.APP_VERSION}")
             header("Accept", "application/json")
             signedHeaders.forEach { (k, v) -> header(k, v) }
         }
+        android.util.Log.w(TAG, "  RESPONSE status=${response.status.value}")
+        return response
     }
 
     private suspend fun postSignedRequest(

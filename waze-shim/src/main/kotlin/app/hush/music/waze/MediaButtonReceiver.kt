@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import android.view.KeyEvent
+import androidx.core.content.ContextCompat
 
 class MediaButtonReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -54,14 +55,24 @@ class MediaButtonReceiver : BroadcastReceiver() {
     }
 
     private fun sendCommand(context: Context, command: String) {
+        val intent = Intent("app.hush.music.WAZE_COMMAND").apply {
+            putExtra("command", command)
+            component = android.content.ComponentName(
+                "app.hush.music",
+                "app.hush.music.playback.MusicService",
+            )
+        }
         try {
-            val intent = Intent("app.hush.music.WAZE_COMMAND").apply {
-                putExtra("command", command)
-                setPackage("app.hush.music")
-            }
-            context.sendBroadcast(intent)
+            // Starting the service lets Waze controls work even when Hush's
+            // dynamic command receiver has not been registered yet.
+            ContextCompat.startForegroundService(context, intent)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to send command: $command", e)
+            Log.w(TAG, "Unable to start Hush for command $command; trying broadcast", e)
+            try {
+                context.sendBroadcast(intent.setPackage("app.hush.music"))
+            } catch (broadcastError: Exception) {
+                Log.e(TAG, "Failed to send command: $command", broadcastError)
+            }
         }
     }
 

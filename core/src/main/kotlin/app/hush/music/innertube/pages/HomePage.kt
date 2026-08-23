@@ -153,7 +153,7 @@ data class HomePage(
                         ?.let {
                             Album(
                                 name = it.text,
-                                id = it.navigationEndpoint?.browseEndpoint?.browseId!!
+                                id = it.navigationEndpoint?.browseEndpoint?.browseId ?: return@let null,
                             )
                         },
                     duration = secondaryLine.lastOrNull()?.firstOrNull()?.text?.parseTime(),

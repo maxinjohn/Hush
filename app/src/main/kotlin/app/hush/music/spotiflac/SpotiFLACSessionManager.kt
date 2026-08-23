@@ -14,6 +14,11 @@ import io.ktor.http.contentType
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -85,8 +90,8 @@ class SpotiFLACSessionManager @Inject constructor(
         private const val KEY_SERVER_NONCE = "server_nonce"
         const val APP_VERSION = "4.8.5"
         private const val PLATFORM = "extension"
-        private const val SCHEME_LABEL = "SPOTIFLAC-HMAC-V1"
-        private const val HEADER_PREFIX = "X-Sig-"
+        private const val SCHEME_LABEL = "ZARZ-HMAC-V1"
+        private const val HEADER_PREFIX = "X-Zarz-"
         private const val TIME_WINDOW_SECONDS = 300L
         const val BASE_URL = "https://api.zarz.moe/v2"
 
@@ -108,6 +113,10 @@ class SpotiFLACSessionManager @Inject constructor(
     var currentSession: SpotiFLACSession? = null
         private set
 
+    private val _sessionState = MutableStateFlow(SessionState.NONE)
+    val sessionStateFlow: StateFlow<SessionState> = _sessionState.asStateFlow()
+    private val sessionOperationMutex = Mutex()
+
     private var installId: String = ""
 
     init {
@@ -121,7 +130,7 @@ class SpotiFLACSessionManager @Inject constructor(
         get() {
             val session = currentSession ?: return SessionState.NONE
             val now = System.currentTimeMillis()
-            if (now > session.expiresAt) return SessionState.EXPIRED
+            if (now >= session.expiresAt) return SessionState.EXPIRED
             return SessionState.ACTIVE
         }
 
@@ -151,6 +160,7 @@ class SpotiFLACSessionManager @Inject constructor(
         // Always clear invalid/expired sessions to allow re-authentication
         if (sessionId != null && sessionSecret != null && System.currentTimeMillis() < expiresAt) {
             currentSession = SpotiFLACSession(sessionId, sessionSecret, expiresAt)
+            _sessionState.value = SessionState.ACTIVE
             Timber.tag(TAG).d("Restored session: $sessionId (expires ${java.time.Instant.ofEpochMilli(expiresAt)})")
         } else {
             // Invalid/expired session - clear it to allow fresh bootstrap
@@ -166,6 +176,7 @@ class SpotiFLACSessionManager @Inject constructor(
             .putLong(KEY_SESSION_EXPIRES, session.expiresAt)
             .apply()
         currentSession = session
+        _sessionState.value = SessionState.ACTIVE
     }
 
     fun clearSession() {
@@ -179,6 +190,7 @@ class SpotiFLACSessionManager @Inject constructor(
             .remove(KEY_SERVER_NONCE)
             .apply()
         currentSession = null
+        _sessionState.value = SessionState.NONE
     }
 
     fun hasActiveSession(): Boolean {
@@ -190,7 +202,10 @@ class SpotiFLACSessionManager @Inject constructor(
         return currentSession != null
     }
 
-    suspend fun bootstrap(): Result<SessionState> = runCatching {
+
+
+    suspend fun bootstrap(): Result<SessionState> = sessionOperationMutex.withLock {
+        runCatching {
         Timber.tag(TAG).d("Bootstrapping session (install_id=$installId)")
 
         val url = "$BASE_URL/bootstrap?install_id=$installId&app_version=$APP_VERSION"
@@ -206,8 +221,16 @@ class SpotiFLACSessionManager @Inject constructor(
             throw SpotiFLACException("Relay returned Cloudflare challenge instead of bootstrap (HTTP $status). Try again later.")
         }
 
+        // 401/403 means the existing session is invalid — clear it so re-bootstrap can start fresh
+        if (status == 401 || status == 403) {
+            Timber.tag(TAG).w("Bootstrap auth failed ($status), clearing stale session")
+            clearSession()
+            return@runCatching SessionState.NONE
+        }
+
         if (status == 404 || body.contains("Not found")) {
             Timber.tag(TAG).w("Bootstrap endpoint not available")
+            clearSession()
             return@runCatching SessionState.NONE
         }
 
@@ -215,6 +238,7 @@ class SpotiFLACSessionManager @Inject constructor(
 
         if (bootstrapResponse.error != null) {
             Timber.tag(TAG).w("Bootstrap error: ${bootstrapResponse.error}")
+            clearSession()
             return@runCatching SessionState.NONE
         }
 
@@ -245,6 +269,7 @@ class SpotiFLACSessionManager @Inject constructor(
             val challengeUrl = "$BASE_URL/challenge?id=${bootstrapResponse.challengeId}&cb=$encodedCallback"
             prefs.edit().putString(KEY_CHALLENGE_URL, challengeUrl).apply()
             Timber.tag(TAG).d("Turnstile challenge required: $challengeUrl")
+            _sessionState.value = SessionState.CHALLENGE_PENDING
             return@runCatching SessionState.CHALLENGE_PENDING
         }
 
@@ -252,14 +277,18 @@ class SpotiFLACSessionManager @Inject constructor(
         if (!challengeUrl.isNullOrBlank()) {
             prefs.edit().putString(KEY_CHALLENGE_URL, challengeUrl).apply()
             Timber.tag(TAG).d("Challenge required: $challengeUrl")
+            _sessionState.value = SessionState.CHALLENGE_PENDING
             return@runCatching SessionState.CHALLENGE_PENDING
         }
 
         Timber.tag(TAG).w("Bootstrap returned neither session nor challenge")
+        clearSession()
         return@runCatching SessionState.NONE
+        }
     }
 
-    suspend fun exchangeGrant(grant: String): Result<SessionState> = runCatching {
+    suspend fun exchangeGrant(grant: String): Result<SessionState> = sessionOperationMutex.withLock {
+        runCatching {
         Timber.tag(TAG).d("Exchanging grant (grant_len=${grant.length})")
 
         val url = "$BASE_URL/session/exchange"
@@ -289,12 +318,18 @@ class SpotiFLACSessionManager @Inject constructor(
         }
 
         if (status < 200 || status >= 300) {
+            // Auth failures mean the current session is invalid — clear so next attempt starts fresh
+            if (status == 401 || status == 403) {
+                Timber.tag(TAG).w("Exchange auth failed ($status), clearing session")
+                clearSession()
+            }
             throw SpotiFLACException("Exchange failed with HTTP $status: ${body.take(200)}")
         }
 
         val exchangeResponse = json.decodeFromString<ExchangeResponse>(body)
 
         if (exchangeResponse.error != null) {
+            clearSession()
             throw SpotiFLACException("Exchange error: ${exchangeResponse.error}")
         }
 
@@ -319,6 +354,7 @@ class SpotiFLACSessionManager @Inject constructor(
             Timber.tag(TAG).e("Session save verification FAILED — SharedPreferences did not persist")
         }
         SessionState.ACTIVE
+        }
     }
 
     fun signRequest(
@@ -346,10 +382,7 @@ class SpotiFLACSessionManager @Inject constructor(
         val rollingKeyBytes = hmacSha256(sessionSecretRawBytes, rollingInput.toByteArray())
         // Go: rk = base64.RawURLEncoding.EncodeToString(...)
         // Rolling key is base64url-encoded, then []byte(rk) is used for signature HMAC
-        val rollingKey = android.util.Base64.encodeToString(
-            rollingKeyBytes,
-            android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING,
-        )
+        val rollingKey = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(rollingKeyBytes)
 
         val pathOnly = path.substringBefore("?")
         // Go: strings.Join([]string{..., path, "", bodyHash, ...}, "\n")
@@ -374,30 +407,19 @@ class SpotiFLACSessionManager @Inject constructor(
             append(PLATFORM)
         }
 
-        Timber.tag(TAG).d(
-            buildString {
-                append("SIGN DEBUG:\n")
-                append("  session_id=${session.sessionId}\n")
-                append("  session_secret(${session.sessionSecret.length})=${session.sessionSecret.take(8)}...\n")
-                append("  path=$path -> pathOnly=$pathOnly\n")
-                append("  window=$window, rollingInput=$rollingInput\n")
-                append("  rollingKey_b64=$rollingKey\n")
-                append("  rollingKey_hex=${rollingKeyBytes.joinToString("") { "%02x".format(it) }.take(40)}...\n")
-                append("  bodySha256=$bodySha256\n")
-                append("  signingInput=$signingInput")
-            },
-        )
-
         // Go: hmacSHA256Bytes([]byte(rk), []byte(signingInput))
         // rk is the base64url string, []byte(rk) uses its ASCII bytes
         val signature = hmacSha256(
             rollingKey.toByteArray(Charsets.UTF_8),
             signingInput.toByteArray(),
         )
-        val signatureBase64 = android.util.Base64.encodeToString(
-            signature,
-            android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING,
-        )
+        val signatureBase64 = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(signature)
+
+        android.util.Log.w(TAG, "=== SIGNING ${method.uppercase()} $path ===")
+        android.util.Log.w(TAG, "  session_id=${session.sessionId} secret_len=${session.sessionSecret.length}")
+        android.util.Log.w(TAG, "  window=$window pathOnly=$pathOnly")
+        android.util.Log.w(TAG, "  timestamp=$timestamp nonce=$nonce")
+        android.util.Log.w(TAG, "  signature=${signatureBase64.take(24)}...")
 
         val headers = mapOf(
             "${HEADER_PREFIX}Session" to session.sessionId,
@@ -408,7 +430,6 @@ class SpotiFLACSessionManager @Inject constructor(
             "${HEADER_PREFIX}App-Version" to APP_VERSION,
             "${HEADER_PREFIX}Platform" to PLATFORM,
         )
-        Timber.tag(TAG).d("SIGN headers: $headers")
         return headers
     }
 
@@ -417,6 +438,12 @@ class SpotiFLACSessionManager @Inject constructor(
         if (session == null) {
             Timber.tag(TAG).w("getSignedHeaders called with no active session")
             throw SpotiFLACException("No active SpotiFLAC session — authenticate first")
+        }
+        // Session exists but is expired — clear it so bootstrap can start fresh
+        if (System.currentTimeMillis() >= session.expiresAt) {
+            Timber.tag(TAG).w("Session expired (expiresAt=${java.time.Instant.ofEpochMilli(session.expiresAt)}), clearing")
+            clearSession()
+            throw SpotiFLACException("SpotiFLAC session expired — re-bootstrap required")
         }
         return try {
             signRequest(method, path, body)

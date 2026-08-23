@@ -7,8 +7,14 @@
 
 package app.hush.music.ui.component
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,11 +31,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -40,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import app.hush.music.R
 import app.hush.music.constants.EnableHapticFeedbackKey
 import app.hush.music.ui.theme.HushDesign
@@ -235,6 +246,7 @@ private fun HeaderPlayAction(
                     MaterialTheme.colorScheme.tertiary,
                 ),
         )
+    val tapPulse = rememberTapPulseScale()
     Surface(
         modifier =
             modifier
@@ -243,6 +255,7 @@ private fun HeaderPlayAction(
                 .clip(HeaderActionShape)
                 .archiveTuneHeaderActionPressable(
                     onClick = {
+                        tapPulse.trigger()
                         if (enableHapticFeedback) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         }
@@ -268,7 +281,14 @@ private fun HeaderPlayAction(
                 Icon(
                     painter = painterResource(R.drawable.play),
                     contentDescription = null,
-                    modifier = Modifier.size(HeaderIconSize),
+                    modifier =
+                        Modifier
+                            .size(HeaderIconSize)
+                            .graphicsLayer {
+                                val pulse = tapPulse.scale.value
+                                scaleX = pulse
+                                scaleY = pulse
+                            },
                     tint = MaterialTheme.colorScheme.onPrimary,
                 )
                 if (showLabel) {
@@ -299,6 +319,7 @@ private fun HeaderIconAction(
 ) {
     val haptic = LocalHapticFeedback.current
     val (enableHapticFeedback) = rememberPreference(EnableHapticFeedbackKey, true)
+    val tapPulse = rememberTapPulseScale()
     val containerColor =
         if (active) {
             activeTint.copy(alpha = 0.16f)
@@ -314,6 +335,7 @@ private fun HeaderIconAction(
                 .clip(HeaderActionShape)
                 .archiveTuneHeaderActionPressable(
                     onClick = {
+                        tapPulse.trigger()
                         if (enableHapticFeedback) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         }
@@ -331,10 +353,56 @@ private fun HeaderIconAction(
                     .padding(1.dp),
             contentAlignment = Alignment.Center,
         ) {
-            content()
+            Box(
+                modifier =
+                    Modifier.graphicsLayer {
+                        val pulse = tapPulse.scale.value
+                        scaleX = pulse
+                        scaleY = pulse
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                content()
+            }
         }
     }
 }
+
+/**
+ * A short springy scale pulse (1f → ~1.15 → 1f) triggered on tap, giving
+ * icon buttons a satisfying "pop" even when press-scale animations are
+ * disabled (e.g. low-RAM devices).
+ */
+@Composable
+private fun rememberTapPulseScale(): TapPulse {
+    val animationsDisabled = app.hush.music.LocalAnimationsDisabled.current
+    val scope = rememberCoroutineScope()
+    val scale = remember { Animatable(1f) }
+
+    fun trigger() {
+        if (animationsDisabled) return
+        scope.launch {
+            scale.snapTo(1.12f)
+            scale.animateTo(
+                targetValue = 1f,
+                animationSpec =
+                    spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+            )
+        }
+    }
+
+    return remember(scale, scope, animationsDisabled) {
+        TapPulse(scale = scale, trigger = ::trigger)
+    }
+}
+
+private class TapPulse(
+    val scale: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
+    val trigger: () -> Unit,
+)
 
 @Composable
 fun PlaylistDownloadButtonContent(

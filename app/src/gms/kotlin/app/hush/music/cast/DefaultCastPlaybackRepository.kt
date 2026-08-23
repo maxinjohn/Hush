@@ -90,6 +90,24 @@ class DefaultCastPlaybackRepository(
             mutableScreenState.value = CastScreenState.Empty
             return localPlayer
         }
+        // CastPlayer reports the remote receiver state while no Cast session is
+        // connected on some GMS devices. That leaves the UI/media session stuck at
+        // STOPPED even though the local ExoPlayer is ready. Use the local player for
+        // ordinary playback and only wrap it when a receiver is actually connected.
+        val currentCastSession = contextResult.sessionManager.currentCastSession
+        if (currentCastSession?.isConnected != true) {
+            mutableScreenState.value =
+                CastScreenState.Success(
+                    CastUiState(
+                        isAvailable = true,
+                        isConnected = false,
+                        device = null,
+                        volume = 1f,
+                    ),
+                )
+            return localPlayer
+        }
+
         val converter =
             GmsCastMediaItemConverter(
                 mediaItemResolver = mediaItemResolver,

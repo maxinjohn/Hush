@@ -18,14 +18,18 @@ import app.hush.music.models.MediaMetadata
 import java.util.ArrayDeque
 
 fun Player.togglePlayPause() {
-    if (!playWhenReady && playbackState == Player.STATE_IDLE) {
-        prepare()
-    } else if (playbackState == Player.STATE_ENDED) {
-        seekToDefaultPosition()
-        playWhenReady = true
+    if (isPlaying || playWhenReady) {
+        pause()
         return
     }
-    playWhenReady = !playWhenReady
+    if (playbackState == Player.STATE_ENDED) {
+        seekToDefaultPosition()
+    } else if (playbackState == Player.STATE_IDLE && mediaItemCount > 0) {
+        prepare()
+    }
+    // Use play() instead of only changing playWhenReady. This also lets Media3
+    // recover a prepared local player after a service/player rebind.
+    play()
 }
 
 fun Player.toggleRepeatMode() {

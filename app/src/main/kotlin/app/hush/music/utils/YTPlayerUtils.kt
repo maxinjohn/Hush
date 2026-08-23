@@ -207,16 +207,19 @@ object YTPlayerUtils {
 
     suspend fun recoverFromBadStreamPlayerResponse(videoId: String) {
         val authState = YouTube.currentPlaybackAuthState()
+        // A stale dataSyncId can make every logged-in client return the same
+        // non-playable response. Retry with the account cookie retained, but use
+        // visitor playback context so the next attempt actually changes request state.
+        val visitorAuthState = authState.withoutPlaybackLoginContext()
+        YouTube.authState = visitorAuthState
         val refreshedAuthState =
             ensureVisitorDataReady(
                 videoId = videoId,
-                authState = authState,
+                authState = visitorAuthState,
                 forceRefresh = true,
                 reason = "all stream clients failed",
             )
-        if (refreshedAuthState.fingerprint != authState.fingerprint) {
-            YouTube.authState = refreshedAuthState
-        }
+        YouTube.authState = refreshedAuthState.withoutPlaybackLoginContext()
         clearPlaybackAuthCaches()
     }
 
@@ -992,7 +995,18 @@ suspend fun playerResponseForPlayback(
             var selectedUrl: String? = null
 
             for (candidate in candidates) {
-                if (canUseLoggedInPlayback && expectedDurationMs != null && isLikelyPreview(candidate, expectedDurationMs)) continue
+                // A preview/sample stream is a truncated stub (~30s) that YouTube revokes
+                // with HTTP 403 at its range boundary. Skip it whenever we know the real
+                // song duration — regardless of login state (downloads resolve with a
+                // visitor/cookie context, so gating on canUseLoggedInPlayback let
+                // previews through and downloads stalled at ~7-60% every time).
+                if (expectedDurationMs != null && isLikelyPreview(candidate, expectedDurationMs)) {
+                    Timber.tag(logTag).d(
+                        "Skipping preview stream (approx=${candidate.approxDurationMs}ms, expected=${expectedDurationMs}ms) for %s",
+                        videoId,
+                    )
+                    continue
+                }
                 if (shouldSkipCipheredWebCandidate(client, candidate, authState)) continue
                 val cacheKey = buildStreamCacheKey(videoId, candidate.itag, client, authState.fingerprint)
                 val cached = streamUrlCache[cacheKey]
@@ -1029,7 +1043,12 @@ suspend fun playerResponseForPlayback(
             Timber.tag(logTag).i("Format found: ${format.mimeType}, bitrate: ${format.bitrate}")
             Timber.tag(logTag).v("Stream expires in: $streamExpiresInSeconds seconds")
 
-            val valid = validateStatus(streamUrl, fastProbe = fastResolution)
+            val valid =
+                validateStatus(
+                    url = streamUrl,
+                    contentLength = selectedFormat.contentLength,
+                    fastProbe = fastResolution,
+                )
             if (valid) {
                 Timber.tag(logTag).i("Stream validated successfully with client: ${describeClient(client)}")
                 lastSuccessfulClientKey = StreamClientUtils.buildClientKey(client)
@@ -1041,6 +1060,14 @@ suspend fun playerResponseForPlayback(
             streamUrl = null
             streamClientUsed = null
             streamExpiresInSeconds = null
+            streamPlayerResponse = null
+        }
+
+        // A player response can be valid while still containing no usable audio URL
+        // (for example when every format is ciphered or the URL probe rejected each
+        // candidate). Treat that as a full client failure so recovery can refresh the
+        // auth/client state instead of falling through to a misleading generic error.
+        if (format == null || streamUrl == null || streamClientUsed == null) {
             streamPlayerResponse = null
         }
 
@@ -1135,7 +1162,7 @@ suspend fun playerResponseForPlayback(
             streamUrl,
             streamExpiresInSeconds,
             authState.fingerprint,
-            "YouTube",
+            playbackClientLabel = resolvedStreamClient.clientName,
             alternateCdnUrls = altCdnUrls,
         )
     }
@@ -1357,6 +1384,7 @@ suspend fun playerResponseForPlayback(
      */
     private fun validateStatus(
         url: String,
+        contentLength: Long? = null,
         fastProbe: Boolean = false,
     ): Boolean {
         Timber.tag(logTag).v("Validating stream URL status")
@@ -1406,6 +1434,68 @@ suspend fun playerResponseForPlayback(
                         readable
                     }
                 if (!probeValid) return false
+            }
+
+            // Tail probe: YouTube serves capped/limited streams (previews and
+            // throttled variants) that stop at a fixed byte boundary (observed at
+            // exactly 4 MiB) and then 403 on any range past it. Such a stream passes
+            // the head probes above but dies mid-playback / mid-download, which
+            // caused the random mid-song skips. If the server refuses to serve the
+            // declared tail, reject the URL so resolution falls back to another
+            // format/client.
+            val declaredLength =
+                contentLength
+                    ?: url.toHttpUrlOrNull()?.queryParameter("len")?.toLongOrNull()
+            if (declaredLength != null && declaredLength > TAIL_PROBE_MIN_DECLARED_BYTES) {
+                val tailStart = (declaredLength - TAIL_PROBE_WINDOW_BYTES).coerceAtLeast(0L)
+                val tailRange = "bytes=$tailStart-${declaredLength - 1}"
+                val tailRequest =
+                    StreamClientUtils
+                        .applyRequestProfile(
+                            okhttp3.Request
+                                .Builder()
+                                .get()
+                                .header("Range", tailRange)
+                                .url(url),
+                            requestProfile,
+                        ).build()
+
+                val tailValid =
+                    currentStreamClient().newCall(tailRequest).execute().use { response ->
+                        when (response.code) {
+                            206 -> true
+                            200 -> {
+                                // Server ignored the Range header and returned the full
+                                // body — treat as a real stream.
+                                true
+                            }
+                            416 -> {
+                                Timber.tag(logTag).w(
+                                    "Rejecting capped stream: declared length %d bytes but tail range %s not satisfiable",
+                                    declaredLength,
+                                    tailRange,
+                                )
+                                false
+                            }
+                            403 -> {
+                                Timber.tag(logTag).w(
+                                    "Rejecting capped stream: 403 on tail range %s (declared %d bytes)",
+                                    tailRange,
+                                    declaredLength,
+                                )
+                                false
+                            }
+                            else -> {
+                                Timber.tag(logTag).w(
+                                    "Rejecting stream: unexpected code %d on tail range %s",
+                                    response.code,
+                                    tailRange,
+                                )
+                                false
+                            }
+                        }
+                    }
+                if (!tailValid) return false
             }
 
             return true
@@ -1644,4 +1734,14 @@ suspend fun playerResponseForPlayback(
     private const val STREAM_PROBE_CONNECT_TIMEOUT_SECONDS = 4L
     private const val STREAM_PROBE_READ_TIMEOUT_SECONDS = 4L
     private const val STREAM_PROBE_CALL_TIMEOUT_SECONDS = 6L
+
+    /**
+     * Minimum declared stream size before the tail probe runs. Streams under this
+     * size are either short songs or already below the observed 4 MiB cap, so the
+     * extra round-trip is not worth it.
+     */
+    private const val TAIL_PROBE_MIN_DECLARED_BYTES = 2L * 1024L * 1024L
+
+    /** How many bytes from the end of the declared stream to request. */
+    private const val TAIL_PROBE_WINDOW_BYTES = 64L * 1024L
 }
