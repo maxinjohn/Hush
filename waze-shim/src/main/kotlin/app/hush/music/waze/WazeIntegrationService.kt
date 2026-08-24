@@ -32,6 +32,7 @@ import androidx.media.MediaBrowserServiceCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -69,6 +70,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
     private val lock = Any()
     private var wazeSdkConnection: ServiceConnection? = null
     private var wazeMessenger: Messenger? = null
+    private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private val wazeSdkConnectionImpl = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
             Log.d(TAG, "Connected to Waze SdkService!")
@@ -157,10 +159,17 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                     }
                 }
             }
-            1 -> Log.d(TAG, "  -> Message what=1 from Waze arg1=${msg.arg1} arg2=${msg.arg2}")
-            2 -> Log.d(TAG, "  -> Message what=2 from Waze arg1=${msg.arg1} arg2=${msg.arg2}")
-            3 -> Log.d(TAG, "  -> Message what=3 from Waze")
-            else -> Log.d(TAG, "  -> Unknown message what=${msg.what}")
+            WazeCommandMapper.WHAT_PLAY_PAUSE,
+            WazeCommandMapper.WHAT_NEXT,
+            WazeCommandMapper.WHAT_PREVIOUS -> {
+                Log.i(TAG, "  -> Message what=${msg.what} arg1=${msg.arg1} arg2=${msg.arg2}")
+                val cmd = WazeCommandMapper.mapMessageToCommand(msg.what, msg.arg1)
+                if (cmd != null) {
+                    Log.i(TAG, "  -> Translating what=${msg.what} to command: $cmd")
+                    sendCommandToHush(cmd)
+                }
+            }
+            else -> Log.w(TAG, "  -> Unknown message what=${msg.what}")
         }
         true
     })
@@ -278,21 +287,65 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         parentId: String,
         result: Result<MutableList<MediaItem>>,
     ) {
-        Log.d(TAG, "onLoadChildren: parentId=$parentId")
+        Log.i(TAG, "onLoadChildren: parentId=$parentId")
         val items = mutableListOf<MediaItem>()
 
         when (parentId) {
             ROOT_ID -> {
+                // Waze audio panel shows playlist groups at the root.
+                // Return one browsable "Hush Queue" entry that contains
+                // the actual tracks when drilled into.
+                val snapshot = latestSnapshot
+                val trackCount = snapshot?.queue?.items?.size ?: 0
+                val currentlyPlaying = snapshot?.title?.ifEmpty { null }
                 items.add(
                     MediaItem(
                         MediaDescriptionCompat.Builder()
-                            .setMediaId("play_hush")
-                            .setTitle("Hush Music")
-                            .setSubtitle("Tap to play")
+                            .setMediaId("hush_queue")
+                            .setTitle("Hush Queue")
+                            .setSubtitle(
+                                if (currentlyPlaying != null) {
+                                    "Now playing: $currentlyPlaying • $trackCount tracks"
+                                } else {
+                                    "$trackCount tracks"
+                                }
+                            )
+                            .apply {
+                                if (!snapshot?.artworkUrl.isNullOrEmpty()) {
+                                    setIconUri(Uri.parse(snapshot!!.artworkUrl))
+                                }
+                            }
                             .build(),
-                        MediaItem.FLAG_PLAYABLE,
+                        MediaItem.FLAG_BROWSABLE,
                     )
                 )
+                result.sendResult(items)
+            }
+            "hush_queue" -> {
+                // Return all queue items as playable tracks.
+                val snapshot = latestSnapshot
+                val queueItems = snapshot?.queue?.items
+                if (!queueItems.isNullOrEmpty()) {
+                    Log.d(TAG, "  -> Returning ${queueItems.size} queue items")
+                    for (item in queueItems) {
+                        items.add(
+                            MediaItem(
+                                MediaDescriptionCompat.Builder()
+                                    .setMediaId(item.trackId)
+                                    .setTitle(item.title)
+                                    .setSubtitle(item.artist)
+                                    .setDescription(item.album)
+                                    .apply {
+                                        if (!item.artworkUrl.isNullOrEmpty()) {
+                                            setIconUri(Uri.parse(item.artworkUrl))
+                                        }
+                                    }
+                                    .build(),
+                                MediaItem.FLAG_PLAYABLE,
+                            )
+                        )
+                    }
+                }
                 result.sendResult(items)
             }
             else -> {
@@ -307,16 +360,9 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         result: Result<MutableList<MediaItem>>,
     ) {
         Log.d(TAG, "onSearch: $query")
-        try {
-            val intent = Intent("app.hush.music.WAZE_COMMAND").apply {
-                putExtra("command", "search")
-                putExtra("query", query)
-                component = ComponentName("app.hush.music", "app.hush.music.playback.MusicService")
-            }
-            startForegroundService(intent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send search command", e)
-        }
+        sendWazeCommandToHush("search", android.os.Bundle().apply {
+            putString("query", query)
+        })
         result.sendResult(mutableListOf())
     }
 
@@ -428,8 +474,36 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
 
         override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) {
             Log.d(TAG, "onPlayFromMediaId: $mediaId")
-            if (sendCommandToHush("play")) {
-                publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PLAYING)
+            when (mediaId) {
+                null -> {}
+                "play_hush", "hush_queue" -> {
+                    // Generic play — start or resume playback
+                    if (sendCommandToHush("play")) {
+                        publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PLAYING)
+                    }
+                }
+                else -> {
+                    // Find the queue item index for this trackId
+                    val snapshot = latestSnapshot
+                    val queueItem = snapshot?.queue?.items?.firstOrNull { it.trackId == mediaId }
+                    if (queueItem != null) {
+                        Log.i(TAG, "  -> Playing queue item ${queueItem.queueItemId}: ${queueItem.title}")
+                        sendWazeCommandToHush("skip_to_queue_item", android.os.Bundle().apply {
+                            putLong("queue_item_id", queueItem.queueItemId)
+                        })
+                        // Send play after skip so the song auto-starts
+                        serviceScope.launch {
+                            delay(200)
+                            sendCommandToHush("play")
+                        }
+                        publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PLAYING)
+                    } else {
+                        Log.w(TAG, "  -> Queue item not found for mediaId=$mediaId, sending generic play")
+                        if (sendCommandToHush("play")) {
+                            publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PLAYING)
+                        }
+                    }
+                }
             }
         }
     }
@@ -513,6 +587,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
 
         try {
             if (snapshot.queue.revision > latestQueueRevision) {
+                Log.i(TAG, "setQueue: revision=${snapshot.queue.revision} items=${snapshot.queue.items.size} title=${snapshot.queue.title}")
                 session.setQueue(
                     snapshot.queue.items.map { item ->
                         MediaSessionCompat.QueueItem(
@@ -750,6 +825,13 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             },
             PendingIntent.FLAG_IMMUTABLE,
         )
+        val prevIntent = PendingIntent.getBroadcast(
+            this, 4,
+            Intent(this, MediaButtonReceiver::class.java).apply {
+                action = "app.hush.music.waze.ACTION_PREVIOUS"
+            },
+            PendingIntent.FLAG_IMMUTABLE,
+        )
 
         val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle(notificationTitle)
@@ -760,6 +842,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .addAction(android.R.drawable.ic_media_previous, "Previous", prevIntent)
             .addAction(android.R.drawable.ic_media_pause, "Pause", pauseIntent)
             .addAction(android.R.drawable.ic_media_play, "Play", playIntent)
             .addAction(android.R.drawable.ic_media_next, "Next", skipIntent)
@@ -770,7 +853,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 builder.setStyle(
                     androidx.media.app.NotificationCompat.MediaStyle()
                         .setMediaSession(session.sessionToken)
-                        .setShowActionsInCompactView(0, 1, 2),
+                        .setShowActionsInCompactView(1, 2, 3),
                 )
             }
         } catch (e: Exception) {
@@ -809,13 +892,34 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         val lastTime = lastCommandTimeByType[command] ?: 0L
         if (now - lastTime < 300) return false
         lastCommandTimeByType[command] = now
+        // Periodically prune stale entries (every 50 commands)
+        if (lastCommandTimeByType.size > 50) {
+            lastCommandTimeByType.entries.removeAll { now - it.value > 5_000L }
+        }
 
         try {
             val intent = Intent("app.hush.music.WAZE_COMMAND").apply {
                 putExtra("command", command)
                 component = ComponentName("app.hush.music", "app.hush.music.playback.MusicService")
             }
-            startForegroundService(intent)
+            try {
+                startForegroundService(intent)
+            } catch (e: Exception) {
+                Log.w(TAG, "startForegroundService failed for '$command', falling back to broadcast", e)
+                // Broadcast fallback: use action-only intent (no component) so it
+                // reaches the dynamically registered WazeCommandReceiver in MusicService.
+                // An explicit component targeting a Service is invisible to receivers.
+                try {
+                    val broadcastIntent = Intent("app.hush.music.WAZE_COMMAND").apply {
+                        putExtra("command", command)
+                        setPackage("app.hush.music")
+                    }
+                    sendBroadcast(broadcastIntent)
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Broadcast fallback also failed for '$command'", e2)
+                    return false
+                }
+            }
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send command to Hush", e)
@@ -832,7 +936,16 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             }
             startForegroundService(intent)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to send sync command to Hush", e)
+            Log.w(TAG, "startForegroundService failed for sync, falling back to broadcast", e)
+            try {
+                val broadcastIntent = Intent("app.hush.music.WAZE_COMMAND").apply {
+                    putExtra("command", "sync")
+                    setPackage("app.hush.music")
+                }
+                sendBroadcast(broadcastIntent)
+            } catch (e2: Exception) {
+                Log.e(TAG, "Broadcast fallback also failed for sync", e2)
+            }
         }
     }
 
@@ -843,7 +956,45 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             }
             startForegroundService(intent)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start Hush MusicService", e)
+            Log.w(TAG, "startForegroundService failed for MusicService start, trying broadcast", e)
+            try {
+                sendBroadcast(Intent("app.hush.music.WAZE_COMMAND").apply {
+                    putExtra("command", "sync")
+                    setPackage("app.hush.music")
+                })
+            } catch (e2: Exception) {
+                Log.e(TAG, "Failed to start Hush MusicService via broadcast", e2)
+            }
+        }
+    }
+
+    private fun sendWazeCommandToHush(command: String, extras: android.os.Bundle? = null): Boolean {
+        return try {
+            val intent = Intent("app.hush.music.WAZE_COMMAND").apply {
+                putExtra("command", command)
+                extras?.let { putExtras(it) }
+                component = ComponentName("app.hush.music", "app.hush.music.playback.MusicService")
+            }
+            try {
+                startForegroundService(intent)
+            } catch (e: Exception) {
+                Log.w(TAG, "startForegroundService failed for '$command'", e)
+                try {
+                    val broadcastIntent = Intent("app.hush.music.WAZE_COMMAND").apply {
+                        putExtra("command", command)
+                        extras?.let { putExtras(it) }
+                        setPackage("app.hush.music")
+                    }
+                    sendBroadcast(broadcastIntent)
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Broadcast fallback also failed for '$command'", e2)
+                    return false
+                }
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send '$command' to Hush", e)
+            false
         }
     }
 
@@ -851,34 +1002,15 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         val now = SystemClock.elapsedRealtime()
         if (now - lastSeekTime < 100) return false
         lastSeekTime = now
-
-        try {
-            val intent = Intent("app.hush.music.WAZE_COMMAND").apply {
-                putExtra("command", "seek")
-                putExtra("position", position)
-                component = ComponentName("app.hush.music", "app.hush.music.playback.MusicService")
-            }
-            startForegroundService(intent)
-            return true
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send seek command to Hush", e)
-            return false
-        }
+        return sendWazeCommandToHush("seek", android.os.Bundle().apply {
+            putLong("position", position)
+        })
     }
 
     private fun sendQueueItemCommandToHush(queueItemId: Long): Boolean {
-        return try {
-            val intent = Intent("app.hush.music.WAZE_COMMAND").apply {
-                putExtra("command", "skip_to_queue_item")
-                putExtra("queue_item_id", queueItemId)
-                component = ComponentName("app.hush.music", "app.hush.music.playback.MusicService")
-            }
-            startForegroundService(intent)
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send queue item command to Hush", e)
-            false
-        }
+        return sendWazeCommandToHush("skip_to_queue_item", android.os.Bundle().apply {
+            putLong("queue_item_id", queueItemId)
+        })
     }
 
     private fun bindToWazeSdkService(token: String) {
@@ -997,7 +1129,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
 
     private fun startHeartbeat() {
         stopHeartbeat()
-        heartbeatJob = CoroutineScope(Dispatchers.Main).launch {
+        heartbeatJob = serviceScope.launch {
             while (true) {
                 delay(HEARTBEAT_INTERVAL_MS)
                 val messenger = wazeMessenger ?: continue
@@ -1024,6 +1156,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         cleanedUp = true
         reconnectScheduled = false
         stopHeartbeat()
+        serviceScope.coroutineContext.cancelChildren()
         wazeMessenger = null
         wazeToken = null
         wazeSdkConnection?.let {

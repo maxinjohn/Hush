@@ -7037,23 +7037,20 @@ var originalQueueSize: Int = 0
     private fun handleWazeCommand(intent: Intent) {
         if (!app.hush.music.BuildConfig.WAZE_SUPPORTED) return
         val command = intent.getStringExtra("command")
+        android.util.Log.w(TAG, "handleWazeCommand: command=$command mediaItemCount=${player.mediaItemCount} isPlaying=${player.isPlaying}")
         if (command == "sync") {
             publishWazePlaybackSnapshot(force = true)
             return
         }
 
         if (player.mediaItemCount > 0) {
-            if (command == "stop" || command == "pause") {
-                wazePauseDebounceJob?.cancel()
-                wazePauseDebounceJob = scope.launch {
-                    delay(wazePauseDebounceMs)
-                    executeWazeCommand(intent)
-                }
-            } else {
-                wazePauseDebounceJob?.cancel()
-                wazePauseDebounceJob = null
-                executeWazeCommand(intent)
-            }
+            // Execute immediately — the shim already debounces per-command,
+            // and this server-side debounce caused pauses to be silently
+            // cancelled when a subsequent play command arrived within the
+            // debounce window (Waze state sync race).
+            wazePauseDebounceJob?.cancel()
+            wazePauseDebounceJob = null
+            executeWazeCommand(intent)
         } else if (queueRestoreCompleted.value) {
             wazeColdStartRecovery(intent)
         } else {
@@ -7079,7 +7076,9 @@ var originalQueueSize: Int = 0
                 publishWazePlaybackSnapshot(force = true)
             }
             "pause" -> {
+                android.util.Log.w(TAG, "executeWazeCommand: pausing player (wasPlaying=${player.isPlaying})")
                 player.pause()
+                android.util.Log.w(TAG, "executeWazeCommand: player.pause() called, isPlaying=${player.isPlaying}")
                 publishWazePlaybackSnapshot(force = true)
             }
             "stop" -> {

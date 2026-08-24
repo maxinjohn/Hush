@@ -49,13 +49,14 @@ class MediaButtonReceiver : BroadcastReceiver() {
             "app.hush.music.waze.ACTION_PAUSE" -> sendCommand(context, "pause")
             "app.hush.music.waze.ACTION_PLAY" -> sendCommand(context, "play")
             "app.hush.music.waze.ACTION_SKIP" -> sendCommand(context, "next")
+            "app.hush.music.waze.ACTION_PREVIOUS" -> sendCommand(context, "previous")
             "app.hush.music.waze.ACTION_LIKE" -> sendCommand(context, "like")
             "app.hush.music.waze.ACTION_DOWNLOAD" -> sendCommand(context, "download")
         }
     }
 
     private fun sendCommand(context: Context, command: String) {
-        val intent = Intent("app.hush.music.WAZE_COMMAND").apply {
+        val serviceIntent = Intent("app.hush.music.WAZE_COMMAND").apply {
             putExtra("command", command)
             component = android.content.ComponentName(
                 "app.hush.music",
@@ -63,13 +64,17 @@ class MediaButtonReceiver : BroadcastReceiver() {
             )
         }
         try {
-            // Starting the service lets Waze controls work even when Hush's
-            // dynamic command receiver has not been registered yet.
-            ContextCompat.startForegroundService(context, intent)
+            ContextCompat.startForegroundService(context, serviceIntent)
         } catch (e: Exception) {
-            Log.w(TAG, "Unable to start Hush for command $command; trying broadcast", e)
+            Log.w(TAG, "startForegroundService failed for '$command', falling back to broadcast", e)
             try {
-                context.sendBroadcast(intent.setPackage("app.hush.music"))
+                // Broadcast fallback: use action-only intent (no component) so it
+                // reaches the dynamically registered WazeCommandReceiver in MusicService.
+                val broadcastIntent = Intent("app.hush.music.WAZE_COMMAND").apply {
+                    putExtra("command", command)
+                    setPackage("app.hush.music")
+                }
+                context.sendBroadcast(broadcastIntent)
             } catch (broadcastError: Exception) {
                 Log.e(TAG, "Failed to send command: $command", broadcastError)
             }
