@@ -74,8 +74,8 @@ android {
         applicationId = "com.spotify.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 167
-        versionName = "13.13.6"
+        versionCode = 168
+        versionName = "13.13.7"
     }
 
     flavorDimensions += "bridge"
