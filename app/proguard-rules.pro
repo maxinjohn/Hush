@@ -123,6 +123,19 @@
 -keep interface androidx.media3.** { *; }
 -dontwarn androidx.media3.**
 
+## Android Auto / MediaBrowserService protection
+# Media3's MediaBrowserServiceCompat reflectively looks up the service class
+# and its inner binder. Without these, R8 can strip or rename them, causing
+# crashes when Android Auto (Automotive OS) connects.
+-keep class app.hush.music.playback.MusicService { *; }
+-keep class app.hush.music.playback.MusicService$MusicBinder { *; }
+-keep class app.hush.music.playback.MediaLibrarySessionCallback { *; }
+-keep class app.hush.music.playback.MusicServiceWidgetUpdater { *; }
+
+# Hilt-injected services referenced via reflection by Media3 framework
+-keep class * extends androidx.media3.session.MediaLibraryService { *; }
+-keep class * extends androidx.media3.session.MediaSessionService { *; }
+
 ## JAudioTagger - suppress missing AWT/ImageIO classes (not available on Android)
 -dontwarn java.awt.**
 -dontwarn javax.imageio.**

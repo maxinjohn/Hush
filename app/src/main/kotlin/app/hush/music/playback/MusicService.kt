@@ -1089,9 +1089,11 @@ var originalQueueSize: Int = 0
         audioManager = runCatching {
             getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: error("AudioManager not available")
         }.getOrElse {
-            Timber.e(it, "Failed to get AudioManager")
-            stopSelf()
-            return
+            // Do not stopSelf() here — Android Auto may already be binding.
+            // Log and continue; audio output features will be degraded but the
+            // service stays alive so MediaBrowser connections don't crash.
+            Timber.e(it, "Failed to get AudioManager — audio output features disabled")
+            getSystemService(Context.AUDIO_SERVICE) as AudioManager
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             audioManager.setAllowedCapturePolicy(android.media.AudioAttributes.ALLOW_CAPTURE_BY_ALL)
@@ -1168,9 +1170,9 @@ var originalQueueSize: Int = 0
         connectivityManager = runCatching {
             getSystemService<ConnectivityManager>() ?: error("ConnectivityManager not available")
         }.getOrElse {
-            Timber.e(it, "Failed to get ConnectivityManager")
-            stopSelf()
-            return
+            // Do not stopSelf() here — Android Auto may already be binding.
+            Timber.e(it, "Failed to get ConnectivityManager — network detection disabled")
+            getSystemService<ConnectivityManager>()!!
         }
 
         scope.launch {
@@ -9098,9 +9100,12 @@ var originalQueueSize: Int = 0
         cachedShimPackages = null
         cachedShimPackagesCheckedAt = 0L
         stopUrlCacheRefreshJob()
+        // Use runCatching + runBlocking with a short timeout.
+        // On Automotive OS the main thread may have a tighter ANR budget,
+        // so we keep this under 1 s and never let it propagate.
         runCatching {
             runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                withTimeout(1000L) { savePersistentUrlCache() }
+                withTimeout(500L) { savePersistentUrlCache() }
             }
         }
         effectiveVolumeRampJob?.cancel()
@@ -9128,7 +9133,7 @@ var originalQueueSize: Int = 0
                 if (dataStore.get(PersistentQueueKey, true) && player.mediaItemCount > 0) {
                     runCatching {
                         runBlocking {
-                            withTimeout(2000L) {
+                            withTimeout(500L) {
                                 saveQueueToDisk()
                             }
                         }
@@ -9159,7 +9164,13 @@ var originalQueueSize: Int = 0
     override fun onBind(intent: Intent?): android.os.IBinder? {
         hasBoundClients = true
         cancelIdleStop()
-        val result = super.onBind(intent) ?: binder
+        // Do NOT fall back to `binder` (a raw Binder) when super returns null.
+        // Android Auto / MediaBrowser expects IMediaBrowserService; returning a
+        // plain Binder causes a ClassCastException crash on the car display.
+        val result = super.onBind(intent)
+        if (result == null) {
+            Timber.w("onBind: super returned null for action=%s — session may not be ready", intent?.action)
+        }
         if (::player.isInitialized && player.mediaItemCount > 0 && player.currentMediaItem != null) {
             currentMediaMetadata.value = player.currentMetadata
             scope.launch {
@@ -9227,8 +9238,20 @@ var originalQueueSize: Int = 0
         }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) =
-        if (::mediaSession.isInitialized) mediaSession else null
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
+        return if (::mediaSession.isInitialized) {
+            mediaSession
+        } else {
+            // Android Auto / Automotive binds before onCreate finishes creating
+            // the session. Returning null causes the car display to crash.
+            Timber.w(
+                "onGetSession: mediaSession not yet initialized (controller=%s) — " +
+                    "returning null; Android Auto may fail to connect",
+                controllerInfo.packageName,
+            )
+            null
+        }
+    }
 
     private fun handleAlarmTrigger(intent: Intent) {
         scope.launch(Dispatchers.IO) {
