@@ -117,7 +117,7 @@ build_variant() {
         fi
       done
     fi
-    (cd waze-shim/build/outputs/apk && rm -f waze-shims.zip && zip -j waze-shims.zip "spotify/${build_type}/waze-shim-spotify-${build_type}.apk" "youtubeMusic/${build_type}/waze-shim-youtubeMusic-${build_type}.apk" "deezer/${build_type}/waze-shim-deezer-${build_type}.apk" && cp waze-shims.zip "${ROOT_DIR}/app/src/mobile/assets/")
+    (cd waze-shim/build/outputs/apk && rm -f waze-shims.zip && zip -j waze-shims.zip "spotify/${build_type}/waze-shim-spotify-${build_type}.apk" "youtubeMusic/${build_type}/waze-shim-youtubeMusic-${build_type}.apk" "deezer/${build_type}/waze-shim-deezer-${build_type}.apk" && cp waze-shims.zip "${ROOT_DIR}/app/src/mobile/assets/" && cp waze-shims.zip "${ROOT_DIR}/app/src/main/assets/")
   fi
   echo "==> Building ${APK_NAME}"
   run_gradle "$abi" "$GRADLE_TASK"
