@@ -528,8 +528,9 @@ val copyShimApks = tasks.register<Copy>("copyShimApks") {
     dependsOn(":waze-shim:packageShimApks")
     from(rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip"))
     into(rootProject.file("app/src/mobile/assets"))
+    into(rootProject.file("app/src/main/assets"))
     doLast {
-        println("Copied waze-shims.zip to app/src/mobile/assets/")
+        println("Copied waze-shims.zip to app/src/mobile/assets/ and app/src/main/assets/")
     }
 }
 
