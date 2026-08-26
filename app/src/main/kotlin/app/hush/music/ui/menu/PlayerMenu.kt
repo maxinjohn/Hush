@@ -591,6 +591,23 @@ fun PlayerMenu(
                                         },
                                     ),
                                 )
+                                add(
+                                    NewAction(
+                                        icon = {
+                                            Icon(
+                                                painter = painterResource(R.drawable.favorite),
+                                                contentDescription = null,
+                                                modifier = Modifier.size(menuActionIconSize()),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        },
+                                        text = stringResource(R.string.comments),
+                                        onClick = {
+                                            onDismiss()
+                                            navController.navigate("comments/${mediaMetadata.id}")
+                                        },
+                                    ),
+                                )
                             }
                             if (isQueueTrigger != true) {
                                 add(

@@ -490,7 +490,12 @@ fun WazeIntegrationSettings(
                                 ) { Text("Install") }
                             }
 
-                            WazeBridgeState.ORIGINAL_APP_INSTALLED -> Unit
+                            WazeBridgeState.ORIGINAL_APP_INSTALLED -> Row {
+                                TextButton(
+                                    enabled = !isProcessing,
+                                    onClick = { uninstallBridge(inspection) },
+                                ) { Text("Uninstall", color = MaterialTheme.colorScheme.error) }
+                            }
 
                             WazeBridgeState.BRIDGE_UPDATE_AVAILABLE,
                             WazeBridgeState.BRIDGE_UPDATE_REQUIRED,
@@ -520,7 +525,16 @@ fun WazeIntegrationSettings(
                             WazeBridgeState.BUNDLED_APK_MISSING,
                             WazeBridgeState.BUNDLED_APK_INVALID,
                             WazeBridgeState.UNKNOWN,
-                            -> Unit
+                            -> if (isInstalled) {
+                                Row {
+                                    TextButton(
+                                        enabled = !isProcessing,
+                                        onClick = { uninstallBridge(inspection) },
+                                    ) { Text("Uninstall", color = MaterialTheme.colorScheme.error) }
+                                }
+                            } else {
+                                Unit
+                            }
                         }
                     }
                 }

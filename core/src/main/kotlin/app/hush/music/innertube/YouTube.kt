@@ -26,6 +26,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import app.hush.music.innertube.models.AccountChannel
 import app.hush.music.innertube.models.AccountInfo
@@ -78,6 +79,7 @@ import app.hush.music.innertube.pages.ArtistItemsPageLayout
 import app.hush.music.innertube.pages.ArtistPage
 import app.hush.music.innertube.pages.BrowseResult
 import app.hush.music.innertube.pages.ChartsPage
+import app.hush.music.innertube.pages.CommentsPage
 import app.hush.music.innertube.pages.ExplorePage
 import app.hush.music.innertube.pages.HistoryPage
 import app.hush.music.innertube.pages.HomePage
@@ -3031,6 +3033,50 @@ object YouTube {
                 ?.runs
                 ?.firstOrNull()
                 ?.text
+        }
+
+    /**
+     * Fetches YouTube comments for a video.
+     *
+     * Comments are not part of the YouTube Music surface, so this uses the plain
+     * WEB client. The first call locates the comment-section continuation token
+     * in the watch-next response; subsequent calls page through comments.
+     */
+    suspend fun comments(
+        videoId: String,
+        continuation: String? = null,
+    ): Result<CommentsPage> =
+        runCatching {
+            val responseText =
+                innerTube
+                    .next(
+                        WEB,
+                        videoId = videoId,
+                        playlistId = null,
+                        playlistSetVideoId = null,
+                        index = null,
+                        params = null,
+                        continuation = continuation,
+                    ).bodyAsText()
+            val root = Json.parseToJsonElement(responseText).jsonObject
+            if (continuation == null) {
+                val token = CommentsPage.findCommentSectionToken(root)
+                    ?: throw IllegalStateException("COMMENTS_SECTION_MISSING")
+                val commentsResponseText =
+                    innerTube
+                        .next(
+                            WEB,
+                            videoId = null,
+                            playlistId = null,
+                            playlistSetVideoId = null,
+                            index = null,
+                            params = null,
+                            continuation = token,
+                        ).bodyAsText()
+                CommentsPage.fromNextResponse(Json.parseToJsonElement(commentsResponseText).jsonObject)
+            } else {
+                CommentsPage.fromNextResponse(root)
+            }
         }
 
     suspend fun related(endpoint: BrowseEndpoint): Result<RelatedPage> =

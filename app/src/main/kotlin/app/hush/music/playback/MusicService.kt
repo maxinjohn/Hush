@@ -1009,6 +1009,16 @@ var originalQueueSize: Int = 0
         super.onCreate()
         ensureScopesActive()
 
+        // Restore the monotonic Waze queue revision so the shim's revision gate
+        // stays valid across MusicService restarts (shim keeps its own last value).
+        runCatching {
+            val restored = getSharedPreferences(WAZE_PREFS, MODE_PRIVATE)
+                .getLong(WAZE_PREFS_QUEUE_REVISION, 0L)
+            if (restored > 0L) {
+                wazeQueueRevision.set(restored + WAZE_REVISION_RESTART_STEP)
+            }
+        }
+
         primaryEqProcessor = CustomEqualizerAudioProcessor().also(hushEqualizerService::addAudioProcessor)
 
         try {
@@ -2045,8 +2055,10 @@ var originalQueueSize: Int = 0
                         hasPreparedSecondaryPlayer = true
                     }
                     if (remainingToTrigger <= 0L) {
+                        val speed = player.playbackParameters.speed.coerceAtLeast(0.5f)
                         val adjustedDuration =
-                            (duration - player.currentPosition - CROSSFADE_END_GUARD_MS)
+                            ((duration - player.currentPosition - CROSSFADE_END_GUARD_MS) * speed)
+                                .toLong()
                                 .coerceAtMost(effectiveDuration)
                         if (adjustedDuration >= MIN_CROSSFADE_DURATION_MS) {
                             startCrossfade(target, adjustedDuration)
@@ -7199,7 +7211,11 @@ var originalQueueSize: Int = 0
             playbackStreamRecoveryTracker.onMediaItemChanged(currentMediaId)
         }
         if (events.contains(Player.EVENT_TIMELINE_CHANGED)) {
-            wazeQueueRevision.incrementAndGet()
+            val newRevision = wazeQueueRevision.incrementAndGet()
+            getSharedPreferences(WAZE_PREFS, MODE_PRIVATE)
+                .edit()
+                .putLong(WAZE_PREFS_QUEUE_REVISION, newRevision)
+                .apply()
         }
         if (
             (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) && player.playbackState == Player.STATE_READY) ||
@@ -9378,6 +9394,14 @@ var originalQueueSize: Int = 0
 
     companion object {
         private const val WAZE_QUEUE_ITEM_ID = "app.hush.music.waze.QUEUE_ITEM_ID"
+        private const val WAZE_PREFS = "waze_bridge"
+        private const val WAZE_PREFS_QUEUE_REVISION = "queue_revision"
+
+        /**
+         * Headroom added to the persisted queue revision on service restart so a
+         * shim that kept the old value never sees the counter go backwards.
+         */
+        private const val WAZE_REVISION_RESTART_STEP = 10_000L
         const val ACTION_ALARM_TRIGGER = "app.hush.music.action.ALARM_TRIGGER"
         const val EXTRA_ALARM_ID = "extra_alarm_id"
         const val EXTRA_ALARM_PLAYLIST_ID = "extra_alarm_playlist_id"

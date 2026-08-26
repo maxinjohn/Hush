@@ -70,6 +70,7 @@ import app.hush.music.ui.screens.playlist.CachePlaylistScreen
 import app.hush.music.ui.screens.downloads.DownloadLibraryScreen
 import app.hush.music.ui.screens.playlist.LocalPlaylistScreen
 import app.hush.music.ui.screens.playlist.OnlinePlaylistScreen
+import app.hush.music.ui.player.CommentsScreen
 import app.hush.music.ui.screens.podcast.OnlinePodcastScreen
 import app.hush.music.ui.screens.playlist.SpotifyPlaylistScreen
 import app.hush.music.ui.screens.playlist.TopPlaylistScreen
@@ -304,6 +305,21 @@ fun NavGraphBuilder.navigationBuilder(
             ),
     ) {
         ArtistItemsScreen(navController, scrollBehavior)
+    }
+    composable(
+        route = "comments/{videoId}",
+        arguments =
+            listOf(
+                navArgument("videoId") {
+                    type = NavType.StringType
+                },
+            ),
+    ) {
+        val videoId = it.arguments?.getString("videoId") ?: return@composable
+        CommentsScreen(
+            videoId = videoId,
+            onBack = { navController.popBackStack() },
+        )
     }
     composable(
         route = "online_playlist/{playlistId}",

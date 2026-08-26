@@ -75,7 +75,7 @@ android {
         minSdk = 26
         targetSdk = 37
         versionCode = 167
-        versionName = "13.13.5"
+        versionName = "13.13.6"
     }
 
     flavorDimensions += "bridge"
@@ -100,10 +100,12 @@ android {
             enableV2Signing = true
         }
         create("release") {
-            storeFile = releaseKeystoreFile
-            storePassword = releaseStorePassword
-            keyAlias = releaseKeyAlias
-            keyPassword = releaseKeyPassword
+            if (hasReleaseSigningConfig) {
+                storeFile = releaseKeystoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
             enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
@@ -114,6 +116,10 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // Always use the same signing key as the main Hush app.
+            // The shim masquerades as com.spotify.music / com.google.android.apps.youtube.music / deezer.android.app
+            // to integrate with Waze, but it must share the Hush app's signing key so ADB installs
+            // and updates don't fail with "signature mismatch".
             signingConfig =
                 when {
                     unsignedReleaseBuild -> null

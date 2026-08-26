@@ -1312,4 +1312,6 @@
         <item quantity="one">%d channel</item>
         <item quantity="other">%d channels</item>
     </plurals>
+    <string name="comments">Comments</string>
+    <string name="no_comments">No comments yet</string>
 </resources>

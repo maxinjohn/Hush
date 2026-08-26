@@ -110,6 +110,13 @@ build_variant() {
     echo ""
     echo "==> Building Waze shim APKs"
     ./gradlew ":waze-shim:assembleSpotify${shim_suffix}" ":waze-shim:assembleYoutubeMusic${shim_suffix}" ":waze-shim:assembleDeezer${shim_suffix}" --no-daemon --max-workers=2
+    if [ "$build_type" = "release" ]; then
+      for shim_apk in "waze-shim/build/outputs/apk/spotify/${build_type}/waze-shim-spotify-${build_type}.apk" "waze-shim/build/outputs/apk/youtubeMusic/${build_type}/waze-shim-youtubeMusic-${build_type}.apk" "waze-shim/build/outputs/apk/deezer/${build_type}/waze-shim-deezer-${build_type}.apk"; do
+        if [ -f "$ROOT_DIR/$shim_apk" ]; then
+          bash "$ROOT_DIR/scripts/resign-release-apk.sh" "$ROOT_DIR/$shim_apk"
+        fi
+      done
+    fi
     (cd waze-shim/build/outputs/apk && rm -f waze-shims.zip && zip -j waze-shims.zip "spotify/${build_type}/waze-shim-spotify-${build_type}.apk" "youtubeMusic/${build_type}/waze-shim-youtubeMusic-${build_type}.apk" "deezer/${build_type}/waze-shim-deezer-${build_type}.apk" && cp waze-shims.zip "${ROOT_DIR}/app/src/mobile/assets/")
   fi
   echo "==> Building ${APK_NAME}"

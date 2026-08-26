@@ -119,6 +119,15 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
     private var pendingSeekPositionMs: Long? = null
     private var pendingSeekAtMs = 0L
     private var latestQueueRevision = -1L
+    private var lastNotifyChildrenChangedAt = 0L
+
+    /**
+     * Content fingerprint of the last queue applied to the MediaSession.
+     * The app's revision counter resets when its MusicService restarts, so
+     * revision comparison alone silently drops every queue update afterwards.
+     * Comparing content as well keeps the Waze queue correct in all cases.
+     */
+    private var latestQueueFingerprint: String? = null
 
     private val messenger = Messenger(Handler(Looper.getMainLooper()) { msg ->
         Log.d(TAG, "handleMessage: what=${msg.what} arg1=${msg.arg1} arg2=${msg.arg2}" +
@@ -232,8 +241,14 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                 return super.onBind(intent)
             }
             else -> {
-                Log.d(TAG, "  -> Unknown action, returning null")
-                return null
+                // Return MediaBrowserService binder for any unknown action.
+                // Waze may connect to Deezer/YT Music with non-standard intent actions;
+                // returning null causes "can't connect" errors in Waze's UI.
+                Log.d(TAG, "  -> Unknown action '$action' — returning MediaBrowserService binder as fallback")
+                ensureForeground()
+                startHushMusicService()
+                sendSyncCommand()
+                return super.onBind(intent)
             }
         }
     }
@@ -586,8 +601,16 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         latestSnapshotTimestampMs = snapshot.timestampMs
 
         try {
-            if (snapshot.queue.revision > latestQueueRevision) {
-                Log.i(TAG, "setQueue: revision=${snapshot.queue.revision} items=${snapshot.queue.items.size} title=${snapshot.queue.title}")
+            val queueFingerprint = buildQueueFingerprint(snapshot.queue)
+            val queueChanged =
+                snapshot.queue.revision > latestQueueRevision ||
+                    queueFingerprint != latestQueueFingerprint
+            if (queueChanged) {
+                Log.i(
+                    TAG,
+                    "setQueue: revision=${snapshot.queue.revision} items=${snapshot.queue.items.size} " +
+                        "title=${snapshot.queue.title} changed=${queueFingerprint != latestQueueFingerprint}",
+                )
                 session.setQueue(
                     snapshot.queue.items.map { item ->
                         MediaSessionCompat.QueueItem(
@@ -607,7 +630,28 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                     },
                 )
                 session.setQueueTitle(snapshot.queue.title)
-                latestQueueRevision = snapshot.queue.revision
+                latestQueueRevision = maxOf(latestQueueRevision, snapshot.queue.revision)
+                latestQueueFingerprint = queueFingerprint
+                // Tell Waze to re-query onLoadChildren so it shows the updated queue.
+                // Without this, Waze caches the old result and only shows stale data.
+                // Debounce: at most once per 500ms to avoid spamming Waze.
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastNotifyChildrenChangedAt > 500L) {
+                    lastNotifyChildrenChangedAt = now
+                    try {
+                        notifyChildrenChanged("hush_queue")
+                        notifyChildrenChanged(ROOT_ID)
+                        Log.d(TAG, "notifyChildrenChanged: queue updated (${snapshot.queue.items.size} items)")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "notifyChildrenChanged failed", e)
+                    }
+                }
+                // If queue has only 1 item, request a sync from Hush — the full queue
+                // may not have been loaded yet (e.g., playing from search result).
+                if (snapshot.queue.items.size <= 1) {
+                    Log.d(TAG, "Queue has only 1 item, requesting sync to populate full queue")
+                    sendSyncCommand()
+                }
             }
             val displaySubtitle = if (snapshot.album.isNotEmpty()) {
                 "${snapshot.artist} \u2014 ${snapshot.album}"
@@ -666,6 +710,17 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                     snapshot.sequenceNumber <= latestSnapshotSequence
                 )
     }
+
+    /** Stable content identity of a queue: size + track ids, independent of revision numbers. */
+    private fun buildQueueFingerprint(queue: HushQueueSnapshot): String =
+        buildString {
+            append(queue.items.size)
+            append(':')
+            for (item in queue.items) {
+                append(item.trackId)
+                append(',')
+            }
+        }.hashCode().toString(16)
 
     private fun shouldIgnorePendingSnapshot(
         snapshot: HushPlaybackSnapshot,

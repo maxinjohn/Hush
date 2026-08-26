@@ -242,6 +242,8 @@ import app.hush.music.playback.queues.LocalAlbumRadio
 import app.hush.music.playback.queues.Queue
 import app.hush.music.playback.queues.YouTubeAlbumRadio
 import app.hush.music.playback.queues.YouTubeQueue
+import app.hush.music.innertube.models.WatchEndpoint
+import app.hush.music.utils.YouTubeUrlParser
 import app.hush.music.ui.component.BottomSheetMenu
 import app.hush.music.ui.component.BottomSheetPage
 import app.hush.music.ui.component.COLLAPSED_ANCHOR
@@ -1953,6 +1955,29 @@ class MainActivity : ComponentActivity() {
                                                             onQueryChange = onQueryChange,
                                                             navController = navController,
                                                             onSearch = {
+                                                                val parsedLink = YouTubeUrlParser.parse(it)
+                                                                if (parsedLink != null) {
+                                                                    // Pasted YouTube link → open/play directly instead of searching.
+                                                                    onActiveChange(false)
+                                                                    when (parsedLink) {
+                                                                        is YouTubeUrlParser.Parsed.Video ->
+                                                                            playerConnection?.playQueue(
+                                                                                YouTubeQueue(
+                                                                                    endpoint = WatchEndpoint(videoId = parsedLink.videoId),
+                                                                                ),
+                                                                            )
+
+                                                                        is YouTubeUrlParser.Parsed.Album ->
+                                                                            navController.navigate("album/${parsedLink.playlistId}")
+
+                                                                        is YouTubeUrlParser.Parsed.Playlist ->
+                                                                            navController.navigate("online_playlist/${parsedLink.playlistId}")
+
+                                                                        is YouTubeUrlParser.Parsed.Artist ->
+                                                                            navController.navigate("artist/${parsedLink.channelId}")
+                                                                    }
+                                                                    return@OnlineSearchScreen
+                                                                }
                                                                 navController.navigate(onlineSearchResultRoute(it))
                                                                 if (!pauseSearchHistory) {
                                                                     database.query {
