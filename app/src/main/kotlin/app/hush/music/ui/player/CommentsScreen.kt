@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import app.hush.music.R
 import app.hush.music.innertube.YouTube
 import app.hush.music.innertube.pages.Comment
+import app.hush.music.innertube.pages.CommentsPage
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
@@ -81,7 +82,7 @@ fun CommentsScreen(
         val result = withContext(Dispatchers.IO) {
             YouTube.comments(videoId = videoId)
         }
-        result.onSuccess { page ->
+        result.onSuccess { page: CommentsPage ->
             comments.clear()
             comments.addAll(page.items)
             continuation = page.continuation
@@ -108,7 +109,7 @@ fun CommentsScreen(
                         val result = withContext(Dispatchers.IO) {
                             YouTube.comments(videoId = videoId, continuation = token)
                         }
-                        result.onSuccess { page ->
+                        result.onSuccess { page: CommentsPage ->
                             comments.addAll(page.items)
                             continuation = page.continuation
                             hasMore = page.continuation != null
