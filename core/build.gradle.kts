@@ -7,6 +7,7 @@ kotlin {
     jvmToolchain(21)
 }
 
+// 2026-08-26: rebuild to include CommentsPage
 dependencies {
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.okhttp)

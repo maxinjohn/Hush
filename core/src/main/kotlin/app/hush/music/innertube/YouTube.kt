@@ -3079,6 +3079,8 @@ object YouTube {
             }
         }
 
+    // Force recompilation marker: 2026-08-26
+
     suspend fun related(endpoint: BrowseEndpoint): Result<RelatedPage> =
         runCatching {
             val response = innerTube.browse(WEB_REMIX, endpoint.browseId).body<BrowseResponse>()
