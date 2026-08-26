@@ -9163,12 +9163,18 @@ var originalQueueSize: Int = 0
     override fun onBind(intent: Intent?): android.os.IBinder? {
         hasBoundClients = true
         cancelIdleStop()
-        // Do NOT fall back to `binder` (a raw Binder) when super returns null.
-        // Android Auto / MediaBrowser expects IMediaBrowserService; returning a
-        // plain Binder causes a ClassCastException crash on the car display.
+        // MediaBrowserServiceCompat.onBind() only returns a non-null binder for
+        // the standard "android.media.browse.MediaBrowserService" action.
+        // Our own bindService() call uses a plain Intent(context, MusicService::class.java)
+        // with no action, so super returns null. We must return the MusicBinder in
+        // that case, or the app's own ServiceConnection.onServiceConnected gets null
+        // and playerConnection is never set (blank home screen).
+        //
+        // For the standard MediaBrowser action (Android Auto, Waze shim, etc.),
+        // super.onBind() already returns the correct IMediaBrowserService binder.
         val result = super.onBind(intent)
         if (result == null) {
-            Timber.w("onBind: super returned null for action=%s — session may not be ready", intent?.action)
+            Timber.w("onBind: super returned null for action=%s, returning MusicBinder fallback", intent?.action)
         }
         if (::player.isInitialized && player.mediaItemCount > 0 && player.currentMediaItem != null) {
             currentMediaMetadata.value = player.currentMetadata
@@ -9177,7 +9183,7 @@ var originalQueueSize: Int = 0
                 updateNotification()
             }
         }
-        return result
+        return result ?: binder
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
