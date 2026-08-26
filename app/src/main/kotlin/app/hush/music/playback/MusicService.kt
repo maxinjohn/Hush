@@ -3471,7 +3471,6 @@ var originalQueueSize: Int = 0
         consecutivePlaybackErr += 1
         val nextWindowIndex = player.nextMediaItemIndex
 
-        android.util.Log.w(TAG, "skipOnError: consecutive=$consecutivePlaybackErr max=$MAX_CONSECUTIVE_ERR next=$nextWindowIndex mediaId=${player.currentMediaItem?.mediaId?.take(30)} pos=${player.currentPosition}ms")
         Timber.tag(TAG).w(
             "skipOnError: consecutivePlaybackErr=%d (max=%d), nextIndex=%d",
             consecutivePlaybackErr,
@@ -5781,7 +5780,7 @@ var originalQueueSize: Int = 0
                 player.currentMediaItem?.mediaId?.trim().orEmpty()
             }
         if (mediaId.isBlank()) {
-            android.util.Log.w(TAG, "toggleLike ignored: current item has no media id")
+            Timber.tag(TAG).w("toggleLike ignored: current item has no media id")
             return
         }
 

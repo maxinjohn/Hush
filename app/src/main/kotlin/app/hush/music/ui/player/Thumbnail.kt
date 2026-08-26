@@ -8,6 +8,7 @@
 package app.hush.music.ui.player
 
 import android.graphics.Bitmap
+import timber.log.Timber
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -195,7 +196,7 @@ fun Thumbnail(
     // === PulseMatrix: engine lifecycle ===
     // LaunchedEffect(Unit) survives preference flicker. Check enabled inside the loop.
     LaunchedEffect(Unit) {
-        android.util.Log.d("PulseMatrixThumb", "Lifecycle LaunchedEffect started")
+        Timber.d("PulseMatrixThumb: Lifecycle LaunchedEffect started")
         var acquired = false
         var lastSid = 0
         try {
@@ -205,7 +206,7 @@ fun Thumbnail(
                         playerConnection.player.audioSessionId
                     } catch (_: Exception) { 0 }
                     if (sid > 0 && sid != lastSid) {
-                        android.util.Log.d("PulseMatrixThumb", "Polling: sid=$sid, acquired=$acquired, lastSid=$lastSid")
+                        Timber.d("PulseMatrixThumb: Polling sid=$sid acquired=$acquired lastSid=$lastSid")
                         if (!acquired) {
                             PulseMatrixEngine.acquire(sid)
                             acquired = true
@@ -223,7 +224,7 @@ fun Thumbnail(
             }
         } finally {
             if (acquired) {
-                android.util.Log.d("PulseMatrixThumb", "Lifecycle LaunchedEffect ended — releasing")
+                Timber.d("PulseMatrixThumb: Lifecycle LaunchedEffect ended — releasing")
                 PulseMatrixEngine.release()
             }
         }
