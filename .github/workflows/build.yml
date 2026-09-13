@@ -79,7 +79,11 @@ jobs:
             echo "Rebuild it with: scripts/build-spotiflac-aar.sh (needs Go >= 1.26.5 + NDK r29)" >&2
             exit 1
           }
-          unzip -l app/libs/gobackend.aar | grep -q 'libgojni.so' || {
+          # Capture the listing first: piping straight into `grep -q` can raise
+          # SIGPIPE on `unzip`, which `pipefail` then reports as a failed step
+          # even though the entry is present.
+          unzip -l app/libs/gobackend.aar > /tmp/gobackend-aar-listing.txt
+          grep -q 'libgojni\.so' /tmp/gobackend-aar-listing.txt || {
             echo "app/libs/gobackend.aar does not contain libgojni.so — rebuild required" >&2
             exit 1
           }
