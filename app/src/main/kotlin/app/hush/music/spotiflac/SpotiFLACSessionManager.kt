@@ -14,16 +14,16 @@ import io.ktor.http.contentType
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
-import java.security.MessageDigest
 import java.security.SecureRandom
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -88,7 +88,7 @@ class SpotiFLACSessionManager @Inject constructor(
         private const val KEY_CHALLENGE_ID = "challenge_id"
         private const val KEY_TURNSTILE_SITE_KEY = "turnstile_site_key"
         private const val KEY_SERVER_NONCE = "server_nonce"
-        const val APP_VERSION = "4.8.5"
+        const val APP_VERSION = "4.9.6"
         private const val PLATFORM = "extension"
         private const val SCHEME_LABEL = "ZARZ-HMAC-V1"
         private const val HEADER_PREFIX = "X-Zarz-"
@@ -113,11 +113,33 @@ class SpotiFLACSessionManager @Inject constructor(
     var currentSession: SpotiFLACSession? = null
         private set
 
+    /** The most recent Turnstile grant, retained only in memory for the native extension runtime. */
+    @Volatile
+    var currentGrant: String? = null
+        private set
+
     private val _sessionState = MutableStateFlow(SessionState.NONE)
     val sessionStateFlow: StateFlow<SessionState> = _sessionState.asStateFlow()
     private val sessionOperationMutex = Mutex()
 
     private var installId: String = ""
+
+    /**
+     * 32-hex install identity exposed for the native SpotiFLAC runtime so its
+     * signed-session files share the gateway install identity Hush uses.
+     */
+    val installIdForRuntime: String?
+        get() {
+            ensureInstallId()
+            return installId.takeIf { it.matches(Regex("^[0-9a-f]{32}$")) }
+        }
+
+    private fun ensureInstallId() {
+        if (installId.isBlank()) {
+            installId = prefs.getString(KEY_INSTALL_ID, null) ?: generateInstallId()
+            prefs.edit().putString(KEY_INSTALL_ID, installId).apply()
+        }
+    }
 
     init {
         instance = this
@@ -152,6 +174,25 @@ class SpotiFLACSessionManager @Inject constructor(
         return bytes.joinToString("") { "%02x".format(it) }
     }
 
+    /** Reset the install ID to bypass rate limiting from previous failed attempts. */
+    fun resetInstallId() {
+        val newId = generateInstallId()
+        prefs.edit()
+            .putString(KEY_INSTALL_ID, newId)
+            .remove(KEY_SESSION_ID)
+            .remove(KEY_SESSION_SECRET)
+            .remove(KEY_SESSION_EXPIRES)
+            .remove(KEY_CHALLENGE_URL)
+            .remove(KEY_CHALLENGE_ID)
+            .remove(KEY_SERVER_NONCE)
+            .remove(KEY_TURNSTILE_SITE_KEY)
+            .apply()
+        installId = newId
+        currentSession = null
+        _sessionState.value = SessionState.NONE
+        Timber.tag(TAG).w("Reset install ID to $newId")
+    }
+
     private fun restoreSession() {
         val sessionId = prefs.getString(KEY_SESSION_ID, null)
         val sessionSecret = prefs.getString(KEY_SESSION_SECRET, null)
@@ -180,6 +221,7 @@ class SpotiFLACSessionManager @Inject constructor(
     }
 
     fun clearSession() {
+        currentGrant = null
         prefs.edit()
             .remove(KEY_SESSION_ID)
             .remove(KEY_SESSION_SECRET)
@@ -196,6 +238,15 @@ class SpotiFLACSessionManager @Inject constructor(
     fun hasActiveSession(): Boolean {
         return currentSession != null && System.currentTimeMillis() < (currentSession?.expiresAt ?: 0)
     }
+
+    /**
+     * The live signed session, for seeding the native runtime's signed-session
+     * records. The runtime validates these records locally before a download, so
+     * an already-exchanged Hush session lets extensions download without running
+     * their own Turnstile challenge.
+     */
+    val sessionForRuntimeSeeding: SpotiFLACSession?
+        get() = currentSession?.takeIf { System.currentTimeMillis() < it.expiresAt }
 
     fun forceRestoreSession(): Boolean {
         restoreSession()
@@ -221,7 +272,10 @@ class SpotiFLACSessionManager @Inject constructor(
             throw SpotiFLACException("Relay returned Cloudflare challenge instead of bootstrap (HTTP $status). Try again later.")
         }
 
-        // 401/403 means the existing session is invalid — clear it so re-bootstrap can start fresh
+        // A relay-level 401/403 is an explicit authentication rejection. Clear the
+        // in-memory and persisted credentials so the next playback attempt can start
+        // a fresh bootstrap/auth flow. Transient 404/server errors below deliberately
+        // keep a valid session because they do not prove that the session is invalid.
         if (status == 401 || status == 403) {
             Timber.tag(TAG).w("Bootstrap auth failed ($status), clearing stale session")
             clearSession()
@@ -230,7 +284,8 @@ class SpotiFLACSessionManager @Inject constructor(
 
         if (status == 404 || body.contains("Not found")) {
             Timber.tag(TAG).w("Bootstrap endpoint not available")
-            clearSession()
+            // Don't clear a valid session just because bootstrap is unavailable
+            if (currentSession == null) clearSession()
             return@runCatching SessionState.NONE
         }
 
@@ -238,7 +293,8 @@ class SpotiFLACSessionManager @Inject constructor(
 
         if (bootstrapResponse.error != null) {
             Timber.tag(TAG).w("Bootstrap error: ${bootstrapResponse.error}")
-            clearSession()
+            // Don't clear a valid session just because bootstrap errored
+            if (currentSession == null) clearSession()
             return@runCatching SessionState.NONE
         }
 
@@ -263,7 +319,9 @@ class SpotiFLACSessionManager @Inject constructor(
                 prefs.edit().putString(KEY_TURNSTILE_SITE_KEY, bootstrapResponse.turnstileSiteKey).apply()
             }
 
-            val callbackUrl = "spotiflac://session-grant?cb_version=v2grant&state=spotiflac"
+            // Use a Hush-specific callback scheme to avoid the official SpotiFLAC app
+            // intercepting the redirect (both apps register for spotiflac://).
+            val callbackUrl = "hush://spotiflac-grant?cb_version=v2grant&state=spotiflac"
             val encodedCallback = java.net.URLEncoder.encode(callbackUrl, "UTF-8")
                 .replace("+", "%20")
             val challengeUrl = "$BASE_URL/challenge?id=${bootstrapResponse.challengeId}&cb=$encodedCallback"
@@ -289,6 +347,7 @@ class SpotiFLACSessionManager @Inject constructor(
 
     suspend fun exchangeGrant(grant: String): Result<SessionState> = sessionOperationMutex.withLock {
         runCatching {
+        currentGrant = grant.trim().takeIf { it.isNotBlank() }
         Timber.tag(TAG).d("Exchanging grant (grant_len=${grant.length})")
 
         val url = "$BASE_URL/session/exchange"
@@ -353,7 +412,23 @@ class SpotiFLACSessionManager @Inject constructor(
         if (saved.isNullOrBlank()) {
             Timber.tag(TAG).e("Session save verification FAILED — SharedPreferences did not persist")
         }
+        // The grant is single-use, so it cannot be replayed to the extension
+        // runtime (the gateway answers HTTP 403). Instead, seed the runtime's
+        // signed-session records from this freshly exchanged session so extension
+        // downloads pass their local preflight without a second Turnstile.
+        seedRuntimeSessionsInBackground()
         SessionState.ACTIVE
+        }
+    }
+
+    private fun seedRuntimeSessionsInBackground() {
+        val runtime = runCatching { SpotiFLACNativeRuntimeBridgeHolder.instance }.getOrNull() ?: return
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                runtime.seedSignedSessions(
+                    ExtensionRepositoryManager.getInstance().getEnabledSourceIds(),
+                )
+            }
         }
     }
 
@@ -361,79 +436,41 @@ class SpotiFLACSessionManager @Inject constructor(
         method: String,
         path: String,
         body: String = "",
+        appVersionOverride: String? = null,
+        platformOverride: String? = null,
     ): Map<String, String> {
         val session = currentSession ?: throw SpotiFLACException("No active session")
+        val signingAppVersion = appVersionOverride?.trim().takeUnless { it.isNullOrBlank() } ?: APP_VERSION
+        val signingPlatform = platformOverride?.trim().takeUnless { it.isNullOrBlank() } ?: PLATFORM
 
-        // Go uses Format("2006-01-02T15:04:05.000Z") — exactly 3 decimal places
-        // Server parses with time.Parse("2006-01-02T15:04:05.000Z", ts)
-        // Instant.now().toString() produces nanoseconds which breaks server parsing
-        val timestamp = java.time.format.DateTimeFormatter
-            .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
-            .withZone(java.time.ZoneOffset.UTC)
-            .format(java.time.Instant.now())
-        val nonce = generateNonce()
-        val bodySha256 = sha256Hex(body)
-
-        val window = System.currentTimeMillis() / 1000 / TIME_WINDOW_SECONDS
-        val rollingInput = "$window:${session.sessionId}"
-        // Go: hmacSHA256Bytes([]byte(record.SessionSecret), []byte(rollingInput))
-        // Session secret is used as raw string bytes, NOT base64-decoded
-        val sessionSecretRawBytes = session.sessionSecret.toByteArray(Charsets.UTF_8)
-        val rollingKeyBytes = hmacSha256(sessionSecretRawBytes, rollingInput.toByteArray())
-        // Go: rk = base64.RawURLEncoding.EncodeToString(...)
-        // Rolling key is base64url-encoded, then []byte(rk) is used for signature HMAC
-        val rollingKey = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(rollingKeyBytes)
-
-        val pathOnly = path.substringBefore("?")
-        // Go: strings.Join([]string{..., path, "", bodyHash, ...}, "\n")
-        // Empty string in the slice creates an empty line between path and bodyHash
-        val signingInput = buildString {
-            append(SCHEME_LABEL)
-            append("\n")
-            append(method.uppercase())
-            append("\n")
-            append(pathOnly)
-            append("\n\n") // Empty line after path (Go "" in strings.Join)
-            append(bodySha256)
-            append("\n")
-            append(timestamp)
-            append("\n")
-            append(nonce)
-            append("\n")
-            append(session.sessionId)
-            append("\n")
-            append(APP_VERSION)
-            append("\n")
-            append(PLATFORM)
-        }
-
-        // Go: hmacSHA256Bytes([]byte(rk), []byte(signingInput))
-        // rk is the base64url string, []byte(rk) uses its ASCII bytes
-        val signature = hmacSha256(
-            rollingKey.toByteArray(Charsets.UTF_8),
-            signingInput.toByteArray(),
+        // The scheme itself lives in SpotiFLACRequestSigner so the session renewer
+        // signs identically; a second copy of this is how signatures drift.
+        val headers = SpotiFLACRequestSigner.signedHeaders(
+            method = method,
+            path = path,
+            body = body,
+            sessionId = session.sessionId,
+            sessionSecret = session.sessionSecret,
+            appVersion = signingAppVersion,
+            platform = signingPlatform,
+            schemeLabel = SCHEME_LABEL,
+            headerPrefix = HEADER_PREFIX,
+            timeWindowSeconds = TIME_WINDOW_SECONDS,
         )
-        val signatureBase64 = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(signature)
-
         android.util.Log.w(TAG, "=== SIGNING ${method.uppercase()} $path ===")
         android.util.Log.w(TAG, "  session_id=${session.sessionId} secret_len=${session.sessionSecret.length}")
-        android.util.Log.w(TAG, "  window=$window pathOnly=$pathOnly")
-        android.util.Log.w(TAG, "  timestamp=$timestamp nonce=$nonce")
-        android.util.Log.w(TAG, "  signature=${signatureBase64.take(24)}...")
-
-        val headers = mapOf(
-            "${HEADER_PREFIX}Session" to session.sessionId,
-            "${HEADER_PREFIX}Timestamp" to timestamp,
-            "${HEADER_PREFIX}Nonce" to nonce,
-            "${HEADER_PREFIX}Body-SHA256" to bodySha256,
-            "${HEADER_PREFIX}Signature" to signatureBase64,
-            "${HEADER_PREFIX}App-Version" to APP_VERSION,
-            "${HEADER_PREFIX}Platform" to PLATFORM,
-        )
+        android.util.Log.w(TAG, "  timestamp=${headers["${HEADER_PREFIX}Timestamp"]} nonce=${headers["${HEADER_PREFIX}Nonce"]}")
+        android.util.Log.w(TAG, "  signature=${headers["${HEADER_PREFIX}Signature"]?.take(24)}...")
         return headers
     }
 
-    fun getSignedHeaders(method: String, path: String, body: String = ""): Map<String, String> {
+    fun getSignedHeaders(
+        method: String,
+        path: String,
+        body: String = "",
+        appVersionOverride: String? = null,
+        platformOverride: String? = null,
+    ): Map<String, String> {
         val session = currentSession
         if (session == null) {
             Timber.tag(TAG).w("getSignedHeaders called with no active session")
@@ -446,29 +483,11 @@ class SpotiFLACSessionManager @Inject constructor(
             throw SpotiFLACException("SpotiFLAC session expired — re-bootstrap required")
         }
         return try {
-            signRequest(method, path, body)
+            signRequest(method, path, body, appVersionOverride, platformOverride)
         } catch (e: Exception) {
             Timber.tag(TAG).w(e, "Failed to sign request")
             throw SpotiFLACException("Request signing failed: ${e.message}")
         }
-    }
-
-    private fun generateNonce(): String {
-        val bytes = ByteArray(12)
-        SecureRandom().nextBytes(bytes)
-        return bytes.joinToString("") { "%02x".format(it) }
-    }
-
-    private fun sha256Hex(input: String): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val hash = digest.digest(input.toByteArray())
-        return hash.joinToString("") { "%02x".format(it) }
-    }
-
-    private fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray {
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(key, "HmacSHA256"))
-        return mac.doFinal(data)
     }
 
     private fun parseExpiresAt(expiresAt: String?): Long {

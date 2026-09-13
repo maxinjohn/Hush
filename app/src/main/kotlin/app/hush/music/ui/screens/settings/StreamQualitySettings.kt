@@ -48,16 +48,13 @@ import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
 import app.hush.music.constants.AudioQuality
 import app.hush.music.constants.AudioQualityKey
-import app.hush.music.constants.ParallelSourceFetchKey
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.ListPreference
 import app.hush.music.ui.component.PreferenceEntry
 import app.hush.music.ui.component.PreferenceGroup
-import app.hush.music.ui.component.SwitchPreference
 import app.hush.music.ui.theme.HushAmbientBackground
 import app.hush.music.ui.utils.backToMain
 import app.hush.music.utils.rememberEnumPreference
-import app.hush.music.utils.rememberPreference
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,8 +64,6 @@ fun StreamQualitySettings(
 ) {
     val (audioQuality, onAudioQualityChange) =
         rememberEnumPreference(AudioQualityKey, defaultValue = AudioQuality.AUTO)
-    val (parallelFetch, onParallelFetchChange) =
-        rememberPreference(ParallelSourceFetchKey, defaultValue = false)
 
     Box(modifier = Modifier.fillMaxSize()) {
         HushAmbientBackground(
@@ -100,16 +95,6 @@ fun StreamQualitySettings(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                }
-
-                item {
-                    SwitchPreference(
-                        title = { Text(stringResource(R.string.parallel_source_fetch)) },
-                        description = stringResource(R.string.parallel_source_fetch_desc),
-                        icon = { Icon(painterResource(R.drawable.integration), null) },
-                        checked = parallelFetch,
-                        onCheckedChange = onParallelFetchChange,
                     )
                 }
             }

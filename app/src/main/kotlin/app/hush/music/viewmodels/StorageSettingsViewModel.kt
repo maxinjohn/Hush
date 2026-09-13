@@ -31,7 +31,7 @@ import kotlinx.coroutines.withContext
 import app.hush.music.R
 import app.hush.music.storage.ClearStorageCacheUseCase
 import app.hush.music.storage.ObserveStorageFoldersUseCase
-import app.hush.music.storage.ImportFromDocumentTreeUseCase
+import app.hush.music.storage.UsePickedFolderUseCase
 import app.hush.music.storage.SetCustomStorageFolderUseCase
 import app.hush.music.storage.SetStorageFolderUseCase
 import app.hush.music.storage.StorageFolderKind
@@ -145,7 +145,7 @@ class StorageSettingsViewModel
         observeStorageFolders: ObserveStorageFoldersUseCase,
         private val setStorageFolder: SetStorageFolderUseCase,
         private val setCustomStorageFolder: SetCustomStorageFolderUseCase,
-        private val importFromDocumentTree: ImportFromDocumentTreeUseCase,
+        private val usePickedFolder: UsePickedFolderUseCase,
         private val clearStorageCache: ClearStorageCacheUseCase,
     ) : ViewModel() {
         private val _effects = MutableSharedFlow<StorageSettingsEffect>(extraBufferCapacity = 1)
@@ -256,7 +256,12 @@ class StorageSettingsViewModel
             }
         }
 
-        fun importFromFolderUri(
+        /**
+         * Applies a folder the user picked in the system folder chooser as the storage
+         * location for [kind]. Named for what it does: the previous name (and use case)
+         * imported the folder's contents instead, which never saved a location at all.
+         */
+        fun usePickedFolder(
             kind: StorageFolderKind,
             treeUri: Uri,
         ) {
@@ -273,7 +278,7 @@ class StorageSettingsViewModel
                     )
                 val result =
                     withContext(NonCancellable + Dispatchers.IO) {
-                        importFromDocumentTree(treeUri, kind) { progress ->
+                        usePickedFolder(treeUri, kind) { progress ->
                             migrationState.value = progress.toUiModel()
                         }
                     }

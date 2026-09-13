@@ -10,6 +10,8 @@ package app.hush.music.storage
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Environment
+import android.provider.DocumentsContract
 import androidx.compose.runtime.Immutable
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
@@ -17,6 +19,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.media3.datasource.cache.Cache
 import coil3.imageLoader
+import timber.log.Timber
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -187,7 +190,7 @@ class SetCustomStorageFolderUseCase
         ): StorageFolderUpdateResult = repository.setCustomFolderPath(kind, path, displayName, onProgress)
     }
 
-class ImportFromDocumentTreeUseCase
+class UsePickedFolderUseCase
     @Inject
     constructor(
         private val repository: StorageLocationRepository,
@@ -196,7 +199,7 @@ class ImportFromDocumentTreeUseCase
             treeUri: Uri,
             targetKind: StorageFolderKind,
             onProgress: suspend (StorageMigrationProgress) -> Unit,
-        ): StorageFolderUpdateResult = repository.importFromDocumentTree(treeUri, targetKind, onProgress)
+        ): StorageFolderUpdateResult = repository.usePickedFolderAsLocation(treeUri, targetKind, onProgress)
     }
 
 class ClearStorageCacheUseCase
@@ -247,6 +250,16 @@ class StorageLocationRepository
                 }
             }
 
+        /**
+         * Points a folder kind at a user-picked folder.
+         *
+         * The three failure answers are deliberately distinct, because they need different
+         * responses from the user: [StorageFolderUpdateResult.InvalidTree] if the selection
+         * cannot be turned into a directory at all, [StorageFolderUpdateResult.NotWritable]
+         * if this app is not allowed to keep files there, and
+         * [StorageFolderUpdateResult.UnsupportedProvider] if the selection is not on the
+         * filesystem (a cloud or media provider), which the file-backed cache cannot use.
+         */
         suspend fun setCustomFolderPath(
             kind: StorageFolderKind,
             path: String?,
@@ -265,8 +278,17 @@ class StorageLocationRepository
                     if (normalizedPath == null) {
                         defaultDirectoryForKind(preferencesSnapshot, kind)
                     } else {
-                        context.allowedCustomStorageDirectory(normalizedPath)
-                            ?: return@withContext StorageFolderUpdateResult.InvalidTree
+                        val resolved =
+                            runCatching { File(normalizedPath).canonicalFile }.getOrNull()
+                                ?: return@withContext StorageFolderUpdateResult.InvalidTree
+                        // Creating it is the first proof it is a folder we can use; a path
+                        // that exists but cannot be written is a permissions answer, not a
+                        // "bad selection" one, so it gets its own result below.
+                        if (!resolved.ensureWritableDirectory()) {
+                            return@withContext StorageFolderUpdateResult.NotWritable
+                        }
+                        context.allowedCustomStorageDirectory(resolved.path)
+                            ?: return@withContext StorageFolderUpdateResult.NotWritable
                     }
 
                 if (!destination.ensureWritableDirectory()) {
@@ -275,17 +297,31 @@ class StorageLocationRepository
 
                 if (currentDirectory.canonicalPath != destination.canonicalPath) {
                     releaseCachesForMigration()
+                    // `replaceTarget = false`: this destination is a folder the user picked, so
+                    // it may hold files that have nothing to do with Hush. Merging into it and
+                    // overwriting only same-named files is the safe move; the volume-switch
+                    // flow keeps the wiping default because those targets are app-owned.
+                    val move =
+                        StorageDirectoryMove(
+                            source = currentDirectory,
+                            target = destination,
+                            replaceTarget = false,
+                        )
                     val moved =
-                        StorageMigrationPlan(
-                            cacheDirectories = emptyList(),
-                            downloadDirectories =
-                                listOf(
-                                    StorageDirectoryMove(
-                                        source = currentDirectory,
-                                        target = destination,
-                                    ),
-                                ),
-                            cacheFiles = emptyList(),
+                        (
+                            if (kind == StorageFolderKind.DOWNLOADS) {
+                                StorageMigrationPlan(
+                                    cacheDirectories = emptyList(),
+                                    downloadDirectories = listOf(move),
+                                    cacheFiles = emptyList(),
+                                )
+                            } else {
+                                StorageMigrationPlan(
+                                    cacheDirectories = listOf(move),
+                                    downloadDirectories = emptyList(),
+                                    cacheFiles = emptyList(),
+                                )
+                            }
                         ).withProgress(onProgress)
                     if (!moved) return@withContext StorageFolderUpdateResult.NotWritable
                 }
@@ -343,59 +379,51 @@ class StorageLocationRepository
 
                         else -> Unit
                     }
-                }.apply()
+                    // commit(), not apply(): the app is restarted seconds from now, and this
+                    // SharedPreferences mirror is what builds the cache directory at startup.
+                    // An asynchronous write could lose the setting to the process kill, which
+                    // is exactly how a chosen folder used to come back as the default.
+                }.commit()
                 StorageRestartScheduler.schedule(context)
                 StorageFolderUpdateResult.Success
             }
 
-        suspend fun importFromDocumentTree(
+        /**
+         * Uses a folder the user picked as the storage location for [targetKind].
+         *
+         * This used to be wired to an "import" routine that copied the picked folder's
+         * contents *into* the current location and never recorded a path, so choosing a
+         * custom folder appeared to succeed, restarted the app, and came back with the old
+         * location - and downloads kept going to the default folder. A SAF tree is not a
+         * location until its document id is turned back into a real directory, which is
+         * what [context.treeUriToDirectory] does here.
+         */
+        suspend fun usePickedFolderAsLocation(
             treeUri: Uri,
             targetKind: StorageFolderKind,
             onProgress: suspend (StorageMigrationProgress) -> Unit,
-        ): StorageFolderUpdateResult =
-            withContext(Dispatchers.IO) {
-                if (targetKind != StorageFolderKind.DOWNLOADS && targetKind != StorageFolderKind.SONG_CACHE) {
-                    return@withContext StorageFolderUpdateResult.UnsupportedProvider
-                }
-                val documentRoot =
-                    DocumentFile.fromTreeUri(context, treeUri)
-                        ?: return@withContext StorageFolderUpdateResult.InvalidTree
-                val targetDirectory =
-                    activeCacheDirectory(context.dataStore.data.first(), targetKind)
-                releaseCachesForMigration()
-                val tempSourceDir = context.cacheDir.resolve("import-${targetKind.name.lowercase()}-${System.currentTimeMillis()}")
-                tempSourceDir.mkdirs()
-                val copied =
-                    copyDocumentTreeToDirectory(
-                        source = documentRoot,
-                        target = tempSourceDir,
-                    )
-                if (!copied) {
-                    tempSourceDir.deleteRecursively()
-                    return@withContext StorageFolderUpdateResult.NotWritable
-                }
-                val moved =
-                    copyMigrationPhase(
-                        phase =
-                            if (targetKind == StorageFolderKind.DOWNLOADS) {
-                                StorageMigrationPhase.DOWNLOADS
-                            } else {
-                                StorageMigrationPhase.CACHE
-                            },
-                        directories =
-                            listOf(
-                                StorageDirectoryMove(
-                                    source = tempSourceDir,
-                                    target = targetDirectory,
-                                ),
-                            ),
-                        onProgress = onProgress,
-                    )
-                tempSourceDir.deleteRecursively()
-                if (!moved) return@withContext StorageFolderUpdateResult.NotWritable
-                StorageRestartScheduler.schedule(context)
-                StorageFolderUpdateResult.Success
+        ): StorageFolderUpdateResult {
+            if (targetKind != StorageFolderKind.DOWNLOADS && targetKind != StorageFolderKind.SONG_CACHE) {
+                return StorageFolderUpdateResult.UnsupportedProvider
             }
+            // A folder behind a cloud/media provider has no filesystem path, and the
+            // file-backed cache (Media3's SimpleCache) writes with plain File IO. Saying so
+            // is the honest answer; the old code copied such a folder into the app's cache
+            // directory instead, which could not have produced a playable cache anyway.
+            val directory =
+                context.treeUriToDirectory(treeUri)
+                    ?: return StorageFolderUpdateResult.UnsupportedProvider
+            val displayName =
+                runCatching { DocumentFile.fromTreeUri(context, treeUri)?.name }.getOrNull()
+                    ?.takeIf(String::isNotBlank)
+                    ?: directory.name
+            return setCustomFolderPath(
+                kind = targetKind,
+                path = directory.absolutePath,
+                displayName = displayName,
+                onProgress = onProgress,
+            )
+        }
 
         suspend fun setStorageLocationAndMoveCache(
             optionId: String,
@@ -431,7 +459,12 @@ class StorageLocationRepository
                     .storageLocationPreferences()
                     .edit()
                     .putString(StorageRootPathMirrorKey, targetRoot.canonicalPath)
-                    .apply()
+                    .commit()
+                // A whole-volume choice moves every cache directory, downloads included, so a
+                // per-kind folder chosen earlier would still win at read time and send that
+                // one kind back to a folder the move just emptied. Clearing it keeps the
+                // volume the single source of truth.
+                clearPerKindFolderOverrides()
                 releasePersistedPermission(previousUri, replacementUri = null)
                 StorageRestartScheduler.schedule(context)
                 StorageFolderUpdateResult.Success
@@ -458,11 +491,32 @@ class StorageLocationRepository
                     .storageLocationPreferences()
                     .edit()
                     .remove(StorageRootPathMirrorKey)
-                    .apply()
+                    .commit()
+                clearPerKindFolderOverrides()
                 releasePersistedPermission(previousUri, replacementUri = null)
                 StorageRestartScheduler.schedule(context)
                 StorageFolderUpdateResult.Success
             }
+
+        /**
+         * Drops the per-kind custom folder overrides, in both the DataStore and the mirror
+         * that [resolveCacheDirectory] actually reads at startup. Used by the whole-volume
+         * flows, where the chosen volume governs every folder kind.
+         */
+        private suspend fun clearPerKindFolderOverrides() {
+            context.dataStore.edit { preferences ->
+                preferences.remove(DownloadsStoragePathKey)
+                preferences.remove(DownloadsStorageDisplayNameKey)
+                preferences.remove(SongCacheStoragePathKey)
+                preferences.remove(SongCacheStorageDisplayNameKey)
+            }
+            context
+                .storageLocationPreferences()
+                .edit()
+                .remove(DownloadsStoragePathMirrorKey)
+                .remove(SongCacheStoragePathMirrorKey)
+                .commit()
+        }
 
         private fun Preferences.selectionFor(options: StorageLocationOptions): StorageFolderSelection {
             val configuredId = this[StorageFolderIdKey]?.takeIf(String::isNotBlank)
@@ -565,6 +619,14 @@ class StorageLocationRepository
 
         private suspend fun clearDownloads(onProgress: suspend (StorageCacheClearProgress) -> Unit): Boolean =
             runCatching {
+                // The file downloads are cleared first, and they are the point of the
+                // button. They exist as ordinary files this app wrote, so Media3's manager
+                // knows nothing about them: clearing the manager alone left every
+                // downloaded song on disk, still listed as downloaded and still playable
+                // offline, while the user was told the downloads had been cleared.
+                downloadUtil.removeAllDownloads()
+                // Then Media3's own records, which are the other shape a download can have
+                // (an older cache-pinned one).
                 downloadUtil.downloadManager.removeAllDownloads()
                 onProgress(StorageCacheClearProgress(kind = StorageCacheKind.DOWNLOADS, percent = 100))
             }.isSuccess
@@ -659,113 +721,6 @@ class StorageLocationRepository
             return cleared && directory.ensureWritableDirectory() && directory.isDirectoryEmpty()
         }
 
-        private suspend fun copyMigrationPhase(
-            phase: StorageMigrationPhase,
-            directories: List<StorageDirectoryMove>,
-            onProgress: suspend (StorageMigrationProgress) -> Unit,
-        ): Boolean =
-            try {
-                val totalBytes =
-                    directories.sumOf { move -> move.source.migrationByteCount(move.target) }
-                val progressReporter =
-                    StorageProgressReporter(
-                        phase = phase,
-                        totalBytes = totalBytes,
-                        onProgress = onProgress,
-                    )
-                progressReporter.emit(0L)
-                val buffer = ByteArray(StorageCopyBufferSizeBytes)
-                var movedBytes = 0L
-                directories.forEach { move ->
-                    movedBytes =
-                        copyCacheDirectory(
-                            source = move.source,
-                            target = move.target,
-                            movedBytes = movedBytes,
-                            progressReporter = progressReporter,
-                            buffer = buffer,
-                        )
-                }
-                progressReporter.emit(totalBytes)
-                true
-            } catch (throwable: Throwable) {
-                if (throwable is CancellationException) throw throwable
-                false
-            }
-
-        private suspend fun copyCacheDirectory(
-            source: File,
-            target: File,
-            movedBytes: Long,
-            progressReporter: StorageProgressReporter,
-            buffer: ByteArray,
-        ): Long {
-            val canonicalSource = source.canonicalFile
-            val canonicalTarget = target.canonicalFile
-            var currentMovedBytes = movedBytes
-            if (canonicalSource == canonicalTarget) {
-                canonicalTarget.ensureWritableDirectory()
-                return currentMovedBytes
-            }
-            if (!canonicalSource.exists()) {
-                canonicalTarget.ensureWritableDirectory()
-                return currentMovedBytes
-            }
-            canonicalTarget.ensureWritableDirectory()
-            canonicalSource
-                .walkTopDown()
-                .filter { file -> file.isDirectory }
-                .forEach { directory ->
-                    canonicalTarget
-                        .resolve(directory.relativeTo(canonicalSource).path)
-                        .mkdirs()
-                }
-            canonicalSource
-                .walkTopDown()
-                .filter { file -> file.isFile }
-                .forEach { file ->
-                    val destination = canonicalTarget.resolve(file.relativeTo(canonicalSource).path)
-                    if (!destination.exists()) {
-                        currentMovedBytes =
-                            copyFileWithProgress(
-                                source = file,
-                                target = destination,
-                                movedBytes = currentMovedBytes,
-                                progressReporter = progressReporter,
-                                buffer = buffer,
-                            )
-                    }
-                }
-            return currentMovedBytes
-        }
-
-        private fun copyDocumentTreeToDirectory(
-            source: DocumentFile,
-            target: File,
-        ): Boolean =
-            runCatching {
-                target.mkdirs()
-                val children = source.listFiles()
-                if (children.isEmpty() && source.isFile) {
-                    context.contentResolver.openInputStream(source.uri)?.use { input ->
-                        target.outputStream().use { output -> input.copyTo(output) }
-                    }
-                    return@runCatching true
-                }
-                children.forEach { child ->
-                    val childTarget = target.resolve(child.name ?: return@forEach)
-                    if (child.isDirectory) {
-                        copyDocumentTreeToDirectory(child, childTarget)
-                    } else if (child.isFile) {
-                        childTarget.parentFile?.mkdirs()
-                        context.contentResolver.openInputStream(child.uri)?.use { input ->
-                            childTarget.outputStream().use { output -> input.copyTo(output) }
-                        }
-                    }
-                }
-                true
-            }.getOrDefault(false)
-
         private suspend fun StorageMigrationPlan.withProgress(onProgress: suspend (StorageMigrationProgress) -> Unit): Boolean =
             try {
                 releaseCachesForMigration()
@@ -810,6 +765,7 @@ class StorageLocationRepository
                     moveCacheDirectory(
                         source = move.source,
                         target = move.target,
+                        replaceTarget = move.replaceTarget,
                         movedBytes = movedBytes,
                         progressReporter = progressReporter,
                         buffer = buffer,
@@ -831,6 +787,7 @@ class StorageLocationRepository
         private suspend fun moveCacheDirectory(
             source: File,
             target: File,
+            replaceTarget: Boolean,
             movedBytes: Long,
             progressReporter: StorageProgressReporter,
             buffer: ByteArray,
@@ -846,7 +803,7 @@ class StorageLocationRepository
                 canonicalTarget.ensureWritableDirectory()
                 return currentMovedBytes
             }
-            canonicalTarget.deleteRecursively()
+            if (replaceTarget) canonicalTarget.deleteRecursively()
             canonicalTarget.parentFile?.mkdirs()
             canonicalSource
                 .walkTopDown()
@@ -901,6 +858,26 @@ class StorageLocationRepository
                 kind: StorageFolderKind,
             ): File = resolveCacheDirectory(context, kind)
 
+            /**
+             * Where Media3's download cache lives.
+             *
+             * Deliberately *inside the cache folder*, never in the downloads folder. That
+             * cache stores bytes as 5 MiB fragments named after a numeric uid
+             * (`15.10485760....v3.exo`) plus a `.uid` identity file, so pointing it at the
+             * downloads folder is what filled a folder meant for the user's music with cache
+             * bookkeeping - and it tied the two settings together, so moving one appeared to
+             * drag the other along.
+             *
+             * It is a subdirectory rather than the cache folder itself because Media3 refuses
+             * to open two caches on one directory, and the player's streaming cache already
+             * owns the folder root.
+             */
+            fun downloadCacheDirectory(context: Context): File =
+                resolveCacheDirectory(context, StorageFolderKind.SONG_CACHE)
+                    .resolve(DOWNLOAD_CACHE_DIRECTORY_NAME)
+
+            private const val DOWNLOAD_CACHE_DIRECTORY_NAME = "download-cache"
+
             fun resolveCacheDirectory(
                 context: Context,
                 kind: StorageFolderKind,
@@ -929,6 +906,14 @@ class StorageLocationRepository
                     context.allowedCustomStorageDirectory(path)?.let { directory ->
                         if (directory.ensureWritableDirectory()) return directory
                     }
+                    // A saved location that is no longer usable (the card was removed, or the
+                    // app lost access to it) previously fell back to the default in silence,
+                    // which is indistinguishable from the setting never having been saved.
+                    Timber.tag("StorageLocation").w(
+                        "Configured %s location %s is not usable; falling back to the default",
+                        kind.name,
+                        path,
+                    )
                 }
 
                 val configuredPath =
@@ -977,6 +962,39 @@ class StorageLocationRepository
                 }
         }
     }
+
+/**
+ * Turns a picked SAF folder back into a real directory, or null when there isn't one.
+ *
+ * The file-backed media cache writes with plain `File` IO, so a folder has to exist as a
+ * path to be usable - which rules out cloud and virtual providers by construction. Only the
+ * external-storage provider addresses real paths, and it does so through its document id:
+ * `<volumeId>:<relative/path>`, where `primary` is the shared internal storage and any other
+ * volume id is a mount name under `/storage`. A tree on anything else has no directory to
+ * return, and the caller reports that rather than pretending to have changed location.
+ */
+private fun Context.treeUriToDirectory(treeUri: Uri): File? {
+    val isExternalStorageProvider =
+        treeUri.authority == ExternalStorageDocumentsAuthority
+    if (!isExternalStorageProvider) return null
+    val documentId =
+        runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull() ?: return null
+    val separator = documentId.indexOf(':')
+    if (separator <= 0) return null
+    val volumeId = documentId.substring(0, separator)
+    val relativePath = documentId.substring(separator + 1).trim('/')
+    val volumeRoot =
+        if (volumeId.equals(ExternalStoragePrimaryVolumeId, ignoreCase = true)) {
+            @Suppress("DEPRECATION")
+            Environment.getExternalStorageDirectory()
+        } else {
+            File("/storage", volumeId)
+        }
+    val canonicalRoot = runCatching { volumeRoot.canonicalFile }.getOrNull() ?: return null
+    val candidate = if (relativePath.isEmpty()) canonicalRoot else canonicalRoot.resolve(relativePath)
+    if (!candidate.isDirectory) return null
+    return runCatching { candidate.canonicalFile }.getOrNull()
+}
 
 private fun Context.allowedCustomStorageDirectory(path: String): File? {
     val configured = runCatching { File(path).canonicalFile }.getOrNull() ?: return null
@@ -1239,6 +1257,14 @@ private data class StorageMigrationPlan(
 private data class StorageDirectoryMove(
     val source: File,
     val target: File,
+    /**
+     * Whether pre-existing content at [target] may be deleted before the move.
+     *
+     * True for the app-owned targets of the volume-switch flow, where a stale directory
+     * should not survive the move. False when [target] is a folder the user picked, because
+     * that folder's unrelated files are not ours to delete.
+     */
+    val replaceTarget: Boolean = true,
 )
 
 private data class StorageFileMove(
@@ -1304,6 +1330,12 @@ private const val SongCacheStoragePathMirrorKey = "song_cache_storage_path"
 private const val InternalStorageOptionId = "internal"
 private const val ExternalStorageOptionIdPrefix = "external:"
 private const val ExternalStorageRootDirectoryName = "Hush"
+
+/** The one document provider whose tree ids address real filesystem paths. */
+private const val ExternalStorageDocumentsAuthority = "com.android.externalstorage.documents"
+
+/** Volume id the external-storage provider uses for shared internal storage. */
+private const val ExternalStoragePrimaryVolumeId = "primary"
 private const val AppRestartDelayMillis = 3_000L
 private const val StorageCopyBufferSizeBytes = 64 * 1024
 private const val CanvasArtworkCacheFileName = "canvas_artwork_cache.json"

@@ -464,6 +464,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        // The app is leaving the foreground, which is the last signal we reliably get
+        // before a swipe from recents or a system kill. Capture the queue and the
+        // position now; the periodic save is up to 30 s behind otherwise.
+        runCatching { playerConnection?.service?.persistQueueNow("app backgrounded") }
         safeUnbindMusicService()
         super.onStop()
     }
@@ -482,6 +486,10 @@ class MainActivity : ComponentActivity() {
             safeUnbindMusicService()
             stopService(Intent(this, MusicService::class.java))
             playerConnection = null
+        } else {
+            // Closing the UI is not a request to forget the queue, so keep the newest
+            // one regardless of how the process ends.
+            runCatching { playerConnection?.service?.persistQueueNow("activity destroyed") }
         }
     }
 
@@ -2354,6 +2362,10 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.align(Alignment.BottomCenter),
                         )
 
+                        // SpotiFLAC extension verification: opens the source's Cloudflare
+                        // challenge over any screen the moment playback needs it.
+                        app.hush.music.ui.component.SpotiFLACVerificationOverlay()
+
                         sharedSong?.let { song ->
                             playerConnection?.let {
                                 Dialog(
@@ -2463,6 +2475,7 @@ class MainActivity : ComponentActivity() {
             val query =
                 (
                     intent.getStringExtra("query")
+                        ?: intent.getStringExtra(Intent.EXTRA_TEXT)
                         ?: intent.getStringExtra("android.intent.extra.TITLE")
                         ?: ""
                 ).trim()
@@ -2476,7 +2489,75 @@ class MainActivity : ComponentActivity() {
         if (handleExternalAudioIntent(intent)) {
             return
         }
+        // SpotiFLAC auth-needed: raise the passive notice instead of navigating.
+        // This branch used to push the Audio Sources screen, so anything that sent this
+        // deep link could swap the screen out from under the user mid-track. Verification is
+        // the user's call now; the Audio Sources screen still consumes the request and runs
+        // the challenge when the user opens it themselves.
+        val uri = intent.data
+        if (uri?.scheme == "hush" && uri.host == "spotiflac-grant" && uri.getQueryParameter("auth") == "needed") {
+            intent.data = null
+            app.hush.music.spotiflac.SpotiFLACVerificationRequest.request(uri.getQueryParameter("ext"))
+            return
+        }
+        // SpotiFLAC session-grant callback from inline WebView redirect
+        val spotiflacGrant = extractSpotiFLACGrant(intent)
+        if (spotiflacGrant != null) {
+            handleSpotiFLACGrant(spotiflacGrant)
+            intent.data = null
+            return
+        }
         handleDeepLinkIntent(intent, navController)
+    }
+
+    private fun extractSpotiFLACGrant(intent: Intent): String? {
+        val uri = intent.data ?: return null
+        timber.log.Timber.tag("SpotiFLACSettings").d("extractSpotiFLACGrant: scheme=${uri.scheme} host=${uri.host} uri=$uri")
+        timber.log.Timber.tag("SpotiFLACSettings").d("extractSpotiFLACGrant: query=${uri.encodedQuery} fragment=${uri.fragment}")
+        // Match both hush://spotiflac-grant (new) and spotiflac://session-grant (legacy)
+        val isHushGrant = uri.scheme == "hush" && uri.host == "spotiflac-grant"
+        val isLegacyGrant = uri.scheme == "spotiflac" && uri.host == "session-grant"
+        if (!isHushGrant && !isLegacyGrant) return null
+        val grant = uri.getQueryParameter("grant")
+        if (!grant.isNullOrBlank()) {
+            timber.log.Timber.tag("SpotiFLACSettings").d("extractSpotiFLACGrant: found grant param len=${grant.length} first50=${grant.take(50)}")
+            return grant
+        }
+        // Fallback: check all parameters
+        for (key in uri.queryParameterNames) {
+            val value = uri.getQueryParameter(key)
+            timber.log.Timber.tag("SpotiFLACSettings").d("extractSpotiFLACGrant: param $key=${value?.take(50)}")
+            if (value != null && value.length > 30 && key != "cb_version" && key != "state") {
+                timber.log.Timber.tag("SpotiFLACSettings").d("extractSpotiFLACGrant: using param $key as grant (len=${value.length})")
+                return value
+            }
+        }
+        // Last fallback
+        val fullUri = uri.toString()
+        val idx = fullUri.indexOf("grant=")
+        if (idx > 0) {
+            val afterGrant = fullUri.substring(idx + 6)
+            return afterGrant.substringBefore("&").takeIf { it.isNotBlank() }
+        }
+        return null
+    }
+
+    private fun handleSpotiFLACGrant(grant: String) {
+        timber.log.Timber.tag("SpotiFLACSettings").w("Deep link grant received (len=${grant.length})")
+        lifecycleScope.launch {
+            try {
+                val sessionManager = app.hush.music.spotiflac.SpotiFLACSessionManager.getInstance()
+                val result = sessionManager.exchangeGrant(grant)
+                if (result.isSuccess) {
+                    sessionManager.forceRestoreSession()
+                    timber.log.Timber.tag("SpotiFLACSettings").d("Session obtained via deep link")
+                } else {
+                    timber.log.Timber.tag("SpotiFLACSettings").w("Exchange failed: ${result.exceptionOrNull()?.message}")
+                }
+            } catch (e: Exception) {
+                timber.log.Timber.tag("SpotiFLACSettings").e(e, "Failed to handle SpotiFLAC grant")
+            }
+        }
     }
 
     private fun handleExternalAudioIntent(intent: Intent): Boolean {

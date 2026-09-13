@@ -77,6 +77,7 @@ import app.hush.music.constants.EnablePaxsenixMusixmatchLyricsKey
 import app.hush.music.constants.EnablePaxsenixNeteaseLyricsKey
 import app.hush.music.constants.EnablePaxsenixSpotifyLyricsKey
 import app.hush.music.constants.EnablePaxsenixYouTubeLyricsKey
+import app.hush.music.constants.EnableMusixmatchLyricsKey
 import app.hush.music.constants.EnableSimpMusicLyricsKey
 import app.hush.music.constants.EnableUnisonLyricsKey
 import app.hush.music.constants.EnableYouLyPlusLyricsKey
@@ -195,6 +196,7 @@ fun LyricsSettings(
             key = EnablePaxsenixMusixmatchLyricsKey,
             defaultValue = true,
         )
+    val (enableMusixmatchLyrics, onEnableMusixmatchLyricsChange) = rememberPreference(key = EnableMusixmatchLyricsKey, defaultValue = true)
     val (enablePaxsenixYouTubeLyrics, onEnablePaxsenixYouTubeLyricsChange) =
         rememberPreference(
             key = EnablePaxsenixYouTubeLyricsKey,
@@ -247,6 +249,7 @@ fun LyricsSettings(
                     enablePaxsenixNetease = enablePaxsenixNeteaseLyrics,
                     enablePaxsenixSpotify = enablePaxsenixSpotifyLyrics,
                     enablePaxsenixMusixmatch = enablePaxsenixMusixmatchLyrics,
+                    enableMusixmatch = enableMusixmatchLyrics,
                     enablePaxsenixYouTube = enablePaxsenixYouTubeLyrics,
                     enableMegalobiz = enableMegalobizLyrics,
                 ),
@@ -596,6 +599,15 @@ fun LyricsSettings(
                     icon = { Icon(painterResource(R.drawable.lyrics), null) },
                     checked = enablePaxsenixSpotifyLyrics,
                     onCheckedChange = onEnablePaxsenixSpotifyLyricsChange,
+                )
+            }
+
+            item {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.enable_musixmatch_lyrics)) },
+                    icon = { Icon(painterResource(R.drawable.lyrics), null) },
+                    checked = enableMusixmatchLyrics,
+                    onCheckedChange = onEnableMusixmatchLyricsChange,
                 )
             }
 

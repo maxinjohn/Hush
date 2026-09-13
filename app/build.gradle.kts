@@ -72,8 +72,8 @@ android {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 169
-        versionName = "13.13.8"
+        versionCode = 170
+        versionName = "13.14.0"
 
         ndk {
             // ABI filters are set per product flavor (arm64, universal, etc.).
@@ -270,6 +270,10 @@ android {
         jniLibs {
             // Compressed native libs — better sideload compatibility than page-aligned APKs on some OEM installers.
             useLegacyPackaging = true
+            // The gobackend AAR ships arm32/arm64 slices of libgojni.so only;
+            // x86/x86_64 variants just see no SpotiFLAC runtime (same as
+            // upstream's per-ABI builds).
+            pickFirsts += listOf("**/libgojni.so")
             keepDebugSymbols += listOf(
                 "**/libandroidx.graphics.path.so",
                 "**/libdatastore_shared_counter.so"
@@ -373,6 +377,11 @@ ksp {
 }
 
 dependencies {
+    // Upstream SpotiFLAC Go runtime (Goja extension engine + signed-session +
+    // provider download pipeline), built from the SpotiFLAC-Mobile go_backend
+    // via gomobile. Reflection-based access keeps this optional at compile time.
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))
+
     implementation(libs.guava)
     implementation(libs.coroutines.guava)
     implementation(libs.concurrent.futures)
@@ -453,6 +462,7 @@ dependencies {
     implementation(project(":lyrics:betterlyrics"))
     implementation(project(":lyrics:unison"))
     implementation(project(":lyrics:youlyplus"))
+    implementation(project(":lyrics:musixmatch"))
     implementation(project(":lastfm"))
     implementation(project(":canvas"))
     implementation(project(":shazamkit"))
@@ -527,9 +537,15 @@ val copyShimApks = tasks.register<Copy>("copyShimApks") {
     group = "hush"
     dependsOn(":waze-shim:packageShimApks")
     from(rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip"))
-    into(rootProject.file("app/src/mobile/assets"))
+    // NOTE: Gradle Copy keeps a single destination; the last into() would win.
+    // So copy to main here and mirror to mobile in doLast so both asset dirs
+    // (mobile flavor overrides main) always carry the same fresh zip.
     into(rootProject.file("app/src/main/assets"))
     doLast {
+        val zip = rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip")
+        val target = rootProject.file("app/src/mobile/assets/waze-shims.zip")
+        target.parentFile.mkdirs()
+        zip.copyTo(target, overwrite = true)
         println("Copied waze-shims.zip to app/src/mobile/assets/ and app/src/main/assets/")
     }
 }

@@ -42,6 +42,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -94,9 +95,13 @@ import app.hush.music.ui.component.BottomSheetPageState
 import app.hush.music.ui.component.BottomSheetState
 import app.hush.music.ui.component.MenuState
 import app.hush.music.ui.component.bottomSheetDraggable
+import app.hush.music.ui.component.hushMarquee
 import app.hush.music.ui.menu.PlayerMenu
 import app.hush.music.ui.utils.ShowMediaInfo
 import app.hush.music.utils.makeTimeString
+import app.hush.music.playback.PlaybackEngine
+import app.hush.music.playback.PlaybackSourceLabels
+import app.hush.music.utils.PlaybackDownloadProgress
 import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberPreference
 import kotlin.math.roundToInt
@@ -679,10 +684,23 @@ fun CodecInfoRow(
     val isPlaying by (
         LocalPlayerConnection.current?.isPlaying ?: fallbackPlayingFlow
     ).collectAsStateWithLifecycle(initialValue = false)
-    val resolvedPlaybackClient =
-        playbackClient
-            ?: activeClientLabel
-            ?: if (isPlaying) "YouTube" else null
+    // No fallback that names an engine. There used to be a `?: if (isPlaying) "YouTube"` here,
+    // which meant that for the whole window while SpotiFLAC resolved a track - a provider
+    // sweep can take tens of seconds - the row asserted YouTube even though nothing of the
+    // kind was happening. Together with a stored format row left over from an earlier
+    // YouTube play, that is how a track could read as a 5 MB WebM live stream while a 30 MB
+    // FLAC was being fetched for it. Saying nothing is correct until a source is published.
+    val resolvedPlaybackClient = playbackClient ?: activeClientLabel
+
+    // Resolved before the string is built, because the labelling helpers are composable and
+    // cannot be called from inside a buildString lambda. The delivery is appended so this row
+    // states whether the audio is coming off the device or the network, like the source row.
+    val sourceInfo = remember(resolvedPlaybackClient) { PlaybackSourceLabels.parse(resolvedPlaybackClient) }
+    val sourceText =
+        resolvedPlaybackClient
+            ?.takeIf { it.isNotBlank() && sourceInfo.engine != PlaybackEngine.UNKNOWN }
+            ?.let { sourceInfo.displayName() }
+    val deliveryText = sourceInfo.delivery.displayName()
 
     Row(
         horizontalArrangement = Arrangement.Center,
@@ -704,9 +722,12 @@ fun CodecInfoRow(
                         append(" • ")
                         append(fileSize)
                     }
-                    if (!resolvedPlaybackClient.isNullOrBlank()) {
+                    if (sourceText != null) {
                         append(" • ")
-                        append(formatPlaybackClientLabel(resolvedPlaybackClient))
+                        append(sourceText)
+                        if (deliveryText != null) {
+                            append(" (").append(deliveryText.lowercase()).append(")")
+                        }
                     }
                 },
             style = MaterialTheme.typography.labelSmall,
@@ -714,16 +735,13 @@ fun CodecInfoRow(
             color = textColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            // The row is a single centred line of codec/bitrate/size/source facts that
+            // routinely outgrows the width, and every part of it is worth reading - so it
+            // ticks rather than trailing off into an ellipsis.
+            modifier = Modifier.hushMarquee(),
         )
     }
 }
-
-private fun formatPlaybackClientLabel(label: String): String =
-    when {
-        label.contains("Hi-Res", ignoreCase = true) -> label
-        label.contains("SpotiFLAC", ignoreCase = true) -> label
-        else -> "YouTube"
-    }
 
 /**
  * Shows the active playback source.
@@ -743,36 +761,113 @@ fun PlaybackSourceRow(
 
     val clientLabel by playerConnection.activePlaybackClientLabel.collectAsStateWithLifecycle()
     val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
-    val clientLabelValue = clientLabel
+    val downloadProgress by playerConnection.activeDownloadProgress.collectAsStateWithLifecycle()    // One structured reading of the source, shared with the full player, so the mini bar and
+    // the player cannot describe the same track differently.
+    val sourceInfo = remember(clientLabel) { PlaybackSourceLabels.parse(clientLabel) }
     val sourceLabel =
         when {
-            !clientLabelValue.isNullOrBlank() &&
-                clientLabelValue.contains("SpotiFLAC", ignoreCase = true) ->
-                clientLabelValue
-            isYouTube && clientLabelValue?.contains("YouTube", ignoreCase = true) == true ->
-                stringResource(R.string.primary_scraper_youtube)
-            !clientLabelValue.isNullOrBlank() &&
-                clientLabelValue.contains("YouTube", ignoreCase = true) ->
-                stringResource(R.string.playback_source_youtube)
-            isPlaying && isYouTube ->
-                stringResource(R.string.playback_source_youtube)
-            else -> return
+            sourceInfo.engine != PlaybackEngine.UNKNOWN -> sourceInfo.displayName()
+            isPlaying && isYouTube -> stringResource(R.string.playback_source_youtube)
+            else -> null
         }
+    // What the audio is coming from right now. Kept as its own line so it reads as a
+    // different statement from the media3 "Saved offline" badge.
+    val deliveryLabel =
+        downloadProgress
+            ?.let { progress ->
+                when {
+                    progress.fromCache -> stringResource(R.string.playback_delivery_device_cache)
+                    progress.percent >= 100 -> stringResource(R.string.playback_delivery_fetched_now)
+                    else -> null
+                }
+            }
+            ?: sourceInfo.delivery.displayName()
 
-    Row(
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
+    // A SpotiFLAC fetch has to be visible before the source label exists: the label is only
+    // published once the resolve succeeds.
+    if (sourceLabel == null && deliveryLabel == null && downloadProgress == null) return
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier =
             modifier
                 .fillMaxWidth()
                 .padding(start = 30.dp, end = 30.dp, top = 4.dp, bottom = 2.dp),
     ) {
+        if (sourceLabel != null) {
+            Text(
+                text = sourceLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = textColor,
+                maxLines = 1,
+                modifier =
+                    Modifier
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .hushMarquee(),
+            )
+        }
+        if (deliveryLabel != null) {
+            Text(
+                text = deliveryLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = textColor.copy(alpha = 0.7f),
+                maxLines = 1,
+                modifier =
+                    Modifier
+                        .padding(horizontal = 10.dp)
+                        .hushMarquee(),
+            )
+        }
+        downloadProgress?.let { progress ->
+            SpotiFLACDownloadStatus(progress = progress, textColor = textColor)
+        }
+    }
+}
+
+/**
+ * Shows what a SpotiFLAC track is doing right now: fetching it (with real progress
+ * and speed) or replaying it from the on-device cache.
+ */
+@Composable
+fun SpotiFLACDownloadStatus(
+    progress: PlaybackDownloadProgress,
+    textColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    // Only an in-flight fetch belongs here. "Playing from cache" and "ready" are now the
+    // delivery line's job; repeating them is what made a cache hit and a download look like
+    // the same thing.
+    if (progress.fromCache || progress.percent >= 100) return
+
+    val label =
+        buildString {
+            append(stringResource(R.string.spotiflac_downloading_percent, progress.percent))
+            progress.speedLabel?.let { append(" • ").append(it) }
+            progress.sizeLabel?.let { append(" of ").append(it) }
+        }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+    ) {
         Text(
-            text = sourceLabel,
+            text = label,
             style = MaterialTheme.typography.labelSmall,
             color = textColor,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
+        if (progress.percent in 1..99) {
+            Spacer(Modifier.height(3.dp))
+            LinearProgressIndicator(
+                progress = { progress.percent / 100f },
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(1.dp)),
+                color = textColor,
+                trackColor = textColor.copy(alpha = 0.22f),
+            )
+        }
     }
 }
 

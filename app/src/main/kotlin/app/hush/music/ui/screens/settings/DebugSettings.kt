@@ -16,6 +16,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -73,6 +74,8 @@ import kotlinx.coroutines.isActive
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
+import app.hush.music.playback.PlaybackSourceLabels
+import app.hush.music.ui.player.displayName
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.PreferenceEntry
 import app.hush.music.ui.component.PreferenceGroup
@@ -264,20 +267,17 @@ private fun NerdStatsSection(playerConnection: app.hush.music.playback.PlayerCon
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            // Playback source indicator
+            // Playback source indicator. Structured rather than the raw client label, so
+            // "which engine" and "off the device or the network" stay two separate facts.
+            val sourceInfo = remember(playbackSourceLabel) { PlaybackSourceLabels.parse(playbackSourceLabel) }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                val sourceLabel = when {
-                    playbackSourceLabel?.contains("Hi-Res", ignoreCase = true) == true -> playbackSourceLabel ?: "Hi-Res"
-                    playbackSourceLabel?.contains("SpotiFLAC", ignoreCase = true) == true -> playbackSourceLabel ?: "SpotiFLAC"
-                    else -> "YouTube"
-                }
                 NerdStatChip(
                     icon = R.drawable.graphic_eq,
                     label = stringResource(R.string.player_info_source),
-                    value = sourceLabel,
+                    value = sourceInfo.displayName(),
                     modifier = Modifier.weight(1f),
                     valueColor = MaterialTheme.colorScheme.primary,
                 )
@@ -293,6 +293,17 @@ private fun NerdStatsSection(playerConnection: app.hush.music.playback.PlayerCon
                     modifier = Modifier.weight(1f),
                 )
             }
+
+            val deliveryLabel = sourceInfo.delivery.displayName()
+            if (deliveryLabel != null) {
+                NerdStatChip(
+                    icon = R.drawable.offline,
+                    label = stringResource(R.string.player_info_delivery),
+                    value = deliveryLabel,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
 
             if (mediaMetadata != null) {
                 NerdStatCard(
@@ -570,6 +581,9 @@ private fun NerdStatCard(
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    // A provider name such as "SpotiFLAC · qobuz-web" is the interesting part
+                    // of this stat, so scroll it rather than cutting it off mid-word.
+                    modifier = Modifier.basicMarquee().fillMaxWidth(),
                 )
             }
         }
@@ -617,6 +631,7 @@ private fun NerdStatChip(
                 color = valueColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.basicMarquee().fillMaxWidth(),
             )
         }
     }

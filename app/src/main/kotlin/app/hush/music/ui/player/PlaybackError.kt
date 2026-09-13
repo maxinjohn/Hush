@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.PlaybackException
 import app.hush.music.MainActivity
+import app.hush.music.playback.findNoPlayableSourceException
 import app.hush.music.R
 import app.hush.music.utils.openYouTubeMusicUrl
 
@@ -59,6 +60,12 @@ fun PlaybackError(
     error: PlaybackException,
     retry: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Plays this track from YouTube once, even though YouTube or its fallback is switched
+     * off. Only offered for "no source can play this" failures, where it is the one action
+     * that can actually produce music instead of the same error again.
+     */
+    playFromYouTube: (() -> Unit)? = null,
 ) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -71,6 +78,8 @@ fun PlaybackError(
     val copyText = stringResource(R.string.copy)
     val copiedText = stringResource(R.string.copied)
     val openYouTubeMusicText = stringResource(R.string.open_youtube_music)
+    val playFromYouTubeText = stringResource(R.string.play_this_from_youtube)
+    val rememberedMissText = stringResource(R.string.spotiflac_miss_remembered)
     val loginText = stringResource(R.string.login)
     val couldNotOpenYouTubeMusicText = stringResource(R.string.could_not_open_youtube_music)
     val detailsText = stringResource(R.string.details)
@@ -88,6 +97,9 @@ fun PlaybackError(
             PlaybackErrorKind.Timeout -> fallbackTimeout
             PlaybackErrorKind.NoStream -> fallbackNoStream
             PlaybackErrorKind.MalformedStream -> fallbackMalformedStream
+            // Names the situation instead of "Unknown error": nothing failed, a source is
+            // simply switched off, and the details hold the exact setting to change.
+            PlaybackErrorKind.NoSourceAvailable -> stringResource(R.string.error_no_source_available)
             else -> fallbackUnknown
         }
     val reason =
@@ -122,6 +134,18 @@ fun PlaybackError(
 
             PlaybackErrorKind.Http -> {
                 "$fallbackUnknown ($httpLabel $httpCode)"
+            }
+
+            // The exception carries the full instruction, so show it rather than the
+            // generic text: it names the setting the user has to change.
+            PlaybackErrorKind.NoSourceAvailable -> {
+                val message =
+                    error.findNoPlayableSourceException()?.message?.takeIf { it.isNotBlank() }
+                        ?: error.cause?.message?.takeIf { it.isNotBlank() }
+                        ?: fallbackUnknown
+                // A remembered answer explains why nothing happened on this play, which
+                // otherwise looks like the retry did nothing.
+                if (errorInfo.rememberedMissAtMs != null) "$message $rememberedMissText" else message
             }
 
             PlaybackErrorKind.Unknown -> {
@@ -186,6 +210,13 @@ fun PlaybackError(
                 Toast.makeText(context, copiedText, Toast.LENGTH_SHORT).show()
             }
         }
+    // A track nothing enabled can play is the one case where the user's own settings are
+    // the reason it is silent, so the override takes precedence over the login/confirmation
+    // recovery actions, which cannot apply to this kind of failure anyway.
+    val onPlayFromYouTubeClick =
+        playFromYouTube?.takeIf { errorInfo.kind == PlaybackErrorKind.NoSourceAvailable }
+    val primaryActionText = if (onPlayFromYouTubeClick != null) playFromYouTubeText else recoveryActionText
+    val onPrimaryActionClick = onPlayFromYouTubeClick ?: onRecoveryClick
 
     BoxWithConstraints(
         modifier =
@@ -212,10 +243,10 @@ fun PlaybackError(
                     details = details,
                     retryText = retryText,
                     copyText = copyText,
-                    recoveryActionText = recoveryActionText,
+                    recoveryActionText = primaryActionText,
                     onRetryClick = retry,
                     onCopyClick = onCopyClick,
-                    onRecoveryClick = onRecoveryClick,
+                    onRecoveryClick = onPrimaryActionClick,
                 )
             } else {
                 PlaybackErrorCompactContent(
@@ -225,10 +256,10 @@ fun PlaybackError(
                     details = details,
                     retryText = retryText,
                     copyText = copyText,
-                    recoveryActionText = recoveryActionText,
+                    recoveryActionText = primaryActionText,
                     onRetryClick = retry,
                     onCopyClick = onCopyClick,
-                    onRecoveryClick = onRecoveryClick,
+                    onRecoveryClick = onPrimaryActionClick,
                 )
             }
         }

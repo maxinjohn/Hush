@@ -77,12 +77,26 @@ class CipherConfigFetcher @Inject constructor(
         }
     }
 
-    fun getConfigBlocking(): RemoteCipherConfig = runBlocking { getConfig() }
+    suspend fun refreshNow(): RemoteCipherConfig = withContext(Dispatchers.IO) {
+        fetchMutex.withLock {
+            val config = fetchRemoteConfig()
+            if (config != null) {
+                val fetchedAt = System.currentTimeMillis()
+                cachedConfig = config
+                lastFetchTime = fetchedAt
+                saveToDataStore(config, fetchedAt)
+                config
+            } else {
+                cachedConfig ?: RemoteCipherConfig.EMPTY
+            }
+        }
+    }
+
+    fun refreshNowBlocking(): RemoteCipherConfig = runBlocking { refreshNow() }
 
     private suspend fun fetchRemoteConfig(): RemoteCipherConfig? = withContext(Dispatchers.IO) {
         runCatching {
-            val urls = listOfNotNull(
-                "https://raw.githubusercontent.com/anomalyco/hush-config/main/cipher.json",
+            val urls = listOf(
                 RemoteCipherConfig.defaultConfigUrl(),
             )
 
@@ -104,6 +118,7 @@ class CipherConfigFetcher @Inject constructor(
                     continue
                 }
                 response.close()
+                if (body.toByteArray(Charsets.UTF_8).size > MAX_CONFIG_BYTES) continue
 
                 val config = RemoteCipherConfig.parse(body).getOrNull()
                 if (config != null && config.version > 0) return@runCatching config
@@ -149,6 +164,8 @@ class CipherConfigFetcher @Inject constructor(
     }
 
     companion object {
+        private const val MAX_CONFIG_BYTES = 4 * 1024 * 1024
+
         val CIPHER_CONFIG_KEY = androidx.datastore.preferences.core.stringPreferencesKey("remote_cipher_config")
         val CIPHER_CONFIG_FETCHED_AT_KEY = androidx.datastore.preferences.core.longPreferencesKey("remote_cipher_config_fetched_at")
 

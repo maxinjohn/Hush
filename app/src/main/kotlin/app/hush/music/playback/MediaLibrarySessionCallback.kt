@@ -1962,8 +1962,13 @@ class MediaLibrarySessionCallback
             val playerCacheIds =
                 runCatching { downloadUtil.playerCache.keys.asSequence() }
                     .getOrDefault(emptySequence())
+            // SpotiFLAC playback files live outside Media3's caches, so they are not in
+            // playerCacheIds even though the track is on this device and playable offline.
+            val spotiflacCacheIds =
+                runCatching { downloadUtil.spotiflacCachedMediaIds.asSequence() }
+                    .getOrDefault(emptySequence())
 
-            return sequenceOf(completedDownloadIds, downloadCacheIds, playerCacheIds)
+            return sequenceOf(completedDownloadIds, downloadCacheIds, playerCacheIds, spotiflacCacheIds)
                 .flatten()
                 .map(String::trim)
                 .filter(String::isNotBlank)

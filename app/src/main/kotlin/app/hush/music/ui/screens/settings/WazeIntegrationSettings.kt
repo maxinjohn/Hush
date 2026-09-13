@@ -184,7 +184,10 @@ fun WazeIntegrationSettings(
 
             processingPackage = null
             pendingInstallPackage = null
+            // Clean up both the shared inspection cache file and the dedicated
+            // install staging file (extractInstallableBridge serves the latter).
             File(context.cacheDir, "waze-bridge-${definition.id}.apk").delete()
+            File(context.cacheDir, "waze-bridge-install-${definition.id}.apk").delete()
             refreshBridges()
 
             val message = determineInstallResultMessage(

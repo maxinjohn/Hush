@@ -56,10 +56,11 @@ class MediaButtonReceiver : BroadcastReceiver() {
     }
 
     private fun sendCommand(context: Context, command: String) {
+        val hushPackage = HushPackageResolver.resolve(context)
         val serviceIntent = Intent("app.hush.music.WAZE_COMMAND").apply {
             putExtra("command", command)
             component = android.content.ComponentName(
-                "app.hush.music",
+                hushPackage,
                 "app.hush.music.playback.MusicService",
             )
         }
@@ -72,7 +73,7 @@ class MediaButtonReceiver : BroadcastReceiver() {
                 // reaches the dynamically registered WazeCommandReceiver in MusicService.
                 val broadcastIntent = Intent("app.hush.music.WAZE_COMMAND").apply {
                     putExtra("command", command)
-                    setPackage("app.hush.music")
+                    setPackage(hushPackage)
                 }
                 context.sendBroadcast(broadcastIntent)
             } catch (broadcastError: Exception) {

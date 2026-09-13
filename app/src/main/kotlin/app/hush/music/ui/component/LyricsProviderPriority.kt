@@ -38,6 +38,7 @@ data class LyricsProviderEnableState(
     val enablePaxsenixNetease: Boolean,
     val enablePaxsenixSpotify: Boolean,
     val enablePaxsenixMusixmatch: Boolean,
+    val enableMusixmatch: Boolean = true,
     val enablePaxsenixYouTube: Boolean,
     val enableMegalobiz: Boolean = false,
 ) {
@@ -55,6 +56,7 @@ data class LyricsProviderEnableState(
                 if (enablePaxsenixNetease) add(PreferredLyricsProvider.PAXSENIX_NETEASE)
                 if (enablePaxsenixSpotify) add(PreferredLyricsProvider.PAXSENIX_SPOTIFY)
                 if (enablePaxsenixMusixmatch) add(PreferredLyricsProvider.PAXSENIX_MUSIXMATCH)
+                if (enableMusixmatch) add(PreferredLyricsProvider.MUSIXMATCH)
                 if (enablePaxsenixYouTube) add(PreferredLyricsProvider.PAXSENIX_YOUTUBE)
             }
             if (enableMegalobiz) add(PreferredLyricsProvider.MEGALOBIZ)
@@ -73,6 +75,7 @@ fun PreferredLyricsProvider.displayName(): String =
         PreferredLyricsProvider.PAXSENIX_NETEASE -> "Paxsenix: NetEase"
         PreferredLyricsProvider.PAXSENIX_SPOTIFY -> "Paxsenix: Spotify"
         PreferredLyricsProvider.PAXSENIX_MUSIXMATCH -> "Paxsenix: Musixmatch"
+        PreferredLyricsProvider.MUSIXMATCH -> "Musixmatch"
         PreferredLyricsProvider.PAXSENIX_YOUTUBE -> "Paxsenix: YouTube"
         PreferredLyricsProvider.UNISON -> "Unison"
         PreferredLyricsProvider.MEGALOBIZ -> "Megalobiz"

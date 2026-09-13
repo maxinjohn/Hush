@@ -657,6 +657,7 @@
     <string name="eq_save">Save</string>
     <string name="eq_save_profile">Save profile</string>
     <string name="eq_enable_title">Equalizer</string>
+    <string name="enable_musixmatch_lyrics">Musixmatch</string>
     <string name="eq_enable_summary">Customize your sound with a 10-band parametric equalizer</string>
     <string name="eq_simple">Simple</string>
     <string name="eq_advanced">Advanced</string>
@@ -690,6 +691,13 @@
     <string name="eq_import_failed">Invalid profile data</string>
     <string name="eq_imported_profile">Imported</string>
     <string name="eq_import_success">Imported %1$d profiles</string>
+    <string name="eq_autoeq_title">AutoEq Import</string>
+    <string name="eq_autoeq_desc">Search AutoEq database and generate a correction profile for your headphones</string>
+    <string name="eq_autoeq_search_hint">Search headphone model (e.g. HD 600)…</string>
+    <string name="eq_autoeq_search">Search</string>
+    <string name="eq_autoeq_importing">Fetching and generating profile…</string>
+    <string name="eq_autoeq_failed">AutoEq import failed: %1$s</string>
+    <string name="eq_autoeq_no_results">No matching models found</string>
     <string name="eq_bands">Bands</string>
     <string name="eq_output_gain">Output gain</string>
     <string name="visualizer_enabled">Frequency Visualizer</string>

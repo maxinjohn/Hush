@@ -87,6 +87,13 @@ object PulseMatrixEngine {
     private const val VISUALIZER_RETRY_MS = 2000L
     private const val MAX_VISUALIZER_RETRIES = 10
 
+    /**
+     * True while the platform is refusing to create the Visualizer, so the UI can say so
+     * instead of silently rendering a flat line forever.
+     */
+    @Volatile var visualizerUnavailable: Boolean = false
+        private set
+
     @Volatile private var lastAcquireTimeMs: Long = 0L
     private var releaseGraceJob: Job? = null
     private const val RELEASE_GRACE_MS = 10000L
@@ -183,6 +190,9 @@ object PulseMatrixEngine {
             dlog( "Session change: $currentSessionId -> $audioSessionId")
             resetState()
             stopVisualizer()
+            // A new playback session deserves a fresh retry budget: the previous failures
+            // may have belonged to the session that just went away.
+            visualizerRetryCount = 0
             startVisualizer(audioSessionId)
         }
     }
@@ -215,18 +225,42 @@ object PulseMatrixEngine {
     }
 
     private fun startVisualizer(audioSessionId: Int) {
-        dlog("startVisualizer() sessionId=$audioSessionId (using 0=output mix)")
         stopVisualizer()
 
+        // Visualise the app's OWN playback session when we have one. Session 0 is the
+        // global output mix: it needs RECORD_AUDIO and it competes with whatever effects
+        // the OS/OEM already attached to the mix (on this device, Dolby's "DAP"), which
+        // makes it the harder target to register. The app's own session is also the only
+        // one whose audio we actually want to draw.
+        val targetSessionId = if (audioSessionId > 0) audioSessionId else 0
+        // Recorded before the attempt so a retry targets the same session even when the
+        // first creation failed (the success path used to be the only place this was set,
+        // which made every retry fall back to session 0 — the very target most likely to
+        // be refused).
+        retrySessionId = audioSessionId
+        dlog("startVisualizer() requested=$audioSessionId -> session $targetSessionId")
+
         val viz = try {
-            dlog("Creating Visualizer for output mix (session 0)...")
-            val v = Visualizer(0)
-            dlog("Visualizer created OK: enabled=${v.enabled}, captureSize=${v.captureSize}")
+            dlog("Creating Visualizer on session $targetSessionId...")
+            val v = Visualizer(targetSessionId)
+            dlog("Visualizer created OK on session $targetSessionId: captureSize=${v.captureSize}")
             v
         } catch (e: Exception) {
-            if (BuildConfig.DEBUG) Log.e(TAG, "Failed to create Visualizer for session $audioSessionId: ${e.message}", e)
+            // Arm the retry clock even though creation failed. Returning early used to
+            // leave visualizerStartTimeMs at 0, and the retry branch requires it to be
+            // non-zero — so a single failure meant flat bars for as long as the player was
+            // open, even after the platform's audio-effect budget freed up again. This is
+            // what made the visualiser look permanently dead rather than occasionally off.
+            visualizerStartTimeMs = System.currentTimeMillis()
+            visualizerUnavailable = true
+            Log.w(
+                TAG,
+                "Visualiser unavailable on session $targetSessionId " +
+                    "(attempt ${visualizerRetryCount + 1}/$MAX_VISUALIZER_RETRIES): ${e.message}",
+            )
             return
         }
+        visualizerUnavailable = false
 
         visualizer = viz
         currentSessionId = audioSessionId
@@ -309,8 +343,17 @@ object PulseMatrixEngine {
                     applySilence()
 
                     val timeSinceStart = now - visualizerStartTimeMs
-                    if (visualizerStartTimeMs > 0 && timeSinceStart > VISUALIZER_RETRY_MS && lastMagnitudes == null) {
-                        dlog("No FFT after ${timeSinceStart}ms — restarting Visualizer")
+                    val retryDelayMs = VISUALIZER_RETRY_MS * (1L shl visualizerRetryCount.coerceAtMost(4))
+                    if (visualizerStartTimeMs > 0 &&
+                        timeSinceStart > retryDelayMs &&
+                        lastMagnitudes == null &&
+                        visualizerRetryCount < MAX_VISUALIZER_RETRIES
+                    ) {
+                        visualizerRetryCount++
+                        dlog(
+                            "No FFT after ${timeSinceStart}ms — restarting Visualizer " +
+                                "(attempt $visualizerRetryCount/$MAX_VISUALIZER_RETRIES)",
+                        )
                         val sessionToRetry = retrySessionId
                         resetState()
                         stopVisualizer()

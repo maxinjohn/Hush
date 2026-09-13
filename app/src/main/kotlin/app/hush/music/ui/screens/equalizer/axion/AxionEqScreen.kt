@@ -14,7 +14,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Replay
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,8 +47,10 @@ import app.hush.music.constants.EqualizerBassBoostEnabledKey
 import app.hush.music.constants.EqualizerBassBoostStrengthKey
 import app.hush.music.constants.EqualizerVirtualizerEnabledKey
 import app.hush.music.constants.EqualizerVirtualizerStrengthKey
+import app.hush.music.eq.AutoEqImporter
 import app.hush.music.eq.data.SavedEQProfile
 import app.hush.music.utils.rememberPreference
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.hypot
@@ -661,6 +665,30 @@ private fun SimpleEqMode(
                 viewModel = viewModel,
                 bandGains = bandGains,
                 onEditClick = { showManageDialog = true },
+                customProfiles = customProfiles,
+            )
+        }
+
+        // AutoEq import entry
+        var showAutoEqDialog by remember { mutableStateOf(false) }
+        OutlinedButton(
+            onClick = { showAutoEqDialog = true },
+            enabled = enabled,
+            modifier = Modifier.padding(top = 4.dp),
+            shape = MaterialTheme.shapes.medium,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.GraphicEq,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(text = stringResource(R.string.eq_autoeq_title), style = MaterialTheme.typography.labelLarge)
+        }
+        if (showAutoEqDialog) {
+            AutoEqImportDialog(
+                viewModel = viewModel,
+                onDismiss = { showAutoEqDialog = false },
             )
         }
 
@@ -795,6 +823,7 @@ private fun PresetSection(
     presets: List<Int> = emptyList(),
     presetValues: List<FloatArray> = emptyList(),
     presetNames: List<String>? = null,
+    customProfiles: List<SavedEQProfile>? = null,
     enabled: Boolean,
     viewModel: AxionEqViewModel,
     bandGains: FloatArray,
@@ -838,12 +867,15 @@ private fun PresetSection(
             verticalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
         ) {
             if (presetNames != null) {
-                // Custom profiles
+                // Custom profiles — click to apply
                 presetNames.forEachIndexed { index, name ->
-                    val isSelected = remember(bandGains) { false } // Custom profiles not checked by band matching
+                    val profile = customProfiles?.getOrNull(index)
+                    val isSelected = profile != null && viewModel.activeProfileId.value == profile.id
                     ToggleButton(
                         checked = isSelected,
-                        onCheckedChange = { },
+                        onCheckedChange = {
+                            if (enabled && profile != null) viewModel.applySavedProfile(profile)
+                        },
                         enabled = enabled,
                         modifier = Modifier.semantics { role = Role.RadioButton },
                         contentPadding = PaddingValues(horizontal = 8.dp),
@@ -1063,6 +1095,137 @@ private fun ManagePresetsDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun AutoEqImportDialog(
+    viewModel: AxionEqViewModel,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<AutoEqImporter.HeadphoneModel>>(emptyList()) }
+    var searched by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+    var importing by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    fun runSearch() {
+        if (query.isBlank()) return
+        loading = true
+        error = null
+        scope.launch {
+            AutoEqImporter.searchModels(query)
+                .onSuccess { results = it; searched = true }
+                .onFailure { error = it.message }
+            loading = false
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!importing) onDismiss() },
+        title = { Text(stringResource(R.string.eq_autoeq_title), fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(R.string.eq_autoeq_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        placeholder = { Text(stringResource(R.string.eq_autoeq_search_hint)) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = { runSearch() }, enabled = !loading && !importing) {
+                        Icon(Icons.Rounded.Search, contentDescription = stringResource(R.string.eq_autoeq_search))
+                    }
+                }
+
+                if (loading) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Text(stringResource(R.string.eq_autoeq_search), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                error?.let {
+                    Text(
+                        text = stringResource(R.string.eq_autoeq_failed, it),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
+                if (searched && results.isEmpty() && !loading) {
+                    Text(
+                        text = stringResource(R.string.eq_autoeq_no_results),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
+                if (importing) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Text(stringResource(R.string.eq_autoeq_importing), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                    items(results) { model ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable(enabled = !importing) {
+                                    importing = true
+                                    error = null
+                                    scope.launch {
+                                        AutoEqImporter.generateEQProfile(name = model.name, path = model.path)
+                                            .onSuccess { profile ->
+                                                viewModel.importProfile(profile)
+                                                onDismiss()
+                                            }
+                                            .onFailure { importing = false; error = it.message }
+                                    }
+                                }
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.GraphicEq,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(text = model.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !importing) {
                 Text(stringResource(R.string.cancel))
             }
         },

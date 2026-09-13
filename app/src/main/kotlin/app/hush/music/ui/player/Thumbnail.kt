@@ -428,6 +428,7 @@ fun Thumbnail(
                         playerConnection.player.prepare()
                         playerConnection.player.play()
                     },
+                    playFromYouTube = { playerConnection.playCurrentTrackFromYouTube() },
                 )
             }
         }

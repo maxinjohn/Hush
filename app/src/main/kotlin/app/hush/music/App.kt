@@ -9,9 +9,11 @@ package app.hush.music
 
 import android.app.ActivityManager
 import android.app.Application
+import android.content.BroadcastReceiver
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -26,16 +28,18 @@ import coil3.request.CachePolicy
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.allowHardware
 import coil3.request.crossfade
+import app.hush.music.spotiflac.SpotiFLACDiag
+import app.hush.music.spotiflac.SpotiFLACSessionRenewWorker
+import app.hush.music.spotiflac.SpotiFLACSessionRenewer
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import app.hush.music.canvas.HushCanvas
 import app.hush.music.constants.*
 import app.hush.music.extensions.toEnum
@@ -91,6 +95,8 @@ class App :
 
     @Volatile private var isInitialized = false
     private val didRunImageCacheTrim = AtomicBoolean(false)
+    private var canvasUnlockReceiver: BroadcastReceiver? = null
+    private val canvasCacheInitStarted = AtomicBoolean(false)
     private val imageNetworkClientHolder =
         VersionedOkHttpClient(
             versionProvider = YouTube::okHttpNetworkVersion,
@@ -118,7 +124,6 @@ class App :
                 ?.processName
         }
 
-    @OptIn(DelicateCoroutinesApi::class)
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -128,6 +133,7 @@ class App :
         }
         BotGuardTokenGenerator.initialize(this)
         PreferenceStore.start(this)
+        runCatching { SpotiFLACDiag.attach(this) }
         if (BuildConfig.DEBUG) Timber.plant(Timber.DebugTree())
         try {
             Timber.plant(
@@ -156,7 +162,7 @@ class App :
     }
 
     private fun initializeCriticalSync() {
-        CanvasArtworkPlaybackCache.init(this)
+        initializeCanvasCacheSafely()
         HushCanvas.initialize(BuildConfig.CANVAS_BEARER_TOKEN)
         PaxsenixLyrics.setUserAgent("Hush", BuildConfig.VERSION_NAME)
 
@@ -181,8 +187,72 @@ class App :
         CipherConfigFetcher.init(this)
     }
 
+    /**
+     * StorageLocationRepository reads credential-encrypted preferences. Android Auto
+     * and boot receivers can create the Application before the user has unlocked the
+     * device, so initializing the canvas cache synchronously used to crash the whole
+     * process with "SharedPreferences ... not available until ... unlocked".
+     *
+     * Keep startup non-blocking and retry exactly when Android reports that the user
+     * is unlocked. This also avoids doing storage discovery on the critical launch path.
+     */
+    private fun initializeCanvasCacheSafely() {
+        if (!canvasCacheInitStarted.compareAndSet(false, true)) return
+
+        // Loading the canvas index can involve disk I/O and credential-encrypted
+        // storage lookup. Never perform it on the Application/main thread: doing
+        // so delayed the first Compose frame and, on locked devices, could crash
+        // the entire process before Android Auto had a chance to bind.
+        applicationScope.launch(Dispatchers.IO) {
+            val initialized = runCatching { CanvasArtworkPlaybackCache.init(applicationContext) }
+                .onFailure { error ->
+                    Timber.w(error, "Canvas cache initialization deferred until user unlock")
+                }.isSuccess
+            if (initialized || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return@launch
+
+            withContext(Dispatchers.Main) {
+                if (canvasUnlockReceiver != null) return@withContext
+                val receiver =
+                    object : BroadcastReceiver() {
+                        override fun onReceive(context: Context, intent: Intent) {
+                            if (intent.action != Intent.ACTION_USER_UNLOCKED) return
+                            canvasUnlockReceiver = null
+                            canvasCacheInitStarted.set(false)
+                            runCatching { context.applicationContext.unregisterReceiver(this) }
+                            initializeCanvasCacheSafely()
+                        }
+                    }
+                runCatching {
+                    registerReceiver(
+                        receiver,
+                        IntentFilter(Intent.ACTION_USER_UNLOCKED),
+                        Context.RECEIVER_NOT_EXPORTED,
+                    )
+                    canvasUnlockReceiver = receiver
+                }.onFailure { error ->
+                    canvasCacheInitStarted.set(false)
+                    Timber.w(error, "Unable to register canvas cache unlock retry")
+                }
+            }
+        }
+    }
+
     private fun initializeDeferredAsync() {
         applicationScope.launch(Dispatchers.IO) {
+            // Keep SpotiFLAC's per-source gateway sessions alive. Each download
+            // extension holds its own signed session and the runtime only renews one
+            // while it is still valid, so a lapsed session always costs the user a
+            // manual Cloudflare check. Scheduling is cheap; the worker itself exits
+            // without any network call when nothing is due.
+            runCatching {
+                SpotiFLACSessionRenewWorker.schedulePeriodic(this@App)
+                SpotiFLACSessionRenewWorker.renewNow(this@App)
+                // Also renew inline: a session that lapsed during doze must be
+                // caught on the first launch rather than whenever the OS decides to
+                // run background work, and this path is a no-op when nothing is due.
+                SpotiFLACSessionRenewer.renewAll(this@App, reason = "app-start")
+            }.onFailure { Timber.w(it, "Unable to schedule SpotiFLAC session renewal") }
+
             try {
                 val prefs = dataStore.data.first()
                 val currentVersionCode = BuildConfig.VERSION_CODE
@@ -192,13 +262,19 @@ class App :
                 // Pre-warm the BotGuard engine from the stored session immediately,
                 // concurrently with the network refresh below, so the first playback
                 // URL resolution isn't blocked on either step.
-                prefs.toPlaybackAuthState().sessionId
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { storedSessionId ->
-                        applicationScope.launch(Dispatchers.IO) {
-                            BotGuardTokenGenerator.preWarm(storedSessionId)
+                // BotGuard owns a WebView and can consume tens of megabytes while
+                // bootstrapping. Do not eagerly create it on low-RAM devices: that
+                // competes with Compose/database startup and was a common source of
+                // launch-time OOMs. Playback still creates it lazily when required.
+                if (!isLowRamDevice()) {
+                    prefs.toPlaybackAuthState().sessionId
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { storedSessionId ->
+                            applicationScope.launch(Dispatchers.IO) {
+                                BotGuardTokenGenerator.preWarm(storedSessionId)
+                            }
                         }
-                    }
+                }
 
                 // Track pre-warm sessionId so we can re-pre-warm if refresh changes it
                 val preWarmSessionId = prefs.toPlaybackAuthState().sessionId
@@ -506,8 +582,12 @@ class App :
             .diskCache(diskCache)
             .diskCachePolicy(imageCacheConfig.policy)
             .memoryCache {
+                // Keep transformed artwork bounded on constrained devices. Hardware
+                // decoding protects most list thumbnails, but palette extraction and
+                // notification/widget artwork still create software bitmaps.
+                val memoryCachePercent = if (isLowRamDevice()) 0.08 else 0.15
                 MemoryCache.Builder()
-                    .maxSizePercent(this, 0.20)
+                    .maxSizePercent(this, memoryCachePercent)
                     .build()
             }
             .build()

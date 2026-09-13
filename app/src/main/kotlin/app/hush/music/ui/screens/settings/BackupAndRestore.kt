@@ -118,6 +118,17 @@ import app.hush.music.viewmodels.BackupRestoreViewModel
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
+private val M3U_MIME_TYPES =
+    arrayOf(
+        "audio/x-mpegurl",
+        "application/vnd.apple.mpegurl",
+        "application/x-mpegurl",
+        "text/plain",
+        "audio/*",
+        "application/octet-stream",
+        "*/*",
+    )
+
 private val CSV_MIME_TYPES =
     arrayOf(
         "text/csv",
@@ -264,7 +275,7 @@ fun BackupAndRestore(
                         title = { Text(stringResource(R.string.import_online)) },
                         description = stringResource(R.string.import_m3u_format),
                         icon = { Icon(painterResource(R.drawable.playlist_import), null) },
-                        onClick = { importM3uLauncherOnline.launch(arrayOf("audio/*")) },
+                        onClick = { importM3uLauncherOnline.launch(M3U_MIME_TYPES) },
                     )
                 }
 

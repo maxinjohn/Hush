@@ -166,6 +166,7 @@ val EnablePaxsenixAppleMusicLyricsKey = booleanPreferencesKey("enablePaxsenixApp
 val EnablePaxsenixNeteaseLyricsKey = booleanPreferencesKey("enablePaxsenixNeteaseLyrics")
 val EnablePaxsenixSpotifyLyricsKey = booleanPreferencesKey("enablePaxsenixSpotifyLyrics")
 val EnablePaxsenixMusixmatchLyricsKey = booleanPreferencesKey("enablePaxsenixMusixmatchLyrics")
+val EnableMusixmatchLyricsKey = booleanPreferencesKey("enableMusixmatchLyrics")
 val EnablePaxsenixYouTubeLyricsKey = booleanPreferencesKey("enablePaxsenixYouTubeLyrics")
 val EnableUnisonLyricsKey = booleanPreferencesKey("enableUnisonLyrics")
 
@@ -268,6 +269,24 @@ val SpotiFLACQualityKey = stringPreferencesKey("spotiflacQuality")
 val SourcePriorityKey = stringPreferencesKey("sourcePriority")
 val SpotiFLACEnabledSourcesKey = stringPreferencesKey("spotiflacEnabledSources")
 val SpotiFLACSourceOrderKey = stringPreferencesKey("spotiflacSourceOrder")
+
+/** Hard cap for the SpotiFLAC streamed-track cache, in megabytes (0 = unlimited). */
+
+/** Cache every streamed SpotiFLAC track so replays never re-download. */
+val SpotiFLACCacheStreamsKey = booleanPreferencesKey("spotiflacCacheStreams")
+
+/** Warm the next queue item in the background while the current one plays. */
+val SpotiFLACPrefetchNextKey = booleanPreferencesKey("spotiflacPrefetchNext")
+
+/** Allow YouTube as the last resort when every SpotiFLAC source failed. */
+val SpotiFLACFallbackToYouTubeKey = booleanPreferencesKey("spotiflacFallbackToYouTube")
+
+/** Move on to the next SpotiFLAC source when one source fails a track. */
+val SpotiFLACTryNextSourceKey = booleanPreferencesKey("spotiflacTryNextSource")
+
+/** Never let an unverified source block a verified one. */
+val SpotiFLACVerifiedOnlyKey = booleanPreferencesKey("spotiflacVerifiedOnly")
+
 val DevModeKey = booleanPreferencesKey("devMode")
 
 val NetworkMeteredKey = booleanPreferencesKey("networkMetered")
@@ -588,6 +607,7 @@ enum class PreferredLyricsProvider {
     PAXSENIX_NETEASE,
     PAXSENIX_SPOTIFY,
     PAXSENIX_MUSIXMATCH,
+    MUSIXMATCH,
     PAXSENIX_YOUTUBE,
     MEGALOBIZ,
 }
@@ -604,6 +624,7 @@ val DefaultLyricsProviderOrder =
         PreferredLyricsProvider.PAXSENIX_APPLE_MUSIC,
         PreferredLyricsProvider.PAXSENIX_NETEASE,
         PreferredLyricsProvider.PAXSENIX_SPOTIFY,
+        PreferredLyricsProvider.MUSIXMATCH,
         PreferredLyricsProvider.PAXSENIX_MUSIXMATCH,
         PreferredLyricsProvider.PAXSENIX_YOUTUBE,
         PreferredLyricsProvider.MEGALOBIZ,

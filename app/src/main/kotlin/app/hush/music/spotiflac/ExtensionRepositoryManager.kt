@@ -8,6 +8,9 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.statement.HttpResponse
+import io.ktor.http.HttpStatusCode
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +19,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import timber.log.Timber
 import javax.inject.Inject
@@ -54,6 +58,9 @@ class ExtensionRepositoryManager @Inject constructor(
 
         val EnabledSourcesKey = stringPreferencesKey("spotiflac_enabled_sources")
         val SourceOrderKey = stringPreferencesKey("spotiflac_source_order")
+        private val CachedRegistryKey = stringPreferencesKey("spotiflac_cached_registry")
+
+        private const val MAX_REGISTRY_BYTES = 512 * 1024
 
         private val REGISTRY_URLS = listOf(
             "https://raw.githubusercontent.com/spotiflacapp/spotiflac-extension/main/registry.json",
@@ -62,7 +69,7 @@ class ExtensionRepositoryManager @Inject constructor(
 
         private val BUILTIN_SOURCES = listOf(
             ExtensionSource(
-                id = "tidal",
+                id = "tidal-web",
                 name = "Tidal",
                 description = "Lossless audio from Tidal",
                 author = "SpotiFLAC",
@@ -78,7 +85,7 @@ class ExtensionRepositoryManager @Inject constructor(
                 providerKey = "deezer",
             ),
             ExtensionSource(
-                id = "qobuz",
+                id = "qobuz-web",
                 name = "Qobuz",
                 description = "Hi-Res audio from Qobuz",
                 author = "SpotiFLAC",
@@ -148,7 +155,16 @@ class ExtensionRepositoryManager @Inject constructor(
         _isSyncing.value = true
         try {
             val remoteExtensions = fetchAllExtensions()
-            val mergedExtensions = mergeWithBuiltin(remoteExtensions)
+            // Keep the last verified registry snapshot. A transient GitHub/network
+            // failure must not make already-known sources disappear from Settings.
+            val effectiveRemoteExtensions =
+                if (remoteExtensions.isNotEmpty()) {
+                    saveCachedExtensions(remoteExtensions)
+                    remoteExtensions
+                } else {
+                    loadCachedExtensions()
+                }
+            val mergedExtensions = mergeWithBuiltin(effectiveRemoteExtensions)
             val enabledIds = loadEnabledIds()
             val orderedIds = loadOrderedIds()
 
@@ -171,13 +187,32 @@ class ExtensionRepositoryManager @Inject constructor(
 
         for (url in REGISTRY_URLS) {
             try {
-                val response = httpClient.get(url)
+                val response = httpClient.get(url) {
+                    header("Accept", "application/json")
+                    header("Cache-Control", "no-cache")
+                }
+                if (response.status != HttpStatusCode.OK) {
+                    Timber.tag(TAG).w("Registry $url returned HTTP ${response.status.value}")
+                    continue
+                }
                 val body = response.bodyAsText()
+                if (body.toByteArray(Charsets.UTF_8).size > MAX_REGISTRY_BYTES) {
+                    Timber.tag(TAG).w("Ignoring oversized registry from $url")
+                    continue
+                }
                 val registry = json.decodeFromString<ExtensionRegistry>(body)
-                allExtensions.addAll(registry.extensions.map { ext ->
+                val safeExtensions = registry.extensions.filter { extension ->
+                    if (!extension.isSafeRegistryEntry) {
+                        Timber.tag(TAG).w("Ignoring unsafe registry entry ${extension.id} from $url")
+                        false
+                    } else {
+                        true
+                    }
+                }
+                allExtensions.addAll(safeExtensions.map { ext ->
                     ext.copy(repositoryId = url)
                 })
-                Timber.tag(TAG).d("Fetched ${registry.extensions.size} extensions from $url")
+                Timber.tag(TAG).d("Fetched ${safeExtensions.size}/${registry.extensions.size} safe extensions from $url")
             } catch (e: Exception) {
                 Timber.tag(TAG).w(e, "Failed to fetch registry from $url")
             }
@@ -203,6 +238,11 @@ class ExtensionRepositoryManager @Inject constructor(
                     description = ext.description.ifBlank { existing.description },
                     relayUrl = ext.relayUrl ?: existing.relayUrl,
                     providerKey = ext.providerKey ?: existing.providerKey,
+                    icon = ext.icon ?: ext.iconUrl ?: existing.icon,
+                    downloadUrl = ext.downloadUrl ?: existing.downloadUrl,
+                    sha256 = ext.sha256 ?: existing.sha256,
+                    minAppVersion = ext.minAppVersion ?: existing.minAppVersion,
+                    category = ext.category ?: existing.category,
                     repositoryId = ext.repositoryId.ifBlank { existing.repositoryId },
                 )
             }
@@ -275,11 +315,41 @@ class ExtensionRepositoryManager @Inject constructor(
     }
 
     fun getEnabledSourceIds(): List<String> {
-        return _sources.value.filter { it.enabled }.map { it.source.providerKey ?: it.source.id }
+        // The registry ID is the extension contract identifier (for example
+        // `tidal-web` and `qobuz-web`). Do not replace it with providerKey:
+        // current SpotiFLAC extensions and their signed-session/download
+        // contracts use the extension ID when selecting a source. Keep the
+        // existing enabled list intact while the runtime is being migrated;
+        // older registries may not declare `types` at all.
+        return _sources.value
+            .filter { it.enabled }
+            .map { it.source.id }
     }
 
     fun getSourceForId(sourceId: String): ExtensionSource? {
         return _sources.value.find { it.source.id == sourceId }?.source
+    }
+
+    private suspend fun loadCachedExtensions(): List<ExtensionSource> = runCatching {
+        val raw = dataStore?.data?.map { prefs -> prefs[CachedRegistryKey] }?.first()
+            ?: return@runCatching emptyList()
+        json.decodeFromString<ExtensionRegistry>(raw).extensions
+    }.getOrDefault(emptyList())
+
+    private suspend fun saveCachedExtensions(extensions: List<ExtensionSource>) {
+        val ds = dataStore ?: return
+        runCatching {
+            ds.edit { prefs ->
+                prefs[CachedRegistryKey] = json.encodeToString(
+                    ExtensionRegistry(
+                        updatedAt = System.currentTimeMillis().toString(),
+                        extensions = extensions,
+                    ),
+                )
+            }
+        }.onFailure { error ->
+            Timber.tag(TAG).w(error, "Failed to persist verified extension registry")
+        }
     }
 
     private suspend fun loadEnabledIds(): Set<String> {

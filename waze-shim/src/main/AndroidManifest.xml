@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <permission
         android:name="app.hush.music.permission.WAZE_BRIDGE_CONTROL"
@@ -12,6 +13,7 @@
 
     <queries>
         <package android:name="app.hush.music" />
+        <package android:name="app.hush.music.debug" />
     </queries>
 
     <application
@@ -86,6 +88,14 @@
             android:permission="app.hush.music.permission.WAZE_BRIDGE_CONTROL">
             <intent-filter>
                 <action android:name="app.hush.music.waze.ACTION_RECONNECT" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".WazeBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
 
