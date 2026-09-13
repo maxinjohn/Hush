@@ -269,7 +269,24 @@ object WazeBridgeManager {
             }
             if (bundled.bridge.versionCode <= versionCode(installed)) return null
         }
-        return bundled.bridge.apk
+
+        // Copy the verified APK to a dedicated install file. The shared inspection
+        // cache file (waze-bridge-<id>.apk) is re-extracted by refreshBridges() on
+        // recomposition and by App.kt's periodic inspection, so the system
+        // PackageInstaller streaming that FileProvider URI can race a truncate and
+        // fail with "Failed to open APK ... Invalid file". The install file is
+        // only ever written here and removed after the result comes back.
+        val source = bundled.bridge.apk
+        val definition = inspection.definition
+        val installFile = File(context.cacheDir, "waze-bridge-install-${definition.id}.apk")
+        try {
+            installFile.delete()
+            source.copyTo(installFile)
+        } catch (error: IOException) {
+            Timber.tag("WazeBridge").w(error, "Unable to stage %s for install", definition.displayName)
+            return null
+        }
+        return installFile
     }
 
     private fun trustedHushBridgeFingerprints(context: Context): Set<String> {
@@ -378,13 +395,24 @@ object WazeBridgeManager {
         definition: WazeBridgeDefinition,
     ): BundledBridgeResult = synchronized(bridgeLock) {
         val apk = File(context.cacheDir, "waze-bridge-${definition.id}.apk")
+        // Write atomically (temp file + rename) so concurrent readers — e.g. the
+        // system PackageInstaller streaming the FileProvider URI while another
+        // refreshBridges()/inspectBridge() re-extracts — never observe a torn,
+        // truncated APK ("Failed to open APK ... Invalid file").
+        val temp = File(context.cacheDir, "waze-bridge-${definition.id}.tmp")
         val entryFound = try {
             context.assets.open(BRIDGE_ARCHIVE).use { archive ->
                 ZipInputStream(archive).use { entries ->
                     while (true) {
                         val entry = entries.nextEntry ?: break
                         if (entry.name == definition.assetPath) {
-                            apk.outputStream().use { output -> entries.copyTo(output) }
+                            temp.outputStream().use { output -> entries.copyTo(output) }
+                            if (!temp.renameTo(apk)) {
+                                // renameTo can fail on some filesystems if target exists
+                                apk.delete()
+                                temp.copyTo(apk, overwrite = true)
+                                temp.delete()
+                            }
                             return@use true
                         }
                     }
@@ -394,6 +422,8 @@ object WazeBridgeManager {
         } catch (error: IOException) {
             Timber.tag("WazeBridge").w(error, "Unable to read embedded %s", definition.displayName)
             false
+        } finally {
+            temp.delete()
         }
         if (!entryFound) {
             apk.delete()

@@ -86,6 +86,18 @@ class ImportSongResolver(
     ): ImportedSongResult {
         val artistNames = originalSong.artists.map { it.name }.filter(String::isNotBlank)
 
+        // Hush exports carry the YouTube video ID in the CSV/M3U entry. Keep that
+        // identity instead of performing a slower and less accurate title search.
+        // The review screen can still replace it if the user wants a different match.
+        if (originalSong.song.id.matches(YouTubeVideoIdPattern)) {
+            return ImportedSongResult(
+                originalSong = originalSong,
+                resolvedId = originalSong.song.id,
+                resolvedSong = originalSong,
+                source = ImportSource.YOUTUBE,
+            )
+        }
+
         if (localFirst) {
             val localMatch =
                 FuzzyMatcher.bestSongMatch(
@@ -138,6 +150,8 @@ class ImportSongResolver(
         const val DEFAULT_MAX_CONCURRENT_RESOLUTIONS = 5
     }
 }
+
+private val YouTubeVideoIdPattern = Regex("[A-Za-z0-9_-]{11}")
 
 internal fun buildImportSongQuery(song: Song): String {
     val artists =

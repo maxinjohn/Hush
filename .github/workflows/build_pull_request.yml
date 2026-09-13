@@ -32,6 +32,14 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Verify SpotiFLAC gobackend AAR is present
+        run: |
+          set -euo pipefail
+          test -s app/libs/gobackend.aar || {
+            echo "app/libs/gobackend.aar is missing. Rebuild with: scripts/build-spotiflac-aar.sh" >&2
+            exit 1
+          }
+
       - name: Generate debug.keystore if not exists
         run: |
           mkdir -p ~/.android

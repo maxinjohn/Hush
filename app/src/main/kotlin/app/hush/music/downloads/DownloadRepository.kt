@@ -64,29 +64,19 @@ class Media3DownloadRepository
                 snapshot.copy(downloads = downloads)
             }.flowOn(Dispatchers.IO)
 
+        // Pause, resume and remove all go through DownloadUtil rather than the Media3
+        // manager directly: a download is now an ordinary file, so pausing it has to stop
+        // a transfer and removing it has to delete a file. DownloadUtil routes each call to
+        // whichever engine owns that media id, Media3 included.
         override fun pause(songIds: Collection<String>) {
-            songIds.distinct().forEach { songId ->
-                downloadUtil.downloadManager.setStopReason(songId, PAUSED_STOP_REASON)
-            }
+            songIds.distinct().forEach(downloadUtil::pauseDownload)
         }
 
         override fun resume(songIds: Collection<String>) {
-            songIds.distinct().forEach { songId ->
-                val download = downloadUtil.downloads.value[songId]
-                if (download?.state == Download.STATE_FAILED) {
-                    downloadUtil.downloadManager.addDownload(download.request)
-                } else {
-                    downloadUtil.downloadManager.setStopReason(songId, NO_STOP_REASON)
-                }
-            }
+            songIds.distinct().forEach(downloadUtil::resumeDownload)
         }
 
         override fun remove(songIds: Collection<String>) {
-            songIds.distinct().forEach(downloadUtil.downloadManager::removeDownload)
-        }
-
-        private companion object {
-            const val NO_STOP_REASON = 0
-            const val PAUSED_STOP_REASON = 1
+            songIds.distinct().forEach(downloadUtil::removeDownload)
         }
     }

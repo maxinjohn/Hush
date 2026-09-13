@@ -77,6 +77,7 @@ import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
 import app.hush.music.constants.MaxCanvasCacheSizeKey
+import app.hush.music.spotiflac.SpotiFLACPlaybackCache
 import app.hush.music.constants.MaxImageCacheSizeKey
 import app.hush.music.constants.MaxSongCacheSizeKey
 import app.hush.music.constants.SmartTrimmerKey
@@ -190,6 +191,10 @@ fun StorageSettings(
     var playerCacheSize by remember { mutableStateOf(0L) }
     var downloadCacheSize by remember { mutableStateOf(0L) }
     var canvasCacheBytes by remember { mutableStateOf(0L) }
+    // SpotiFLAC playback files are cached songs and share this cap, so they are
+    // counted alongside the player cache rather than reported separately.
+    var spotiflacCacheBytes by remember { mutableStateOf(0L) }
+    val totalSongCacheBytes = playerCacheSize + spotiflacCacheBytes
 
     val maxImageCacheSizeBytes =
         if (maxImageCacheSize > 0) {
@@ -215,7 +220,7 @@ fun StorageSettings(
     val playerCacheProgress by animateFloatAsState(
         targetValue =
             if (maxSongCacheSizeBytes > 0) {
-                (playerCacheSize.toFloat() / maxSongCacheSizeBytes).coerceIn(0f, 1f)
+                (totalSongCacheBytes.toFloat() / maxSongCacheSizeBytes).coerceIn(0f, 1f)
             } else {
                 0f
             },
@@ -245,6 +250,13 @@ fun StorageSettings(
         if (maxSongCacheSize == 0) {
             viewModel.clearSongCache(showFeedback = false)
         }
+        // SpotiFLAC playback files are cached songs too, so this one setting governs
+        // them as well: turning it off drops them, and lowering it evicts down to the
+        // new cap immediately rather than waiting for the next download.
+        withContext(Dispatchers.IO) {
+            val spotiCache = SpotiFLACPlaybackCache.getInstance()
+            if (maxSongCacheSize == 0) spotiCache?.clear() else spotiCache?.evictIfNeeded()
+        }
     }
     LaunchedEffect(maxCanvasCacheSize) {
         CanvasArtworkPlaybackCache.setMaxSize(maxCanvasCacheSize)
@@ -263,12 +275,18 @@ fun StorageSettings(
     }
     LaunchedEffect(playerCache, playerCacheDir) {
         while (isActive) {
-            delay(StorageRefreshIntervalMillis)
+            // Read before the first delay so the sizes are already correct when the
+            // screen opens instead of showing zero for one refresh interval.
             playerCacheSize =
                 withContext(Dispatchers.IO) {
                     val cacheSpace = tryOrNull { playerCache.cacheSpace } ?: 0L
                     if (cacheSpace == 0L) playerCacheDir.directorySizeBytes() else cacheSpace
                 }
+            spotiflacCacheBytes =
+                withContext(Dispatchers.IO) {
+                    tryOrNull { SpotiFLACPlaybackCache.getInstance()?.stats()?.bytes } ?: 0L
+                }
+            delay(StorageRefreshIntervalMillis)
         }
     }
     LaunchedEffect(downloadCache, downloadCacheDir) {
@@ -359,11 +377,11 @@ fun StorageSettings(
                         title = { Text(stringResource(R.string.max_song_cache_size)) },
                         description =
                             if (maxSongCacheSize == -1) {
-                                stringResource(R.string.size_used, formatFileSize(playerCacheSize))
+                                stringResource(R.string.size_used, formatFileSize(totalSongCacheBytes))
                             } else {
                                 stringResource(
                                     R.string.storage_size_ratio,
-                                    formatFileSize(playerCacheSize),
+                                    formatFileSize(totalSongCacheBytes),
                                     formatFileSize(maxSongCacheSizeBytes),
                                 )
                             },
@@ -388,6 +406,25 @@ fun StorageSettings(
                 item(visible = maxSongCacheSize > 0) {
                     CacheUsagePreference(progress = playerCacheProgress)
                 }
+                // Naming the SpotiFLAC share keeps the shared cap understandable: the
+                // bar above counts both caches, and this says how much of it is
+                // SpotiFLAC playback files.
+                item {
+                    Text(
+                        text =
+                            if (spotiflacCacheBytes > 0) {
+                                stringResource(
+                                    R.string.storage_spotiflac_cache_share,
+                                    formatFileSize(spotiflacCacheBytes),
+                                )
+                            } else {
+                                stringResource(R.string.storage_spotiflac_cache_none)
+                            },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
                 item {
                     PreferenceEntry(
                         title = { Text(stringResource(R.string.clear_song_cache)) },
@@ -402,6 +439,11 @@ fun StorageSettings(
                     onDismiss = { clearCacheDialog = false },
                     onConfirm = {
                         viewModel.clearSongCache()
+                        // The SpotiFLAC playback files counted by this cap go too - a
+                        // "clear song cache" that left a gigabyte of them behind would
+                        // not match the size shown right above it.
+                        SpotiFLACPlaybackCache.getInstance()?.clear()
+                        spotiflacCacheBytes = 0L
                         clearCacheDialog = false
                     },
                     onCancel = { clearCacheDialog = false },
@@ -1020,7 +1062,7 @@ private fun CustomStorageFoldersSection(
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
                     android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
-            viewModel.importFromFolderUri(kind = kind, treeUri = treeUri)
+            viewModel.usePickedFolder(kind = kind, treeUri = treeUri)
         }
 
     PreferenceGroup(title = stringResource(R.string.custom_storage_folders)) {
@@ -1059,7 +1101,7 @@ private fun CustomStorageFoldersSection(
             showReset = customDownloadsPath != null,
             resetLabel = stringResource(R.string.reset_downloads_folder),
             onDismiss = { showDownloadActions = false },
-            onImportFromFolder = {
+            onChooseFolder = {
                 showDownloadActions = false
                 pendingFolderKind = StorageFolderKind.DOWNLOADS
                 customFolderPickerLauncher.launch(null)
@@ -1082,7 +1124,7 @@ private fun CustomStorageFoldersSection(
             showReset = customCachePath != null,
             resetLabel = stringResource(R.string.reset_song_cache_folder),
             onDismiss = { showCacheActions = false },
-            onImportFromFolder = {
+            onChooseFolder = {
                 showCacheActions = false
                 pendingFolderKind = StorageFolderKind.SONG_CACHE
                 customFolderPickerLauncher.launch(null)
@@ -1107,7 +1149,7 @@ private fun StorageLocationActionSheet(
     showReset: Boolean,
     resetLabel: String,
     onDismiss: () -> Unit,
-    onImportFromFolder: () -> Unit,
+    onChooseFolder: () -> Unit,
     onReset: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1134,7 +1176,7 @@ private fun StorageLocationActionSheet(
                 )
             }
             Button(
-                onClick = onImportFromFolder,
+                onClick = onChooseFolder,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(stringResource(R.string.import_from_folder))

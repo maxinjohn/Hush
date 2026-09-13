@@ -120,6 +120,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -156,7 +157,6 @@ import app.hush.music.constants.PrefetchCountKey
 import app.hush.music.constants.UrlCacheRefreshIntervalKey
 import app.hush.music.constants.DeviceMutePlaybackRecoveryVolumeKey
 import app.hush.music.constants.EnableLastFMScrobblingKey
-import app.hush.music.constants.ParallelSourceFetchKey
 import app.hush.music.constants.PrimaryAudioScraper
 import app.hush.music.constants.PrimaryAudioScraperKey
 import app.hush.music.constants.EqualizerBandLevelsMbKey
@@ -200,10 +200,14 @@ import app.hush.music.constants.ContentLanguageKey
 import app.hush.music.constants.SkipSilenceKey
 import app.hush.music.constants.SmartTrimmerKey
 import app.hush.music.constants.StreamSourcePreferences
+import app.hush.music.constants.SourcePriorityKey
+import app.hush.music.constants.SpotiFLACEnabledKey
+import app.hush.music.constants.SpotiFLACFallbackToYouTubeKey
 import app.hush.music.constants.SpotiFLACQualityKey
 import app.hush.music.constants.StopMusicOnTaskClearKey
 import app.hush.music.constants.TogetherClientIdKey
 import app.hush.music.constants.WakelockKey
+import app.hush.music.constants.YoutubeStreamingEnabledKey
 import app.hush.music.constants.WazeTargetApp
 import app.hush.music.constants.YtmSyncKey
 import app.hush.music.db.MusicDatabase
@@ -285,6 +289,7 @@ import app.hush.music.utils.get
 import app.hush.music.utils.getAsync
 import app.hush.music.utils.isInternetAvailable
 import app.hush.music.utils.isLocalMediaId
+import app.hush.music.utils.isLocalPlaybackUrl
 import app.hush.music.utils.isLowDataModeActive
 import app.hush.music.utils.resolveEffectiveAudioQuality
 import app.hush.music.utils.reportException
@@ -349,6 +354,12 @@ class MusicService :
 
     @Inject
     lateinit var spotiflacSessionManager: app.hush.music.spotiflac.SpotiFLACSessionManager
+
+    @Inject
+    lateinit var spotiFLACMissMemo: app.hush.music.spotiflac.SpotiFLACMissMemo
+
+    @Inject
+    lateinit var spotiflacNativeRuntime: app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridge
 
     @Inject
     lateinit var connectivityObserver: NetworkConnectivityObserver
@@ -435,6 +446,7 @@ class MusicService :
             }
     private val playbackUrlCache = ConcurrentHashMap<String, AuthScopedCacheValue>()
     private val playbackUrlPrefetchInFlight = ConcurrentHashMap<String, Deferred<AuthScopedCacheValue?>>()
+    private val playbackUrlResolutionInFlight = ConcurrentHashMap<String, Deferred<AuthScopedCacheValue>>()
     private val playbackUrlPrefetchSemaphore = kotlinx.coroutines.sync.Semaphore(4)
     private val extractorPlaybackUrlCache = ConcurrentHashMap<String, AuthScopedCacheValue>()
     private val remotePlaybackTrackingUrlCache = ConcurrentHashMap<String, String>()
@@ -529,6 +541,7 @@ var originalQueueSize: Int = 0
     @Volatile
     private var lastLoginRecoveryPrompt: Pair<String, Long>? = null
     private val playbackStreamRecoveryTracker = PlaybackStreamRecoveryTracker()
+    private val queuePageLoadMutex = Mutex()
     private val likeToggleMutex = Mutex()
     private var nextHistorySessionToken = 0L
     private var currentHistorySessionToken = 0L
@@ -545,6 +558,14 @@ var originalQueueSize: Int = 0
 
     val currentMediaMetadata = MutableStateFlow<app.hush.music.models.MediaMetadata?>(null)
     val activePlaybackClientLabel = MutableStateFlow<String?>(null)
+
+    /**
+     * Live progress of a SpotiFLAC track being fetched for playback, or null when
+     * the current track is streaming or already cached. Published here (like
+     * [activePlaybackClientLabel]) so the player can show real download progress
+     * instead of an unexplained spinner.
+     */
+    val activeDownloadProgress = MutableStateFlow<app.hush.music.utils.PlaybackDownloadProgress?>(null)
     val activeAudioDevice get() = audioOutputResolver.activeAudioDevice
 
     fun refreshActiveDevice() = audioOutputResolver.refresh()
@@ -557,10 +578,23 @@ var originalQueueSize: Int = 0
                 database.song(mediaMetadata?.id)
             }.flowOn(Dispatchers.IO)
             .stateIn(scope, SharingStarted.Lazily, null)
+    /**
+     * The format most recently resolved or served for a track, keyed by mediaId.
+     *
+     * The player's codec row is this value when it exists, and the database row otherwise.
+     * Without the override the row described the format of whatever engine last resolved the
+     * track, so a track whose stored row came from a YouTube play kept reading as a ~5 MB
+     * WebM while a 30 MB SpotiFLAC FLAC was decoding - which looks exactly like the app
+     * still playing from YouTube.
+     */
+    private val publishedFormatEntity = MutableStateFlow<Pair<String, FormatEntity>?>(null)
+
     private val currentFormat =
         currentMediaMetadata
-            .flatMapLatest { mediaMetadata ->
-                database.format(mediaMetadata?.id)
+            .combine(publishedFormatEntity) { mediaMetadata, published -> mediaMetadata?.id to published }
+            .flatMapLatest { (mediaId, published) ->
+                val fresh = published?.takeIf { it.first == mediaId }?.second
+                if (fresh != null) flowOf(fresh) else database.format(mediaId)
             }.flowOn(Dispatchers.IO)
 
     private val normalizeFactor = MutableStateFlow(1f)
@@ -728,6 +762,12 @@ var originalQueueSize: Int = 0
     @Inject
     @DownloadCache
     lateinit var downloadCache: Cache
+
+    @Inject
+    lateinit var downloadOriginStore: DownloadOriginStore
+
+    @Inject
+    lateinit var downloadedFileStore: app.hush.music.downloads.DownloadedFileStore
 
     lateinit var localPlayer: ExoPlayer
         private set
@@ -1142,6 +1182,10 @@ var originalQueueSize: Int = 0
         player.repeatMode = REPEAT_MODE_OFF
 
         loadPersistentUrlCache()
+        // The persistent cache may predate a source toggle. Enforce the CURRENT
+        // toggles here too, so a YouTube URL restored from disk can never play
+        // while YouTube is disabled — this was the "toggle ignored" bug.
+        purgeCacheEntriesViolatingSourceToggles()
         startUrlCacheRefreshJob()
 
         if (app.hush.music.BuildConfig.WAZE_SUPPORTED) {
@@ -1312,15 +1356,15 @@ var originalQueueSize: Int = 0
             }
 
         dataStore.data
-            .map { it[PrimaryAudioScraperKey] ?: PrimaryAudioScraper.YOUTUBE.name }
+            .map { it[YoutubeStreamingEnabledKey] ?: true }
             .distinctUntilChanged()
-            .collectLatest(scope) { scraper ->
-                val wasYouTube = youtubeStreamingEnabled
-                val isYouTube = scraper == PrimaryAudioScraper.YOUTUBE.name
-                youtubeStreamingEnabled = isYouTube
-                if (isYouTube && !wasYouTube) {
+            .collectLatest(scope) { enabled ->
+                val changed = youtubeStreamingEnabled != enabled
+                youtubeStreamingEnabled = enabled
+                if (changed) {
                     clearIncompatiblePlaybackCache()
-                    playbackUrlCache.clear()
+                    scope.launch(Dispatchers.IO) { savePersistentUrlCache() }
+                    reResolveCurrentTrackForSourceToggle()
                 }
             }
 
@@ -1328,12 +1372,23 @@ var originalQueueSize: Int = 0
             .map { it[app.hush.music.constants.SpotiFLACEnabledKey] ?: false }
             .distinctUntilChanged()
             .collectLatest(scope) { enabled ->
+                val changed = spotiflacEnabled != enabled
                 spotiflacEnabled = enabled
-                if (!enabled) {
+                if (changed) {
+                    // Toggling SpotiFLAC changes routing for every cached stream.
+                    // Clear the in-memory AND persistent caches so a stale YouTube
+                    // URL can never leak through after the toggle (and vice versa).
                     clearIncompatiblePlaybackCache()
-                } else if (spotiflacSessionManager.currentSession == null) {
+                    scope.launch(Dispatchers.IO) { savePersistentUrlCache() }
+                }
+                if (changed && !enabled) {
+                    clearIncompatiblePlaybackCache()
+                } else if (enabled && !spotiflacSessionManager.hasActiveSession()) {
                     scope.launch(Dispatchers.IO) {
-                        spotiflacSessionManager.bootstrap()
+                        spotiflacSessionManager.forceRestoreSession()
+                        if (!spotiflacSessionManager.hasActiveSession()) {
+                            spotiflacSessionManager.bootstrap()
+                        }
                     }
                 }
             }
@@ -1353,6 +1408,43 @@ var originalQueueSize: Int = 0
             }
 
         dataStore.data
+            .map { prefs ->
+                // A YouTube fallback only exists while YouTube is an enabled source;
+                // disabling YouTube must make this effectively off, matching the
+                // settings screen where the switch is greyed out.
+                val requested = prefs[app.hush.music.constants.SpotiFLACFallbackToYouTubeKey] ?: true
+                val ytEnabled = prefs[YoutubeStreamingEnabledKey] ?: true
+                requested && ytEnabled
+            }
+            .distinctUntilChanged()
+            .collectLatest(scope) { allowFallback ->
+                spotiflacAllowYouTubeFallback = allowFallback
+            }
+
+        // Mirror the extension runtime's per-item transfer meter so the player can
+        // show download progress for the track that is actually playing.
+        scope.launch {
+            spotiflacNativeRuntime.downloadProgress.collect { progress ->
+                if (progress == null) {
+                    activeDownloadProgress.value = null
+                    return@collect
+                }
+                val currentId = withContext(Dispatchers.Main) { player.currentMediaItem?.mediaId }
+                if (progress.mediaId.isBlank() || progress.mediaId == currentId) {
+                    activeDownloadProgress.value = progress
+                }
+            }
+        }
+
+        // A source that just finished verifying can serve the track that stopped
+        // waiting for it, so playback resumes instead of the queue skipping on. The
+        // callback is registered here rather than collected from a flow, because a
+        // missed emission would leave the parked track with nothing to wake it.
+        app.hush.music.spotiflac.SpotiFLAutoVerifier.onSourceVerified = {
+            scheduleHeldTrackRecovery()
+        }
+
+        dataStore.data
             .map { it[app.hush.music.constants.SourcePriorityKey] ?: "SPOTIFLAC,YOUTUBE" }
             .distinctUntilChanged()
             .collectLatest(scope) { priority ->
@@ -1362,6 +1454,15 @@ var originalQueueSize: Int = 0
         extensionRepoManager.initialize(dataStore)
         scope.launch(Dispatchers.IO) {
             extensionRepoManager.syncRegistries()
+            // Warm the SpotiFLAC runtime and extension packages so the first track
+            // does not pay the download/load cost inside playback resolution.
+            if (dataStore.get(app.hush.music.constants.SpotiFLACEnabledKey, false)) {
+                runCatching {
+                    spotiflacNativeRuntime.prepareForPlayback(
+                        extensionRepoManager.getEnabledSourceIds(),
+                    )
+                }
+            }
         }
 
         if (spotiflacEnabled) {
@@ -1433,8 +1534,23 @@ var originalQueueSize: Int = 0
             .map(::readEqSettingsFromPrefs)
             .distinctUntilChanged()
             .collectLatest(scope) { settings ->
+                val previous = desiredEqSettings.value
                 desiredEqSettings.value = settings
-                applyEqSettingsToEffects(settings)
+                // Turning one of the optional colouring effects on has to create it, and
+                // turning it off has to release it so its slot in the platform's effect
+                // budget goes back to the pool. Without the rebuild those effects would
+                // only ever appear on the next session open, and would never be freed.
+                val effectsNeedRebuild =
+                    previous.enabled != settings.enabled ||
+                        previous.bassBoostEnabled != settings.bassBoostEnabled ||
+                        previous.virtualizerEnabled != settings.virtualizerEnabled ||
+                        previous.outputGainEnabled != settings.outputGainEnabled
+                val sessionId = openedAudioSessionId ?: localPlayer.audioSessionId
+                if (effectsNeedRebuild && isAudioEffectSessionOpened && sessionId > 0) {
+                    ensureAudioEffects(sessionId, force = true)
+                } else {
+                    applyEqSettingsToEffects(settings)
+                }
             }
 
         combine(
@@ -1549,7 +1665,16 @@ var originalQueueSize: Int = 0
                 val prefs = dataStore.data.first()
                 val persistentQueueEnabled = prefs[PersistentQueueKey] ?: true
                 if (persistentQueueEnabled) {
-                    playerInitialized.first { it }
+                    // Bounded: waiting forever here used to leave the queue empty and
+                    // every deferred transport command stranded, because the flag that
+                    // releases them is only set after this block returns.
+                    val playerReady =
+                        withTimeoutOrNull(RESTORE_PLAYER_READY_TIMEOUT_MS) {
+                            playerInitialized.first { it }
+                        }
+                    if (playerReady == null) {
+                        Timber.tag(TAG).w("Player not initialized within %d ms; restoring anyway", RESTORE_PLAYER_READY_TIMEOUT_MS)
+                    }
                     val persistedQueue = readPersistentObject<PersistQueue>(PERSISTENT_QUEUE_FILE)
                     val persistedPlayerState = readPersistentObject<PersistPlayerState>(PERSISTENT_PLAYER_STATE_FILE)
 
@@ -1577,15 +1702,23 @@ var originalQueueSize: Int = 0
                 cancelRestoredQueueHydration()
                 clearPersistedQueueFiles()
             }
-            withContext(Dispatchers.Main) {
-                queueRestoreCompleted.value = true
-                if (pendingWazeCommands.isNotEmpty()) {
-                    val commands = pendingWazeCommands.toList()
-                    pendingWazeCommands.clear()
-                    for (command in commands) {
-                        handleWazeCommand(command)
-                    }
-                }
+            markQueueRestoreCompleted()
+        }
+
+        // Safety net: nothing may leave the transport controls dead. If the restore
+        // coroutine is slow, cancelled, or dies, release the commands it was holding
+        // and let them run against whatever the player has.
+        scope.launch {
+            delay(RESTORE_COMPLETION_DEADLINE_MS)
+            if (!queueRestoreCompleted.value) {
+                Timber.tag(TAG).w(
+                    "Queue restore did not finish within %d ms; releasing transport commands",
+                    RESTORE_COMPLETION_DEADLINE_MS,
+                )
+                app.hush.music.spotiflac.SpotiFLACDiag.log(
+                    "queue restore watchdog fired after ${RESTORE_COMPLETION_DEADLINE_MS}ms; playerItems=${player.mediaItemCount}",
+                )
+                markQueueRestoreCompleted()
             }
         }
 
@@ -1596,6 +1729,24 @@ var originalQueueSize: Int = 0
                 if (shouldSave && player.mediaItemCount > 0) {
                     saveQueueToDisk()
                 }
+            }
+        }
+    }
+
+    /**
+     * Releases the transport commands held while the persisted queue was being
+     * restored. Idempotent, and safe to call from a watchdog: the flag must reach
+     * `true` exactly once, otherwise commands queued behind it are never delivered.
+     */
+    private fun markQueueRestoreCompleted() {
+        if (queueRestoreCompleted.value) return
+        queueRestoreCompleted.value = true
+        val commands = pendingWazeCommands.toList()
+        pendingWazeCommands.clear()
+        if (commands.isEmpty()) return
+        scope.launch(Dispatchers.Main) {
+            for (command in commands) {
+                handleWazeCommand(command)
             }
         }
     }
@@ -1674,8 +1825,12 @@ var originalQueueSize: Int = 0
             if (restoredMediaId == null) {
                 player.prepare()
             } else {
+                // The current item was prefetched before setMediaItems(). Prepare now
+                // instead of waiting for the prefetch coroutine to be scheduled. The
+                // data source reuses the in-flight request, so this remains single-flight.
+                player.prepare()
                 scope.launch(SilentHandler) {
-                    warmPlaybackUrl(restoredMediaId, maxWaitMs = STARTUP_PREFETCH_WAIT_MS)
+                    warmPlaybackUrl(restoredMediaId, maxWaitMs = 0L)
                     withContext(Dispatchers.Main.immediate) {
                         if (
                             player.currentMediaItem?.mediaId == restoredMediaId &&
@@ -2628,6 +2783,8 @@ var originalQueueSize: Int = 0
 
     @Volatile
     private var lastPublishedPlaybackClient: Pair<String, String>? = null
+    @Volatile
+    private var lastSpotiBootstrapAttemptElapsed = 0L
 
     @Volatile
     private var youtubeStreamingEnabled = true
@@ -2640,15 +2797,251 @@ var originalQueueSize: Int = 0
     @Volatile
     private var sourcePriorityList: List<String> = listOf("SPOTIFLAC", "YOUTUBE")
 
+    @Volatile
+    private var spotiflacAllowYouTubeFallback = true
+
+    private var queuePersistJob: Job? = null
+
     private fun isYouTubeStreamingEnabled(): Boolean = youtubeStreamingEnabled
 
-    private fun isParallelSourceFetchEnabled(): Boolean {
-        return dataStore.get(ParallelSourceFetchKey, false)
+    /**
+     * The audio-source toggles as they are *right now*.
+     *
+     * They are mirrored into fields by long-lived collectors, and a mirror can lag
+     * a settings change — or miss it for good if its collector coroutine died. The
+     * symptom is severe rather than cosmetic: routing keeps treating YouTube as
+     * disabled, so when every SpotiFLAC source fails there is nothing to fall back
+     * to, the user's "fall back to YouTube" switch is force-disabled, and the player
+     * spins forever without an error. Re-reading the preferences at resolve time
+     * removes that dependency; after the first read DataStore serves this from
+     * memory, so it costs nothing on the playback path.
+     */
+    private suspend fun refreshSourceToggleMirrors() {
+        val prefs = runCatching { dataStore.data.first() }.getOrNull() ?: return
+        val yt = prefs[YoutubeStreamingEnabledKey] ?: true
+        val spoti = prefs[SpotiFLACEnabledKey] ?: false
+        // A YouTube fallback only exists while YouTube is an enabled source.
+        val fallback = (prefs[SpotiFLACFallbackToYouTubeKey] ?: true) && yt
+        val priority =
+            prefs[SourcePriorityKey]
+                ?.split(",")
+                ?.map { it.trim().uppercase() }
+                ?.filter { it.isNotBlank() }
+                ?.takeIf { it.isNotEmpty() }
+        val changed =
+            yt != youtubeStreamingEnabled ||
+                spoti != spotiflacEnabled ||
+                fallback != spotiflacAllowYouTubeFallback ||
+                (priority != null && priority != sourcePriorityList)
+        youtubeStreamingEnabled = yt
+        spotiflacEnabled = spoti
+        spotiflacAllowYouTubeFallback = fallback
+        if (priority != null) sourcePriorityList = priority
+        if (changed) {
+            Timber.tag(TAG).i(
+                "source toggles refreshed from prefs: yt=%s spotiflac=%s fallback=%s priority=%s",
+                yt,
+                spoti,
+                fallback,
+                sourcePriorityList.joinToString(","),
+            )
+            app.hush.music.spotiflac.SpotiFLACDiag.log(
+                "source toggles: yt=$yt spotiflac=$spoti fallbackToYt=$fallback priority=${sourcePriorityList.joinToString(",")}",
+            )
+        }
     }
 
+    private fun effectiveEngineOrder(
+        spotiflacAvailable: Boolean,
+        ytAvailable: Boolean,
+    ): List<String> = PlaybackEngineOrder.effective(
+        savedOrder = sourcePriorityList,
+        spotiflacAvailable = spotiflacAvailable,
+        youtubeAvailable = ytAvailable,
+    )
 
+    private fun reResolveCurrentTrackForSourceToggle() {
+        val item = player.currentMediaItem ?: return
+        val mediaId = item.mediaId
+        if (mediaId.isBlank() || mediaId.isLocalMediaId()) return
+        val wasPlaying = player.isPlaying
+        val position = player.currentPosition
+        scope.launch(SilentHandler) {
+            runCatching {
+                player.pause()
+                player.clearMediaItems()
+                val resolved = resolveAndCachePlaybackUrl(mediaId)
+                val replacement = item.buildUpon()
+                    .setUri(resolved.url)
+                    .build()
+                player.setMediaItem(replacement, position)
+                player.prepare()
+                player.playWhenReady = wasPlaying
+            }.onFailure { error ->
+                Timber.tag(TAG).w(error, "Failed to re-resolve current track after source toggle")
+            }
+        }
+    }
 
-    private fun cachedPlaybackUrl(mediaId: String): AuthScopedCacheValue? {
+    /**
+     * Media ids the user explicitly asked to hear from YouTube, once.
+     *
+     * The player's error screen offers this when nothing enabled can play a track. It
+     * exists because both alternatives are worse: silently rewriting the user's source
+     * settings, or leaving them with a track that cannot be played at all. It is one-shot
+     * and in memory only - a decision about one song never edits the saved configuration.
+     */
+    private val forceYouTubeOnceMediaIds =
+        java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+
+    /**
+     * Plays the current track from YouTube even though YouTube, or the YouTube fallback, is
+     * switched off. Called by the player's error action; the settings are left alone.
+     *
+     * The permission is for one resolve, but the URL that resolve produces is cached like
+     * any other, so the track keeps playing from YouTube until that URL expires - the user
+     * asked for this song, not for one playthrough of it.
+     */
+    fun playCurrentTrackFromYouTube(): Boolean {
+        val mediaId = player.currentMediaItem?.mediaId?.takeIf { it.isNotBlank() } ?: return false
+        if (forceYouTubeOnceMediaIds.size >= MAX_FORCE_YOUTUBE_ONCE) forceYouTubeOnceMediaIds.clear()
+        forceYouTubeOnceMediaIds.add(mediaId)
+        // Drop whatever was resolved for this track before, so the next resolve consults the
+        // override instead of handing back a remembered URL for another engine.
+        playbackUrlCache.remove(mediaId)
+        extractorPlaybackUrlCache.remove(mediaId)
+        app.hush.music.spotiflac.SpotiFLACDiag.log("one-shot YouTube override mediaId=$mediaId")
+        player.prepare()
+        player.play()
+        return true
+    }
+
+    /**
+     * What a provider sweep would be attempted with right now.
+     *
+     * A remembered miss is only an answer to *this* question: which sources are enabled,
+     * at which quality, with a session and a runtime available. Change any of them and the
+     * old answer is discarded, so enabling a provider or re-authenticating brings the
+     * track straight back to SpotiFLAC instead of waiting out a retention window.
+     */
+    private fun spotiflacMissContext(): String {
+        val enabled =
+            runCatching { extensionRepoManager.getEnabledSourceIds() }.getOrDefault(emptyList())
+        return app.hush.music.spotiflac.SpotiFLACMissPolicy.contextFingerprint(
+            enabledSourceIds = enabled,
+            qualityBucket =
+                app.hush.music.spotiflac.SpotiFLACPlaybackCache.qualityBucket(spotiFLACNativeQuality()),
+            sessionActive = spotiflacSessionManager.hasActiveSession(),
+            runtimeAvailable =
+                runCatching { spotiflacNativeRuntime.isRuntimeAvailable }.getOrDefault(false),
+            // A source that completed verification can download now, so every miss
+            // recorded before that is stale by definition.
+            usableSourceIds = enabled.filter {
+                runCatching {
+                    spotiflacNativeRuntime.sourceAuthState(it) !=
+                        app.hush.music.spotiflac.SpotiFLACSourceAuthState.NEEDS_VERIFICATION
+                }.getOrDefault(true)
+            },
+        )
+    }
+
+    /**
+     * [reason] is not decoration: a sweep that timed out proves nothing, so it is trusted
+     * for minutes, while a sweep that finished and matched nothing is trusted for hours.
+     */
+    private fun recordSpotiFLACMiss(
+        mediaId: String,
+        reason: String,
+    ) {
+        spotiFLACMissMemo.record(mediaId, spotiflacMissContext(), reason)
+    }
+
+    private fun clearSpotiFLACMiss(mediaId: String) {
+        spotiFLACMissMemo.remove(mediaId)
+    }
+
+    private fun spotiflacRecentlyMissed(mediaId: String): Boolean =
+        spotiFLACMissMemo.isMissed(mediaId, spotiflacMissContext())
+
+    /**
+     * Runs one SpotiFLAC provider sweep, unless the miss memo already knows the answer.
+     *
+     * Without the memo this is the expensive part of playing an unmatched track: the sweep
+     * runs to the fallback timeout on every play, including the first play after every app
+     * start. With it, the second attempt costs nothing and still ends in the same place -
+     * which engine the failure falls through to is decided by the caller, not here.
+     */
+    /**
+     * One SpotiFLAC sweep, and what it actually established.
+     *
+     * The sweep used to answer with `PlaybackData?`, which put "no provider has this
+     * track" and "the sweep could not ask" in the same value. Both then took the long
+     * miss retention, so one moment of bad connectivity could take a track away from
+     * SpotiFLAC for hours. Carrying the outcome is what makes the difference visible.
+     */
+    private data class SpotiFLACSweep(
+        val data: YTPlayerUtils.PlaybackData?,
+        val outcome: app.hush.music.spotiflac.SpotiFLACSweepOutcome,
+        val detail: String? = null,
+    ) {
+        companion object {
+            fun resolved(data: YTPlayerUtils.PlaybackData) =
+                SpotiFLACSweep(data, app.hush.music.spotiflac.SpotiFLACSweepOutcome.RESOLVED)
+
+            fun noMatch(detail: String?) =
+                SpotiFLACSweep(null, app.hush.music.spotiflac.SpotiFLACSweepOutcome.NO_MATCH, detail)
+
+            fun unavailable(detail: String?) =
+                SpotiFLACSweep(null, app.hush.music.spotiflac.SpotiFLACSweepOutcome.UNAVAILABLE, detail)
+        }
+    }
+
+    private suspend fun resolveSpotiFLACTrackWithMemo(mediaId: String): YTPlayerUtils.PlaybackData? {
+        val context = spotiflacMissContext()
+        spotiFLACMissMemo.entry(mediaId, context)?.let { remembered ->
+            app.hush.music.spotiflac.SpotiFLACDiag.log(
+                "provider sweep skipped mediaId=$mediaId: remembered miss (${remembered.reason})",
+            )
+            return null
+        }
+
+        // A timeout is folded in as `unavailable` rather than tracked with a separate
+        // "did it finish" flag: "the sweep never returned" and "the sweep could not ask"
+        // are the same statement about the providers, and neither is a verdict. The
+        // resolvers re-throw cancellation, which is what keeps a superseded sweep from
+        // arriving here as a finished one.
+        // The budget has to cover the work the sweep now contains. With the lossy retry a
+        // source that cannot serve the selected quality is asked twice, so a fixed window
+        // sized for one attempt per source cuts the chain off part-way - and the sources
+        // behind the cut were never asked, which is indistinguishable from a catalogue miss.
+        val sweepBudgetMs =
+            app.hush.music.spotiflac.SpotiFLACQualityCascade.sweepBudgetMs(
+                sourceCount = runCatching { extensionRepoManager.getEnabledSourceIds().size }
+                    .getOrDefault(0),
+                quality = spotiFLACNativeQuality(),
+            )
+        val sweep =
+            withTimeoutOrNull(sweepBudgetMs) {
+                resolveSpotiFLACTrack(mediaId)
+            } ?: SpotiFLACSweep.unavailable("sweep did not finish within ${sweepBudgetMs}ms")
+
+        sweep.data?.let { resolved ->
+            clearSpotiFLACMiss(mediaId)
+            return resolved
+        }
+
+        val reason = app.hush.music.spotiflac.SpotiFLACMissPolicy.reasonFor(sweep.outcome)
+        app.hush.music.spotiflac.SpotiFLACDiag.log(
+            "sweep outcome mediaId=$mediaId outcome=${sweep.outcome} reason=$reason detail=${sweep.detail}",
+        )
+        recordSpotiFLACMiss(mediaId = mediaId, reason = reason)
+        return null
+    }
+
+    private fun cachedPlaybackUrl(
+        mediaId: String,
+        publishLabel: Boolean = true,
+    ): AuthScopedCacheValue? {
         val authFingerprint = playbackAuthFingerprint()
         return playbackUrlCache[mediaId]?.takeIf { cached ->
             cached.isValidFor(
@@ -2656,7 +3049,7 @@ var originalQueueSize: Int = 0
                 minimumRemainingMs = YTPlayerUtils.STREAM_URL_EXPIRY_SAFETY_MS,
             )
         }?.also { cached ->
-            publishPlaybackClientLabel(mediaId, cached.playbackClientLabel)
+            if (publishLabel) publishPlaybackClientLabel(mediaId, cached.playbackClientLabel)
         }
     }
 
@@ -2683,7 +3076,101 @@ var originalQueueSize: Int = 0
         mediaId: String,
         preferredClientOverride: PlayerStreamClient? = null,
     ): AuthScopedCacheValue {
-        cachedPlaybackUrl(mediaId)?.let { return it }
+        val resolutionKey = "$mediaId|${preferredClientOverride?.name ?: "default"}"
+        playbackUrlResolutionInFlight[resolutionKey]?.let { existing ->
+            return existing.await()
+        }
+
+        // The shared request belongs to the service IO scope, not to the first caller's
+        // coroutine. Media3 may cancel one resolver callback while another callback for
+        // the same item is still active; tying the deferred to that callback would cancel
+        // the request and make the next callback start a duplicate player request.
+        lateinit var candidate: Deferred<AuthScopedCacheValue>
+        candidate =
+            ioScope.async(Dispatchers.IO + SilentHandler, start = CoroutineStart.LAZY) {
+                try {
+                    resolveAndCachePlaybackUrlInternal(mediaId, preferredClientOverride)
+                } finally {
+                    playbackUrlResolutionInFlight.remove(resolutionKey, candidate)
+                }
+            }
+        val existing = playbackUrlResolutionInFlight.putIfAbsent(resolutionKey, candidate)
+        if (existing != null) {
+            candidate.cancel()
+            return existing.await()
+        }
+
+        candidate.start()
+        return candidate.await()
+    }
+
+    private suspend fun resolveAndCachePlaybackUrlInternal(
+        mediaId: String,
+        preferredClientOverride: PlayerStreamClient? = null,
+    ): AuthScopedCacheValue {
+        // Routing must never run on a stale toggle mirror: it decides both which
+        // engine is tried first and whether a failed SpotiFLAC resolve may fall back.
+        refreshSourceToggleMirrors()
+
+        // Resolve the active engines and their order BEFORE consulting the cache, because
+        // the order is what decides whether a cached value is allowed to short-circuit.
+        val spotiflacAvailable = spotiflacEnabled
+        val ytAvailable = isYouTubeStreamingEnabled()
+        // A one-shot request from the player's error screen makes YouTube available for this
+        // track alone, so it is read before the "nothing is enabled" verdict and consumed
+        // here: the very next resolve of this media id is the one that was asked for.
+        // Read without consuming: a resolve that is superseded by a skip or that fails
+        // outright must not spend the permission the user granted. Consuming it up front
+        // meant tapping "play this one from YouTube" could silently do nothing forever
+        // after, with no sign that the tap had been used by an attempt that never played.
+        val forceYouTubeOnce = mediaId in forceYouTubeOnceMediaIds
+        if (!spotiflacAvailable && !ytAvailable && !forceYouTubeOnce) {
+            throw IOException("Both YouTube and SpotiFLAC sources are disabled")
+        }
+        // The saved order is only consulted for engines that are actually enabled: a
+        // switched-off engine can never be first, so with a single active source there
+        // is nothing to choose and it wins regardless of what the order still says.
+        val engineOrder = effectiveEngineOrder(spotiflacAvailable, ytAvailable)
+        val engineOrderLabel = engineOrder.joinToString(",")
+        val spotiflacFirst = engineOrder.firstOrNull() == PlaybackEngineOrder.SPOTIFLAC
+        val youtubeFirst = !spotiflacFirst && ytAvailable
+
+        // A cached value may only short-circuit when it came from the engine that would
+        // be chosen first anyway. Letting any valid cached URL win meant a YouTube URL
+        // cached by an earlier play (or by a SpotiFLAC fallback, or persisted from a
+        // session where YouTube was first) kept winning for the URL's whole lifetime —
+        // up to ~6 hours — even after SpotiFLAC was moved to the top of the priority
+        // list. A cached local SpotiFLAC file is always allowed: it is source-
+        // independent, never expires, and re-resolving it on every seek caused stalls.
+        val cachedEntry = cachedPlaybackUrl(mediaId, publishLabel = false)
+        if (cachedEntry != null) {
+            val cachedFromFirstEngine =
+                PlaybackEngineOrder.cachedValueMayShortCircuit(
+                    spotiflacFirst = spotiflacFirst,
+                    cachedIsYouTubeStream = cachedEntry.isYouTubeStream,
+                    spotiflacRecentlyMissed = spotiflacRecentlyMissed(mediaId),
+                )
+            if (cachedFromFirstEngine) {
+                publishPlaybackClientLabel(mediaId, cachedEntry.playbackClientLabel)
+                return cachedEntry
+            }
+            // Drop the YouTube entry so this play actually honours the priority order.
+            playbackUrlCache.remove(mediaId)
+            extractorPlaybackUrlCache.remove(mediaId)
+            app.hush.music.spotiflac.SpotiFLACDiag.log(
+                "cache short-circuit skipped mediaId=$mediaId: cached YouTube URL but SpotiFLAC is first",
+            )
+        }
+
+        // Skip cached YouTube URLs when YouTube is disabled entirely.
+        if (!ytAvailable) {
+            playbackUrlCache.entries.removeIf { (key, value) ->
+                key == mediaId && value.isYouTubeStream
+            }
+            extractorPlaybackUrlCache.entries.removeIf { (key, value) ->
+                key == mediaId && value.isYouTubeStream
+            }
+        }
 
         val lowDataModeActive = isLowDataModeActive()
         val effectiveAudioQuality = resolveEffectiveAudioQuality(audioQuality, lowDataModeActive)
@@ -2695,30 +3182,51 @@ var originalQueueSize: Int = 0
                 }
         val effectiveStreamClient = preferredClientOverride ?: activeStreamClient
         val hiResLosslessSelected = effectiveStreamClient == PlayerStreamClient.HI_RES_LOSSLESS
-        val parallelFetch = isParallelSourceFetchEnabled()
 
-        val spotiflacAvailable = spotiflacEnabled && (!spotiflacDevGate || devMode)
-        val ytAvailable = isYouTubeStreamingEnabled()
-        val spotiflacFirst = spotiflacAvailable && (
-            sourcePriorityList.firstOrNull() == "SPOTIFLAC" || !ytAvailable
+        Timber.tag("MusicService").i(
+            "Source routing: spotiflacEnabled=$spotiflacEnabled ytEnabled=$ytAvailable engines=$engineOrderLabel mediaId=$mediaId",
         )
-        val youtubeFirst = !spotiflacFirst && ytAvailable
+        app.hush.music.spotiflac.SpotiFLACDiag.log(
+            "routing spotiflac=$spotiflacAvailable yt=$ytAvailable engines=$engineOrderLabel mediaId=$mediaId",
+        )
 
         val playbackData: YTPlayerUtils.PlaybackData
 
-        if (spotiflacFirst) {
+        if (forceYouTubeOnce) {
+            app.hush.music.spotiflac.SpotiFLACDiag.log("one-shot YouTube override honoured mediaId=$mediaId")
+            playbackData =
+                resolveYouTubePlayback(
+                    mediaId,
+                    effectiveAudioQuality,
+                    networkMeteredHint,
+                    hiResLosslessSelected,
+                    effectiveStreamClient,
+                )
+            // Spent now, and only now: the permission is for one play, and a play that
+            // never happened is not one.
+            forceYouTubeOnceMediaIds.remove(mediaId)
+        } else if (!ytAvailable && spotiflacAvailable) {
+            // The user's most common configuration for this failure: YouTube switched off,
+            // so a track SpotiFLAC cannot match has no other engine to fall through to. The
+            // memo is what keeps every replay from re-running the sweep to reach the same
+            // "no" before showing the error and the one-tap YouTube action.
+            Timber.tag(TAG).i("YouTube disabled; forcing SpotiFLAC-only resolution")
+            playbackData =
+                resolveSpotiFLACTrackWithMemo(mediaId)
+                    ?: throw spotiflacNoMatchWhileYouTubeOff(mediaId)
+        } else if (spotiflacFirst) {
             playbackData = resolveSpotiFLACWithFallback(
-                mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch,
+                mediaId, effectiveAudioQuality, networkMeteredHint,
                 hiResLosslessSelected, effectiveStreamClient,
             )
         } else if (youtubeFirst) {
             playbackData = resolveYouTubeWithSpotiFLACFallback(
-                mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch,
+                mediaId, effectiveAudioQuality, networkMeteredHint,
                 hiResLosslessSelected, spotiflacAvailable, effectiveStreamClient,
             )
         } else {
             playbackData = resolveSpotiFLACWithFallback(
-                mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch,
+                mediaId, effectiveAudioQuality, networkMeteredHint,
                 hiResLosslessSelected, effectiveStreamClient,
             )
         }
@@ -2762,23 +3270,39 @@ var originalQueueSize: Int = 0
         mediaId: String,
         effectiveAudioQuality: AudioQuality,
         networkMeteredHint: Boolean?,
-        parallelFetch: Boolean,
         hiResLosslessSelected: Boolean,
         preferredStreamClient: PlayerStreamClient = activeStreamClient,
     ): YTPlayerUtils.PlaybackData {
-        val spotiflacResult =
-            withTimeoutOrNull(SOURCE_FALLBACK_TIMEOUT_MS) {
-                resolveSpotiFLACTrack()
-            }
-
+        // The sweep records its own verdict in the miss memo, and is skipped outright when
+        // that memo already holds one; see [resolveSpotiFLACTrackWithMemo].
+        val spotiflacResult = resolveSpotiFLACTrackWithMemo(mediaId)
         if (spotiflacResult != null) return spotiflacResult
 
         if (!isYouTubeStreamingEnabled()) {
-            throw java.io.IOException("SpotiFLAC failed and YouTube is disabled")
+            Timber.tag(TAG).w("SpotiFLAC failed for %s and YouTube is disabled; no fallback", mediaId)
+            app.hush.music.spotiflac.SpotiFLACDiag.log(
+                "no fallback mediaId=$mediaId: youtube disabled in audio sources",
+            )
+            throw spotiflacNoMatchWhileYouTubeOff(mediaId)
         }
+        // Explicit user control: when the fallback is off, a failed SpotiFLAC
+        // resolve must surface an error instead of silently switching engines.
+        if (!spotiflacAllowYouTubeFallback) {
+            Timber.tag(TAG).w("SpotiFLAC failed for %s and the YouTube fallback is off", mediaId)
+            app.hush.music.spotiflac.SpotiFLACDiag.log(
+                "no fallback mediaId=$mediaId: 'fall back to YouTube' is disabled",
+            )
+            throw spotiflacNoMatchAndFallbackOff(mediaId)
+        }
+        // Falling back is the whole point of the second source: say so, because a
+        // silent engine switch is indistinguishable from a stutter in the UI.
+        Timber.tag(TAG).i("SpotiFLAC could not resolve %s; falling back to YouTube", mediaId)
+        app.hush.music.spotiflac.SpotiFLACDiag.log(
+            "falling back to YouTube for mediaId=$mediaId",
+        )
 
         return resolveYouTubePlayback(
-            mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch, hiResLosslessSelected,
+            mediaId, effectiveAudioQuality, networkMeteredHint, hiResLosslessSelected,
             preferredStreamClient,
         )
     }
@@ -2787,59 +3311,141 @@ var originalQueueSize: Int = 0
         mediaId: String,
         effectiveAudioQuality: AudioQuality,
         networkMeteredHint: Boolean?,
-        parallelFetch: Boolean,
         hiResLosslessSelected: Boolean,
         spotiflacAvailable: Boolean,
         preferredStreamClient: PlayerStreamClient = activeStreamClient,
     ): YTPlayerUtils.PlaybackData {
-        val ytError = runCatching {
-            val result = resolveYouTubePlayback(
-                mediaId, effectiveAudioQuality, networkMeteredHint, parallelFetch, hiResLosslessSelected,
-                preferredStreamClient,
-            )
-            return result
-        }.exceptionOrNull()
+        // Not runCatching: it swallows CancellationException, and this function's whole
+        // job on failure is to run a *provider sweep*. Swallowing cancellation here meant
+        // a skipped track kept a full sweep running in a cancelled coroutine - and, if
+        // that sweep found the track, this returned it as though the YouTube attempt had
+        // succeeded, from a coroutine nobody was waiting for.
+        val ytError: Throwable? =
+            try {
+                return resolveYouTubePlayback(
+                    mediaId, effectiveAudioQuality, networkMeteredHint, hiResLosslessSelected,
+                    preferredStreamClient,
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (throwable: Throwable) {
+                throwable
+            }
 
         if (!spotiflacAvailable) {
             throw ytError ?: java.io.IOException("YouTube playback failed and SpotiFLAC is not available")
         }
 
-        val spotiflacResult =
-            withTimeoutOrNull(SOURCE_FALLBACK_TIMEOUT_MS) {
-                resolveSpotiFLACTrack()
-            }
+        val spotiflacResult = resolveSpotiFLACTrackWithMemo(mediaId)
         if (spotiflacResult != null) return spotiflacResult
 
         throw ytError ?: java.io.IOException("Both YouTube and SpotiFLAC playback failed")
     }
 
-    private suspend fun resolveSpotiFLACTrack(): YTPlayerUtils.PlaybackData? {
+    private suspend fun resolveSpotiFLACTrack(mediaId: String): SpotiFLACSweep {
+        Timber.tag("MusicService").i("SpotiFLAC playback requested for mediaId=$mediaId")
+
+        // Prefer the current upstream SpotiFLAC runtime. It executes the signed
+        // extension package, downloads/validates the audio to an app-owned file,
+        // and hands Media3 a local file URI. The old /dl/* URL resolver remains
+        // below only for older relays and is never a YouTube fallback.
+        val nativeSweep =
+            try {
+                resolveSpotiFLACNativeTrack(mediaId)
+            } catch (cancellation: CancellationException) {
+                // A cancelled resolve says nothing about this track. Swallowing it turned
+                // "the request was superseded" (a skip, a seek, a re-open, or a duplicate
+                // in-flight resolve) into "SpotiFLAC has no match", which sent the caller
+                // down the YouTube fallback - and with YouTube switched off that surfaced as
+                // a bare "No stream available" error for tracks SpotiFLAC serves perfectly
+                // well on the next attempt. Re-throwing is also what keeps this coroutine
+                // from continuing to work after it has been cancelled.
+                app.hush.music.spotiflac.SpotiFLACDiag.log(
+                    "native path cancelled mediaId=$mediaId (not treated as a miss)",
+                )
+                throw cancellation
+            } catch (throwable: Throwable) {
+                app.hush.music.spotiflac.SpotiFLACDiag.log(
+                    "native path failed mediaId=$mediaId type=${throwable::class.simpleName} msg=${throwable.message}",
+                )
+                Timber.tag("MusicService").w(throwable, "Native SpotiFLAC runtime unavailable for $mediaId")
+                // A thrown failure is the runtime reporting *why* it could not deliver,
+                // which is exactly the evidence that decides verdict vs. blocked.
+                SpotiFLACSweep.noMatch(throwable.message)
+                    .takeIf {
+                        app.hush.music.spotiflac.SpotiFLACSweepVerdict.forFailure(throwable) ==
+                            app.hush.music.spotiflac.SpotiFLACSweepOutcome.NO_MATCH
+                    } ?: SpotiFLACSweep.unavailable(
+                    "native resolve failed: ${throwable::class.simpleName}: ${throwable.message}",
+                )
+            }
+        nativeSweep.data?.let { resolved ->
+            app.hush.music.spotiflac.SpotiFLACDiag.log("native path SUCCEEDED mediaId=$mediaId")
+            return SpotiFLACSweep.resolved(resolved)
+        }
+        app.hush.music.spotiflac.SpotiFLACDiag.log(
+            "native path produced nothing mediaId=$mediaId outcome=${nativeSweep.outcome}; trying legacy resolver",
+        )
+
         if (!spotiflacSessionManager.hasActiveSession()) {
             Timber.tag("MusicService").d("SpotiFLAC: no active session, attempting restore")
             spotiflacSessionManager.forceRestoreSession()
         }
+        // Every exit below means the sweep could not put the question to a provider, so
+        // none of them is a catalogue answer.
+        // (No UI is opened from here even when the bootstrap reports CHALLENGE_PENDING: the
+        // resolver runs per track, and prompting per track is what made the app look like it
+        // navigated at random. `reportSpotiFLACVerificationNeeded` is the single, passive
+        // entry point, and it names the source that actually blocked a download.)
         if (!spotiflacSessionManager.hasActiveSession()) {
-            Timber.tag("MusicService").w("SpotiFLAC: still no active session after restore attempt — triggering background bootstrap")
-            // Re-bootstrap in background so the next track can use SpotiFLAC
-            scope.launch(Dispatchers.IO) {
-                spotiflacSessionManager.bootstrap()
+            // Avoid hammering the relay: only attempt bootstrap once every 10s. A failed
+            // bootstrap (e.g. rate limit) must not be retried on every player retry.
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastSpotiBootstrapAttemptElapsed < 10_000L) {
+                Timber.tag("MusicService").w("SpotiFLAC: bootstrap on cooldown; waiting for manual re-auth")
+                return SpotiFLACSweep.unavailable("bootstrap on cooldown")
             }
-            return null
+            lastSpotiBootstrapAttemptElapsed = now
+            Timber.tag("MusicService").w("SpotiFLAC: no active session; trying synchronous bootstrap")
+            val bootstrapState = spotiflacSessionManager.bootstrap().getOrNull()
+            if (bootstrapState == app.hush.music.spotiflac.SessionState.CHALLENGE_PENDING) {
+                Timber.tag("MusicService").w(
+                    "SpotiFLAC: challenge pending after background bootstrap — no UI opened from the resolver",
+                )
+            }
+            if (bootstrapState != app.hush.music.spotiflac.SessionState.ACTIVE ||
+                !spotiflacSessionManager.hasActiveSession()
+            ) {
+                Timber.tag("MusicService").w("SpotiFLAC: bootstrap did not produce an active session")
+                return SpotiFLACSweep.unavailable("no active SpotiFLAC session")
+            }
         }
 
-        val item = player.currentMediaItem ?: return null
-        val title = item.mediaMetadata.title?.toString() ?: return null
-        val artist = item.mediaMetadata.artist?.toString() ?: ""
-        val durationMs = item.mediaMetadata.durationMs ?: 0L
-        val isrc = item.mediaMetadata.extras?.getString("isrc")?.takeIf { it.isNotBlank() }
+        val item = withContext(Dispatchers.Main) {
+            player.currentMediaItem?.takeIf { it.mediaId == mediaId }
+                ?: player.mediaItems.firstOrNull { it.mediaId == mediaId }
+        } ?: return SpotiFLACSweep.unavailable("no queue item for mediaId")
+        val dbSong = withContext(Dispatchers.IO) { database.song(mediaId).first() }
+        val title = item.mediaMetadata.title?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?: dbSong?.song?.title
+            ?: return SpotiFLACSweep.unavailable("no track title to match on")
+        val artist = item.mediaMetadata.artist?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?: dbSong?.artists?.joinToString(", ") { it.name }
+            ?: ""
+        if (title.isBlank()) return SpotiFLACSweep.unavailable("blank track title")
+        val durationMs = item.mediaMetadata.durationMs
+            ?: dbSong?.song?.duration?.takeIf { it > 0 }?.times(1000L)
+            ?: 0L
+        val extras = item.mediaMetadata.extras
+        val isrc = extras?.getString("isrc")?.takeIf { it.isNotBlank() }
 
         val meta = item.metadata
         val spotifyTrackId = meta?.spotifyTrackId
-            ?: item.mediaMetadata.extras?.getString("spotify_track_id")?.takeIf { it.isNotBlank() }
+            ?: extras?.getString("spotify_track_id")?.takeIf { it.isNotBlank() }
 
         Timber.tag("MusicService").d("SpotiFLAC resolve: title=$title, artist=$artist, isrc=$isrc, spotifyId=$spotifyTrackId")
-
-        if (title.isBlank()) return null
 
         val qualityName = dataStore.get(SpotiFLACQualityKey, "BEST")
         val quality = try {
@@ -2864,14 +3470,372 @@ var originalQueueSize: Int = 0
                 enabledSourceIds = enabledSourceIds,
             )
             if (result.isFailure) {
+                app.hush.music.spotiflac.SpotiFLACDiag.log(
+                    "legacy resolver failed err=${result.exceptionOrNull()?.message}",
+                )
                 Timber.tag("MusicService").w(result.exceptionOrNull(), "SpotiFLAC resolution returned failure for: $title")
             }
-            result.getOrNull()
+            result.getOrNull()?.let { return SpotiFLACSweep.resolved(it) }
+            // Both paths are empty, so what this means depends on what each said. The
+            // native sweep is asked first: it saw the runtime's aggregate failure across
+            // every source, which is the only text that can say "all of them answered
+            // no". The legacy resolver only gets to declare a verdict when the native
+            // path did not reach one itself.
+            if (nativeSweep.outcome == app.hush.music.spotiflac.SpotiFLACSweepOutcome.NO_MATCH) {
+                return SpotiFLACSweep.noMatch(nativeSweep.detail)
+            }
+            val legacyFailure = result.exceptionOrNull()
+            when (app.hush.music.spotiflac.SpotiFLACSweepVerdict.forFailure(legacyFailure)) {
+                app.hush.music.spotiflac.SpotiFLACSweepOutcome.NO_MATCH ->
+                    SpotiFLACSweep.noMatch(legacyFailure?.message)
+                else ->
+                    SpotiFLACSweep.unavailable(
+                        "native=${nativeSweep.outcome}/${nativeSweep.detail ?: "-"}; " +
+                            "legacy=${legacyFailure?.message ?: "-"}",
+                    )
+            }
+        } catch (cancellation: CancellationException) {
+            // A superseded or timed-out request is not a provider failure. Swallowing it here
+            // would record a definite "no provider has this" for a sweep that never ran.
+            throw cancellation
         } catch (e: Exception) {
             Timber.tag("MusicService").w(e, "SpotiFLAC resolution threw exception for: $title")
-            null
+            SpotiFLACSweep.unavailable("legacy resolver threw ${e::class.simpleName}: ${e.message}")
         }
     }
+
+    /**
+     * Reports that [extensionId] blocked a download with a verification requirement.
+     *
+     * This is deliberately passive. It raises a notice the UI can show and stops there; it
+     * does not open the Audio Sources screen and does not start an activity. Playback used
+     * to do both, which is why the app appeared to jump to the audio-source settings by
+     * itself partway through a track - once per unresolvable track, for as long as the
+     * session stayed unverified. Background renewal is attempted before the resolver ever
+     * gets here, so the user decides whether the challenge is worth doing now.
+     */
+    private fun reportSpotiFLACVerificationNeeded(extensionId: String? = null) {
+        app.hush.music.spotiflac.SpotiFLACDiag.log("SpotiFLAC verification required ext=$extensionId")
+        // With the automatic run in flight the notice would only be noise: it is a
+        // prompt for the user to do by hand what is already being done for them.
+        if (app.hush.music.spotiflac.SpotiFLAutoVerifier.isRunning) return
+        app.hush.music.spotiflac.SpotiFLACVerificationRequest.request(extensionId)
+    }
+
+    private suspend fun resolveSpotiFLACNativeTrack(mediaId: String): SpotiFLACSweep {
+        // The queue can be momentarily empty while a source toggle rebuilds the
+        // timeline, so metadata falls back to the database instead of bailing:
+        // SpotiFLAC only needs title/artist/duration to resolve a track.
+        val item = withContext(Dispatchers.Main) {
+            player.currentMediaItem?.takeIf { it.mediaId == mediaId }
+                ?: player.mediaItems.firstOrNull { it.mediaId == mediaId }
+        }
+        val dbSong = withContext(Dispatchers.IO) { database.song(mediaId).first() }
+        if (item == null && dbSong == null) {
+            app.hush.music.spotiflac.SpotiFLACDiag.log("native skip: no queue item or db song for mediaId=$mediaId")
+            return SpotiFLACSweep.unavailable("no queue item or db song")
+        }
+        val metadata = item?.metadata
+        val title = item?.mediaMetadata?.title?.toString()?.takeIf { it.isNotBlank() }
+            ?: dbSong?.song?.title ?: run {
+            app.hush.music.spotiflac.SpotiFLACDiag.log("native skip: no title for mediaId=$mediaId")
+            return SpotiFLACSweep.unavailable("no title to match on")
+        }
+        val artist = item?.mediaMetadata?.artist?.toString()?.takeIf { it.isNotBlank() }
+            ?: dbSong?.artists?.joinToString(", ") { it.name }.orEmpty()
+        val album = item?.mediaMetadata?.albumTitle?.toString()
+            ?.takeIf { it.isNotBlank() } ?: dbSong?.song?.albumName
+        val durationMs = item?.mediaMetadata?.durationMs
+            ?: dbSong?.song?.duration?.takeIf { it > 0 }?.times(1000L) ?: 0L
+        val extras = item?.mediaMetadata?.extras
+        val isrc = extras?.getString("isrc")?.takeIf { it.isNotBlank() }
+        val spotifyId = metadata?.spotifyTrackId
+            ?: extras?.getString("spotify_track_id")?.takeIf { it.isNotBlank() }
+        val quality = spotiFLACNativeQuality()
+        // A download of this mediaId must resolve the exact track playback chose,
+        // so remember the identity (including ISRC / Spotify id) it resolved with.
+        app.hush.music.spotiflac.SpotiFLACPlaybackIdentity.record(
+            mediaId = mediaId,
+            title = title,
+            artist = artist,
+            album = album,
+            durationMs = durationMs,
+            isrc = isrc,
+            spotifyTrackId = spotifyId,
+            quality = quality,
+            coverUrl = metadata?.thumbnailUrl,
+        )
+        val native = spotiflacNativeRuntime.resolve(
+            title = title,
+            artist = artist,
+            album = album,
+            durationMs = durationMs,
+            isrc = isrc,
+            spotifyTrackId = spotifyId,
+            quality = quality,
+            sourceIds = extensionRepoManager.getEnabledSourceIds(),
+            coverUrl = metadata?.thumbnailUrl,
+            mediaId = mediaId,
+        ).getOrElse { error ->
+            // The runtime wraps its entire body in runCatching, so a superseded or
+            // timed-out resolve arrives here as an ordinary failure result. Converting it
+            // to "nothing matched" is what made a skip look like a catalogue verdict, and
+            // it also defeated the caller's own cancellation handling one level up.
+            if (error is CancellationException) {
+                app.hush.music.spotiflac.SpotiFLACDiag.log(
+                    "native resolve cancelled mediaId=$mediaId (not treated as a failure)",
+                )
+                throw error
+            }
+            app.hush.music.spotiflac.SpotiFLACDiag.log(
+                "native resolve error type=${error::class.simpleName} msg=${error.message}",
+            )
+            val outcome = app.hush.music.spotiflac.SpotiFLACSweepVerdict.forFailure(error)
+            when (error) {
+                is app.hush.music.spotiflac.SpotiFLACVerificationRequiredException -> {
+                    Timber.tag("MusicService").w(
+                        "SpotiFLAC verification required (source=%s) — user must re-authenticate",
+                        error.sourceId,
+                    )
+                    // The extension runtime needs its own Turnstile grant for this
+                    // source. Hush's gateway session is untouched: it is a separate
+                    // credential, and clearing it broke working sessions. The
+                    // challenge is solved in the background so playback recovers on
+                    // its own instead of waiting for the user to go and find it.
+                    scope.launch(Dispatchers.IO) {
+                        val pending = spotiflacNativeRuntime.pendingAuthFor(error.sourceId)
+                        app.hush.music.spotiflac.SpotiFLACDiag.log(
+                            if (pending != null) {
+                                "pending auth for ${pending.extensionId}: ${pending.authUrl.take(160)}"
+                            } else {
+                                "no pending auth challenge for ${error.sourceId}"
+                            },
+                        )
+                    }
+                    app.hush.music.spotiflac.SpotiFLAutoVerifier.enqueue(
+                        listOfNotNull(error.sourceId),
+                        "playback",
+                    )
+                    reportSpotiFLACVerificationNeeded(error.sourceId)
+                }
+                else -> Timber.tag("MusicService").w(error, "Native SpotiFLAC resolution failed for $title")
+            }
+            return when (outcome) {
+                app.hush.music.spotiflac.SpotiFLACSweepOutcome.NO_MATCH ->
+                    SpotiFLACSweep.noMatch(error.message)
+                else ->
+                    SpotiFLACSweep.unavailable(
+                        "${error::class.simpleName}: ${error.message}",
+                    )
+            }
+        }
+        val file = native.file
+        val mime = when {
+            native.codec.equals("flac", true) || file.extension.equals("flac", true) -> "audio/flac"
+            native.codec.equals("opus", true) || file.extension.equals("opus", true) -> "audio/ogg"
+            native.codec.equals("mp3", true) || file.extension.equals("mp3", true) -> "audio/mpeg"
+            else -> "audio/mp4"
+        }
+        val bitrate = if (native.bitDepth != null && native.sampleRate != null) {
+            native.sampleRate * native.bitDepth * 2
+        } else 1411
+        val format = PlayerResponse.StreamingData.Format(
+            itag = app.hush.music.spotiflac.SpotiFLACPlaybackResolver.SPOTIFLAC_ITAG,
+            url = Uri.fromFile(file).toString(),
+            mimeType = mime,
+            bitrate = bitrate,
+            width = null,
+            height = null,
+            contentLength = file.length(),
+            quality = native.quality ?: "Lossless",
+            fps = null,
+            qualityLabel = native.quality ?: "Lossless",
+            averageBitrate = bitrate,
+            audioQuality = native.quality,
+            approxDurationMs = durationMs.toString(),
+            audioSampleRate = native.sampleRate ?: 44100,
+            audioChannels = 2,
+            loudnessDb = null,
+            lastModified = null,
+            signatureCipher = null,
+            cipher = null,
+        )
+        Timber.tag("MusicService").i("SpotiFLAC native file ready: ${file.absolutePath} source=${native.sourceId}")
+        return SpotiFLACSweep.resolved(
+            YTPlayerUtils.PlaybackData(
+                audioConfig = null,
+                videoDetails = null,
+                playbackTracking = null,
+                format = format,
+                streamUrl = Uri.fromFile(file).toString(),
+                streamExpiresInSeconds = Int.MAX_VALUE,
+                authFingerprint = "spotiflac-native:${native.sourceId}",
+                playbackClientLabel =
+                    if (native.fromCache) {
+                        "SpotiFLAC • ${native.sourceId} • cached"
+                    } else {
+                        "SpotiFLAC • ${native.sourceId}"
+                    },
+                isYouTubeStream = false,
+            ),
+        )
+    }
+
+    /** SpotiFLAC quality request derived from the user's quality setting. */
+    private fun spotiFLACNativeQuality(): String {
+        val configured = dataStore.get(SpotiFLACQualityKey, "BEST")
+        return when (configured.uppercase()) {
+            "FLAC", "BEST", "HIGHEST" -> "LOSSLESS"
+            "HIGH_RES", "HI_RES", "HI_RES_LOSSLESS" -> "HI_RES_LOSSLESS"
+            else -> configured.uppercase()
+        }
+    }
+
+    /**
+     * Publishes the real SpotiFLAC source for a track served from the on-disk
+     * playback cache, so the player names the source instead of defaulting to
+     * YouTube whenever no resolver ran.
+     */
+    private fun publishSpotiFLACCachedLabel(mediaId: String) {
+        if (!::spotiflacNativeRuntime.isInitialized) return
+        val source = runCatching {
+            spotiflacNativeRuntime.cachedPlaybackSourceForMediaId(mediaId)
+        }.getOrNull()
+        val label = if (source != null) "SpotiFLAC • $source • cached" else "SpotiFLAC • cached"
+        app.hush.music.spotiflac.SpotiFLACDiag.log("playback label mediaId=$mediaId -> $label")
+        publishPlaybackClientLabel(mediaId, label)
+    }
+
+    /**
+     * Records the real format of a SpotiFLAC playback file.
+     *
+     * The player's codec row reads `FormatEntity` out of the database, and that row is
+     * only written by the resolution path. A file served straight off disk skips
+     * resolution entirely, so the row kept describing whatever engine last resolved the
+     * track - typically a ~5 MB YouTube WebM - while a 30 MB FLAC was decoding. That
+     * mismatch is what made a correctly-served SpotiFLAC track look like it was still
+     * playing from YouTube. Publishing the file's own codec, sample rate and size keeps
+     * the row and the source label describing the same audio.
+     */
+    private fun publishSpotiFLACFileFormat(mediaId: String) {
+        if (!::spotiflacNativeRuntime.isInitialized) return
+        val entry =
+            runCatching { spotiflacNativeRuntime.cachedPlaybackEntryForMediaId(mediaId) }
+                .getOrNull() ?: return
+        val sampleRate = entry.sampleRate?.takeIf { it > 0 } ?: 44100
+        val bitDepth = entry.bitDepth?.takeIf { it > 0 } ?: 16
+        val extension = entry.extension?.lowercase()?.takeIf { it.isNotBlank() } ?: "flac"
+        val formatEntity =
+            FormatEntity(
+                id = mediaId,
+                itag = app.hush.music.spotiflac.SpotiFLACPlaybackResolver.SPOTIFLAC_ITAG,
+                mimeType = "audio/$extension",
+                codecs = entry.codec?.takeIf { it.isNotBlank() } ?: extension,
+                // Lossless is variable-rate; this is the nominal rate implied by the
+                // stream's own sample format (stereo), the same figure the SpotiFLAC
+                // resolution path reports.
+                bitrate = sampleRate * bitDepth * 2 / 1000,
+                sampleRate = sampleRate,
+                contentLength = entry.sizeBytes.takeIf { it > 0L } ?: 0L,
+                loudnessDb = null,
+                perceptualLoudnessDb = null,
+                playbackUrl = null,
+            )
+        formatEntityCache[mediaId] = formatEntity
+        publishedFormatEntity.value = mediaId to formatEntity
+        scope.launch(Dispatchers.IO) {
+            runCatching { database.query { upsert(formatEntity) } }
+        }
+    }
+
+    /**
+     * Cached SpotiFLAC playback file for a queue item. A user-downloaded copy always
+     * wins - that check happens earlier in [resolveLocalPlaybackDataSpecIfAvailable].
+     */
+    private fun spotiflacPlaybackFile(mediaId: String): java.io.File? =
+        if (mediaId.isBlank() || mediaId.isLocalMediaId() || !::spotiflacNativeRuntime.isInitialized) {
+            null
+        } else {
+            runCatching { spotiflacNativeRuntime.playbackFileForMediaId(mediaId) }.getOrNull()
+        }
+
+    /** Prefetch the next queue item through SpotiFLAC when the user allows it. */
+    private fun isSpotiFLACPrefetchEnabled(): Boolean =
+        spotiflacEnabled &&
+            (dataStore[app.hush.music.constants.SpotiFLACPrefetchNextKey] ?: true) &&
+            !isLowDataModeActive()
+
+    /**
+     * Warms the next track into the SpotiFLAC cache so it starts without paying the
+     * download cost mid-transition. Best-effort: failures are ignored on purpose.
+     */
+    private suspend fun prefetchNextSpotiFLACTrack() =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val next =
+                    withContext(Dispatchers.Main) {
+                        val count = player.mediaItemCount
+                        val index = player.currentMediaItemIndex
+                        if (count <= 0 || index < 0) {
+                            null
+                        } else {
+                            player.getMediaItemAt((index + 1) % count)
+                        }
+                    } ?: return@withContext
+                val mediaId = next.mediaId
+                if (mediaId.isBlank() || mediaId.isLocalMediaId()) return@withContext
+                if (spotiflacPlaybackFile(mediaId) != null) return@withContext
+                val dbSong = withContext(Dispatchers.IO) { database.song(mediaId).first() }
+                val title =
+                    next.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() }
+                        ?: dbSong?.song?.title
+                if (title.isNullOrBlank()) return@withContext
+                val artist =
+                    next.mediaMetadata.artist?.toString()?.takeIf { it.isNotBlank() }
+                        ?: dbSong?.artists?.joinToString(", ") { it.name }.orEmpty()
+                val durationMs =
+                    next.mediaMetadata.durationMs
+                        ?: dbSong?.song?.duration?.takeIf { it > 0 }?.times(1000L)
+                        ?: 0L
+                val extras = next.mediaMetadata.extras
+                val prefetchAlbum =
+                    next.mediaMetadata.albumTitle?.toString()?.takeIf { it.isNotBlank() }
+                        ?: dbSong?.song?.albumName
+                val prefetchIsrc = extras?.getString("isrc")?.takeIf { it.isNotBlank() }
+                val prefetchSpotifyId =
+                    next.metadata?.spotifyTrackId
+                        ?: extras?.getString("spotify_track_id")?.takeIf { it.isNotBlank() }
+                // The prefetch decides which source this track plays from next, so the
+                // download path must be able to reuse that same identity.
+                app.hush.music.spotiflac.SpotiFLACPlaybackIdentity.record(
+                    mediaId = mediaId,
+                    title = title,
+                    artist = artist,
+                    album = prefetchAlbum,
+                    durationMs = durationMs,
+                    isrc = prefetchIsrc,
+                    spotifyTrackId = prefetchSpotifyId,
+                    quality = spotiFLACNativeQuality(),
+                    coverUrl = next.metadata?.thumbnailUrl,
+                )
+                val result =
+                    spotiflacNativeRuntime.resolve(
+                        title = title,
+                        artist = artist,
+                        album = prefetchAlbum,
+                        durationMs = durationMs,
+                        isrc = prefetchIsrc,
+                        spotifyTrackId = prefetchSpotifyId,
+                        quality = spotiFLACNativeQuality(),
+                        sourceIds = extensionRepoManager.getEnabledSourceIds(),
+                        coverUrl = next.metadata?.thumbnailUrl,
+                        mediaId = mediaId,
+                    )
+                app.hush.music.spotiflac.SpotiFLACDiag.log(
+                    "prefetch next mediaId=$mediaId success=${result.isSuccess}",
+                )
+            }.onFailure { Timber.tag(TAG).d(it, "SpotiFLAC prefetch failed") }
+        }
 
     private fun extractIsrcFromMediaItem(mediaId: String): String? {
         val item = player.currentMediaItem ?: return null
@@ -2884,13 +3848,18 @@ var originalQueueSize: Int = 0
         mediaId: String,
         effectiveAudioQuality: AudioQuality,
         networkMeteredHint: Boolean?,
-        parallelFetch: Boolean,
         hiResLosslessSelected: Boolean,
         preferredStreamClient: PlayerStreamClient = activeStreamClient,
     ): YTPlayerUtils.PlaybackData {
         return if (hiResLosslessSelected) {
             resolveHiResLosslessPlayback(mediaId).recoverCatching { youtubeFailure ->
                 if (youtubeFailure is YTPlayerUtils.BotDetectionPlaybackException) {
+                    throw youtubeFailure
+                }
+                // The Hi-Res attempt's own Result captures cancellation, so recovering
+                // from it would start a second full resolve for a request that was
+                // already superseded.
+                if (youtubeFailure is CancellationException) {
                     throw youtubeFailure
                 }
                 retryWithoutPlaybackLoginContext {
@@ -2901,7 +3870,6 @@ var originalQueueSize: Int = 0
                         preferredStreamClient = preferredStreamClient,
                         networkMetered = networkMeteredHint,
                         context = this@MusicService,
-                        parallelFetch = parallelFetch,
                     )
                 }.getOrThrow()
             }.getOrThrow()
@@ -2914,7 +3882,6 @@ var originalQueueSize: Int = 0
                     preferredStreamClient = preferredStreamClient,
                     networkMetered = networkMeteredHint,
                     context = this@MusicService,
-                    parallelFetch = parallelFetch,
                 )
             }.getOrThrow()
         }
@@ -2952,6 +3919,7 @@ var originalQueueSize: Int = 0
                 playbackUrl = playbackData.playbackTracking?.videostatsPlaybackUrl?.baseUrl,
             )
         formatEntityCache[mediaId] = formatEntity
+        publishedFormatEntity.value = mediaId to formatEntity
         val resolvedNormalizationFactor = calculateAudioNormalizationFactor(formatEntity, normalizeAudio = true)
         audioNormalizationFactorCache[mediaId] = resolvedNormalizationFactor
         scope.launch {
@@ -3037,9 +4005,34 @@ var originalQueueSize: Int = 0
     fun clearIncompatiblePlaybackCache() {
         playbackUrlCache.clear()
         extractorPlaybackUrlCache.clear()
+        playbackUrlResolutionInFlight.values.forEach { it.cancel() }
+        playbackUrlResolutionInFlight.clear()
         cancelPlaybackUrlPrefetches()
         cancelUrlRefresh()
         lastPublishedPlaybackClient = null
+    }
+
+    /**
+     * Startup/purge hook: entries restored from the persistent cache are checked
+     * against the CURRENT source toggles so a YouTube URL persisted while YT was
+     * enabled cannot be replayed after YT was turned off (and vice versa).
+     */
+    private fun purgeCacheEntriesViolatingSourceToggles() {
+        val allowYt = isYouTubeStreamingEnabled()
+        var purged = 0
+        playbackUrlCache.entries.removeIf { (_, value) ->
+            val violates = value.isYouTubeStream && !allowYt
+            if (violates) purged++
+            violates
+        }
+        extractorPlaybackUrlCache.entries.removeIf { (_, value) ->
+            val violates = value.isYouTubeStream && !allowYt
+            if (violates) purged++
+            violates
+        }
+        if (purged > 0) {
+            Timber.tag(TAG).i("Purged %d cached URLs violating source toggles (ytEnabled=%s)", purged, allowYt)
+        }
     }
 
     /**
@@ -3108,6 +4101,7 @@ var originalQueueSize: Int = 0
     }
 
     private fun prefetchNextTracks() {
+        if (!::player.isInitialized || player.playbackState != Player.STATE_READY || !player.isPlaying) return
         val count = dataStore.get(PrefetchCountKey, 2).coerceIn(0, 4)
         if (count <= 0) return
 
@@ -3492,6 +4486,114 @@ var originalQueueSize: Int = 0
 
     private fun stopOnError() {
         player.pause()
+    }
+
+    /**
+     * The queue position parked because its sources were awaiting a grant.
+     *
+     * Set when the player gives up on a track that only failed for lack of a
+     * verification, and cleared as soon as one lands - which is what lets the same
+     * position be re-resolved instead of the queue moving past it.
+     */
+    @Volatile private var awaitingSourceVerification: String? = null
+    @Volatile private var awaitingSourceVerificationIndex: Int = C.INDEX_UNSET
+
+    /** Pending deferred re-resolve of a parked track (see [scheduleHeldTrackRecovery]). */
+    private var heldTrackRecoveryJob: Job? = null
+
+    /**
+     * Re-resolves a parked track once the verification burst has settled.
+     *
+     * Verifying four gateway sources takes several challenge rounds, and each one
+     * reports success - so recovering on every single success re-ran the whole
+     * provider sweep three or four times while the Cloudflare challenges were still
+     * running. Those attempts competed with the invisible challenge window for the
+     * gateway and the network, and the sweep - which is bounded at 45s - timed out
+     * even though a usable source had just come up, so the parked track failed after
+     * all that waiting. Waiting for the queue to drain means one clean resolve runs
+     * with every newly usable source in the candidate list and nothing else using the
+     * runtime.
+     */
+    private fun scheduleHeldTrackRecovery() {
+        val verifier = app.hush.music.spotiflac.SpotiFLAutoVerifier
+        heldTrackRecoveryJob?.cancel()
+        heldTrackRecoveryJob =
+            scope.launch(Dispatchers.Main) {
+                // Bounded so a stalled challenge can never leave the parked track
+                // waiting on a callback that never comes.
+                val settled = withTimeoutOrNull(HELD_RECOVERY_SETTLE_TIMEOUT_MS) {
+                    while (verifier.isRunning || verifier.queued().isNotEmpty()) {
+                        delay(HELD_RECOVERY_POLL_MS)
+                    }
+                    true
+                }
+                if (settled == null) {
+                    app.hush.music.spotiflac.SpotiFLACDiag.log(
+                        "held recovery settle timed out; resolving with whatever is usable",
+                    )
+                }
+                retryTrackAfterSourceVerification()
+            }
+    }
+
+    /** Forgets a parked position once the track is no longer waiting on a grant. */
+    private fun clearSourceVerificationHold() {
+        awaitingSourceVerification = null
+        awaitingSourceVerificationIndex = C.INDEX_UNSET
+    }
+
+    /** Parks the failing position instead of skipping it. */
+    private fun holdForSourceVerification(mediaId: String?) {
+        val index = player.currentMediaItemIndex
+        awaitingSourceVerification = mediaId?.takeIf { it.isNotBlank() }
+        awaitingSourceVerificationIndex = index
+        app.hush.music.spotiflac.SpotiFLACDiag.log(
+            "held mediaId=${mediaId ?: "?"} index=$index awaiting source verification",
+        )
+    }
+
+    /**
+     * Re-resolves the parked position the moment a source becomes usable.
+     *
+     * The miss memo is dropped first: the sweep that failed was remembered as
+     * "unavailable", and replaying that verdict would stop the retry before it ever
+     * reached the runtime that can now serve the track. The held index is used when
+     * the player is no longer on it, so a position the queue moved past still comes
+     * back - but only while playback is stopped, never over something that is
+     * actually playing.
+     */
+    private fun retryTrackAfterSourceVerification() {
+        val mediaId = awaitingSourceVerification
+        val heldIndex = awaitingSourceVerificationIndex
+        awaitingSourceVerification = null
+        awaitingSourceVerificationIndex = C.INDEX_UNSET
+        if (mediaId == null) return
+
+        spotiFLACMissMemo.remove(mediaId)
+        val currentId = player.currentMediaItem?.mediaId
+        val onHeldTrack = currentId == mediaId
+        if (!onHeldTrack) {
+            val movable =
+                !player.isPlaying &&
+                    heldIndex != C.INDEX_UNSET &&
+                    heldIndex in 0 until player.mediaItemCount
+            if (!movable) {
+                app.hush.music.spotiflac.SpotiFLACDiag.log(
+                    "recover skipped mediaId=$mediaId (moved on, current=$currentId)",
+                )
+                return
+            }
+        }
+        val index = if (onHeldTrack) player.currentMediaItemIndex else heldIndex
+        if (index == C.INDEX_UNSET) return
+        Timber.tag(TAG).i("Source verified — recovering %s at index %d", mediaId, index)
+        app.hush.music.spotiflac.SpotiFLACDiag.log(
+            "recovering held mediaId=$mediaId index=$index onHeldTrack=$onHeldTrack",
+        )
+        consecutivePlaybackErr = 0
+        player.seekTo(index, C.TIME_UNSET)
+        player.prepare()
+        player.play()
     }
 
     private fun findRetryableStreamFailure(
@@ -3890,17 +4992,27 @@ var originalQueueSize: Int = 0
             player.prepare()
             player.playWhenReady = playWhenReady
         } else {
-            // Resolve the first remote URL before prepare so the data-source callback does not
-            // perform a cold network lookup on the playback path. The timeout is bounded; a
-            // failed prefetch falls through to the normal resolver when prepare() runs.
+            // The prefetch is already in flight. Start ExoPlayer immediately; its
+            // resolver coalesces with that same request if the URL is not ready yet.
+            // Waiting for the prefetch coroutine here made the first track depend on
+            // queue construction and made cold-start playback feel unnecessarily slow.
+            player.prepare()
+            player.playWhenReady = playWhenReady
             scope.launch(SilentHandler) {
-                warmPlaybackUrl(preloadMediaId, maxWaitMs = STARTUP_PREFETCH_WAIT_MS)
+                if (spotiflacEnabled && !isYouTubeStreamingEnabled()) {
+                    runCatching { warmPlaybackUrl(preloadMediaId, maxWaitMs = 0L) }
+                        .onFailure { Timber.tag(TAG).w(it, "SpotiFLAC-only preload failed") }
+                } else {
+                    warmPlaybackUrl(preloadMediaId, maxWaitMs = 0L)
+                }
                 withContext(Dispatchers.Main.immediate) {
                     if (
                         queueLoadGeneration == playQueueGeneration.get() &&
                         player.currentMediaItem?.mediaId == preloadMediaId &&
                         player.playbackState == Player.STATE_IDLE
                     ) {
+                        // A failed/cancelled prefetch can leave the player idle;
+                        // retry prepare without disturbing a track already playing.
                         player.prepare()
                         player.playWhenReady = playWhenReady
                     }
@@ -3925,8 +5037,7 @@ var originalQueueSize: Int = 0
                     pagesLoaded++
                     val nextItems =
                         withContext(Dispatchers.IO) {
-                            queue
-                                .nextPage()
+                            loadNextQueuePageWithRetry(queue)
                                 .filterExplicit(hideExplicit)
                                 .filterVideo(hideVideo)
                         }
@@ -3988,7 +5099,29 @@ var originalQueueSize: Int = 0
                     applyCurrentFirstShuffleOrder()
                 }
             }
+            // The queue is now on the player, so persist it without waiting for the
+            // periodic save (10-30 s) or a track transition: choosing a fresh queue
+            // and restarting the app used to bring back the previous one.
+            scheduleQueuePersist(delayMs = 0L)
         }
+    }
+
+    /**
+     * Debounced queue persist for queue *changes*.
+     *
+     * The periodic save runs every 10-30 s and the transition handlers persist on
+     * track changes, so a queue chosen moments before the app is killed could be
+     * lost entirely. Cancelling and rescheduling keeps this to one write per burst.
+     */
+    private fun scheduleQueuePersist(delayMs: Long = QUEUE_PERSIST_DEBOUNCE_MS) {
+        queuePersistJob?.cancel()
+        queuePersistJob =
+            scope.launch(SilentHandler) {
+                if (delayMs > 0) delay(delayMs)
+                if (!withContext(Dispatchers.IO) { dataStore.get(PersistentQueueKey, true) }) return@launch
+                if (player.mediaItemCount == 0) return@launch
+                saveQueueToDisk()
+            }
     }
 
     private fun playerQueueMetadataWindow(lookahead: Int = 4): List<MediaMetadata> {
@@ -6056,38 +7189,105 @@ var originalQueueSize: Int = 0
         eqCapabilities.value = null
     }
 
-    private fun ensureAudioEffects(sessionId: Int) {
+    private fun ensureAudioEffects(sessionId: Int, force: Boolean = false) {
         if (sessionId <= 0) return
-        if (audioEffectsSessionId == sessionId && equalizer != null) return
+        if (!force && audioEffectsSessionId == sessionId && equalizer != null) return
 
         releaseAudioEffects()
         audioEffectsSessionId = sessionId
 
-        equalizer = runCatching { Equalizer(0, sessionId) }.getOrNull()
-        bassBoost = runCatching { BassBoost(0, sessionId) }.getOrNull()
-        virtualizer = runCatching { Virtualizer(0, sessionId) }.getOrNull()
-        loudnessEnhancer = runCatching { LoudnessEnhancer(sessionId) }.getOrNull()
+        val settings = desiredEqSettings.value
+
+        // Each AudioEffect occupies space in the platform's audio-effect budget: a small
+        // pool shared device-wide with OEM effects (this device already carries "Music
+        // Listener" on the playback session and Dolby's "DAP" on the output mix).
+        // Attaching all four unconditionally meant a user with every EQ feature switched
+        // off still consumed four slots, and when the pool runs out the platform refuses
+        // to register anything — which silently takes the equaliser *and* the visualiser
+        // down with it. Create the optional colouring effects only when they are in use.
+        // Nothing is created for a feature the user has not switched on. That matters more
+        // than it looks: the platform pool is only 512 KB and is shared device-wide, and each
+        // playback session used to add a fresh four-effect set that was never reclaimed if
+        // the process died without closing the session cleanly. Those stale sets accumulate
+        // until the pool is full, after which NOTHING can register — not the equaliser, not
+        // the visualiser, not even the system's own effects.
+        equalizer =
+            if (settings.enabled) {
+                createAudioEffect("Equalizer", sessionId) { Equalizer(0, sessionId) }
+            } else {
+                null
+            }
+        bassBoost =
+            if (settings.bassBoostEnabled) {
+                createAudioEffect("BassBoost", sessionId) { BassBoost(0, sessionId) }
+            } else {
+                null
+            }
+        virtualizer =
+            if (settings.virtualizerEnabled) {
+                createAudioEffect("Virtualizer", sessionId) { Virtualizer(0, sessionId) }
+            } else {
+                null
+            }
+        loudnessEnhancer =
+            if (settings.outputGainEnabled) {
+                createAudioEffect("LoudnessEnhancer", sessionId) { LoudnessEnhancer(sessionId) }
+            } else {
+                null
+            }
 
         equalizer?.let(::updateEqCapabilitiesFromEffect)
-        applyEqSettingsToEffects(desiredEqSettings.value)
+        applyEqSettingsToEffects(settings)
+    }
+
+    /**
+     * Creates one audio effect while reporting the outcome.
+     *
+     * These used to fail completely silently (`runCatching { .. }.getOrNull()`), so a
+     * device whose effect budget was exhausted looked identical to one where the EQ was
+     * simply off, and the equaliser appeared to do nothing with no way to tell why. The
+     * platform's refusal is also the same failure that stops the visualiser.
+     */
+    private fun <T> createAudioEffect(
+        name: String,
+        sessionId: Int,
+        factory: () -> T,
+    ): T? = try {
+        factory()
+    } catch (error: Throwable) {
+        Timber.tag(TAG).w(
+            error,
+            "Audio effect %s unavailable on session %d: %s",
+            name,
+            sessionId,
+            error.message,
+        )
+        app.hush.music.spotiflac.SpotiFLACDiag.log(
+            "audio effect $name unavailable session=$sessionId: ${error.message}",
+        )
+        null
     }
 
     private fun applyEqSettingsToEffects(settings: EqSettings) {
-        val eq = equalizer ?: return
-        val caps = eqCapabilities.value
-        val bandCount = caps?.bandCount ?: readAudioEffectValue("equalizer band count") { eq.numberOfBands.toInt() } ?: 0
-        val minMb =
-            caps?.minBandLevelMb ?: readAudioEffectValue("equalizer minimum band level") { eq.bandLevelRange.getOrNull(0)?.toInt() }
-                ?: -1500
-        val maxMb =
-            caps?.maxBandLevelMb ?: readAudioEffectValue("equalizer maximum band level") { eq.bandLevelRange.getOrNull(1)?.toInt() } ?: 1500
+        // Each effect is handled independently. This used to bail out entirely when the
+        // equaliser was absent, which would have silently skipped the bass/virtualiser/gain
+        // settings once the equaliser stopped being created unconditionally.
+        equalizer?.let { eq ->
+            val caps = eqCapabilities.value
+            val bandCount = caps?.bandCount ?: readAudioEffectValue("equalizer band count") { eq.numberOfBands.toInt() } ?: 0
+            val minMb =
+                caps?.minBandLevelMb ?: readAudioEffectValue("equalizer minimum band level") { eq.bandLevelRange.getOrNull(0)?.toInt() }
+                    ?: -1500
+            val maxMb =
+                caps?.maxBandLevelMb ?: readAudioEffectValue("equalizer maximum band level") { eq.bandLevelRange.getOrNull(1)?.toInt() } ?: 1500
 
-        val levels = resampleLevelsByIndex(settings.bandLevelsMb, bandCount)
-        runCatching { eq.enabled = settings.enabled }
+            val levels = resampleLevelsByIndex(settings.bandLevelsMb, bandCount)
+            runCatching { eq.enabled = settings.enabled }
 
-        for (band in 0 until bandCount) {
-            val levelMb = levels.getOrNull(band)?.coerceIn(minMb, maxMb) ?: 0
-            runCatching { eq.setBandLevel(band.toShort(), levelMb.toShort()) }
+            for (band in 0 until bandCount) {
+                val levelMb = levels.getOrNull(band)?.coerceIn(minMb, maxMb) ?: 0
+                runCatching { eq.setBandLevel(band.toShort(), levelMb.toShort()) }
+            }
         }
 
         bassBoost?.let { bb ->
@@ -6488,12 +7688,27 @@ var originalQueueSize: Int = 0
             return
         }
 
+        // A download still running for the track we just left is wasted work: it
+        // would also keep the progress chip on screen for the wrong song.
+        activeDownloadProgress.value?.mediaId
+            ?.takeIf { it.isNotBlank() && it != mediaItem?.mediaId && ::spotiflacNativeRuntime.isInitialized }
+            ?.let { staleId ->
+                spotiflacNativeRuntime.cancelDownload(staleId)
+                spotiflacNativeRuntime.clearDownloadProgress()
+            }
         activePlaybackClientLabel.value = null
+        activeDownloadProgress.value = null
         lastPublishedPlaybackClient = null
 
         mediaItem?.mediaId
             ?.takeIf { it.isNotBlank() && !it.isLocalMediaId() }
             ?.let(::startPlaybackUrlPrefetch)
+
+        // Warm the next track through SpotiFLAC so it starts without a download
+        // stall (skipped in low-data mode / when the user turned prefetching off).
+        if (mediaItem?.mediaId != null && isSpotiFLACPrefetchEnabled()) {
+            scope.launch(Dispatchers.IO) { prefetchNextSpotiFLACTrack() }
+        }
 
         beginHistorySession(mediaItem?.mediaId, forceNew = true)
 
@@ -6596,8 +7811,7 @@ var originalQueueSize: Int = 0
             val queueGeneration = playQueueGeneration.get()
             scope.launch(SilentHandler) {
                 val mediaItems =
-                    queue
-                        .nextPage()
+                    loadNextQueuePageWithRetry(queue)
                         .filterExplicit(
                             dataStore.get(HideExplicitKey, false),
                         ).filterVideo(dataStore.get(HideVideoKey, false))
@@ -6781,6 +7995,12 @@ var originalQueueSize: Int = 0
             }
         } else if (playbackState == Player.STATE_READY) {
             scheduleCrossfade()
+            // Do not let look-ahead URL resolution compete with the first track
+            // during a cold launch. Once the current player is ready, prefetching
+            // the next items is safe and improves subsequent transitions.
+            if (player.isPlaying) {
+                prefetchNextTrack()
+            }
             player.currentMediaItem?.let { item ->
                 if (item.mediaMetadata.artworkData == null) {
                     ensureNotificationArtworkUri(item)
@@ -6855,6 +8075,10 @@ var originalQueueSize: Int = 0
         }
         if (isPlaying && !isCrossfading) {
             scheduleCrossfade()
+            // Start look-ahead only after audio has actually become audible;
+            // resolving several future tracks during cold startup competes with
+            // the current track for network/BotGuard resources.
+            prefetchNextTrack()
         }
         updateAudiblePlaybackRecovery()
 
@@ -6932,24 +8156,33 @@ var originalQueueSize: Int = 0
             return
         }
 
-        // Build queue bundles for Waze
-        val queueBundles = mutableListOf<Bundle>()
+        // Build queue bundles for Waze.
+        //
+        // This runs on every metadata tick - up to five times a second while playing - so
+        // rebuilding it each time meant allocating one Bundle plus two or three Strings
+        // per queue item per tick (a 50-song queue: ~250 objects a second, a 500-song one:
+        // ~2,500). That is pure GC pressure on the devices least able to absorb it, and it
+        // bought nothing: the payload is identical until the queue itself changes. The
+        // built list is cached and reused until a fingerprint of the queue moves.
         val queueTitle = "Hush Queue"
         val queueRevision = wazeQueueRevision.get()
-        if (player.mediaItemCount > 0) {
-            for (i in 0 until player.mediaItemCount) {
-                val item = player.getMediaItemAt(i)
-                val mediaMeta = item.mediaMetadata
-                val bundle = Bundle()
-                bundle.putString("track_id", item.mediaId.orEmpty())
-                bundle.putString("title", mediaMeta.title?.toString() ?: "")
-                bundle.putString("artist", mediaMeta.artist?.toString() ?: "")
-                bundle.putString("album", mediaMeta.albumTitle?.toString() ?: "")
-                mediaMeta.artworkUri?.let { bundle.putString("artwork_url", it.toString()) }
-                bundle.putLong("queue_item_id", i.toLong())
-                queueBundles.add(bundle)
+        val itemCount = player.mediaItemCount
+        val queueFingerprint = wazeQueueFingerprint(itemCount)
+        val cachedQueue = cachedWazeQueueBundles
+        val queueBundles =
+            if (cachedQueue != null && cachedQueue.fingerprint == queueFingerprint) {
+                cachedQueue.bundles
+            } else {
+                buildWazeQueueBundles(itemCount).also { built ->
+                    // Retained only for queues a replay is likely to reuse. A very long
+                    // queue is the case where holding a second copy of every item is
+                    // itself the memory problem, and rebuilding it is no worse than the
+                    // Binder marshalling that follows anyway.
+                    cachedWazeQueueBundles =
+                        WazeQueueBundles(queueFingerprint, built)
+                            .takeIf { itemCount <= MAX_CACHED_WAZE_QUEUE_ITEMS }
+                }
             }
-        }
 
         val snapshot = WazePlaybackSnapshot(
             trackId = player.currentMediaItem?.mediaId.orEmpty(),
@@ -7013,6 +8246,48 @@ var originalQueueSize: Int = 0
         publishWazePlaybackSnapshot(force = true)
     }
 
+    /** One built Waze queue, kept until a fingerprint says the queue moved. */
+    private class WazeQueueBundles(
+        val fingerprint: Long,
+        val bundles: List<Bundle>,
+    )
+
+    @Volatile private var cachedWazeQueueBundles: WazeQueueBundles? = null
+
+    /**
+     * A cheap value that changes whenever the queue's contents do.
+     *
+     * Deliberately allocation-free: it is computed on every metadata tick, so building a
+     * string of ids here would just move the cost being removed. `String.hashCode` is
+     * cached inside the id itself, and the media metadata is only read when the
+     * fingerprint actually moved.
+     */
+    private fun wazeQueueFingerprint(itemCount: Int): Long {
+        var hash = itemCount.toLong() * 31 + wazeQueueRevision.get()
+        for (i in 0 until itemCount) {
+            hash = hash * 31 + player.getMediaItemAt(i).mediaId.hashCode()
+        }
+        return hash
+    }
+
+    private fun buildWazeQueueBundles(itemCount: Int): List<Bundle> {
+        if (itemCount <= 0) return emptyList()
+        val bundles = ArrayList<Bundle>(itemCount)
+        for (i in 0 until itemCount) {
+            val item = player.getMediaItemAt(i)
+            val mediaMeta = item.mediaMetadata
+            val bundle = Bundle()
+            bundle.putString("track_id", item.mediaId.orEmpty())
+            bundle.putString("title", mediaMeta.title?.toString() ?: "")
+            bundle.putString("artist", mediaMeta.artist?.toString() ?: "")
+            bundle.putString("album", mediaMeta.albumTitle?.toString() ?: "")
+            mediaMeta.artworkUri?.let { bundle.putString("artwork_url", it.toString()) }
+            bundle.putLong("queue_item_id", i.toLong())
+            bundles.add(bundle)
+        }
+        return bundles
+    }
+
     private fun resolveWazePlaybackState(snapshot: WazePlaybackSnapshot): Int = when {
         snapshot.playerState == Player.STATE_BUFFERING && snapshot.playWhenReady -> PlaybackState.STATE_BUFFERING
         snapshot.isPlaying -> PlaybackState.STATE_PLAYING
@@ -7026,6 +8301,34 @@ var originalQueueSize: Int = 0
         if (index < 0 || index >= player.mediaItemCount) return
         suppressAutoPlayback = false
         player.seekTo(index, C.TIME_UNSET)
+    }
+
+    private suspend fun loadNextQueuePageWithRetry(
+        queue: Queue,
+        maxAttempts: Int = 3,
+    ): List<MediaItem> = queuePageLoadMutex.withLock {
+        var lastFailure: Throwable? = null
+        repeat(maxAttempts.coerceAtLeast(1)) { attemptIndex ->
+            try {
+                val page = queue.nextPage()
+                if (page.isNotEmpty() || !queue.hasNextPage()) return@withLock page
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                lastFailure = error
+                Timber.tag(TAG).w(
+                    error,
+                    "Queue page load failed (attempt %d/%d)",
+                    attemptIndex + 1,
+                    maxAttempts,
+                )
+            }
+            if (attemptIndex + 1 < maxAttempts) {
+                delay(250L * (attemptIndex + 1))
+            }
+        }
+        lastFailure?.let { throw it }
+        emptyList()
     }
 
     private fun scheduleDelayedWazeUpdate() {
@@ -7103,19 +8406,27 @@ var originalQueueSize: Int = 0
                 publishWazePlaybackSnapshot(force = true)
             }
             "next" -> {
-                if (player.mediaItemCount > 0) {
-                    player.seekToNext()
-                    if (!player.playWhenReady) publishWazePausedTrackChange()
-                } else {
-                    player.play()
+                when (
+                    TransportSkipPolicy.nextAction(
+                        mediaItemCount = player.mediaItemCount,
+                        hasNext = player.hasNextMediaItem(),
+                        repeatEnabled = player.repeatMode != REPEAT_MODE_OFF,
+                    )
+                ) {
+                    TransportSkipPolicy.Action.RECOVER_QUEUE -> recoverQueueIfEmpty()
+                    TransportSkipPolicy.Action.EXTEND_QUEUE -> extendQueueForSkip()
+                    TransportSkipPolicy.Action.SKIP -> {
+                        player.seekToNext()
+                        if (!player.playWhenReady) publishWazePausedTrackChange()
+                    }
                 }
             }
             "previous" -> {
-                if (player.mediaItemCount > 0) {
+                if (TransportSkipPolicy.previousAction(player.mediaItemCount) == TransportSkipPolicy.Action.SKIP) {
                     player.seekToPrevious()
                     if (!player.playWhenReady) publishWazePausedTrackChange()
                 } else {
-                    player.play()
+                    recoverQueueIfEmpty()
                 }
             }
             "seek" -> {
@@ -7140,6 +8451,79 @@ var originalQueueSize: Int = 0
             "repeat" -> toggleRepeatMode()
             else -> Timber.tag(TAG).w("Unknown Waze command: $command")
         }
+    }
+
+    /**
+     * Brings the queue back when the player has no timeline at all.
+     *
+     * After a restart the timeline can legitimately be empty for a moment — and if
+     * the restore failed it stays empty — while the UI still shows the last song. A
+     * bare `seekToNext()` on an empty player is a silent no-op, which is exactly why
+     * next/previous looked dead until a song was picked from a list. Recovery loads
+     * the persisted queue, restores the position and starts playback, so the
+     * transport buttons work from then on.
+     */
+    /**
+     * Best-effort queue + position persist for lifecycle moments.
+     *
+     * The periodic save runs every 10-30 s and track transitions persist too, so a
+     * close in between can lose the newest queue or the position reached since the
+     * last write. Called when the app leaves the foreground and when the task is
+     * removed, fire-and-forget behind a short ceiling so it can never hold up the
+     * main thread. Honours the persistent-queue setting and never writes while a
+     * restore is still hydrating (which would persist a partial window).
+     */
+    fun persistQueueNow(reason: String) {
+        // ExoPlayer may only be touched on the thread that owns it, so read the
+        // diagnostics here — every caller is a lifecycle callback on the main
+        // thread — and pass the values to the background save. Reading them inside
+        // the IO coroutine throws "Player is accessed on the wrong thread" and the
+        // log line (and any code after it) never runs.
+        val itemCount = player.mediaItemCount
+        val position = player.currentPosition
+        if (itemCount == 0) return
+        if (!dataStore.get(PersistentQueueKey, true)) return
+        ensureScopesActive()
+        ioScope.launch(SilentHandler) {
+            val saved =
+                withTimeoutOrNull(PERSIST_NOW_TIMEOUT_MS) { saveQueueToDisk() } != null
+            app.hush.music.spotiflac.SpotiFLACDiag.log(
+                "queue persist ($reason): items=$itemCount position=$position saved=$saved",
+            )
+        }
+    }
+
+    /**
+     * Grows the queue when a skip has nothing ahead of it.
+     *
+     * Honours the auto-load-more setting, so a queue the user deliberately wants to
+     * end still ends — the explicit press only decides *when* to try, not whether it
+     * is allowed.
+     */
+    fun extendQueueForSkip() {
+        if (infiniteQueueLoading.value) return
+        ensureScopesActive()
+        scope.launch(SilentHandler) {
+            if (!dataStore.get(AutoLoadMoreKey, true)) {
+                app.hush.music.spotiflac.SpotiFLACDiag.log("skip at end of queue: auto-load-more is off")
+                return@launch
+            }
+            withContext(Dispatchers.Main) { onInfiniteQueueEnabled() }
+        }
+    }
+
+    fun recoverQueueIfEmpty() {
+        if (player.mediaItemCount > 0) return
+        ensureScopesActive()
+        app.hush.music.spotiflac.SpotiFLACDiag.log(
+            "queue recovery requested: player has no items (restoreCompleted=${queueRestoreCompleted.value})",
+        )
+        val intent =
+            Intent(this, MusicService::class.java).apply {
+                action = "app.hush.music.WAZE_COMMAND"
+                putExtra("command", "play")
+            }
+        wazeColdStartRecovery(intent)
     }
 
     private fun wazeColdStartRecovery(intent: Intent) {
@@ -7507,6 +8891,118 @@ var originalQueueSize: Int = 0
             return
         }
 
+        // A "no enabled source can serve this track" failure arrives here as a generic source
+        // error, and media3 reports it with an IO error code, so without this check it looked
+        // transient: the player re-ran the whole provider sweep (up to the fallback timeout)
+        // a few times per track and surfaced the same message each round. Nothing about a
+        // setting changes by retrying, so the retry budget is left for real IO failures.
+        val noPlayableSource = error.findNoPlayableSourceException()
+        if (noPlayableSource != null) {
+            android.util.Log.w(
+                TAG,
+                "onPlayerError: no enabled source for $currentMediaId - not retrying: ${noPlayableSource.message}",
+            )
+            Timber.tag(TAG).w(
+                "No enabled source for %s; skipping the transient-IO retry path",
+                currentMediaId,
+            )
+            // A track that failed only because a SpotiFLAC source is waiting for a
+            // Cloudflare grant is not a broken track. Skipping it is what made one
+            // unverified source look like "songs randomly skipping" (and like
+            // "previous jumps forward": the previous track failed, so the queue
+            // advanced again). Pause first - pausing is reversible, skipping is not -
+            // then decide. If sources are genuinely waiting, park the position and ask
+            // for the verification again (ignoring the failure cooldown, because
+            // something is visibly waiting for it). Otherwise the user's own
+            // auto-skip preference applies as before.
+            stopOnError()
+            scope.launch(Dispatchers.IO) {
+                val blocked = runCatching {
+                    spotiflacNativeRuntime.unverifiedDownloadSourceIds()
+                }.getOrDefault(emptyList())
+                withContext(Dispatchers.Main) {
+                    if (player.currentMediaItem?.mediaId != currentMediaId) return@withContext
+                    if (blocked.isNotEmpty()) {
+                        android.util.Log.w(
+                            TAG,
+                            "onPlayerError: $currentMediaId held — sources awaiting verification: " +
+                                blocked.joinToString(","),
+                        )
+                        holdForSourceVerification(currentMediaId)
+                        app.hush.music.spotiflac.SpotiFLAutoVerifier.enqueue(
+                            blocked,
+                            "held",
+                            force = true,
+                        )
+                    } else {
+                        clearSourceVerificationHold()
+                        if (dataStore.get(AutoSkipNextOnErrorKey, false)) skipOnError()
+                    }
+                }
+            }
+            return
+        }
+
+        // A track whose bytes came from our own SpotiFLAC playback file needs its own
+        // recovery, because every path below is written for bytes that live in a Media3
+        // cache. A playback file is served straight off disk, so purging those caches
+        // changes nothing and the retry re-prepares the very same file - which is why a
+        // truncated or non-audio copy failed on every attempt and surfaced as a bare
+        // source error, with no attempt to fetch it again. Discard the copy and
+        // re-prepare: resolution then walks every enabled source, and only if all of
+        // them fail does the track end in an error.
+        val spotiFileEntry =
+            runCatching { spotiflacNativeRuntime.cachedPlaybackEntryForMediaId(currentMediaId) }
+                .getOrNull()
+        val servedFromSpotiFile =
+            spotiFileEntry != null &&
+                !isLocalMedia &&
+                // A user download outranks the playback file, so when one exists the
+                // failure belongs to that file and is not ours to discard.
+                runCatching { downloadedFileStore.fileFor(currentMediaId) }.getOrNull() == null
+        if (servedFromSpotiFile) {
+            // DECODING_FAILED is included because corruption does not have to shorten a
+            // file: bytes damaged in place leave the size and the container signature
+            // intact, so the integrity check passes and the failure only appears once a
+            // decoder reaches the damaged frame. Unlike an unsupported-format code, this
+            // is worth another fetch. The retry budget still bounds it, so a codec
+            // limitation cannot turn into an endless re-download.
+            val unreadableBytes =
+                error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE ||
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND
+            if (unreadableBytes && playbackStreamRecoveryTracker.registerRetryAttempt(currentMediaId)) {
+                val resumeIndex = player.currentMediaItemIndex
+                val resumePosition = player.currentPosition.coerceAtLeast(0L)
+                android.util.Log.w(
+                    TAG,
+                    "onPlayerError: SpotiFLAC playback file unreadable for $currentMediaId " +
+                        "(code=${error.errorCode}) - discarding and re-resolving through all sources",
+                )
+                scope.launch(Dispatchers.IO) {
+                    val freed =
+                        runCatching { spotiflacNativeRuntime.discardPlaybackFile(currentMediaId) }
+                            .getOrDefault(0L)
+                    // The miss memo would otherwise answer "remembered miss" and skip the
+                    // sweep the user is waiting for.
+                    clearSpotiFLACMiss(currentMediaId)
+                    app.hush.music.spotiflac.SpotiFLACDiag.log(
+                        "playback file discarded mediaId=$currentMediaId bytes=$freed " +
+                            "code=${error.errorCode} (retrying every source)",
+                    )
+                    withContext(Dispatchers.Main) {
+                        if (player.currentMediaItem?.mediaId != currentMediaId) return@withContext
+                        player.seekTo(resumeIndex, resumePosition)
+                        player.prepare()
+                    }
+                }
+                return
+            }
+        }
+
         // For transient IO errors on streaming media, always retry with a fresh URL.
         // This is the most common cause of mid-playback skips: YouTube stream URLs
         // expire after ~2 minutes and ExoPlayer gets HTTP 403/410.
@@ -7789,21 +9285,43 @@ var originalQueueSize: Int = 0
             ).setCacheWriteDataSinkFactory(null)
             .setFlags(FLAG_IGNORE_CACHE_ON_ERROR)
 
+    /**
+     * The playback byte chain.
+     *
+     * The order is the point, and it is: **resolve first, then route**.
+     *
+     * Resolution runs in the outermost layer, so [SchemeRoutingDataSource] sees the URI
+     * the resolver actually produced rather than the URI the media item started with.
+     * That distinction is the whole fix. A track's media item URI is a bare song id with
+     * no scheme, and the router used to sit above the resolver - so every track took the
+     * cache path, and when the resolver returned a local SpotiFLAC file
+     * (`file://.../spotiflac/playback/<key>.flac`) CacheDataSource wrote the bytes of that
+     * complete local file into the song cache under the song's cache key. The same audio
+     * was then on disk twice: once as the SpotiFLAC file, and again as a Media3 entry that
+     * outlived it and had to be reasoned about as "cached bytes of unknown provenance".
+     *
+     * Resolving first means a resolved local file is read straight off disk with no cache
+     * layer anywhere in between ([PlaybackByteSource.LOCAL_FILE]), while a resolved remote
+     * stream still goes through both caches ([PlaybackByteSource.CACHED]) so range
+     * requests, seeking and offline playback behave exactly as before.
+     */
     private fun createDataSourceFactory(): DataSource.Factory {
-        val cachedFactory =
-            ResolvingDataSource.Factory(createCacheDataSource()) { dataSpec ->
-                resolvePlaybackDataSpec(
-                    dataSpec = dataSpec,
-                    allowCacheShortCircuit = true,
-                )
-            }
+        // Built once and shared across opens, exactly as before: both are factories, so
+        // every open still gets its own DataSource while the OkHttp clients, cache and
+        // listener wiring are not rebuilt per request.
+        val cachedFactory = createCacheDataSource()
         val directFactory = createResolvedUpstreamDataSourceFactory()
 
-        return DataSource.Factory {
-            SchemeRoutingDataSource(
-                cachedFactory = cachedFactory,
-                directFactory = directFactory,
-            )
+        val routingFactory =
+            DataSource.Factory {
+                SchemeRoutingDataSource(
+                    cachedFactory = cachedFactory,
+                    directFactory = directFactory,
+                )
+            }
+
+        return ResolvingDataSource.Factory(routingFactory) { dataSpec ->
+            resolvePlaybackDataSpec(dataSpec = dataSpec)
         }
     }
 
@@ -7828,10 +9346,7 @@ var originalQueueSize: Int = 0
             }
 
         return ResolvingDataSource.Factory(routingFactory) { dataSpec ->
-            resolvePlaybackDataSpec(
-                dataSpec = dataSpec,
-                allowCacheShortCircuit = false,
-            )
+            resolvePlaybackDataSpec(dataSpec = dataSpec)
         }
     }
 
@@ -7845,10 +9360,7 @@ var originalQueueSize: Int = 0
                 .setKey(mediaItem.localConfiguration?.customCacheKey ?: mediaItem.mediaId)
                 .build()
         val resolvedDataSpec =
-            resolvePlaybackDataSpec(
-                dataSpec = dataSpec,
-                allowCacheShortCircuit = false,
-            )
+            resolvePlaybackDataSpec(dataSpec = dataSpec)
         return if (resolvedDataSpec.uri == uri) {
             mediaItem
         } else {
@@ -7859,10 +9371,23 @@ var originalQueueSize: Int = 0
         }
     }
 
-    private fun resolvePlaybackDataSpec(
-        dataSpec: DataSpec,
-        allowCacheShortCircuit: Boolean,
-    ): DataSpec {
+    /**
+     * The single resolution path for a playback open.
+     *
+     * It reads as a sequence of guards, and each one is the reason a step below it is
+     * skipped: a resolved local file is preferred over any cache, then cached bytes (a
+     * download, or the streaming cache while YouTube is on), then a non-YouTube first
+     * engine's local file, then the one single-flight resolver shared with prefetch,
+     * refresh and recovery.
+     *
+     * There used to be a second, unreachable copy of this below the real one - behind
+     * `@Suppress("UNREACHABLE_CODE") if (false)` - which still threw
+     * "No stream available - both sources failed" for paths that had already been
+     * replaced. It never executed, so it could not break anything, but it is what made
+     * this function read as two competing resolvers and sent two separate debugging
+     * sessions down the wrong branch.
+     */
+    private fun resolvePlaybackDataSpec(dataSpec: DataSpec): DataSpec {
         if (dataSpec.uri.shouldBypassYouTubeResolver()) {
             return dataSpec
         }
@@ -7894,8 +9419,52 @@ var originalQueueSize: Int = 0
 
         val lowDataModeActive = isLowDataModeActive()
 
-        // Always prefer locally cached/downloaded content over remote streaming.
-        // Only use remote playback when no cache exists.
+        // A download is an ordinary file this device owns, so it is served straight off
+        // disk: before the caches, and independent of which engines are switched on. That
+        // is what downloading it was for. Serving the file also skips the resolver, so the
+        // source label is published here for the same reason the SpotiFLAC branch below
+        // publishes it - otherwise the player falls back to guessing.
+        downloadedFileStore.fileFor(mediaId)?.let { downloaded ->
+            if (downloadedFileStore.get(mediaId)?.origin == StoredBytesOrigin.SPOTIFLAC.name) {
+                publishSpotiFLACCachedLabel(mediaId)
+                publishSpotiFLACFileFormat(mediaId)
+            }
+            Timber.tag(TAG).i("serving downloaded file for mediaId=$mediaId: ${downloaded.name}")
+            scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
+            return dataSpec.withUri(downloaded.toUri())
+        }
+
+        // A SpotiFLAC playback file has to be consulted *before* Media3's caches.
+        //
+        // Both caches are keyed by mediaId, and the bytes stored under that key came
+        // from whichever engine happened to be selected when they were written. So a
+        // track whose bytes were cached from YouTube earlier would keep being served
+        // out of that cache - instantly, with no resolver call - even after SpotiFLAC
+        // became the first engine, while every visible label (source chip, codec row)
+        // reported SpotiFLAC. That is how a track could announce "SpotiFLAC - deezer"
+        // and still decode as a YouTube stream, and why switching YouTube off did not
+        // stop it playing.
+        //
+        // The file is local, complete and immutable, so preferring it costs nothing:
+        // it is not the "remote streaming" that the cache exists to avoid.
+        val spotiflacFirst =
+            spotiflacEnabled &&
+                effectiveEngineOrder(spotiflacEnabled, isYouTubeStreamingEnabled())
+                    .firstOrNull() == PlaybackEngineOrder.SPOTIFLAC
+        if (spotiflacFirst) {
+            spotiflacPlaybackFile(mediaId)?.let { cachedFile ->
+                app.hush.music.spotiflac.SpotiFLACDiag.log(
+                    "serving SpotiFLAC file for mediaId=$mediaId ahead of the Media3 cache",
+                )
+                publishSpotiFLACCachedLabel(mediaId)
+                publishSpotiFLACFileFormat(mediaId)
+                scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
+                return dataSpec.withUri(cachedFile.toUri())
+            }
+        }
+
+        // Locally downloaded content (and, while YouTube is an active engine, the
+        // transient streaming cache). Only use remote playback when neither exists.
         val cachedDataSpec = resolveLocalPlaybackDataSpecIfAvailable(
             dataSpec = dataSpec,
             mediaId = mediaId,
@@ -7905,9 +9474,32 @@ var originalQueueSize: Int = 0
             scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
             return cachedDataSpec
         }
+
+        // SpotiFLAC playback files live outside Media3's cache, so they are served as
+        // a plain local file. Checking here - not only when a track first resolves -
+        // means a seek re-open reads the same file instead of downloading it again.
+        // When SpotiFLAC is the first engine the check above already covered this, and
+        // the resolver below would pick SpotiFLAC anyway; this branch is what keeps a
+        // SpotiFLAC copy usable when YouTube is the first engine.
+        if (!spotiflacFirst) spotiflacPlaybackFile(mediaId)?.let { cachedFile ->
+            // Serving the file off disk skips the resolver, so the source label has
+            // to be published here. Without this the player fell back to "YouTube"
+            // for every SpotiFLAC track that was already cached (and after every
+            // seek, since a re-open takes this same path).
+            publishSpotiFLACCachedLabel(mediaId)
+            publishSpotiFLACFileFormat(mediaId)
+            scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
+            return dataSpec.withUri(cachedFile.toUri())
+        }
         val effectiveAudioQuality = resolveEffectiveAudioQuality(audioQuality, lowDataModeActive)
+        // The ArchiveTune extractor resolves audio out of a YouTube watch URL, so it is a
+        // YouTube engine: it must not run while YouTube is switched off, exactly like the
+        // InnerTube path below. Without this gate, choosing the extractor client (or
+        // dropping to Low quality) kept pulling YouTube audio - a WebM stream - with
+        // YouTube disabled, which is a stream the user had explicitly turned off.
         val preferExternalExtractorOnly =
-            activeStreamClient == PlayerStreamClient.ARCHIVETUNE_EXTRACTOR &&
+            isYouTubeStreamingEnabled() &&
+                activeStreamClient == PlayerStreamClient.ARCHIVETUNE_EXTRACTOR &&
                 (lowDataModeActive || effectiveAudioQuality == AudioQuality.LOW)
 
         if (preferExternalExtractorOnly) {
@@ -7918,88 +9510,41 @@ var originalQueueSize: Int = 0
             )
         }
 
+        // Source-toggle safety net: a cached YouTube URL must never be replayed
+        // while YouTube is disabled. Purge and re-resolve through SpotiFLAC.
         cachedPlaybackUrl(mediaId)?.let { cached ->
-            scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
-            return buildResolvedStreamDataSpec(
-                dataSpec = dataSpec,
-                streamUrl = cached.url,
-                knownContentLength = knownContentLength,
-                mimeType = storedFormat?.mimeType,
-                isYouTubeStream = cached.isYouTubeStream,
-            )
-        }
-
-        runBlocking(Dispatchers.IO) {
-            awaitPlaybackUrlPrefetch(mediaId, timeoutMs = 30_000L)
-        }
-        cachedPlaybackUrl(mediaId)?.let { cached ->
-            scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
-            return buildResolvedStreamDataSpec(
-                dataSpec = dataSpec,
-                streamUrl = cached.url,
-                knownContentLength = knownContentLength,
-                mimeType = storedFormat?.mimeType,
-                isYouTubeStream = cached.isYouTubeStream,
-            )
-        }
-
-        val networkMeteredHint =
-            if (lowDataModeActive && audioQuality != AudioQuality.HIGHEST) {
-                true
-            } else {
-                null
+            if (cached.isYouTubeStream && !isYouTubeStreamingEnabled()) {
+                playbackUrlCache.remove(mediaId)
+                extractorPlaybackUrlCache.remove(mediaId)
+                Timber.tag(TAG).w("Dropped cached YouTube URL for %s while YouTube is disabled", mediaId)
             }
+        }
 
-        val parallelFetch = isParallelSourceFetchEnabled()
-        val playbackData =
+        // All non-local, non-extractor playback uses the same single-flight resolver
+        // as prefetch, refresh, and recovery. This prevents multiple Media3 opens for
+        // one cold track from starting duplicate YouTube/SpotiFLAC requests.
+        val resolvedPlayback =
             try {
                 runBlocking(Dispatchers.IO) {
                     withContext(NonCancellable) {
-                        retryWithoutPlaybackLoginContext {
-                            YTPlayerUtils.playerResponseForPlayback(
-                                videoId = mediaId,
-                                audioQuality = effectiveAudioQuality,
-                                connectivityManager = connectivityManager,
-                                preferredStreamClient = activeStreamClient,
-                                networkMetered = networkMeteredHint,
-                                fastResolution = true,
-                                context = this@MusicService,
-                                parallelFetch = parallelFetch,
-                            )
-                        }.getOrThrow()
+                        resolveAndCachePlaybackUrl(mediaId)
                     }
                 }
+            } catch (cancellation: CancellationException) {
+                // Cancellation is not a stream failure. It means the player moved on (a skip
+                // or seek, or a re-open of the same item) or a duplicate in-flight resolve
+                // superseded this one - a request nobody is waiting for any more. Mapping it
+                // to "No stream available" reported a failure that never happened.
+                throw cancellation
             } catch (throwable: Throwable) {
-                if (activeStreamClient == PlayerStreamClient.ARCHIVETUNE_EXTRACTOR &&
-                    throwable !is YTPlayerUtils.BotDetectionPlaybackException
-                ) {
-                    return resolveArchiveTuneExtractorDataSpec(
-                        dataSpec = dataSpec,
-                        mediaId = mediaId,
-                        audioQuality = effectiveAudioQuality,
-                    )
-                }
                 throw mapStreamResolutionFailure(throwable, mediaId)
             }
-
-        applyResolvedPlaybackData(mediaId, playbackData)
-        if (!lowDataModeActive) {
-            playbackUrlCache[mediaId] =
-                AuthScopedCacheValue(
-                    url = playbackData.streamUrl,
-                    expiresAtMs = System.currentTimeMillis() + (playbackData.streamExpiresInSeconds * 1000L),
-                    authFingerprint = playbackData.authFingerprint,
-                    playbackClientLabel = playbackData.playbackClientLabel,
-                    isYouTubeStream = playbackData.isYouTubeStream,
-                )
-        }
-        scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
         return buildResolvedStreamDataSpec(
             dataSpec = dataSpec,
-            streamUrl = playbackData.streamUrl,
-            knownContentLength = knownContentLength ?: playbackData.format.contentLength,
-            mimeType = playbackData.format.mimeType,
-            isYouTubeStream = playbackData.isYouTubeStream,
+            streamUrl = resolvedPlayback.url,
+            knownContentLength = knownContentLength,
+            mimeType = storedFormat?.mimeType,
+            isYouTubeStream = resolvedPlayback.isYouTubeStream,
         )
     }
 
@@ -8012,6 +9557,10 @@ var originalQueueSize: Int = 0
     ): DataSpec {
         val resolvedDataSpec = dataSpec.withUri(streamUrl.toUri())
         if (isYouTubeStream) return resolvedDataSpec
+        // Chunked range reads exist to defeat YouTube's per-request throttling and
+        // must never bound a local file: clamping a file read to 8 MB is what broke
+        // seeking (and playback past the first chunk).
+        if (streamUrl.isLocalPlaybackUrl()) return resolvedDataSpec
         val length =
             resolveStreamChunkLength(
                 requestedLength = dataSpec.length,
@@ -8196,18 +9745,71 @@ var originalQueueSize: Int = 0
             AudioQuality.LOW -> ExtractorAudioQuality.LOW
         }
 
+    /**
+     * Cached bytes that can be played without asking a resolver for a URL.
+     *
+     * The two stores mean different things. `downloadCache` only ever receives writes
+     * from the download service, so its entries are content the user explicitly
+     * downloaded. `playerCache` is the *streaming* cache: it holds whatever bytes were
+     * fetched for a mediaId.
+     *
+     * Both are keyed by mediaId alone, so the key cannot say which engine produced the
+     * bytes stored under it. Hush has created downloads whose content is a YouTube
+     * stream (`itag=251` WebM) and downloads whose content is a SpotiFLAC FLAC file,
+     * for the same song, at different times. So serving either store has to be gated on
+     * the origin actually matching an enabled engine - otherwise a switched-off YouTube
+     * keeps playing through whichever cache still holds its bytes.
+     *
+     * SpotiFLAC's own file is served from earlier on this path, so it never depends on
+     * this decision.
+     */
     private fun resolveLocalPlaybackDataSpecIfAvailable(
         dataSpec: DataSpec,
         mediaId: String,
         knownContentLength: Long?,
     ): DataSpec? {
+        // The streaming cache is only meaningful while YouTube is an active engine.
+        val youtubeEnabled = isYouTubeStreamingEnabled()
+        val includePlayerCache = youtubeEnabled
+        // User downloads stay playable offline, but only when their stored bytes did
+        // not come from YouTube. Hush records that itself, because Media3 cannot: see
+        // [DownloadOriginStore].
+        val downloadOrigin = downloadedBytesOrigin(mediaId)
+        val downloadCacheDecision =
+            PlaybackEngineOrder.storedBytesDecision(
+                youtubeEnabled = youtubeEnabled,
+                origin = downloadOrigin,
+            )
+        val includeDownloadCache = downloadCacheDecision == StoredBytesDecision.SERVE
+        val downloadBytesPresent =
+            runCatching { downloadCache.getCachedSpans(mediaId).isNotEmpty() }.getOrDefault(false)
+        if (!includePlayerCache && !includeDownloadCache && downloadBytesPresent) {
+            app.hush.music.spotiflac.SpotiFLACDiag.log(
+                when (downloadCacheDecision) {
+                    StoredBytesDecision.REFUSE_ENGINE_DISABLED ->
+                        "ignoring downloaded bytes for mediaId=$mediaId: recorded origin is " +
+                            "${downloadOrigin.name} and YouTube is disabled"
+                    else ->
+                        "ignoring downloaded bytes for mediaId=$mediaId: recorded origin is unknown " +
+                            "while YouTube is disabled"
+                },
+            )
+        }
+
         val effectiveContentLength =
-            knownContentLength ?: inferCachedContentLength(mediaId, dataSpec.position)
+            knownContentLength ?: inferCachedContentLength(
+                mediaId = mediaId,
+                position = dataSpec.position,
+                includePlayerCache = includePlayerCache,
+                includeDownloadCache = includeDownloadCache,
+            )
 
         resolveCachedDataSpec(
             dataSpec = dataSpec,
             mediaId = mediaId,
             knownContentLength = effectiveContentLength,
+            includePlayerCache = includePlayerCache,
+            includeDownloadCache = includeDownloadCache,
         )?.let { return it }
 
         val requiredCachedLength =
@@ -8220,25 +9822,124 @@ var originalQueueSize: Int = 0
             } ?: return null
 
         val isFullyCached =
-            downloadCache.isCached(mediaId, dataSpec.position, requiredCachedLength) ||
-                playerCache.isCached(mediaId, dataSpec.position, requiredCachedLength)
+            (includeDownloadCache && downloadCache.isCached(mediaId, dataSpec.position, requiredCachedLength)) ||
+                (
+                    includePlayerCache &&
+                        playerCache.isCached(mediaId, dataSpec.position, requiredCachedLength)
+                )
         return if (isFullyCached) dataSpec else null
     }
 
+    /**
+     * Which engine produced the bytes stored for [mediaId], for the purpose of deciding
+     * whether they may be served.
+     *
+     * Hush's own record comes first because it is authoritative - it is written at the
+     * moment Hush chooses the download's URI - and because Media3's redirect metadata is
+     * never populated on this path at all: `CacheDataSource` records a redirect only when
+     * the URI it opened differs from the URI it was asked for, and Hush hands it the
+     * already-resolved URI. The Media3 lookup is kept as a fallback for entries written
+     * by other paths, and an entry that recorded nothing is [StoredBytesOrigin.UNKNOWN],
+     * so the answer fails closed rather than playing bytes of unknown origin.
+     */
+    private fun downloadedBytesOrigin(mediaId: String): StoredBytesOrigin {
+        when (downloadOriginStore.originOf(mediaId)) {
+            StoredBytesOrigin.SPOTIFLAC -> return StoredBytesOrigin.SPOTIFLAC
+            StoredBytesOrigin.YOUTUBE -> return StoredBytesOrigin.YOUTUBE
+            StoredBytesOrigin.UNKNOWN -> Unit
+        }
+        return if (cachedBytesCameFromSpotiFLAC(mediaId, downloadCache)) {
+            StoredBytesOrigin.SPOTIFLAC
+        } else {
+            StoredBytesOrigin.UNKNOWN
+        }
+    }
+
+    /**
+     * The failure a user actually hits when SpotiFLAC cannot match a track and YouTube has
+     * been switched off.
+     *
+     * A plain `IOException` here surfaced as the generic "No stream available" source error,
+     * which says nothing about the cause and reads like a bug rather than a setting. The
+     * message names both halves of the situation so it is actionable, and the type tells the
+     * player not to burn its retry budget re-running a provider sweep that cannot succeed.
+     */
+    private fun spotiflacNoMatchWhileYouTubeOff(mediaId: String? = null): NoPlayableSourceException =
+        NoPlayableSourceException(
+            getString(R.string.spotiflac_no_match_youtube_off),
+            rememberedMissAtMs = rememberedMissAt(mediaId),
+        )
+
+    /** As above, for the case where the user turned the YouTube fallback itself off. */
+    private fun spotiflacNoMatchAndFallbackOff(mediaId: String? = null): NoPlayableSourceException =
+        NoPlayableSourceException(
+            getString(R.string.spotiflac_no_match_fallback_off),
+            rememberedMissAtMs = rememberedMissAt(mediaId),
+        )
+
+    /**
+     * When this track's miss was recorded, if a remembered answer is what produced the
+     * failure. Null means the sweep ran just now and this is a fresh verdict.
+     */
+    private fun rememberedMissAt(mediaId: String?): Long? =
+        mediaId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { spotiFLACMissMemo.entry(it, spotiflacMissContext())?.recordedAtMs }
+
+    /**
+     * Whether the bytes cached under [mediaId] were fetched from a SpotiFLAC playback
+     * file, according to the redirect Media3 recorded for the cached response.
+     *
+     * This is the fallback signal; [downloadedBytesOrigin] consults Hush's own
+     * [DownloadOriginStore] first. It is kept because a `playerCache` entry written while
+     * a *different* URI was requested can still carry a redirect, and because it is the
+     * only signal available for entries written before the origin store existed.
+     */
+    private fun cachedBytesCameFromSpotiFLAC(
+        mediaId: String,
+        cache: Cache,
+    ): Boolean =
+        runCatching {
+            val redirected = ContentMetadata.getRedirectedUri(cache.getContentMetadata(mediaId))
+            redirected?.path?.contains(SPOTIFLAC_PLAYBACK_PATH_SEGMENT) == true
+        }.getOrDefault(false)
+
     private fun hasFullyDownloadedLocalPlayback(mediaId: String): Boolean {
-        val length = inferCachedContentLength(mediaId, 0L) ?: return false
+        val length =
+            inferCachedContentLength(
+                mediaId = mediaId,
+                position = 0L,
+                includePlayerCache = false,
+                includeDownloadCache = true,
+            ) ?: return false
         return downloadCache.isCached(mediaId, 0L, length)
     }
 
     private fun inferCachedContentLength(
         mediaId: String,
         position: Long,
+        includePlayerCache: Boolean = true,
+        includeDownloadCache: Boolean = true,
     ): Long? {
         val spans =
-            runCatching { downloadCache.getCachedSpans(mediaId).toList() }.getOrNull().orEmpty() +
+            if (!includeDownloadCache) {
+                emptyList()
+            } else {
+                runCatching { downloadCache.getCachedSpans(mediaId).toList() }.getOrNull().orEmpty()
+            } + if (!includePlayerCache) {
+                emptyList()
+            } else {
                 runCatching { playerCache.getCachedSpans(mediaId).toList() }.getOrNull().orEmpty()
+            }
         if (spans.isEmpty()) return null
-        val continuousFromStart = getContinuousCachedLength(mediaId, 0L, Long.MAX_VALUE)
+        val continuousFromStart =
+            getContinuousCachedLength(
+                mediaId = mediaId,
+                position = 0L,
+                requestedLength = Long.MAX_VALUE,
+                includePlayerCache = includePlayerCache,
+                includeDownloadCache = includeDownloadCache,
+            )
         if (continuousFromStart <= 0L) return null
         return (continuousFromStart - position).takeIf { it > 0L }
     }
@@ -8320,6 +10021,8 @@ var originalQueueSize: Int = 0
         dataSpec: DataSpec,
         mediaId: String,
         knownContentLength: Long?,
+        includePlayerCache: Boolean = true,
+        includeDownloadCache: Boolean = true,
     ): DataSpec? {
         val requestedLength =
             when {
@@ -8332,7 +10035,12 @@ var originalQueueSize: Int = 0
                 }
 
                 else -> {
-                    inferCachedContentLength(mediaId, dataSpec.position) ?: return null
+                    inferCachedContentLength(
+                        mediaId = mediaId,
+                        position = dataSpec.position,
+                        includePlayerCache = includePlayerCache,
+                        includeDownloadCache = includeDownloadCache,
+                    ) ?: return null
                 }
             }
 
@@ -8341,6 +10049,8 @@ var originalQueueSize: Int = 0
                 mediaId = mediaId,
                 position = dataSpec.position,
                 requestedLength = requestedLength,
+                includePlayerCache = includePlayerCache,
+                includeDownloadCache = includeDownloadCache,
             )
 
         if (cachedLength < requestedLength) return null
@@ -8352,13 +10062,22 @@ var originalQueueSize: Int = 0
         mediaId: String,
         position: Long,
         requestedLength: Long,
+        includePlayerCache: Boolean = true,
+        includeDownloadCache: Boolean = true,
     ): Long {
         val targetEnd = position.saturatingAdd(requestedLength)
         var cursor = position
         val spans =
             (
-                runCatching { downloadCache.getCachedSpans(mediaId).toList() }.getOrNull().orEmpty() +
+                if (!includeDownloadCache) {
+                    emptyList()
+                } else {
+                    runCatching { downloadCache.getCachedSpans(mediaId).toList() }.getOrNull().orEmpty()
+                } + if (!includePlayerCache) {
+                    emptyList()
+                } else {
                     runCatching { playerCache.getCachedSpans(mediaId).toList() }.getOrNull().orEmpty()
+                }
             ).asSequence()
                 .filter { span -> span.position.saturatingAdd(span.length) > position }
                 .sortedBy { span -> span.position }
@@ -8384,19 +10103,18 @@ var originalQueueSize: Int = 0
 
     private fun Uri.shouldBypassYouTubeResolver(): Boolean {
         val normalizedScheme = scheme?.lowercase(Locale.US)
-        return normalizedScheme == "content" ||
-            normalizedScheme == "file" ||
-            normalizedScheme == "android.resource" ||
+        return PlaybackDataSourceRouting.isLocalFileScheme(normalizedScheme) ||
             normalizedScheme == "http" ||
             normalizedScheme == "https"
     }
 
-    private fun Uri.shouldBypassPlayerCache(): Boolean {
-        val normalizedScheme = scheme?.lowercase(Locale.US)
-        return normalizedScheme == "content" ||
-            normalizedScheme == "file" ||
-            normalizedScheme == "android.resource"
-    }
+    /**
+     * Whether these bytes never pass through a Media3 cache - the same rule the routing in
+     * [SchemeRoutingDataSource] applies, kept in one place so crossfade and local-item
+     * heuristics cannot disagree with the byte chain about what "local" means.
+     */
+    private fun Uri.shouldBypassPlayerCache(): Boolean =
+        PlaybackDataSourceRouting.isLocalFileScheme(scheme)
 
     private fun deviceSupportsMimeType(mimeType: String): Boolean =
         runCatching {
@@ -8454,51 +10172,14 @@ var originalQueueSize: Int = 0
         }
     }
 
-    private class SchemeRoutingDataSource(
-        private val cachedFactory: DataSource.Factory,
-        private val directFactory: DataSource.Factory,
-    ) : DataSource {
-        private val transferListeners = mutableListOf<TransferListener>()
-        private var delegate: DataSource? = null
-
-        override fun addTransferListener(transferListener: TransferListener) {
-            transferListeners += transferListener
-            delegate?.addTransferListener(transferListener)
-        }
-
-        override fun open(dataSpec: DataSpec): Long {
-            val normalizedScheme = dataSpec.uri.scheme?.lowercase(Locale.US)
-            val selectedFactory =
-                if (
-                    normalizedScheme == "content" ||
-                    normalizedScheme == "file" ||
-                    normalizedScheme == "android.resource"
-                ) {
-                    directFactory
-                } else {
-                    cachedFactory
-                }
-            val selectedDataSource = selectedFactory.createDataSource()
-            transferListeners.forEach(selectedDataSource::addTransferListener)
-            delegate = selectedDataSource
-            return selectedDataSource.open(dataSpec)
-        }
-
-        override fun read(
-            buffer: ByteArray,
-            offset: Int,
-            length: Int,
-        ): Int = checkNotNull(delegate).read(buffer, offset, length)
-
-        override fun getUri(): Uri? = delegate?.uri
-
-        override fun getResponseHeaders(): Map<String, List<String>> = delegate?.responseHeaders ?: emptyMap()
-
-        override fun close() {
-            delegate?.close()
-            delegate = null
-        }
-    }
+    /**
+     * Sends an already-resolved [DataSpec] either straight to the local file or through
+     * Media3's caches. See [createDataSourceFactory] for why it must be the *resolved*
+     * URI that is inspected here.
+     */
+    // SchemeRoutingDataSource moved to its own file: the download path needs the same
+    // "a resolved local file never enters a cache" routing, and two copies of that rule
+    // is how the two paths drifted apart in the first place.
 
     private fun updateAudioOffload(enabled: Boolean) {
         val effectiveEnabled = enabled && !crossfadeEnabled
@@ -8973,7 +10654,15 @@ var originalQueueSize: Int = 0
                 if (newData.isValidFor(authFingerprint)) {
                     playbackUrlCache[mediaId] = newData
                 }
-            } catch (_: Exception) {
+            } catch (cancellation: CancellationException) {
+                // The job was cancelled (the interval changed, the cache was cleared, or
+                // the service is going away). Swallowing this kept walking the remaining
+                // entries, resolving URLs for a refresh that had already been abandoned.
+                throw cancellation
+            } catch (e: Exception) {
+                // Silent before, which made a systematic failure here (every URL stale at
+                // once, a broken auth fingerprint) invisible in the log.
+                Timber.tag(TAG).w(e, "backgroundRefresh failed for %s", mediaId)
             }
             delay(200L)
         }
@@ -9095,6 +10784,10 @@ var originalQueueSize: Int = 0
 
     override fun onDestroy() {
         super.onDestroy()
+        // Drop the resume hook so a later verification cannot reach a dead service.
+        app.hush.music.spotiflac.SpotiFLAutoVerifier.onSourceVerified = null
+        heldTrackRecoveryJob?.cancel()
+        heldTrackRecoveryJob = null
         cancelUrlRefresh()
         cachedShimPackages = null
         cachedShimPackagesCheckedAt = 0L
@@ -9232,11 +10925,9 @@ var originalQueueSize: Int = 0
 
             if (dataStore.get(PersistentQueueKey, true) && player.mediaItemCount > 0) {
                 runCatching {
-                    ioScope.launch {
-                        withTimeout(2000L) {
-                            saveQueueToDisk()
-                        }
-                    }
+                    // Same bounded path as the background save, so every close route
+                    // persists the queue the same way.
+                    persistQueueNow("task removed")
                 }
             }
         } catch (_: Exception) {
@@ -9466,16 +11157,53 @@ var originalQueueSize: Int = 0
         const val ERROR_CODE_NO_STREAM = 1000001
         const val CHUNK_LENGTH = 8 * 1024 * 1024L
         val RETRYABLE_STREAM_RESPONSE_CODES = setOf(403, 404, 410, 416)
+        /** How long to wait for the player before restoring without it. */
+        private const val RESTORE_PLAYER_READY_TIMEOUT_MS = 10_000L
+
+        /** Deadline after which transport commands stop waiting for the restore. */
+        private const val RESTORE_COMPLETION_DEADLINE_MS = 8_000L
+
+        /** Debounce for persisting a freshly built or mutated queue. */
+        private const val QUEUE_PERSIST_DEBOUNCE_MS = 1_500L
+
+        /** Ceiling for a lifecycle-driven persist; it must never block a teardown. */
+        private const val PERSIST_NOW_TIMEOUT_MS = 2_000L
+
         const val PERSISTENT_QUEUE_FILE = "persistent_queue.data"
         const val PERSISTENT_AUTOMIX_FILE = "persistent_automix.data"
         const val PERSISTENT_PLAYER_STATE_FILE = "persistent_player_state.data"
         const val PERSISTENT_URL_CACHE_FILE = "persistent_url_cache.data"
         const val URL_CACHE_REFRESH_JITTER_MS = 30 * 60 * 1000L
         private const val MAX_PENDING_WAZE_COMMANDS = 5
+
+        /** Above this the built Waze queue is not retained between metadata ticks. */
+        private const val MAX_CACHED_WAZE_QUEUE_ITEMS = 2_000
         private const val SHIM_PACKAGE_CACHE_TTL_MS = 30_000L
         const val MAX_CONSECUTIVE_ERR = 5
-        private const val STARTUP_PREFETCH_WAIT_MS = 2_500L
-        private const val SOURCE_FALLBACK_TIMEOUT_MS = 2_500L
+        // Start ExoPlayer immediately and let URL prefetch run concurrently. Waiting here
+        // serialized stream resolution before prepare(), which made the first track feel
+        // noticeably slower after a cold service start. The data-source resolver still
+        // awaits an in-flight prefetch when necessary, so this does not bypass resolution.
+        private const val STARTUP_PREFETCH_WAIT_MS = 0L
+        // SpotiFLAC resolution needs a realistic window rather than the 2.5s cap that
+        // used to cancel every real attempt and silently push playback to YouTube. The
+        // window is sized from the sweep's actual work by
+        // SpotiFLACQualityCascade.sweepBudgetMs (which also owns the 45s floor).
+        // A parked track is re-resolved once the verification burst drains, so the
+        // resolve does not race the challenge window for the gateway. Bounded so a
+        // stalled challenge cannot park the track forever.
+        private const val HELD_RECOVERY_SETTLE_TIMEOUT_MS = 180_000L
+        private const val HELD_RECOVERY_POLL_MS = 400L
+
+        /**
+         * Path segment of the directory SpotiFLAC stores fetched playback files in.
+         * Media3 records the URI a cached response came from, so this is how cached
+         * bytes are attributed to SpotiFLAC rather than to YouTube.
+         */
+        private const val SPOTIFLAC_PLAYBACK_PATH_SEGMENT = "/spotiflac/playback/"
+
+        /** Upper bound on outstanding one-shot YouTube overrides - one per tap, no more. */
+        private const val MAX_FORCE_YOUTUBE_ONCE = 32
         const val AUDIO_ROUTE_CHANGE_DEBOUNCE_MS = 350L
         const val AUDIO_EFFECT_ROUTE_REBIND_DELAY_MS = 200L
         const val AUDIO_ROUTE_RECOVERY_MIN_INTERVAL_MS = 1_500L

@@ -9,6 +9,7 @@ package app.hush.music.ui.player
 
 import androidx.media3.common.PlaybackException
 import androidx.media3.datasource.HttpDataSource
+import app.hush.music.playback.findNoPlayableSourceException
 import app.hush.music.utils.YTPlayerUtils
 
 internal enum class PlaybackErrorKind {
@@ -20,6 +21,13 @@ internal enum class PlaybackErrorKind {
     MalformedStream,
     Decoder,
     Http,
+
+    /**
+     * No enabled engine can serve the track - a source-toggle situation, not a failure.
+     * Reported separately so the player can tell the user which setting to change instead
+     * of showing "Unknown error".
+     */
+    NoSourceAvailable,
     Unknown,
 }
 
@@ -33,6 +41,12 @@ internal data class PlaybackErrorInfo(
     val httpCode: Int?,
     val loginRecoveryUrl: String?,
     val recoveryAction: PlaybackRecoveryAction?,
+    /**
+     * When an earlier attempt already established this "no source" result, if that is what
+     * produced this failure. The UI says so, and it does not invite a retry that would only
+     * reach the same remembered answer.
+     */
+    val rememberedMissAtMs: Long? = null,
 )
 
 internal fun PlaybackException.toPlaybackErrorInfo(): PlaybackErrorInfo {
@@ -46,8 +60,14 @@ internal fun PlaybackException.toPlaybackErrorInfo(): PlaybackErrorInfo {
             externalLoginRecoveryUrl != null -> PlaybackRecoveryAction.OpenYouTubeMusic
             else -> null
         }
+    val noPlayableSource = findNoPlayableSourceException()
     val kind =
         when {
+            // Checked before anything else: this is a marker type raised deliberately by the
+            // resolver, and it must not be downgraded to a generic error by the heuristics
+            // below (it carries a remote-error code, which would otherwise land on Unknown).
+            noPlayableSource != null -> PlaybackErrorKind.NoSourceAvailable
+
             invalidPlaybackLoginContextUrl != null -> PlaybackErrorKind.LoginRefreshRequired
 
             externalLoginRecoveryUrl != null -> PlaybackErrorKind.ConfirmationRequired
@@ -82,6 +102,7 @@ internal fun PlaybackException.toPlaybackErrorInfo(): PlaybackErrorInfo {
         httpCode = httpCode,
         loginRecoveryUrl = loginRecoveryUrl,
         recoveryAction = recoveryAction,
+        rememberedMissAtMs = noPlayableSource?.rememberedMissAtMs,
     )
 }
 

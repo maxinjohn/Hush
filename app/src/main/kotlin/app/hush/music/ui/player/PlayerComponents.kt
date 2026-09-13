@@ -131,6 +131,10 @@ import app.hush.music.extensions.togglePlayPause
 import app.hush.music.extensions.toggleRepeatMode
 import app.hush.music.models.MediaMetadata
 import app.hush.music.playback.ExoDownloadService
+import app.hush.music.playback.PlaybackDelivery
+import app.hush.music.playback.PlaybackEngine
+import app.hush.music.playback.PlaybackSourceInfo
+import app.hush.music.playback.PlaybackSourceLabels
 import app.hush.music.playback.PlayerConnection
 import app.hush.music.ui.component.BottomSheetPageState
 import app.hush.music.ui.component.BottomSheetState
@@ -2283,9 +2287,13 @@ internal fun V6PortraitSingleActionRow(
                         isDownloaded -> R.drawable.offline
                         else -> R.drawable.download
                     },
+                // Spelled out deliberately: this badge means an offline copy the user asked
+                // for, which is a different thing from a SpotiFLAC track that happens to be
+                // playing out of its cache. The old wording ("Remove download") read as the
+                // same fact as the source label's "cached".
                 contentDescription =
                     stringResource(
-                        if (isDownloaded) R.string.remove_download else R.string.action_download,
+                        if (isDownloaded) R.string.playback_saved_offline_remove else R.string.action_download,
                     ),
                 tint = textBackgroundColor,
                 backgroundColor = textBackgroundColor.copy(alpha = 0.12f),
@@ -5789,10 +5797,20 @@ fun WideLandscapePlayerContent(
             }
         }
 
+    val downloadProgress by playerConnection.activeDownloadProgress.collectAsStateWithLifecycle()
     val subtitle = queueTitle ?: mediaMetadata.album?.title.orEmpty()
-    val sourceValue =
-        playbackSourceLabel?.takeIf { it.isNotBlank() }
-            ?: stringResource(R.string.playback_source_youtube)
+
+    // "Source" answers which engine produced the audio; the caption underneath answers the
+    // separate question of whether it is coming off the device or the network. Those were
+    // previously one opaque string, which made a SpotiFLAC cache hit look the same as the
+    // media3 "downloaded" badge even though they are unrelated facts.
+    val sourceInfo = remember(playbackSourceLabel) { PlaybackSourceLabels.parse(playbackSourceLabel) }
+    val sourceValue = sourceInfo.displayName()
+    val deliveryCaption =
+        downloadProgress
+            ?.takeIf { !it.fromCache && it.percent in 1..99 }
+            ?.let { stringResource(R.string.spotiflac_downloading_percent, it.percent) }
+            ?: sourceInfo.delivery.displayName()
     val audioValue =
         currentFormat?.codecLabel()?.takeIf { it.isNotBlank() }
             ?: stringResource(R.string.player_audio_stereo)
@@ -5855,6 +5873,7 @@ fun WideLandscapePlayerContent(
                         iconRes = R.drawable.mic,
                         label = stringResource(R.string.player_info_source),
                         value = sourceValue,
+                        caption = deliveryCaption,
                         modifier = Modifier.weight(1f),
                     )
                     WideLandscapeInfoTile(
@@ -6303,9 +6322,13 @@ private fun PlayerLandscapeSecondaryActions(
                 iconRes =
                     if (isDownloaded) R.drawable.offline
                     else R.drawable.download,
+                // Spelled out deliberately: this badge means an offline copy the user asked
+                // for, which is a different thing from a SpotiFLAC track that happens to be
+                // playing out of its cache. The old wording ("Remove download") read as the
+                // same fact as the source label's "cached".
                 contentDescription =
                     stringResource(
-                        if (isDownloaded) R.string.remove_download else R.string.action_download,
+                        if (isDownloaded) R.string.playback_saved_offline_remove else R.string.action_download,
                     ),
                 foreground = foreground,
                 buttonSize = buttonSize,
@@ -6401,6 +6424,7 @@ private fun WideLandscapeInfoTile(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
+    caption: String? = null,
 ) {
     Surface(
         shape = RoundedCornerShape(18.dp),
@@ -6434,7 +6458,53 @@ private fun WideLandscapeInfoTile(
                 color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                // "SpotiFLAC · qobuz-web" is longer than the tile, and a truncated engine name
+                // is worse than none: it reads as a different source. Scroll it instead.
+                modifier = Modifier.basicMarquee().fillMaxWidth(),
             )
+            caption?.let { text ->
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.65f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
+
+/**
+ * Human-readable engine + provider, e.g. "SpotiFLAC · deezer" or "YouTube · VR".
+ *
+ * The provider is what actually identifies where a lossless track came from, so it is kept
+ * visible rather than folded into a generic source name.
+ */
+@Composable
+internal fun PlaybackSourceInfo.displayName(): String =
+    when (engine) {
+        PlaybackEngine.SPOTIFLAC ->
+            provider?.let { stringResource(R.string.playback_source_spotiflac_provider, it) }
+                ?: stringResource(R.string.playback_source_spotiflac)
+        PlaybackEngine.HIRES ->
+            provider?.let { stringResource(R.string.playback_source_hires_provider, it) }
+                ?: stringResource(R.string.playback_source_hires_provider, "Lossless")
+        PlaybackEngine.YOUTUBE ->
+            provider?.let { stringResource(R.string.playback_source_youtube_client, it) }
+                ?: stringResource(R.string.playback_source_youtube)
+        // Nothing reliable is known yet. Naming an engine here would be a claim we cannot
+        // support - during the window before a resolution completes there is no source to
+        // report, and defaulting to YouTube is what made SpotiFLAC tracks read as YouTube.
+        PlaybackEngine.UNKNOWN -> stringResource(R.string.playback_source_unknown)
+    }
+
+/** How the audio is reaching the speaker, or null when that is genuinely unknown. */
+@Composable
+internal fun PlaybackDelivery?.displayName(): String? =
+    when (this) {
+        PlaybackDelivery.DEVICE_CACHE -> stringResource(R.string.playback_delivery_device_cache)
+        PlaybackDelivery.FETCHED_FOR_PLAY -> stringResource(R.string.playback_delivery_fetched_now)
+        PlaybackDelivery.LIVE_STREAM -> stringResource(R.string.playback_delivery_live_stream)
+        null -> null
+    }

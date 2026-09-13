@@ -12,17 +12,25 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import app.hush.music.MainActivity
 import timber.log.Timber
 
 object IconUtils {
     private const val DYNAMIC_ALIAS_CLASS = "MainActivityAlias"
     private const val STATIC_ALIAS_CLASS = "MainActivityStatic"
 
+    // The applicationId gets a .debug suffix, while manifest components remain
+    // under the Kotlin namespace (app.hush.music). Using context.packageName for
+    // the class name makes debug startup log an IllegalArgumentException and
+    // prevents the dynamic-icon preference from being applied.
+    private fun aliasComponent(context: Context, aliasClass: String): ComponentName =
+        ComponentName(context.packageName, "${MainActivity::class.java.packageName}.$aliasClass")
+
     private fun dynamicAlias(context: Context): ComponentName =
-        ComponentName(context.packageName, "${context.packageName}.$DYNAMIC_ALIAS_CLASS")
+        aliasComponent(context, DYNAMIC_ALIAS_CLASS)
 
     private fun staticAlias(context: Context): ComponentName =
-        ComponentName(context.packageName, "${context.packageName}.$STATIC_ALIAS_CLASS")
+        aliasComponent(context, STATIC_ALIAS_CLASS)
 
     fun isDynamicIconEnabled(context: Context): Boolean {
         val state = context.packageManager.getComponentEnabledSetting(dynamicAlias(context))

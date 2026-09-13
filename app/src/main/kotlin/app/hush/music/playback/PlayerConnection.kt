@@ -62,6 +62,7 @@ class PlayerConnection(
         )
     val mediaMetadata = service.currentMediaMetadata
     val activePlaybackClientLabel = service.activePlaybackClientLabel
+    val activeDownloadProgress = service.activeDownloadProgress
     val currentSong =
         mediaMetadata.flatMapLatest {
             database.song(it?.id)
@@ -143,11 +144,37 @@ class PlayerConnection(
         service.evictCachedAudio(mediaId)
     }
 
+    /**
+     * Plays the current track from YouTube for this one play, even though YouTube or its
+     * fallback is switched off. Offered by the player's error screen when no enabled source
+     * can serve the track; the saved source settings are not changed.
+     */
+    fun playCurrentTrackFromYouTube(): Boolean = service.playCurrentTrackFromYouTube()
+
     fun seekToNext() {
         val state = service.togetherSessionState.value as? app.hush.music.together.TogetherSessionState.Joined
         if (state?.role is app.hush.music.together.TogetherRole.Guest) {
             service.requestTogetherControl(app.hush.music.together.ControlAction.SkipNext)
             return
+        }
+        when (
+            TransportSkipPolicy.nextAction(
+                mediaItemCount = player.mediaItemCount,
+                hasNext = player.hasNextMediaItem(),
+                repeatEnabled = player.repeatMode != REPEAT_MODE_OFF,
+            )
+        ) {
+            // No timeline (restart in progress or a failed restore) and no next track
+            // are both silent no-ops for seekToNext(), which reads as a dead button.
+            TransportSkipPolicy.Action.RECOVER_QUEUE -> {
+                service.recoverQueueIfEmpty()
+                return
+            }
+            TransportSkipPolicy.Action.EXTEND_QUEUE -> {
+                service.extendQueueForSkip()
+                return
+            }
+            TransportSkipPolicy.Action.SKIP -> Unit
         }
         if (player.isCommandAvailable(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
             player.seekToNextMediaItem()
@@ -164,6 +191,10 @@ class PlayerConnection(
         val state = service.togetherSessionState.value as? app.hush.music.together.TogetherSessionState.Joined
         if (state?.role is app.hush.music.together.TogetherRole.Guest) {
             service.requestTogetherControl(app.hush.music.together.ControlAction.SkipPrevious)
+            return
+        }
+        if (TransportSkipPolicy.previousAction(player.mediaItemCount) == TransportSkipPolicy.Action.RECOVER_QUEUE) {
+            service.recoverQueueIfEmpty()
             return
         }
         if (player.isCommandAvailable(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)) {
@@ -244,8 +275,11 @@ class PlayerConnection(
     private fun updateCanSkipPreviousAndNext(timeline: Timeline? = null) {
         val t = timeline ?: player.currentTimeline
         if (t.isEmpty) {
-            canSkipPrevious.value = false
-            canSkipNext.value = false
+            // Keep the buttons live: with no timeline a press is the only way to ask
+            // for the persisted queue back. Disabling them here left the user with
+            // dead transport controls and no way to recover from the UI.
+            canSkipPrevious.value = true
+            canSkipNext.value = true
             return
         }
         val itemCount = t.windowCount

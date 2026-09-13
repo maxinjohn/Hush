@@ -35,7 +35,10 @@ import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 import javax.inject.Inject
 
-private const val SUGGESTION_DEBOUNCE_MS = 250L
+private const val SUGGESTION_DEBOUNCE_MS = 350L
+private const val MAX_HISTORY_ITEMS = 12
+private const val MAX_SUGGESTION_ITEMS = 8
+private const val MAX_RECOMMENDED_ITEMS = 12
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
@@ -57,7 +60,7 @@ class OnlineSearchSuggestionViewModel
                         if (query.isEmpty()) {
                             database.searchHistory().map { history ->
                                 SearchSuggestionViewState(
-                                    history = history,
+                                    history = history.take(MAX_HISTORY_ITEMS),
                                 )
                             }
                         } else {
@@ -67,13 +70,18 @@ class OnlineSearchSuggestionViewModel
                                 .map { it.take(3) }
                                 .map { history ->
                                     SearchSuggestionViewState(
-                                        history = history,
+                                        history = history.take(MAX_HISTORY_ITEMS),
                                         suggestions =
                                             result
                                                 ?.queries
-                                                ?.filter { query ->
-                                                    history.none { it.query == query }
-                                                }.orEmpty(),
+                                                ?.asSequence()
+                                                ?.filter { suggestion ->
+                                                    history.none { it.query == suggestion }
+                                                }
+                                                ?.distinct()
+                                                ?.take(MAX_SUGGESTION_ITEMS)
+                                                ?.toList()
+                                                .orEmpty(),
                                         items =
                                             result
                                                 ?.recommendedItems
@@ -82,7 +90,10 @@ class OnlineSearchSuggestionViewModel
                                                         HideExplicitKey,
                                                         false,
                                                     ),
-                                                )?.filterVideo(context.dataStore.get(HideVideoKey, false))
+                                                )
+                                                ?.filterVideo(context.dataStore.get(HideVideoKey, false))
+                                                ?.distinctBy { it.id }
+                                                ?.take(MAX_RECOMMENDED_ITEMS)
                                                 .orEmpty(),
                                     )
                                 }

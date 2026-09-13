@@ -74,8 +74,8 @@ android {
         applicationId = "com.spotify.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 169
-        versionName = "13.13.8"
+        versionCode = 170
+        versionName = "13.14.0"
     }
 
     flavorDimensions += "bridge"
@@ -164,9 +164,15 @@ val copyShimApks = tasks.register<Copy>("copyShimApks") {
     group = "hush"
     dependsOn(":waze-shim:packageShimApks")
     from(rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip"))
-    into(rootProject.file("app/src/mobile/assets"))
+    // NOTE: Gradle Copy keeps a single destination; the last into() would win.
+    // So copy to main here and mirror to mobile in doLast so both asset dirs
+    // (mobile flavor overrides main) always carry the same fresh zip.
     into(rootProject.file("app/src/main/assets"))
     doLast {
+        val zip = rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip")
+        val target = rootProject.file("app/src/mobile/assets/waze-shims.zip")
+        target.parentFile.mkdirs()
+        zip.copyTo(target, overwrite = true)
         println("Copied waze-shims.zip to app/src/mobile/assets/ and app/src/main/assets/")
     }
 }

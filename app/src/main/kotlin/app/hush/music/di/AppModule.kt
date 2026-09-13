@@ -181,8 +181,11 @@ object AppModule {
         databaseProvider: DatabaseProvider,
     ): Cache =
         LazyCache {
+            // The download cache is a *cache*: fragments, keyed by uid, never the user's
+            // music folder. Downloads themselves are ordinary files written to the downloads
+            // folder by DownloadUtil.
             SimpleCache(
-                StorageLocationRepository.cacheDirectory(context, StorageFolderKind.DOWNLOADS),
+                StorageLocationRepository.downloadCacheDirectory(context),
                 NoOpCacheEvictor(),
                 databaseProvider,
             )

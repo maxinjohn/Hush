@@ -1,17 +1,26 @@
 package app.hush.music.spotiflac
 
+import android.net.Uri
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import timber.log.Timber
+import java.io.File
+import java.io.FileOutputStream
+import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -130,32 +139,40 @@ class SpotiFLACClient @Inject constructor(
     }
 
     private suspend fun handleRelayError(body: String, statusCode: Int) {
-        // 401/403 means the session is invalid — always clear regardless of body content
-        if (statusCode == 401 || statusCode == 403) {
-            Timber.tag(TAG).w("Auth failed ($statusCode), clearing session")
-            sessionManager.clearSession()
-            return
-        }
-
         val errorResponse = try {
             json.decodeFromString<RelayErrorResponse>(body)
         } catch (_: Exception) {
+            RelayErrorResponse()
+        }
+        val code = errorResponse.code?.trim()?.uppercase()
+        val error = errorResponse.error?.trim()?.uppercase()
+
+        // Current SpotiFLAC-Mobile only invalidates a session for the gateway's
+        // canonical SESSION_INVALID response. Provider auth failures, rate limits,
+        // and REQUEST_AUTH_INVALID must not erase a valid Turnstile session; doing
+        // so caused Hush to re-authenticate on every playback attempt.
+        if (code == "SESSION_INVALID" || error == "SESSION_INVALID") {
+            Timber.tag(TAG).w("Gateway reported SESSION_INVALID ($statusCode), clearing session")
+            sessionManager.clearSession()
+            return
+        }
+        if (code == "REQUEST_AUTH_INVALID" || error == "REQUEST_AUTH_INVALID") {
+            Timber.tag(TAG).w("Gateway rejected this request's auth contract ($statusCode); preserving session")
             return
         }
 
         when {
-            errorResponse.code == "SESSION_INVALID" || errorResponse.code == "REQUEST_AUTH_INVALID" -> {
-                Timber.tag(TAG).w("Session invalid (code=${errorResponse.code}), clearing")
-                sessionManager.clearSession()
-            }
-            errorResponse.code == "VERIFY_REQUIRED" -> {
-                Timber.tag(TAG).w("Verification required")
+            code == "VERIFY_REQUIRED" || error == "VERIFY_REQUIRED" -> {
+                Timber.tag(TAG).w("Verification required ($statusCode); preserving session")
             }
             statusCode == 429 -> {
-                Timber.tag(TAG).w("Rate limited (429)")
+                Timber.tag(TAG).w("Rate limited (429); preserving session")
             }
             statusCode >= 500 -> {
-                Timber.tag(TAG).w("Server error: $statusCode")
+                Timber.tag(TAG).w("Server error: $statusCode; preserving session")
+            }
+            statusCode == 401 || statusCode == 403 -> {
+                Timber.tag(TAG).w("Request rejected ($statusCode) without a canonical session-invalid code; preserving session")
             }
         }
     }
@@ -313,7 +330,7 @@ class SpotiFLACClient @Inject constructor(
         }
 
         val encodedQuery = java.net.URLEncoder.encode("bohemian rhapsody", "UTF-8").replace("+", "%20")
-        val path = "/search?q=$encodedQuery&source=$source"
+        val path = "/health?source=$source"
 
         val response = getSignedRequest(path)
         val body = response.bodyAsText()
@@ -322,12 +339,11 @@ class SpotiFLACClient @Inject constructor(
         Timber.tag(TAG).d("Test response for $source: status=$status, body=${body.take(300)}")
 
         if (status == 401 || status == 403) {
-            // Do NOT call handleRelayError or bootstrap here — they destroy the
-            // session. A 401 on the test endpoint may be a signing issue; the
-            // session may still work fine for playback. Just report the failure.
+            // Keep the session intact for diagnostics, but report the relay body.
+            // Playback and the test endpoint can have different authorization requirements.
             val sess = sessionManager.currentSession
             val diag = buildString {
-                append("401 on test for $source\n")
+                append("$status on test for $source\n")
                 append("  sessionId=${sess?.sessionId ?: "null"}\n")
                 append("  secret_len=${sess?.sessionSecret?.length ?: 0}\n")
                 append("  expires=${sess?.expiresAt ?: 0}\n")
@@ -352,6 +368,14 @@ class SpotiFLACClient @Inject constructor(
                 body.contains("REQUEST_AUTH_INVALID", ignoreCase = true)
         if (bodyIndicatesInvalidSession) {
             throw SpotiFLACException("Session invalid for source $source — re-authenticate in Settings")
+        }
+
+        // /health is a connectivity check and intentionally returns a status object,
+        // not search results. A successful health response means the source is reachable.
+        if (status in 200..299 && body.contains("\"status\"", ignoreCase = true)) {
+            return@runCatching listOf(
+                SpotiFLACSearchResult(title = "__health_ok__", id = source),
+            )
         }
 
         val results = parseSearchResults(body)
@@ -445,4 +469,7 @@ class SpotiFLACClient @Inject constructor(
     }
 }
 
-class SpotiFLACException(message: String) : Exception(message)
+class SpotiFLACException(
+    message: String,
+    cause: Throwable? = null,
+) : Exception(message, cause)

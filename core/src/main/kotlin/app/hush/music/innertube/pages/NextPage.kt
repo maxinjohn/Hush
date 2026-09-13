@@ -53,7 +53,7 @@ object NextPage {
                     }?.let {
                         Album(
                             name = it.text,
-                            id = it.navigationEndpoint?.browseEndpoint?.browseId ?: return@let null,
+                            id = it.navigationEndpoint?.browseEndpoint?.browseId!!,
                         )
                     },
             duration =

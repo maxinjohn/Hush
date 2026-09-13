@@ -6,6 +6,7 @@ import app.hush.music.eq.HushEqualizerService
 import app.hush.music.eq.data.FilterType
 import app.hush.music.eq.data.ParametricEQBand
 import app.hush.music.eq.data.SavedEQProfile
+import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,9 +47,44 @@ class AxionEqViewModel(
             profiles.filter { it.isCustom && it.id != "hush_tuning" }
         }.stateIn(scope, SharingStarted.Lazily, emptyList())
 
+    val activeProfileId: StateFlow<String?> =
+        eqProfileRepository.activeProfile.map { it?.id }
+            .stateIn(scope, SharingStarted.Lazily, null)
+
     init {
         if (_enabled.value) {
             applyToService()
+        }
+    }
+
+    /**
+     * Import a profile (e.g. AutoEq-generated) and activate it immediately.
+     */
+    fun importProfile(profile: SavedEQProfile) {
+        scope.launch {
+            eqProfileRepository.saveProfile(profile)
+            applySavedProfile(profile)
+        }
+    }
+
+    /**
+     * Apply a saved profile (custom or AutoEq-generated) directly.
+     */
+    fun applySavedProfile(profile: SavedEQProfile) {
+        scope.launch {
+            eqProfileRepository.setActiveProfile(profile.id)
+            equalizerService.applyProfile(profile)
+            // Sync the 10-band view from the profile bands
+            val newGains = FloatArray(10) { 0f }
+            for (band in profile.bands) {
+                val idx = bandFrequencies.indexOfFirst { abs(it - band.frequency) < 1.0 }
+                if (idx >= 0) newGains[idx] = (band.gain * 50.0).toFloat()
+            }
+            _bandGains.value = newGains
+            val editor = prefs.edit()
+            newGains.forEachIndexed { index, f -> editor.putFloat("band_$index", f) }
+            editor.apply()
+            _isDirty.value = false
         }
     }
 

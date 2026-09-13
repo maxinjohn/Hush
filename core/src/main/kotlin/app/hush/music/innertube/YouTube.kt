@@ -26,7 +26,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import app.hush.music.innertube.models.AccountChannel
 import app.hush.music.innertube.models.AccountInfo
@@ -79,7 +78,6 @@ import app.hush.music.innertube.pages.ArtistItemsPageLayout
 import app.hush.music.innertube.pages.ArtistPage
 import app.hush.music.innertube.pages.BrowseResult
 import app.hush.music.innertube.pages.ChartsPage
-import app.hush.music.innertube.pages.CommentsPage
 import app.hush.music.innertube.pages.ExplorePage
 import app.hush.music.innertube.pages.HistoryPage
 import app.hush.music.innertube.pages.HomePage
@@ -136,22 +134,10 @@ object YouTube {
     var authState: PlaybackAuthState
         get() = mutableAuthState.value
         set(value) {
-            synchronized(authStateLock) {
-                applyAuthState(value)
-            }
+            val normalized = value.normalized()
+            mutableAuthState.value = normalized
+            innerTube.applyAuthState(normalized)
         }
-
-    private fun applyAuthState(value: PlaybackAuthState) {
-        val normalized = value.normalized()
-        mutableAuthState.value = normalized
-        innerTube.applyAuthState(normalized)
-    }
-
-    private inline fun updateAuthState(transform: (PlaybackAuthState) -> PlaybackAuthState) {
-        synchronized(authStateLock) {
-            applyAuthState(transform(mutableAuthState.value))
-        }
-    }
 
     var locale: YouTubeLocale
         get() = innerTube.locale
@@ -161,37 +147,37 @@ object YouTube {
     var visitorData: String?
         get() = authState.visitorData
         set(value) {
-            updateAuthState { it.copy(visitorData = value) }
+            authState = authState.copy(visitorData = value)
         }
     var dataSyncId: String?
         get() = authState.dataSyncId
         set(value) {
-            updateAuthState { it.copy(dataSyncId = value) }
+            authState = authState.copy(dataSyncId = value)
         }
     var cookie: String?
         get() = authState.cookie
         set(value) {
-            updateAuthState { it.copy(cookie = value) }
+            authState = authState.copy(cookie = value)
         }
     var poToken: String?
         get() = authState.poToken
         set(value) {
-            updateAuthState { it.copy(poToken = value) }
+            authState = authState.copy(poToken = value)
         }
     var webClientPoTokenEnabled: Boolean
         get() = authState.webClientPoTokenEnabled
         set(value) {
-            updateAuthState { it.copy(webClientPoTokenEnabled = value) }
+            authState = authState.copy(webClientPoTokenEnabled = value)
         }
     var poTokenGvs: String?
         get() = authState.poTokenGvs
         set(value) {
-            updateAuthState { it.copy(poTokenGvs = value) }
+            authState = authState.copy(poTokenGvs = value)
         }
     var poTokenPlayer: String?
         get() = authState.poTokenPlayer
         set(value) {
-            updateAuthState { it.copy(poTokenPlayer = value) }
+            authState = authState.copy(poTokenPlayer = value)
         }
 
     /** Updates Web PoTokens only when the session that minted them is still active. */
@@ -744,8 +730,7 @@ object YouTube {
                                     ?.title
                                     ?.runs
                                     ?.firstOrNull()
-                                    ?.text
-                                    ?: "Unknown Artist",
+                                    ?.text!!,
                         thumbnail =
                             immersiveHeader?.thumbnail?.musicThumbnailRenderer?.getThumbnailUrl()
                                 ?: response.header
@@ -833,8 +818,7 @@ object YouTube {
                         ?.content
                         ?.sectionListRenderer
                         ?.contents
-                        ?.mapNotNull(ArtistPage::fromSectionListRendererContent)
-                        .orEmpty(),
+                        ?.mapNotNull(ArtistPage::fromSectionListRendererContent)!!,
                 description =
                     immersiveHeader
                         ?.description
@@ -1304,65 +1288,41 @@ object YouTube {
         continuation: String? = null,
         browseId: String? = null,
         params: String? = null,
-    ): Result<HomePage> {
-        if (continuation != null) {
-            return homeContinuation(continuation)
-        }
-
-        // Try logged-in first, fall back to anonymous if sections are empty or parsing fails
-        val result = tryHomePage(browseId, params, setLogin = true)
-        if (result.isSuccess && result.getOrNull()?.sections?.isNotEmpty() == true) {
-            return result
-        }
-        // Retry without login
-        return tryHomePage(browseId, params, setLogin = false)
-    }
-
-    private suspend fun tryHomePage(
-        browseId: String?,
-        params: String?,
-        setLogin: Boolean,
     ): Result<HomePage> =
         runCatching {
-            val resolvedBrowseId = browseId?.takeIf { it.isNotBlank() } ?: "FEmusic_home"
-            val response = innerTube.browse(WEB_REMIX, browseId = resolvedBrowseId, params = params, setLogin = setLogin).body<BrowseResponse>()
+            if (continuation != null) {
+                return@runCatching homeContinuation(continuation).getOrThrow()
+            }
 
-            // Try multiple response structure paths
-            val sectionListRender =
-                response.contents?.sectionListRenderer
-                    ?: response.contents?.singleColumnBrowseResultsRenderer
-                        ?.tabs?.firstOrNull()
-                        ?.tabRenderer?.content
-                        ?.sectionListRenderer
-                    ?: response.contents?.twoColumnBrowseResultsRenderer
-                        ?.tabs?.firstOrNull()
-                        ?.tabRenderer?.content
-                        ?.sectionListRenderer
+            val resolvedBrowseId = browseId?.takeIf { it.isNotBlank() } ?: "FEmusic_home"
+            val response = innerTube.browse(WEB_REMIX, browseId = resolvedBrowseId, params = params, setLogin = true).body<BrowseResponse>()
             val continuation =
-                sectionListRender
+                response.contents
+                    ?.singleColumnBrowseResultsRenderer
+                    ?.tabs
+                    ?.firstOrNull()
+                    ?.tabRenderer
+                    ?.content
+                    ?.sectionListRenderer
                     ?.continuations
                     ?.getContinuation()
+            val sectionListRender =
+                response.contents
+                    ?.singleColumnBrowseResultsRenderer
+                    ?.tabs
+                    ?.firstOrNull()
+                    ?.tabRenderer
+                    ?.content
+                    ?.sectionListRenderer
             val sections =
                 sectionListRender
-                    ?.contents
-                    ?.flatMap { content ->
-                        buildList {
-                            content.musicCarouselShelfRenderer
-                                ?.let { HomePage.Section.fromMusicCarouselShelfRenderer(it) }
-                                ?.let(::add)
-                            content.itemSectionRenderer?.contents?.forEach { nested ->
-                                val items = nested.musicShelfRenderer?.contents
-                                    ?.mapNotNull { it.musicResponsiveListItemRenderer }
-                                    ?.mapNotNull { SearchPage.toYTItem(it) }
-                                    .orEmpty()
-                                if (items.isNotEmpty()) {
-                                    add(HomePage.Section(title = "", label = null, thumbnail = null, endpoint = null, items = items))
-                                }
-                            }
-                        }
-                    }.orEmpty()
+                    ?.contents!!
+                    .mapNotNull { it.musicCarouselShelfRenderer }
+                    .mapNotNull {
+                        HomePage.Section.fromMusicCarouselShelfRenderer(it)
+                    }.toMutableList()
             val chips =
-                sectionListRender?.header
+                sectionListRender.header
                     ?.chipCloudRenderer
                     ?.chips
                     ?.mapNotNull { HomePage.Chip.fromChipCloudChipRenderer(it) }
@@ -1553,9 +1513,8 @@ object YouTube {
                 ?.tabRenderer
                 ?.content
                 ?.sectionListRenderer
-                ?.contents
-                ?.mapNotNull(MoodAndGenres.Companion::fromSectionListRendererContent)
-                .orEmpty()
+                ?.contents!!
+                .mapNotNull(MoodAndGenres.Companion::fromSectionListRendererContent)
         }
 
     suspend fun browse(
@@ -2926,8 +2885,7 @@ object YouTube {
                         ?.content
                         ?.musicQueueRenderer
                         ?.content
-                        ?.playlistPanelRenderer
-                    ?: throw IllegalStateException("PLAYLIST_QUEUE_MISSING")
+                        ?.playlistPanelRenderer!!
             val title =
                 response.contents.singleColumnMusicWatchNextResultsRenderer
                     ?.tabbedRenderer
@@ -3035,52 +2993,6 @@ object YouTube {
                 ?.text
         }
 
-    /**
-     * Fetches YouTube comments for a video.
-     *
-     * Comments are not part of the YouTube Music surface, so this uses the plain
-     * WEB client. The first call locates the comment-section continuation token
-     * in the watch-next response; subsequent calls page through comments.
-     */
-    suspend fun comments(
-        videoId: String,
-        continuation: String? = null,
-    ): Result<CommentsPage> =
-        runCatching {
-            val responseText =
-                innerTube
-                    .next(
-                        WEB,
-                        videoId = videoId,
-                        playlistId = null,
-                        playlistSetVideoId = null,
-                        index = null,
-                        params = null,
-                        continuation = continuation,
-                    ).bodyAsText()
-            val root = Json.parseToJsonElement(responseText).jsonObject
-            if (continuation == null) {
-                val token = CommentsPage.findCommentSectionToken(root)
-                    ?: throw IllegalStateException("COMMENTS_SECTION_MISSING")
-                val commentsResponseText =
-                    innerTube
-                        .next(
-                            WEB,
-                            videoId = null,
-                            playlistId = null,
-                            playlistSetVideoId = null,
-                            index = null,
-                            params = null,
-                            continuation = token,
-                        ).bodyAsText()
-                CommentsPage.fromNextResponse(Json.parseToJsonElement(commentsResponseText).jsonObject)
-            } else {
-                CommentsPage.fromNextResponse(root)
-            }
-        }
-
-    // Force recompilation marker: 2026-08-26
-
     suspend fun related(endpoint: BrowseEndpoint): Result<RelatedPage> =
         runCatching {
             val response = innerTube.browse(WEB_REMIX, endpoint.browseId).body<BrowseResponse>()
@@ -3174,7 +3086,7 @@ object YouTube {
                             .trim('♪')
                             .trim(' ')
                     "[%02d:%02d.%03d]$text".format(time / 60000, (time / 1000) % 60, time % 1000)
-                }.orEmpty()
+                }!!
         }
 
     suspend fun visitorData(): Result<String> =

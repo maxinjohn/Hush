@@ -4,6 +4,7 @@ import app.hush.music.innertube.models.response.PlayerResponse
 import app.hush.music.utils.YTPlayerUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import timber.log.Timber
 
 object SpotiFLACPlaybackResolver {
@@ -37,7 +38,7 @@ object SpotiFLACPlaybackResolver {
         val sourcesToTry = if (enabledSourceIds.isNotEmpty()) {
             enabledSourceIds
         } else {
-            listOf("tidal", "deezer", "qobuz", "amazon", "soundcloud", "apple-music")
+            listOf("tidal-web", "deezer", "qobuz-web", "amazon", "soundcloud", "apple-music", "spotify-web")
         }
 
         for (sourceId in sourcesToTry) {
@@ -97,19 +98,23 @@ object SpotiFLACPlaybackResolver {
         quality: Quality,
         sourceId: String?,
     ): SpotiFLACTrackResponse? {
+        // Each lookup is a suspend network call, so `runCatching` here would turn a
+        // cancelled request into "this source had nothing" and let the quality and source
+        // loops carry on querying for a resolve nobody is waiting for. An empty result and
+        // a cancelled one are different answers; only the first is a reason to try again.
         if (!identity.spotifyTrackId.isNullOrBlank()) {
-            val result = runCatching {
+            val result = attempt("spotifyId") {
                 client.resolveTrack(identity.spotifyTrackId, quality.apiValue, sourceId).getOrNull()
-            }.getOrNull()
+            }
             if (result != null && !result.url.isNullOrBlank()) {
                 return result
             }
         }
 
         if (!identity.isrc.isNullOrBlank()) {
-            val result = runCatching {
+            val result = attempt("isrc") {
                 client.resolveByISRC(identity.isrc, quality.apiValue, sourceId).getOrNull()
-            }.getOrNull()
+            }
             if (result != null && !result.url.isNullOrBlank()) {
                 return result
             }
@@ -117,16 +122,16 @@ object SpotiFLACPlaybackResolver {
 
         val searchQuery = buildSearchQuery(identity)
         if (searchQuery.isNotBlank()) {
-            val searchResults = runCatching {
+            val searchResults = attempt("search") {
                 client.search(searchQuery, sourceId).getOrNull()
-            }.getOrNull()
+            }
 
             if (!searchResults.isNullOrEmpty()) {
                 val bestMatch = findBestMatch(searchResults, identity)
                 if (bestMatch != null && !bestMatch.id.isNullOrBlank()) {
-                    val result = runCatching {
+                    val result = attempt("bestMatch") {
                         client.resolveTrack(bestMatch.id, quality.apiValue, sourceId).getOrNull()
-                    }.getOrNull()
+                    }
                     if (result != null && !result.url.isNullOrBlank()) {
                         return result
                     }
@@ -136,6 +141,25 @@ object SpotiFLACPlaybackResolver {
 
         return null
     }
+
+    /**
+     * Runs one lookup, keeping cancellation out of the "nothing found" answer.
+     *
+     * [step] is only for the log, so a source that keeps failing is identifiable.
+     */
+    private suspend fun <T> attempt(
+        step: String,
+        block: suspend () -> T?,
+    ): T? =
+        try {
+            block()
+        } catch (cancellation: CancellationException) {
+            Timber.tag(TAG).d("SpotiFLAC %s lookup cancelled", step)
+            throw cancellation
+        } catch (e: Exception) {
+            Timber.tag(TAG).d(e, "SpotiFLAC %s lookup failed", step)
+            null
+        }
 
     private fun buildSearchQuery(identity: TrackIdentity): String {
         val title = identity.title
@@ -203,6 +227,15 @@ object SpotiFLACPlaybackResolver {
         val streamUrl = response.url
             ?: return Result.failure(SpotiFLACException("No stream URL in response"))
 
+        // The current SpotiFLAC Mobile runtime returns a local download result,
+        // not a playable URL. Keep this guard explicit so a future resolver
+        // cannot accidentally hand a file path or JSON endpoint to Media3 as a
+        // network stream.
+        val normalizedUrl = streamUrl.trim()
+        if (!normalizedUrl.startsWith("https://") && !normalizedUrl.startsWith("http://")) {
+            return Result.failure(SpotiFLACException("SpotiFLAC returned a non-stream URL"))
+        }
+
         val mimeType = when (response.format?.lowercase()) {
             "flac" -> "audio/flac"
             "opus" -> "audio/opus"
@@ -215,7 +248,7 @@ object SpotiFLACPlaybackResolver {
 
         val format = PlayerResponse.StreamingData.Format(
             itag = SPOTIFLAC_ITAG,
-            url = streamUrl,
+            url = normalizedUrl,
             mimeType = mimeType,
             bitrate = bitrate,
             width = null,
@@ -240,7 +273,7 @@ object SpotiFLACPlaybackResolver {
             videoDetails = null,
             playbackTracking = null,
             format = format,
-            streamUrl = streamUrl,
+            streamUrl = normalizedUrl,
             streamExpiresInSeconds = 3600,
             authFingerprint = SPOTIFLAC_AUTH_FINGERPRINT,
             playbackClientLabel = "SpotiFLAC - ${response.source ?: response.quality ?: "Lossless"}",

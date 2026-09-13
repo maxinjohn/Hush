@@ -122,3 +122,13 @@ core.*
 /SOUL.md
 /string_cleaner.py
 /.codexignore
+
+# Local agent scratch / verification artifacts (never shipped)
+/.freebuff/
+/*.png
+/*.html
+
+# Upstream reference checkouts used while porting (not part of the build)
+/SpotiFLAC-Mobile/
+/SpotiFLAC-Next/
+/SpotiFLAC-Module-Version/

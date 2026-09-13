@@ -10,7 +10,7 @@ class WazeRedirectActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         try {
-            val hushIntent = packageManager.getLaunchIntentForPackage("app.hush.music")
+            val hushIntent = packageManager.getLaunchIntentForPackage(HushPackageResolver.resolve(this))
             if (hushIntent == null) {
                 Toast.makeText(this, "Hush Music is not installed", Toast.LENGTH_SHORT).show()
             } else {

@@ -23,6 +23,7 @@ import app.hush.music.db.entities.Song
 import app.hush.music.di.DownloadCache
 import app.hush.music.di.PlayerCache
 import app.hush.music.extensions.filterExplicit
+import app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridge
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 import java.time.LocalDateTime
@@ -36,6 +37,7 @@ class CachePlaylistViewModel
         private val database: MusicDatabase,
         @PlayerCache private val playerCache: Cache,
         @DownloadCache private val downloadCache: Cache,
+        private val spotiflacRuntime: SpotiFLACNativeRuntimeBridge,
     ) : ViewModel() {
         private val _cachedSongs = MutableStateFlow<List<Song>>(emptyList())
         val cachedSongs: StateFlow<List<Song>> = _cachedSongs
@@ -50,7 +52,16 @@ class CachePlaylistViewModel
                     val hideExplicit = context.dataStore.get(HideExplicitKey, false)
                     val cachedIds = playerCache.keys.toSet()
                     val downloadedIds = downloadCache.keys.toSet()
-                    val pureCacheIds = cachedIds.subtract(downloadedIds)
+                    // SpotiFLAC tracks are cached in their own store as complete local files:
+                    // playback reads them directly and never copies them into Media3's song
+                    // cache, so they would otherwise be missing from this list entirely. The
+                    // download store is subtracted from them for the same reason it is
+                    // subtracted from the song cache: those belong to the downloads list.
+                    val spotiflacCachedIds =
+                        runCatching { spotiflacRuntime.cachedPlaybackMediaIds() }
+                            .getOrDefault(emptySet())
+                            .subtract(downloadedIds)
+                    val pureCacheIds = cachedIds.subtract(downloadedIds) + spotiflacCachedIds
 
                     val songs =
                         if (pureCacheIds.isNotEmpty()) {
@@ -61,6 +72,7 @@ class CachePlaylistViewModel
 
                     val completeSongs =
                         songs.filter {
+                            if (it.song.id in spotiflacCachedIds) return@filter true
                             val contentLength = it.format?.contentLength
                             contentLength != null && playerCache.isCached(it.song.id, 0, contentLength)
                         }
@@ -95,5 +107,8 @@ class CachePlaylistViewModel
 
         fun removeSongFromCache(songId: String) {
             playerCache.removeResource(songId)
+            // Both stores are caches of the same song, so removing it from the list has to
+            // clear whichever one actually holds it.
+            runCatching { spotiflacRuntime.removeCachedPlaybackForMediaId(songId) }
         }
     }

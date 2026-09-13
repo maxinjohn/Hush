@@ -12,7 +12,7 @@ class ShimLauncherActivity : Activity() {
         try {
             val intent = Intent(Intent.ACTION_MAIN).apply {
                 addCategory(Intent.CATEGORY_LAUNCHER)
-                component = ComponentName("app.hush.music", "app.hush.music.MainActivity")
+                component = ComponentName(HushPackageResolver.resolve(this@ShimLauncherActivity), "app.hush.music.MainActivity")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }

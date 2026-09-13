@@ -192,3 +192,8 @@
     public static **[] values();
     public static ** valueOf(java.lang.String);
 }
+
+# Upstream SpotiFLAC Go runtime (gomobile AAR). Hush invokes Gobackend via
+# reflection, and gomobile's binder resolves generated proxy classes by name.
+-keep class gobackend.** { *; }
+-dontwarn gobackend.**

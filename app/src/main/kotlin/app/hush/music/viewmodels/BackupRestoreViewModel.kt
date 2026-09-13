@@ -662,62 +662,66 @@ class BackupRestoreViewModel
 
                             val firstRecord = iterator.next()
                             val normalizedHeader = firstRecord.map(::normalizeCsvHeaderCell)
-
-                            val titleIndex =
+                            val hasHeader = normalizedHeader.any { it == "title" || it == "tracktitle" || it == "songtitle" }
+                            val titleIndex = if (hasHeader) {
                                 normalizedHeader.indexOfFirst { it == "title" || it == "tracktitle" || it == "songtitle" }
-                            val artistIndex =
+                                    .takeIf { it >= 0 } ?: 0
+                            } else {
+                                0
+                            }
+                            val artistIndex = if (hasHeader) {
                                 normalizedHeader.indexOfFirst { it == "artist" || it == "artists" || it == "artistname" }
-
-                            val hasHeader = titleIndex >= 0 && artistIndex >= 0
-                            val resolvedTitleIndex = if (hasHeader) titleIndex else 0
-                            val resolvedArtistIndex = if (hasHeader) artistIndex else 1
+                                    .takeIf { it >= 0 } ?: 1
+                            } else {
+                                1
+                            }
+                            val idIndex = if (hasHeader) {
+                                normalizedHeader.indexOfFirst {
+                                    it == "youtubevideoid" || it == "youtubeid" || it == "videoid" || it == "id"
+                                }
+                            } else {
+                                3
+                            }
 
                             fun addFromRecord(record: List<String>) {
-                                val titleRaw = record.getOrNull(resolvedTitleIndex).orEmpty()
-                                val artistRaw = record.getOrNull(resolvedArtistIndex).orEmpty()
-
-                                val title = titleRaw.trim().trimStart('\uFEFF')
+                                if (out.size >= MAX_PLAYLIST_IMPORT_SONGS) return
+                                val title = record.getOrNull(titleIndex).orEmpty().trim().trimStart('\uFEFF')
                                 if (title.isBlank()) return
-
-                                val artistStr = artistRaw.trim()
-                                val artists =
-                                    artistStr
-                                        .split(';', '|')
-                                        .map { it.trim() }
-                                        .filter { it.isNotEmpty() }
-                                        .map { ArtistEntity(id = "", name = it) }
-
+                                val artistStr = record.getOrNull(artistIndex).orEmpty().trim()
+                                val artists = artistStr
+                                    .split(';', '|')
+                                    .map(String::trim)
+                                    .filter(String::isNotBlank)
+                                    .map { ArtistEntity(id = "", name = it) }
+                                val importedId = record.getOrNull(idIndex).orEmpty().trim()
                                 out.add(
                                     Song(
-                                        song = SongEntity(id = "", title = title),
-                                        artists = if (artists.isEmpty()) listOf(ArtistEntity("", "")) else artists,
+                                        song = SongEntity(
+                                            id = importedId.takeIf(::isLikelyYouTubeVideoId).orEmpty(),
+                                            title = title,
+                                        ),
+                                        artists = artists.ifEmpty { listOf(ArtistEntity("", "")) },
                                     ),
                                 )
                             }
 
-                            if (!hasHeader) {
-                                addFromRecord(firstRecord)
-                            }
-                            while (iterator.hasNext()) {
+                            if (!hasHeader) addFromRecord(firstRecord)
+                            while (iterator.hasNext() && out.size < MAX_PLAYLIST_IMPORT_SONGS) {
                                 addFromRecord(iterator.next())
                             }
                         }
-                    }.onFailure {
-                        reportException(it)
-                    }
+                    }.onFailure { reportException(it) }
 
                     out
                 }
 
             if (songs.isEmpty()) {
-                Toast
-                    .makeText(
-                        context,
-                        "No songs found. Invalid file, or perhaps no song matches were found.",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                Toast.makeText(
+                    context,
+                    "No songs found. Invalid file, or perhaps no song matches were found.",
+                    Toast.LENGTH_SHORT,
+                ).show()
             }
-
             return songs
         }
 
@@ -728,52 +732,79 @@ class BackupRestoreViewModel
             val songs =
                 withContext(Dispatchers.IO) {
                     val out = ArrayList<Song>()
-
                     runCatching {
-                        context.applicationContext.contentResolver.openInputStream(uri)?.use { stream ->
-                            val lines = stream.bufferedReader().readLines()
-                            if (lines.firstOrNull()?.startsWith("#EXTM3U") == true) {
-                                lines.forEach { rawLine ->
-                                    if (rawLine.startsWith("#EXTINF:")) {
-                                        val artists =
-                                            rawLine
-                                                .substringAfter("#EXTINF:")
-                                                .substringAfter(',')
-                                                .substringBefore(" - ")
-                                                .split(';')
-                                        val title =
-                                            rawLine
-                                                .substringAfter("#EXTINF:")
-                                                .substringAfter(',')
-                                                .substringAfter(" - ")
+                        context.applicationContext.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+                            var pendingTitle: String? = null
+                            var pendingArtists: List<String> = emptyList()
+                            for (rawLine in reader.lineSequence()) {
+                                if (out.size >= MAX_PLAYLIST_IMPORT_SONGS) break
+                                val line = rawLine.trim().trimStart('\uFEFF')
+                                if (line.isBlank() || line.startsWith("#EXTM3U", ignoreCase = true)) continue
 
-                                        out.add(
-                                            Song(
-                                                song = SongEntity(id = "", title = title),
-                                                artists = artists.map { ArtistEntity("", it) },
-                                            ),
-                                        )
+                                if (line.startsWith("#EXTINF:", ignoreCase = true)) {
+                                    val display = line.substringAfter(',', "").trim()
+                                    val separator = display.lastIndexOf(" - ")
+                                    if (separator > 0) {
+                                        pendingArtists = display.substring(0, separator).split(';')
+                                            .map(String::trim)
+                                            .filter(String::isNotBlank)
+                                        pendingTitle = display.substring(separator + 3).trim()
+                                    } else {
+                                        pendingArtists = emptyList()
+                                        pendingTitle = display
                                     }
+                                    continue
                                 }
+                                if (line.startsWith('#')) continue
+
+                                val youtubeId = extractYouTubeVideoId(line)
+                                val title = pendingTitle?.takeIf(String::isNotBlank)
+                                    ?: youtubeId
+                                    ?: line.substringAfterLast('/').substringBefore('?').ifBlank { line }
+                                val artists = pendingArtists.map { ArtistEntity("", it) }
+                                out.add(
+                                    Song(
+                                        song = SongEntity(
+                                            id = youtubeId.orEmpty(),
+                                            title = title,
+                                        ),
+                                        artists = artists.ifEmpty { listOf(ArtistEntity("", "")) },
+                                    ),
+                                )
+                                pendingTitle = null
+                                pendingArtists = emptyList()
                             }
                         }
-                    }.onFailure {
-                        reportException(it)
-                    }
-
+                    }.onFailure { reportException(it) }
                     out
                 }
 
             if (songs.isEmpty()) {
-                Toast
-                    .makeText(
-                        context,
-                        "No songs found. Invalid file, or perhaps no song matches were found.",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                Toast.makeText(
+                    context,
+                    "No songs found. Invalid file, or perhaps no song matches were found.",
+                    Toast.LENGTH_SHORT,
+                ).show()
             }
-
             return songs
+        }
+
+        private fun isLikelyYouTubeVideoId(value: String): Boolean =
+            value.matches(Regex("[A-Za-z0-9_-]{11}"))
+
+        private fun extractYouTubeVideoId(value: String): String? {
+            val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return null
+            val host = uri.host?.lowercase() ?: ""
+            val candidate = when {
+                host == "youtu.be" || host.endsWith(".youtu.be") -> uri.pathSegments.firstOrNull()
+                host == "youtube.com" || host.endsWith(".youtube.com") || host == "music.youtube.com" ->
+                    uri.getQueryParameter("v") ?: uri.pathSegments.let { segments ->
+                        val index = segments.indexOfFirst { it.equals("shorts", true) || it.equals("embed", true) || it.equals("live", true) }
+                        segments.getOrNull(index + 1)
+                    }
+                else -> null
+            }
+            return candidate?.takeIf(::isLikelyYouTubeVideoId)
         }
 
         suspend fun validateBackup(
@@ -844,6 +875,7 @@ class BackupRestoreViewModel
             const val SETTINGS_FILENAME = "settings.preferences_pb"
             const val SETTINGS_XML_FILENAME = "settings.xml"
             private const val BUFFER_SIZE = 64 * 1024
+            private const val MAX_PLAYLIST_IMPORT_SONGS = 10_000
 
             val ACCOUNT_PREF_KEYS: Set<String> =
                 setOf(

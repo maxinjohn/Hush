@@ -504,7 +504,6 @@ suspend fun playerResponseForPlayback(
         networkMetered: Boolean? = null,
         fastResolution: Boolean = true,
         context: Context? = null,
-        parallelFetch: Boolean = false,
     ): Result<PlaybackData> =
         runCatching {
             if (context != null) {
@@ -1512,10 +1511,27 @@ suspend fun playerResponseForPlayback(
      */
     private fun getSignatureTimestampOrNull(videoId: String): Int? {
         val remoteConfig = CipherConfigFetcher.getConfigSync()
-        val remoteTs = remoteConfig.signatureTimestamp
-        if (remoteTs != null && remoteTs > 0) {
-            Timber.tag(logTag).i("Using remote cipher config signature timestamp: $remoteTs")
-            return remoteTs
+        val localTimestamp = runCatching {
+            NewPipeUtils.getSignatureTimestamp(videoId).getOrNull()
+        }.getOrNull()
+        val effectiveRemoteTimestamp = RemoteCipherConfig.effectiveSignatureTimestamp(
+            config = remoteConfig,
+            playerHash = null,
+            localTimestamp = localTimestamp,
+        )
+        if (effectiveRemoteTimestamp > 0) {
+            Timber.tag(logTag).i(
+                "Using effective cipher config signature timestamp: %d (videoId=%s, local=%s)",
+                effectiveRemoteTimestamp,
+                videoId,
+                localTimestamp,
+            )
+            return effectiveRemoteTimestamp
+        }
+
+        if (localTimestamp != null && localTimestamp > 0) {
+            Timber.tag(logTag).i("Using local signature timestamp: %d (videoId=%s)", localTimestamp, videoId)
+            return localTimestamp
         }
 
         Timber.tag(logTag).i("Getting signature timestamp from NewPipe for videoId: $videoId")

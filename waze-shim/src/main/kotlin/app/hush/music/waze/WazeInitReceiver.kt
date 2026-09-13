@@ -20,10 +20,21 @@ class WazeInitReceiver : BroadcastReceiver() {
             action = intent.action
             token?.let { putExtra("token", it) }
         }
+        // Android 15 blocks startForegroundService() while the app is in the
+        // background (the shim is in RCVR state when Waze sends ACTION_INIT),
+        // which made Waze show "Can't connect". A plain startService() is
+        // permitted during the broadcast allowlist window; the service promotes
+        // itself to a mediaPlayback foreground service immediately in
+        // onStartCommand via ensureForeground().
         try {
-            context.startForegroundService(serviceIntent)
+            context.startService(serviceIntent)
         } catch (error: Exception) {
-            Log.e(TAG, "Unable to start Waze integration service", error)
+            Log.e(TAG, "startService failed, falling back to startForegroundService", error)
+            try {
+                context.startForegroundService(serviceIntent)
+            } catch (error2: Exception) {
+                Log.e(TAG, "Unable to start Waze integration service", error2)
+            }
         }
     }
 }

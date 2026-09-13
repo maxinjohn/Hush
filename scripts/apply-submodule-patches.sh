@@ -28,7 +28,9 @@ apply_overlays() {
 
   if [ -d "$ROOT_DIR/overlays/lyrics" ]; then
     echo "Applying lyrics package overlays..."
-    for module in betterlyrics kugou lrclib paxsenix simpmusic unison youlyplus; do
+    # `musixmatch` is a Hush-only provider: upstream's lyrics repo has no such module, so
+    # its build file is overlaid too (the others only need their sources replaced).
+    for module in betterlyrics kugou lrclib musixmatch paxsenix simpmusic unison youlyplus; do
       if [ -d "$ROOT_DIR/overlays/lyrics/$module" ]; then
         rsync -a "$ROOT_DIR/overlays/lyrics/$module/" "lyrics/$module/"
       fi

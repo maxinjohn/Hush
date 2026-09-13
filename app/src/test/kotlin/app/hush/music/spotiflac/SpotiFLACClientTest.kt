@@ -126,19 +126,19 @@ class SpotiFLACClientTest {
     }
 
     @Test
-    fun `403 clears session via handleRelayError`() = runTest {
+    fun `403 request auth invalid preserves session`() = runTest {
         val (client, sm) = createClientWithSession(engine = MockEngine { respondError(HttpStatusCode.Forbidden, """{"code":"REQUEST_AUTH_INVALID"}""") })
         assertNotNull(sm.currentSession)
         client.resolveTrack("track-123")
-        assertNull(sm.currentSession)
+        assertNotNull(sm.currentSession)
     }
 
     @Test
-    fun `401 with plain body clears session`() = runTest {
+    fun `401 with plain body preserves session`() = runTest {
         val (client, sm) = createClientWithSession(engine = MockEngine { respondError(HttpStatusCode.Unauthorized, "Unauthorized") })
         assertNotNull(sm.currentSession)
         client.resolveTrack("track-123")
-        assertNull(sm.currentSession)
+        assertNotNull(sm.currentSession)
     }
 
     // ── testSource ─────────────────────────────────────────────────────

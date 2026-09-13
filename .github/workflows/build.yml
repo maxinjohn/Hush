@@ -67,6 +67,27 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Verify SpotiFLAC gobackend AAR is present
+        run: |
+          set -euo pipefail
+          # The upstream Go runtime (built via scripts/build-spotiflac-aar.sh from
+          # SpotiFLAC-Mobile's go_backend) is committed at app/libs/gobackend.aar.
+          # CI consumes the committed artifact; rebuilds are done locally with
+          # Go >= 1.26.5 + NDK r29, matching upstream's toolchain.
+          test -s app/libs/gobackend.aar || {
+            echo "app/libs/gobackend.aar is missing." >&2
+            echo "Rebuild it with: scripts/build-spotiflac-aar.sh (needs Go >= 1.26.5 + NDK r29)" >&2
+            exit 1
+          }
+          # Capture the listing first: piping straight into `grep -q` can raise
+          # SIGPIPE on `unzip`, which `pipefail` then reports as a failed step
+          # even though the entry is present.
+          unzip -l app/libs/gobackend.aar > /tmp/gobackend-aar-listing.txt
+          grep -q 'libgojni\.so' /tmp/gobackend-aar-listing.txt || {
+            echo "app/libs/gobackend.aar does not contain libgojni.so — rebuild required" >&2
+            exit 1
+          }
+
       - name: Prepare stable Waze shim signing
         shell: bash
         env:

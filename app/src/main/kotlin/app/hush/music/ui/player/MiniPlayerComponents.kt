@@ -341,6 +341,7 @@ private fun MiniPlayerArtwork(
     colors: MiniPlayerContentColors,
     playerConnection: PlayerConnection,
     modifier: Modifier = Modifier,
+    downloadProgress: Float? = null,
 ) {
     Box(
         contentAlignment = Alignment.Center,
@@ -356,8 +357,13 @@ private fun MiniPlayerArtwork(
                 trackColor = colors.progressTrack,
             )
         } else {
+            // While a SpotiFLAC track is still being fetched the ring shows that
+            // download's progress instead of a playback position stuck at zero.
             CircularWavyProgressIndicator(
-                progress = { if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f },
+                progress = {
+                    downloadProgress
+                        ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                },
                 modifier = Modifier.fillMaxSize(),
                 color = colors.progress,
                 trackColor = colors.progressTrack,
@@ -603,6 +609,11 @@ fun NewMiniPlayerContent(
     val togetherSessionState by playerConnection.service.togetherSessionState.collectAsStateWithLifecycle()
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsStateWithLifecycle()
     val canSkipNext by playerConnection.canSkipNext.collectAsStateWithLifecycle()
+    val downloadProgress by playerConnection.activeDownloadProgress.collectAsStateWithLifecycle()
+    val activeDownloadFraction =
+        downloadProgress
+            ?.takeIf { !it.fromCache && it.percent in 1..99 }
+            ?.let { it.percent / 100f }
 
     val rawLoading = playbackState == Player.STATE_BUFFERING
     var isLoading by remember(mediaMetadata?.id) { mutableStateOf(rawLoading) }
@@ -632,6 +643,7 @@ fun NewMiniPlayerContent(
             isLoading = isLoading,
             colors = colors,
             playerConnection = playerConnection,
+            downloadProgress = activeDownloadFraction,
         )
 
         Spacer(modifier = Modifier.width(5.dp))
