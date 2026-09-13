@@ -159,22 +159,31 @@ sourceSets {
 
 // Build Waze shim APKs and compress them into app assets
 // Run: ./gradlew :app:copyShimApks
-val copyShimApks = tasks.register<Copy>("copyShimApks") {
+//
+// One Copy task per asset dir: a doLast that mirrored the archive by hand
+// referenced this build script, which the configuration cache cannot serialize.
+val shimApksZip = rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip")
+
+val copyShimApksToMainAssets = tasks.register<Copy>("copyShimApksToMainAssets") {
+    // Consuming the Zip task's output requires declaring the producer, or Gradle
+    // reports an implicit-dependency validation failure.
+    dependsOn(":waze-shim:packageShimApks")
+    from(shimApksZip)
+    into(rootProject.file("app/src/main/assets"))
+}
+
+val copyShimApksToFlavorAssets = tasks.register<Copy>("copyShimApksToFlavorAssets") {
+    dependsOn(":waze-shim:packageShimApks")
+    from(shimApksZip)
+    into(rootProject.file("app/src/mobile/assets"))
+}
+
+val copyShimApks = tasks.register("copyShimApks") {
     description = "Copies Waze shim APKs zip into app assets"
     group = "hush"
     dependsOn(":waze-shim:packageShimApks")
-    from(rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip"))
-    // NOTE: Gradle Copy keeps a single destination; the last into() would win.
-    // So copy to main here and mirror to mobile in doLast so both asset dirs
-    // (mobile flavor overrides main) always carry the same fresh zip.
-    into(rootProject.file("app/src/main/assets"))
-    doLast {
-        val zip = rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip")
-        val target = rootProject.file("app/src/mobile/assets/waze-shims.zip")
-        target.parentFile.mkdirs()
-        zip.copyTo(target, overwrite = true)
-        println("Copied waze-shims.zip to app/src/mobile/assets/ and app/src/main/assets/")
-    }
+    dependsOn(copyShimApksToMainAssets)
+    dependsOn(copyShimApksToFlavorAssets)
 }
 
 tasks.configureEach {
