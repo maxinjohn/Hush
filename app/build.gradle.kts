@@ -313,7 +313,12 @@ tasks.register("assembleFossMobileReleaseApks") {
         "assembleFossMobileX86Release",
         "assembleFossMobileX86_64Release",
     )
-    doLast { logUnsignedReleaseReminder() }
+    // Resolved during configuration: a task action that calls into this build
+    // script cannot be serialized by the configuration cache.
+    val unsignedReminder = unsignedReleaseReminderMessage()
+    doLast {
+        if (unsignedReminder != null) logger.lifecycle(unsignedReminder)
+    }
 }
 
 tasks.register("assembleGmsMobileReleaseApks") {
@@ -326,7 +331,12 @@ tasks.register("assembleGmsMobileReleaseApks") {
         "assembleGmsMobileX86Release",
         "assembleGmsMobileX86_64Release",
     )
-    doLast { logUnsignedReleaseReminder() }
+    // Resolved during configuration: a task action that calls into this build
+    // script cannot be serialized by the configuration cache.
+    val unsignedReminder = unsignedReleaseReminderMessage()
+    doLast {
+        if (unsignedReminder != null) logger.lifecycle(unsignedReminder)
+    }
 }
 
 tasks.register("assembleGmsTvReleaseApks") {
@@ -339,7 +349,12 @@ tasks.register("assembleGmsTvReleaseApks") {
         "assembleGmsTvX86Release",
         "assembleGmsTvX86_64Release",
     )
-    doLast { logUnsignedReleaseReminder() }
+    // Resolved during configuration: a task action that calls into this build
+    // script cannot be serialized by the configuration cache.
+    val unsignedReminder = unsignedReleaseReminderMessage()
+    doLast {
+        if (unsignedReminder != null) logger.lifecycle(unsignedReminder)
+    }
 }
 
 tasks.register("assembleFossTvReleaseApks") {
@@ -352,20 +367,29 @@ tasks.register("assembleFossTvReleaseApks") {
         "assembleFossTvX86Release",
         "assembleFossTvX86_64Release",
     )
-    doLast { logUnsignedReleaseReminder() }
+    // Resolved during configuration: a task action that calls into this build
+    // script cannot be serialized by the configuration cache.
+    val unsignedReminder = unsignedReleaseReminderMessage()
+    doLast {
+        if (unsignedReminder != null) logger.lifecycle(unsignedReminder)
+    }
 }
 
-fun logUnsignedReleaseReminder() {
-    if (!hasReleaseSigningConfig) return
-    logger.lifecycle(
-        """
+/**
+ * The "these APKs are unsigned" advisory, or null when there is nothing to say.
+ *
+ * Null when no release keystore is configured: that build falls back to the
+ * debug signing config, so the APKs are not actually unsigned.
+ */
+fun unsignedReleaseReminderMessage(): String? {
+    if (!hasReleaseSigningConfig) return null
+    return """
         |
         |Release APKs are UNSIGNED until you run:
         |  bash scripts/build-release.sh [foss|gms] [mobile|tv] [abi]
         |  bash scripts/build-release.sh list
         |
-        """.trimMargin(),
-    )
+        """.trimMargin()
 }
 
 kotlin {
@@ -532,22 +556,35 @@ afterEvaluate {
 
 // Build Waze shim APKs and compress them into app assets
 // Run: ./gradlew :app:copyShimApks
-val copyShimApks = tasks.register<Copy>("copyShimApks") {
+//
+// One Copy task per asset dir: Gradle's Copy keeps a single destination, and a
+// doLast that mirrored the archive by hand referenced the build script, which
+// the configuration cache cannot serialize. Such a task then dies at execution
+// with "Cannot read field \$\$implicitReceiver_Project because \$this is null".
+// Two declarative copies keep every task value serializable.
+val shimApksZip = rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip")
+
+// The mobile flavor's own asset dir overrides main, so both must carry the zip.
+val copyShimApksToMainAssets = tasks.register<Copy>("copyShimApksToMainAssets") {
+    // Consuming the Zip task's output requires declaring the producer, or Gradle
+    // reports an implicit-dependency validation failure.
+    dependsOn(":waze-shim:packageShimApks")
+    from(shimApksZip)
+    into(rootProject.file("app/src/main/assets"))
+}
+
+val copyShimApksToFlavorAssets = tasks.register<Copy>("copyShimApksToFlavorAssets") {
+    dependsOn(":waze-shim:packageShimApks")
+    from(shimApksZip)
+    into(rootProject.file("app/src/mobile/assets"))
+}
+
+val copyShimApks = tasks.register("copyShimApks") {
     description = "Copies Waze shim APKs zip into app assets"
     group = "hush"
     dependsOn(":waze-shim:packageShimApks")
-    from(rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip"))
-    // NOTE: Gradle Copy keeps a single destination; the last into() would win.
-    // So copy to main here and mirror to mobile in doLast so both asset dirs
-    // (mobile flavor overrides main) always carry the same fresh zip.
-    into(rootProject.file("app/src/main/assets"))
-    doLast {
-        val zip = rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip")
-        val target = rootProject.file("app/src/mobile/assets/waze-shims.zip")
-        target.parentFile.mkdirs()
-        zip.copyTo(target, overwrite = true)
-        println("Copied waze-shims.zip to app/src/mobile/assets/ and app/src/main/assets/")
-    }
+    dependsOn(copyShimApksToMainAssets)
+    dependsOn(copyShimApksToFlavorAssets)
 }
 
 tasks.configureEach {
