@@ -3562,8 +3562,15 @@ var originalQueueSize: Int = 0
             ?: dbSong?.artists?.joinToString(", ") { it.name }.orEmpty()
         val album = item?.mediaMetadata?.albumTitle?.toString()
             ?.takeIf { it.isNotBlank() } ?: dbSong?.song?.albumName
-        val durationMs = item?.mediaMetadata?.durationMs
-            ?: dbSong?.song?.duration?.takeIf { it > 0 }?.times(1000L) ?: 0L
+        // Never let an unknown duration (0) win over a known one: the item, what playback
+        // recorded for this mediaId, and the database are all consulted in turn. A 0 here
+        // used to become a distinct cache identity for a song that already had a file.
+        val durationMs =
+            app.hush.music.spotiflac.SpotiFLACPlaybackIdentity.bestDurationMs(
+                item?.mediaMetadata?.durationMs,
+                app.hush.music.spotiflac.SpotiFLACPlaybackIdentity.get(mediaId)?.durationMs,
+                dbSong?.song?.duration?.takeIf { it > 0 }?.times(1000L),
+            )
         val extras = item?.mediaMetadata?.extras
         val isrc = extras?.getString("isrc")?.takeIf { it.isNotBlank() }
         val spotifyId = metadata?.spotifyTrackId
@@ -3811,9 +3818,11 @@ var originalQueueSize: Int = 0
                     next.mediaMetadata.artist?.toString()?.takeIf { it.isNotBlank() }
                         ?: dbSong?.artists?.joinToString(", ") { it.name }.orEmpty()
                 val durationMs =
-                    next.mediaMetadata.durationMs
-                        ?: dbSong?.song?.duration?.takeIf { it > 0 }?.times(1000L)
-                        ?: 0L
+                    app.hush.music.spotiflac.SpotiFLACPlaybackIdentity.bestDurationMs(
+                        next.mediaMetadata.durationMs,
+                        app.hush.music.spotiflac.SpotiFLACPlaybackIdentity.get(mediaId)?.durationMs,
+                        dbSong?.song?.duration?.takeIf { it > 0 }?.times(1000L),
+                    )
                 val extras = next.mediaMetadata.extras
                 val prefetchAlbum =
                     next.mediaMetadata.albumTitle?.toString()?.takeIf { it.isNotBlank() }

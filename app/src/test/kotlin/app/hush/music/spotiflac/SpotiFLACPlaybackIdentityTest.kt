@@ -75,6 +75,25 @@ class SpotiFLACPlaybackIdentityTest {
         assertNull(SpotiFLACPlaybackIdentity.get(""))
     }
 
+    /**
+     * The duration decides the cache identity, and `MediaMetadata.durationMs` reads 0
+     * when an item has none - which is the norm for a queue restored after a restart.
+     * A 0 that wins over a known duration makes the same song two different tracks, and
+     * the file already on disk is downloaded again (measured on device).
+     */
+    @Test
+    fun `an unknown duration never wins over a known one`() {
+        // The queue item has none, the database row does.
+        assertEquals(272_000L, SpotiFLACPlaybackIdentity.bestDurationMs(0L, null, 272_000L))
+        // Playback already recorded it.
+        assertEquals(272_000L, SpotiFLACPlaybackIdentity.bestDurationMs(0L, 272_000L, null))
+        // The item itself is the preferred source when it has one.
+        assertEquals(271_500L, SpotiFLACPlaybackIdentity.bestDurationMs(271_500L, 272_000L, 272_000L))
+        // Nothing knows: 0, and never a negative.
+        assertEquals(0L, SpotiFLACPlaybackIdentity.bestDurationMs(0L, null, null))
+        assertEquals(0L, SpotiFLACPlaybackIdentity.bestDurationMs(null, 0L, -1L))
+    }
+
     @Test
     fun `the store stays bounded and evicts the least recently used`() {
         val before = SpotiFLACPlaybackIdentity.size()

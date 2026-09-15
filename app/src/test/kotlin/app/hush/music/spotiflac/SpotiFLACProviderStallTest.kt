@@ -133,10 +133,11 @@ class SpotiFLACProviderStallTest {
     }
 
     @Test
-    fun `the meter abandons on the ceiling even with steady progress`() {
+    fun `the meter abandons on the ceiling even when events keep arriving`() {
         val meter = ProviderStallMeter(startedAtMs = 0L)
-        meter.onProgress(seq = 1L, stage = "downloading", nowMs = ceiling - 1_000L)
-        // Not stalled - but the attempt as a whole has run long enough.
+        // Events keep ticking but no byte is ever reported, so the attempt is not moving
+        // data - this is the dribble the ceiling exists to bound.
+        meter.onProgress(seq = 1L, stage = "resolving_stream", nowMs = ceiling - 1_000L)
         assertFalse(
             SpotiFLACProviderStallPolicy.isStalled(
                 meter.lastProgressAt(),
@@ -144,6 +145,63 @@ class SpotiFLACProviderStallTest {
             ),
         )
         assertTrue(meter.shouldAbandon(nowMs = ceiling))
+        assertEquals(ProviderAbandonReason.CEILING, meter.abandonReason(nowMs = ceiling))
+    }
+
+    @Test
+    fun `an attempt that is moving bytes is not killed by the ceiling`() {
+        // On device a ceiling counted from the attempt start abandoned providers that
+        // were downloading fine, and demoted them for the full cooldown afterwards.
+        // A 60 MB lossless file at ~2 MB/s legitimately needs longer than the ceiling.
+        val meter = ProviderStallMeter(startedAtMs = 0L)
+        var bytes = 0L
+        var now = 1_000L
+        while (now < ceiling * 3) {
+            bytes += 4_000_000L
+            meter.onProgress(seq = now, stage = "downloading", bytesReceived = bytes, nowMs = now)
+            now += 1_000L
+        }
+        assertTrue(meter.transferring(nowMs = now))
+        assertFalse(meter.shouldAbandon(nowMs = now))
+        assertEquals(null, meter.abandonReason(nowMs = now))
+    }
+
+    @Test
+    fun `a transfer that stops is still caught by the stall timeout`() {
+        val meter = ProviderStallMeter(startedAtMs = 0L)
+        meter.onProgress(seq = 1L, stage = "downloading", bytesReceived = 8_000_000L, nowMs = 9_000L)
+        // Bytes stopped at 9s: the ceiling is no longer what bounds this attempt.
+        assertTrue(meter.transferring(nowMs = 10_000L))
+        assertFalse(meter.shouldAbandon(nowMs = 10_000L))
+        assertEquals(
+            ProviderAbandonReason.STALLED,
+            meter.abandonReason(nowMs = 9_000L + timeout),
+        )
+    }
+
+    @Test
+    fun `a repeated byte count is not a transfer`() {
+        val meter = ProviderStallMeter(startedAtMs = 0L)
+        meter.onProgress(seq = 1L, stage = "downloading", bytesReceived = 5_000L, nowMs = 1_000L)
+        // The runtime re-reports its size without moving data; that must not look like
+        // progress, or a wedged provider would hold the sweep indefinitely.
+        meter.onProgress(seq = 2L, stage = "downloading", bytesReceived = 5_000L, nowMs = 20_000L)
+        assertEquals(1_000L, meter.lastTransferAt())
+        assertFalse(meter.transferring(nowMs = 20_000L))
+    }
+
+    @Test
+    fun `the ceiling reports transfer silence rather than the last event gap`() {
+        // The misleading case seen on device: "timed out without progress for 29ms" for
+        // an attempt abandoned by the ceiling. The reported number must be the silence
+        // since the last byte, so an operator is not sent after the wrong cause.
+        val meter = ProviderStallMeter(startedAtMs = 0L)
+        // One real byte at the start, then events with no data until the ceiling.
+        meter.onProgress(seq = 1L, stage = "downloading", bytesReceived = 1_000L, nowMs = 0L)
+        meter.onProgress(seq = 2L, stage = "resolving_stream", nowMs = ceiling - 29L)
+        assertEquals(ProviderAbandonReason.CEILING, meter.abandonReason(nowMs = ceiling))
+        assertEquals(29L, meter.stalledMillis(nowMs = ceiling))
+        assertEquals(ceiling, meter.transferSilenceMillis(nowMs = ceiling))
     }
 
     @Test

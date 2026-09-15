@@ -44,11 +44,18 @@ object SpotiFLACProviderStallPolicy {
     const val STALL_TIMEOUT_MS = 8_000L
 
     /**
-     * Hard ceiling for one provider even when it keeps dribbling progress.
+     * Hard ceiling for one provider attempt that is not moving bytes.
      *
      * Without it a provider that reports just enough to look alive could still hold
-     * the sweep for as long as it liked. Kept well above a real download so it only
-     * ever catches a genuinely stuck transfer.
+     * the sweep for as long as it liked.
+     *
+     * Measured from the last *real* transfer, not from the attempt start - see
+     * [ProviderStallMeter.abandonReason]. On device a ceiling measured from the start
+     * killed attempts that were downloading normally: the log read "provider amazon
+     * timed out without progress for 29ms", i.e. bytes had arrived 29 ms earlier and
+     * the attempt was abandoned anyway, then recorded as stalled and demoted for the
+     * full cooldown. That is how a slow-but-working provider ends up behind the ones
+     * that never answer, and how a track only that provider has ends up skipped.
      */
     const val ATTEMPT_CEILING_MS = 25_000L
 
@@ -79,7 +86,13 @@ object SpotiFLACProviderStallPolicy {
         timeoutMs: Long = STALL_TIMEOUT_MS,
     ): Boolean = nowMs - lastProgressAtMs >= timeoutMs
 
-    /** True when the attempt has outlived its absolute ceiling. */
+    /**
+     * True when the attempt has outlived its absolute ceiling.
+     *
+     * [startedAtMs] is the baseline the ceiling is counted from. The meter passes the
+     * later of the attempt start and the last real transfer, so this only fires for an
+     * attempt that is not moving bytes.
+     */
     fun isOverCeiling(
         startedAtMs: Long,
         nowMs: Long,
@@ -122,6 +135,15 @@ object SpotiFLACProviderStallPolicy {
     }
 }
 
+/** Why an attempt was abandoned, so the reported cause matches the trigger that fired. */
+enum class ProviderAbandonReason {
+    /** Nothing at all arrived for [ProviderStallMeter.stalledMillis]. */
+    STALLED,
+
+    /** Events kept arriving but no byte moved for the whole ceiling. */
+    CEILING,
+}
+
 /**
  * Live "has this provider said anything lately?" meter for one provider attempt.
  *
@@ -129,41 +151,94 @@ object SpotiFLACProviderStallPolicy {
  * deliberately counts only *new* progress events: the runtime repeats the last delta
  * while an item sits still, so a naive "did we get a sample?" test would reset the
  * clock forever and never notice a wedge.
+ *
+ * It also tracks the last event that actually **moved bytes**, because the two
+ * conditions are not interchangeable. Event liveness answers "is the runtime still
+ * doing something for this item", while byte movement answers "is the download
+ * progressing". A provider in `resolving_stream` may legitimately emit stage updates
+ * for a while, so the ceiling exists to bound that; but a provider streaming a 60 MB
+ * FLAC emits a sample per percent and can need longer than the ceiling to finish, and
+ * killing that attempt throws away a download that was about to succeed.
  */
 class ProviderStallMeter(
     private val startedAtMs: Long = SystemClock.elapsedRealtime(),
 ) {
     private val lastProgressAtMs = AtomicLong(startedAtMs)
+    private val lastTransferAtMs = AtomicLong(startedAtMs)
     private val lastSeq = AtomicLong(Long.MIN_VALUE)
+
+    /** No bytes have moved yet, so any first byte counts as a transfer. */
+    private val transferredBytes = AtomicLong(-1L)
 
     @Volatile
     var lastStage: String? = null
         private set
 
-    /** Records a progress event. [seq] identifies it, so repeats are ignored. */
+    /**
+     * Records a progress event. [seq] identifies it, so repeats are ignored.
+     *
+     * [bytesReceived] is the runtime's cumulative count for this item: only a *growing*
+     * value counts as a transfer, so a provider that re-emits its size without moving
+     * data cannot look like one.
+     */
     fun onProgress(
         seq: Long,
         stage: String?,
+        bytesReceived: Long? = null,
         nowMs: Long = SystemClock.elapsedRealtime(),
     ) {
         if (seq == lastSeq.get()) return
         lastSeq.set(seq)
         if (!stage.isNullOrBlank()) lastStage = stage
         lastProgressAtMs.set(nowMs)
+        if (bytesReceived != null && bytesReceived > transferredBytes.get()) {
+            transferredBytes.set(bytesReceived)
+            lastTransferAtMs.set(nowMs)
+        }
     }
 
     fun lastProgressAt(): Long = lastProgressAtMs.get()
 
+    /** When real bytes last arrived. */
+    fun lastTransferAt(): Long = lastTransferAtMs.get()
+
+    /** Silence since the last progress *event*, for the stall branch. */
     fun stalledMillis(nowMs: Long = SystemClock.elapsedRealtime()): Long =
         nowMs - lastProgressAtMs.get()
+
+    /** Silence since the last *byte*, for the ceiling branch. */
+    fun transferSilenceMillis(nowMs: Long = SystemClock.elapsedRealtime()): Long =
+        nowMs - lastTransferAtMs.get()
 
     fun elapsedMillis(nowMs: Long = SystemClock.elapsedRealtime()): Long =
         nowMs - startedAtMs
 
+    /** True while real bytes have arrived inside the stall window. */
+    fun transferring(nowMs: Long = SystemClock.elapsedRealtime()): Boolean =
+        transferSilenceMillis(nowMs) < SpotiFLACProviderStallPolicy.STALL_TIMEOUT_MS
+
+    /**
+     * Why this attempt should be abandoned, or null while it still deserves waiting.
+     *
+     * The ceiling is counted from the last real transfer rather than the attempt start:
+     * an attempt that is moving bytes is bounded by the stall timeout (which is what
+     * "the download stopped" actually looks like), while an attempt that only ticks
+     * events without data is still capped at the ceiling.
+     */
+    fun abandonReason(nowMs: Long = SystemClock.elapsedRealtime()): ProviderAbandonReason? =
+        when {
+            SpotiFLACProviderStallPolicy.isStalled(lastProgressAtMs.get(), nowMs) ->
+                ProviderAbandonReason.STALLED
+            SpotiFLACProviderStallPolicy.isOverCeiling(ceilingBaselineMs(), nowMs) ->
+                ProviderAbandonReason.CEILING
+            else -> null
+        }
+
     /** True when the attempt should be abandoned and the next provider tried. */
     fun shouldAbandon(nowMs: Long = SystemClock.elapsedRealtime()): Boolean =
-        SpotiFLACProviderStallPolicy.isStalled(lastProgressAtMs.get(), nowMs) ||
-            SpotiFLACProviderStallPolicy.isOverCeiling(startedAtMs, nowMs)
+        abandonReason(nowMs) != null
+
+    private fun ceilingBaselineMs(): Long = maxOf(startedAtMs, lastTransferAtMs.get())
 }
 
 /**
@@ -181,8 +256,12 @@ class ProviderStallMeter(
 class SpotiFLACProviderStalledException(
     val sourceId: String,
     val stage: String?,
+    /** Silence that caused the abort: since the last event, or since the last byte. */
     val stalledMillis: Long,
+    val reason: ProviderAbandonReason = ProviderAbandonReason.STALLED,
 ) : Exception(
+    // The wording stays "timed out without progress" for both reasons: the sweep verdict
+    // classifier keys off it to avoid recording a blocked sweep as a catalogue miss.
     "provider $sourceId timed out without progress for ${stalledMillis}ms" +
         (stage?.let { " (stuck on $it)" } ?: ""),
 )
