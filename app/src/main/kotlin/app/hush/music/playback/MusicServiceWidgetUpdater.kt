@@ -7,7 +7,6 @@
 
 package app.hush.music.playback
 
-import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
@@ -34,6 +33,7 @@ import kotlinx.coroutines.withContext
 import app.hush.music.R
 import app.hush.music.extensions.SilentHandler
 import app.hush.music.utils.NotificationArtworkLoader
+import app.hush.music.utils.decodeBoundedBitmap
 import app.hush.music.utils.reportException
 import app.hush.music.widget.AlbumArtWidget
 import app.hush.music.widget.ListeningInsightsWidget
@@ -300,11 +300,17 @@ internal class MusicServiceWidgetUpdater(
     private suspend fun extractDominantColor(file: File): Int? =
         withContext(Dispatchers.Default) {
             try {
-                val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return@withContext null
-                val palette = Palette.from(bitmap).generate()
-                palette.getDarkVibrantColor(
-                    palette.getDominantColor(android.graphics.Color.DKGRAY),
-                )
+                // A palette only needs the colour distribution, so decode tiny: the
+                // previous full-resolution decode allocated tens of megabytes here.
+                val bitmap = decodeBoundedBitmap(file, PALETTE_SAMPLE_PX) ?: return@withContext null
+                try {
+                    val palette = Palette.from(bitmap).generate()
+                    palette.getDarkVibrantColor(
+                        palette.getDominantColor(android.graphics.Color.DKGRAY),
+                    )
+                } finally {
+                    if (!bitmap.isRecycled) bitmap.recycle()
+                }
             } catch (_: Exception) {
                 null
             }
@@ -331,6 +337,9 @@ internal class MusicServiceWidgetUpdater(
     )
 
     private companion object {
+        /** Palette extraction only samples colours, so a thumbnail is plenty. */
+        const val PALETTE_SAMPLE_PX = 256
+
         val playbackWidgets =
             listOf(
                 WidgetTarget(MusicWidget::class.java, MusicWidget()),

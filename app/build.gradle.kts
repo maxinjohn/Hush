@@ -72,8 +72,8 @@ android {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 170
-        versionName = "13.14.0"
+        versionCode = 171
+        versionName = "13.14.1"
 
         ndk {
             // ABI filters are set per product flavor (arm64, universal, etc.).
@@ -258,7 +258,12 @@ android {
     lint {
         lintConfig = file("lint.xml")
         warningsAsErrors = false
-        abortOnError = false
+        // True so lintVital (part of every release assemble) actually aborts the build on
+        // a fatal NewApi issue. With abortOnError=false even fatal issues were only
+        // reported, and an above-minSdk call shipped unnoticed in v13.14.0. NewApi is the
+        // only fatal-severity rule (see lint.xml); warnings plus the severity errors below
+        // do not fail the build.
+        abortOnError = true
         checkDependencies = false
     }
 
@@ -564,16 +569,16 @@ afterEvaluate {
 // Two declarative copies keep every task value serializable.
 val shimApksZip = rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip")
 
-// The mobile flavor's own asset dir overrides main, so both must carry the zip.
-val copyShimApksToMainAssets = tasks.register<Copy>("copyShimApksToMainAssets") {
+// Only the mobile flavor's asset dir is written. src/main/assets is merged into
+// *every* variant, TV included, so producing the archive there made each
+// non-mobile merge task consume a file another task produces with no ordering
+// relationship - which Gradle rejects as an implicit-dependency validation
+// failure (`assembleGmsTvUniversalRelease` failed for exactly that reason).
+// Waze is mobile-only (WAZE_SUPPORTED=false on TV) and the runtime reads the
+// shims from this archive, so the flavor copy is the one that matters.
+val copyShimApksToFlavorAssets = tasks.register<Copy>("copyShimApksToFlavorAssets") {
     // Consuming the Zip task's output requires declaring the producer, or Gradle
     // reports an implicit-dependency validation failure.
-    dependsOn(":waze-shim:packageShimApks")
-    from(shimApksZip)
-    into(rootProject.file("app/src/main/assets"))
-}
-
-val copyShimApksToFlavorAssets = tasks.register<Copy>("copyShimApksToFlavorAssets") {
     dependsOn(":waze-shim:packageShimApks")
     from(shimApksZip)
     into(rootProject.file("app/src/mobile/assets"))
@@ -583,7 +588,6 @@ val copyShimApks = tasks.register("copyShimApks") {
     description = "Copies Waze shim APKs zip into app assets"
     group = "hush"
     dependsOn(":waze-shim:packageShimApks")
-    dependsOn(copyShimApksToMainAssets)
     dependsOn(copyShimApksToFlavorAssets)
 }
 

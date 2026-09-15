@@ -28,6 +28,7 @@ import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.media.MediaBrowserServiceCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -206,7 +207,12 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             metadataReceiver = WazeMetadataReceiver().also { receiver ->
                 receiver.attach(this)
                 val filter = IntentFilter("app.hush.music.WAZE_METADATA_UPDATE")
-                registerReceiver(receiver, filter, RECEIVER_EXPORTED)
+                ContextCompat.registerReceiver(
+                    this,
+                    receiver,
+                    filter,
+                    ContextCompat.RECEIVER_EXPORTED,
+                )
             }
             Log.d(TAG, "Metadata receiver registered")
         } catch (e: Exception) {

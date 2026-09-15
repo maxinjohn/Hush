@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <lint>
+    <!-- API-level regressions are release-blocking.
+
+         v13.14.0 shipped a call to Class.getPackageName() (API 31) from the startup
+         preference flow, which threw NoSuchMethodError on Android 8-11 and killed the
+         process before any UI appeared. It compiled cleanly and was invisible to code
+         review, so it is enforced here instead: NewApi is fatal, and lintVital runs on
+         every release assemble, so a call above minSdk (26) now fails the release build
+         rather than the user's phone. Do not downgrade this severity. -->
+    <issue id="NewApi" severity="fatal" />
+
     <!-- Translations are crowdsourced, we can't have 100% coverage at all times -->
     <issue id="MissingTranslation" severity="ignore" />
 
