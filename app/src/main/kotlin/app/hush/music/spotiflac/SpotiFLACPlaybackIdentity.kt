@@ -36,6 +36,21 @@ object SpotiFLACPlaybackIdentity {
 
     private const val MAX_ENTRIES = 256
 
+    /**
+     * The best duration available for a track, in milliseconds, or 0 when none is.
+     *
+     * `MediaMetadata.durationMs` is a non-null `Long` that reads 0 when the item carries
+     * no duration - the norm for a queue restored after a restart - so a plain `?:`
+     * chain never reaches the database fallback behind it. Feeding that 0 into a resolve
+     * made it a *different* track identity from the same song resolved with its real
+     * duration. Measured on device: `Africa|Toto||0` downloaded the file, and the next
+     * lookup of the same song computed `Africa|Toto||272000`, missed the cache and
+     * re-downloaded a track already on disk. So an unknown duration must never win over
+     * a known one, whichever source knows it.
+     */
+    fun bestDurationMs(vararg candidates: Long?): Long =
+        candidates.firstOrNull { it != null && it > 0L } ?: 0L
+
     private val entries =
         object : LinkedHashMap<String, Identity>(64, 0.75f, true) {
             override fun removeEldestEntry(

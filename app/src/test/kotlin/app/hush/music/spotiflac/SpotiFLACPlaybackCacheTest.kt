@@ -7,6 +7,7 @@
 package app.hush.music.spotiflac
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -72,6 +73,44 @@ class SpotiFLACPlaybackCacheTest {
         assertEquals("lossless", SpotiFLACPlaybackCache.qualityBucket(null))
         assertEquals("lossless", SpotiFLACPlaybackCache.qualityBucket(""))
         assertEquals("lossless", SpotiFLACPlaybackCache.qualityBucket("HIGH"))
+    }
+
+    /**
+     * The real-world failure this key has to survive, kept as an executable record.
+     *
+     * Measured on device for one song (Toto - Africa): the resolve that downloaded the
+     * file had no duration available and wrote it under the first key, and the next
+     * lookup of the same track had the real 4:32 duration and computed the second - so a
+     * track already on disk was downloaded again. The fix is that the callers never let
+     * an unknown duration win (`SpotiFLACPlaybackIdentity.bestDurationMs`) and that a
+     * drifted identity still finds its file by media id. If either hash here changes,
+     * that evidence no longer describes the code and this test is the place to say so.
+     */
+    @Test
+    fun `an unknown duration is a different identity from the real one`() {
+        val downloadedWithoutDuration =
+            key(title = "Africa", artist = "Toto", album = "", durationMs = 0L)
+        val lookedUpWithDuration =
+            key(title = "Africa", artist = "Toto", album = "", durationMs = 272_000L)
+        assertEquals("7ef9999c294d75b68b411469", downloadedWithoutDuration)
+        assertEquals("fa3557adc6967c1d3adeb437", lookedUpWithDuration)
+        assertNotEquals(downloadedWithoutDuration, lookedUpWithDuration)
+    }
+
+    /**
+     * The media-id lookup has no quality component, so the bucket is checked separately:
+     * a hi-res request must not be answered with the lossless file already on disk, while
+     * the lossless default may use an entry from before the bucket was recorded.
+     */
+    @Test
+    fun `a file only answers the quality it was fetched for`() {
+        assertTrue(SpotiFLACPlaybackCache.bucketSatisfies("lossless", "lossless"))
+        assertTrue(SpotiFLACPlaybackCache.bucketSatisfies("hires", "hires"))
+        assertFalse(SpotiFLACPlaybackCache.bucketSatisfies("lossless", "hires"))
+        assertFalse(SpotiFLACPlaybackCache.bucketSatisfies("hires", "lossless"))
+        // Unknown bucket: a legacy entry, usable only for the default request.
+        assertTrue(SpotiFLACPlaybackCache.bucketSatisfies(null, "lossless"))
+        assertFalse(SpotiFLACPlaybackCache.bucketSatisfies(null, "hires"))
     }
 
     @Test

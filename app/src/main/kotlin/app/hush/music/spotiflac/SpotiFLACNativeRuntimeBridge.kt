@@ -567,6 +567,7 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
             require(title.isNotBlank()) { "SpotiFLAC track title is missing" }
 
             val cacheEnabled = playbackCache.cacheStreamingEnabled()
+            val requestedBucket = SpotiFLACPlaybackCache.qualityBucket(quality)
             val trackKey =
                 playbackCache.trackKey(
                     title = title,
@@ -581,6 +582,29 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
             // Cache first: a previously resolved track is served straight off disk
             // without touching the runtime, so replays and seeks never re-download.
             cachedResolution(mediaId, trackKey, title)?.let { return@runCatching it }
+
+            // Second chance by media id. The identity inputs are collected from whatever
+            // metadata the caller has, and that legitimately differs for the same track:
+            // a queue item restored after a restart carries no duration, while the resolve
+            // that downloaded the file did. Measured on device for one song, the file was
+            // written under `Africa|Toto||0` and the next lookup computed
+            // `Africa|Toto||272000`, missed, and re-downloaded a track already on disk.
+            // The index is keyed on the queue item, so it still finds that file.
+            val indexedKey = playbackCache.trackKeyForMediaId(mediaId)
+            if (indexedKey != null && indexedKey != trackKey) {
+                cachedResolution(
+                    mediaId = mediaId,
+                    trackKey = indexedKey,
+                    title = title,
+                    requiredBucket = requestedBucket,
+                )?.let {
+                    SpotiFLACDiag.log(
+                        "cache hit by mediaId index key=$indexedKey " +
+                            "(identity key=$trackKey had no entry)",
+                    )
+                    return@runCatching it
+                }
+            }
 
             // Serialize concurrent resolves of the same track: a prefetch racing the
             // playback resolve used to download the same file twice.
@@ -615,12 +639,28 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
         mediaId: String?,
         trackKey: String,
         title: String,
+        /**
+         * Required quality group, for the media-id lookup that has no quality in its
+         * key. The identity-keyed lookup passes null: its key already encodes the
+         * bucket, so a mismatch is impossible there.
+         */
+        requiredBucket: String? = null,
     ): ResolvedFile? {
         if (!playbackCache.cacheStreamingEnabled()) return null
         val cached = playbackCache.cachedFile(trackKey)
         if (cached == null) {
             SpotiFLACDiag.log("cache miss key=$trackKey title=\"$title\"")
             return null
+        }
+        if (requiredBucket != null) {
+            val storedBucket = playbackCache.entry(trackKey)?.qualityBucket
+            if (!SpotiFLACPlaybackCache.bucketSatisfies(storedBucket, requiredBucket)) {
+                SpotiFLACDiag.log(
+                    "cache index key=$trackKey skipped: stored bucket=${storedBucket ?: "unknown"} " +
+                        "for ${requiredBucket} request",
+                )
+                return null
+            }
         }
         playbackCache.associateMediaId(mediaId, trackKey)
         val entry = playbackCache.entry(trackKey)
@@ -811,6 +851,9 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
                         bitDepth = response.bitDepth,
                         sampleRate = response.sampleRate,
                         mediaId = mediaId,
+                        // The requested quality, not the per-attempt one: that is what the
+                        // cache key was computed from, so the two must agree.
+                        qualityBucket = SpotiFLACPlaybackCache.qualityBucket(quality),
                     )
                 }
                 playbackCache.associateMediaId(mediaId, trackKey)
@@ -920,7 +963,8 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
                 recentlyStalledSources[sourceId] = System.currentTimeMillis()
                 persistStalls()
                 SpotiFLACDiag.log(
-                    "provider stalled id=$sourceId stage=${stalled.stage ?: "-"} " +
+                    "provider stalled id=$sourceId reason=${stalled.reason} " +
+                        "stage=${stalled.stage ?: "-"} " +
                         "silent=${stalled.stalledMillis}ms - abandoned, trying next provider",
                 )
                 throw stalled
@@ -1018,9 +1062,14 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
         block: suspend () -> T,
     ): T {
         val attempt = providerAttemptScope.async { block() }
+        // The reason is captured at the moment it fires rather than re-derived after the
+        // loop: the progress reporter is still running, so a late sample could otherwise
+        // turn an already-decided ceiling abort into a stall with a 0 ms silence.
+        var abandoned: ProviderAbandonReason? = null
         try {
-            while (!attempt.isCompleted && !meter.shouldAbandon()) {
-                delay(SpotiFLACProviderStallPolicy.POLL_MS)
+            while (!attempt.isCompleted && abandoned == null) {
+                abandoned = meter.abandonReason()
+                if (abandoned == null) delay(SpotiFLACProviderStallPolicy.POLL_MS)
             }
         } catch (cancellation: CancellationException) {
             // The sweep was superseded (a skip, a seek, a duplicate in-flight resolve).
@@ -1032,13 +1081,24 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
         }
         if (attempt.isCompleted) return attempt.await()
 
-        val stalledFor = meter.stalledMillis()
-        abortAttempt(backend, itemId, sourceId, "no progress for ${stalledFor}ms")
+        val reason = abandoned ?: ProviderAbandonReason.STALLED
+        // The reported number has to match the trigger: the ceiling means "no bytes moved
+        // for the whole ceiling", which is far longer than the event silence the stall
+        // branch measures. Reporting the short one produced lines like "timed out without
+        // progress for 29ms" for an attempt that was downloading normally.
+        val silentFor =
+            if (reason == ProviderAbandonReason.CEILING) {
+                meter.transferSilenceMillis()
+            } else {
+                meter.stalledMillis()
+            }
+        abortAttempt(backend, itemId, sourceId, "no progress for ${silentFor}ms")
         attempt.cancel()
         throw SpotiFLACProviderStalledException(
             sourceId = sourceId,
             stage = meter.lastStage,
-            stalledMillis = stalledFor,
+            stalledMillis = silentFor,
+            reason = reason,
         )
     }
 
@@ -1562,7 +1622,11 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
                         // Advances only on a genuinely new event for this item, so the
                         // runtime repeating its last sample cannot mask a wedge - which
                         // is exactly what the stall watchdog needs to see.
-                        stallMeter?.onProgress(seq = delta.seq, stage = progress.stage)
+                        stallMeter?.onProgress(
+                            seq = delta.seq,
+                            stage = progress.stage,
+                            bytesReceived = progress.bytesReceived,
+                        )
                         // The runtime often reports bytes without a speed, so derive
                         // one from consecutive samples when it does not.
                         val nowMs = SystemClock.elapsedRealtime()

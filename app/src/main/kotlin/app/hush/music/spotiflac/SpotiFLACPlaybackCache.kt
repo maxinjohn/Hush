@@ -33,6 +33,15 @@ data class SpotiFLACCacheEntry(
     val lastUsedAtMs: Long = 0L,
     /** Pinned entries are user downloads and are never evicted. */
     val pinned: Boolean = false,
+    /**
+     * Quality group this file was fetched for (`lossless` / `hires`).
+     *
+     * Only needed where a file is reached by media id rather than by identity key:
+     * that lookup has no quality component to match on, so the stored bucket is what
+     * stops a hi-res request from being answered with a lossless copy. Null means an
+     * entry written before this field existed.
+     */
+    val qualityBucket: String? = null,
 )
 
 @Serializable
@@ -102,6 +111,19 @@ class SpotiFLACPlaybackCache @Inject constructor(
             val normalized = quality.orEmpty().uppercase()
             return if (normalized.contains("HI_RES") || normalized.contains("HIRES")) "hires" else "lossless"
         }
+
+        /**
+         * Whether a file fetched for [stored] may answer a [requested] quality request.
+         *
+         * Only relevant where a file is reached by media id: that lookup has no quality
+         * component in its key, so the bucket has to be checked explicitly or a hi-res
+         * request would be answered with the lossless copy already on disk. `null` means
+         * an entry written before the bucket was recorded, which is trusted only for the
+         * default (lossless) request - serving that is what the user asked for anyway,
+         * while a hi-res request is left to resolve properly.
+         */
+        fun bucketSatisfies(stored: String?, requested: String): Boolean =
+            stored == requested || (stored == null && requested == qualityBucket(null))
 
         /**
          * Stable cache key: `sha1(identity|qualityBucket)`, truncated to 24 hex chars.
@@ -402,6 +424,19 @@ class SpotiFLACPlaybackCache @Inject constructor(
         persistSoon()
     }
 
+    /**
+     * The key a queue item resolved to, without checking that its file still exists.
+     *
+     * Used as a second-chance lookup: the identity inputs can legitimately drift for
+     * the same track, and the index is keyed on the queue item rather than on the
+     * metadata that happens to be available at the time.
+     */
+    fun trackKeyForMediaId(mediaId: String?): String? {
+        if (mediaId.isNullOrBlank()) return null
+        ensureLoaded()
+        return synchronized(this) { mediaIdIndex[mediaId] }?.takeIf { it.isNotBlank() }
+    }
+
     /** Remembers which queue item resolved to which cache entry. */
     fun associateMediaId(
         mediaId: String?,
@@ -425,6 +460,7 @@ class SpotiFLACPlaybackCache @Inject constructor(
         sampleRate: Int?,
         mediaId: String? = null,
         pinned: Boolean = false,
+        qualityBucket: String? = null,
     ) {
         ensureLoaded()
         val entry = SpotiFLACCacheEntry(
@@ -438,6 +474,7 @@ class SpotiFLACPlaybackCache @Inject constructor(
             sizeBytes = file.length(),
             lastUsedAtMs = System.currentTimeMillis(),
             pinned = pinned,
+            qualityBucket = qualityBucket,
         )
         synchronized(this) {
             entries[trackKey] = entry

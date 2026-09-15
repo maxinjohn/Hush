@@ -705,9 +705,13 @@ class DownloadUtil
                             title = title,
                             artist = identity?.artist ?: dbSong?.artists?.joinToString(", ") { it.name }.orEmpty(),
                             album = identity?.album ?: dbSong?.song?.albumName,
+                            // Same rule as playback: an unknown duration must not become a
+                            // distinct identity for a track that already has a cached file.
                             durationMs =
-                                identity?.durationMs
-                                    ?: ((dbSong?.song?.duration?.takeIf { it > 0 } ?: 0) * 1000L),
+                                SpotiFLACPlaybackIdentity.bestDurationMs(
+                                    identity?.durationMs,
+                                    dbSong?.song?.duration?.takeIf { it > 0 }?.times(1000L),
+                                ),
                             isrc = identity?.isrc,
                             spotifyTrackId = identity?.spotifyTrackId,
                             quality = spotiFLACDownloadQuality(),
