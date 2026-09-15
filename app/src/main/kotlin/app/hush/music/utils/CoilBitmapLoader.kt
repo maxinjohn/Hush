@@ -9,7 +9,6 @@ package app.hush.music.utils
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.core.graphics.createBitmap
 import androidx.media3.common.util.BitmapLoader
@@ -32,6 +31,12 @@ class CoilBitmapLoader(
     private val context: Context,
     private val scope: CoroutineScope,
 ) : BitmapLoader {
+    private companion object {
+        /** Density-independent artwork size, matching the pre-existing 256dp target. */
+        const val MAX_ARTWORK_DP = 256f
+        const val MAX_ARTWORK_PX = 1024
+    }
+
     override fun supportsMimeType(mimeType: String): Boolean = mimeType.startsWith("image/")
 
     override fun decodeBitmap(data: ByteArray): ListenableFuture<Bitmap> =
@@ -41,7 +46,9 @@ class CoilBitmapLoader(
                     throw IllegalArgumentException("Empty image data")
                 }
 
-                BitmapFactory.decodeByteArray(data, 0, data.size)?.also { bitmap ->
+                // Bounded so a large embedded/passthrough artwork never decodes at full
+                // resolution; see decodeBoundedBitmap for why that OOMs low-RAM devices.
+                decodeBoundedBitmap(data, maxArtworkSizePx())?.also { bitmap ->
                     return@future bitmap
                 }
 
@@ -54,8 +61,7 @@ class CoilBitmapLoader(
 
     override fun loadBitmap(uri: Uri): ListenableFuture<Bitmap> =
         scope.future(Dispatchers.IO) {
-            val density = context.resources.displayMetrics.density
-            val maxIconSizePx = (density * 256f).roundToInt().coerceIn(256, 1024)
+            val maxIconSizePx = maxArtworkSizePx()
             val candidateUrls =
                 buildArtworkLoadCandidates(uri).mapNotNull { candidate ->
                     candidate.toString().trim().takeIf { it.isNotBlank() }
@@ -106,6 +112,15 @@ class CoilBitmapLoader(
             }
             createBitmap(64, 64)
         }
+
+    /**
+     * Upper bound for any artwork this loader produces: art is shown at notification or
+     * player scale, so decoding/serving more than this only costs heap.
+     */
+    private fun maxArtworkSizePx(): Int {
+        val density = context.resources.displayMetrics.density
+        return (density * MAX_ARTWORK_DP).roundToInt().coerceIn(256, MAX_ARTWORK_PX)
+    }
 
     private fun scaleBitmap(
         bitmap: Bitmap,

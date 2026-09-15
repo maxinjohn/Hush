@@ -15,16 +15,29 @@ import android.os.Build
 import app.hush.music.MainActivity
 import timber.log.Timber
 
+/**
+ * The Kotlin/manifest namespace, `app.hush.music`.
+ *
+ * The installed applicationId gains a `.debug` suffix in debug builds, but manifest
+ * components keep the namespace, so component class names must always be built from
+ * this value and never from `context.packageName` (that mismatch is what made debug
+ * startup log an IllegalArgumentException and silently drop icon changes).
+ *
+ * Derived from the class name rather than written as
+ * `MainActivity::class.java.packageName`: Kotlin resolves that property to
+ * `Class.getPackageName()`, which only exists from API 31 (Android 12). On Android
+ * 8-11 it throws NoSuchMethodError, and because the call sits in a startup preference
+ * flow the whole app died before any UI appeared (minSdk is 26). `Class.getName()`
+ * has existed since API 1.
+ */
+internal val appNamespace: String = MainActivity::class.java.name.substringBeforeLast('.')
+
 object IconUtils {
     private const val DYNAMIC_ALIAS_CLASS = "MainActivityAlias"
     private const val STATIC_ALIAS_CLASS = "MainActivityStatic"
 
-    // The applicationId gets a .debug suffix, while manifest components remain
-    // under the Kotlin namespace (app.hush.music). Using context.packageName for
-    // the class name makes debug startup log an IllegalArgumentException and
-    // prevents the dynamic-icon preference from being applied.
     private fun aliasComponent(context: Context, aliasClass: String): ComponentName =
-        ComponentName(context.packageName, "${MainActivity::class.java.packageName}.$aliasClass")
+        ComponentName(context.packageName, "$appNamespace.$aliasClass")
 
     private fun dynamicAlias(context: Context): ComponentName =
         aliasComponent(context, DYNAMIC_ALIAS_CLASS)

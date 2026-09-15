@@ -29,6 +29,16 @@ interface Queue {
         val mediaItemIndex: Int,
         val position: Long = 0L,
     ) {
+        // Must go through filterItems: dropping a track that sits before the current
+        // one shifts every later index, and a plain copy(items = ...) would leave
+        // mediaItemIndex pointing at a different song than the caller selected.
+        fun filterBlockedArtists(blockedArtistIds: Set<String>) =
+            if (blockedArtistIds.isEmpty()) {
+                this
+            } else {
+                filterItems { item -> item.metadata?.artists?.any { it.id in blockedArtistIds } != true }
+            }
+
         fun filterExplicit(enabled: Boolean = true) =
             if (enabled) {
                 filterItems { it.metadata?.explicit != true }
@@ -43,7 +53,14 @@ interface Queue {
                 this
             }
 
-        private inline fun filterItems(keep: (MediaItem) -> Boolean): Status {
+        /**
+         * Drops items the [keep] test rejects, moving [mediaItemIndex] with them.
+         *
+         * Every status filter goes through here for that reason: the selected item must
+         * stay selected, so the index has to be re-counted rather than copied over.
+         * The item list is not otherwise reordered.
+         */
+        internal fun filterItems(keep: (MediaItem) -> Boolean): Status {
             if (items.isEmpty()) return this
 
             val currentIndex = mediaItemIndex.coerceIn(items.indices)
@@ -89,3 +106,7 @@ fun List<MediaItem>.filterVideo(enabled: Boolean = true) =
     } else {
         this
     }
+
+fun List<MediaItem>.filterBlockedArtists(blockedArtistIds: Set<String>) =
+    if (blockedArtistIds.isEmpty()) this
+    else filterNot { item -> item.metadata?.artists?.any { it.id in blockedArtistIds } == true }

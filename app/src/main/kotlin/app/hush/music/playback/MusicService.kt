@@ -13,6 +13,7 @@ import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import androidx.core.content.ContextCompat
 import android.app.PendingIntent
 import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
@@ -268,6 +269,7 @@ import app.hush.music.playback.queues.ListQueue
 import kotlin.random.Random
 import app.hush.music.playback.queues.Queue
 import app.hush.music.playback.queues.YouTubeQueue
+import app.hush.music.playback.queues.filterBlockedArtists
 import app.hush.music.playback.queues.filterExplicit
 import app.hush.music.playback.queues.filterVideo
 import app.hush.music.scrobbling.LastFmServiceConfig
@@ -1191,7 +1193,12 @@ var originalQueueSize: Int = 0
         if (app.hush.music.BuildConfig.WAZE_SUPPORTED) {
             wazeCommandReceiver.attachService(this)
             val wazeFilter = IntentFilter("app.hush.music.WAZE_COMMAND")
-            registerReceiver(wazeCommandReceiver, wazeFilter, RECEIVER_EXPORTED)
+            ContextCompat.registerReceiver(
+                this,
+                wazeCommandReceiver,
+                wazeFilter,
+                ContextCompat.RECEIVER_EXPORTED,
+            )
             wazeReceiverRegistered = true
         }
 
@@ -1779,10 +1786,20 @@ var originalQueueSize: Int = 0
         val continuationQueue = persistedQueue.toContinuationQueue()
         val hideExplicit = prefs[HideExplicitKey] ?: false
         val hideVideo = prefs[HideVideoKey] ?: false
+        // A restored queue is materialised here rather than through startQueue, so it
+        // needs the same filters: without them, restarting the app put blocked artists'
+        // tracks back into the timeline that the fresh-load path had removed.
+        val blockedArtistIds =
+            try {
+                withContext(Dispatchers.IO) { database.getBlockedArtistIds().toSet() }
+            } catch (_: Exception) {
+                emptySet()
+            }
         val initialStatus =
             itemQueue
                 .getInitialStatus()
                 .filterExplicit(hideExplicit)
+                .filterBlockedArtists(blockedArtistIds)
                 .filterVideo(hideVideo)
 
         withContext(Dispatchers.Main) {
@@ -4424,11 +4441,12 @@ var originalQueueSize: Int = 0
         }
 
         val filter = IntentFilter(BluetoothDevice.ACTION_ACL_CONNECTED)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(bluetoothReceiver, filter, RECEIVER_EXPORTED)
-        } else {
-            registerReceiver(bluetoothReceiver, filter)
-        }
+        ContextCompat.registerReceiver(
+            this,
+            bluetoothReceiver,
+            filter,
+            ContextCompat.RECEIVER_EXPORTED,
+        )
         bluetoothReceiverRegistered = true
     }
 
@@ -4907,9 +4925,16 @@ var originalQueueSize: Int = 0
             scope.launch(SilentHandler) {
                 val initialStatus =
                     withContext(Dispatchers.IO) {
+                        val blockedArtistIds =
+                            try {
+                                database.getBlockedArtistIds().toSet()
+                            } catch (_: Exception) {
+                                emptySet()
+                            }
                         queue
                             .getInitialStatus()
                             .filterExplicit(dataStore.get(HideExplicitKey, false))
+                            .filterBlockedArtists(blockedArtistIds)
                             .filterVideo(dataStore.get(HideVideoKey, false))
                     }
 
@@ -5022,12 +5047,18 @@ var originalQueueSize: Int = 0
         scope.launch(SilentHandler) {
             val hideExplicit = dataStore.get(HideExplicitKey, false)
             val hideVideo = dataStore.get(HideVideoKey, false)
+            val blockedArtistIds = try {
+                withContext(Dispatchers.IO) { database.getBlockedArtistIds().toSet() }
+            } catch (_: Exception) {
+                emptySet()
+            }
             val autoLoadMoreEnabled = dataStore.get(AutoLoadMoreKey, true)
             var initialStatus =
                 withContext(Dispatchers.IO) {
                     queue
                         .getInitialStatus()
                         .filterExplicit(hideExplicit)
+                        .filterBlockedArtists(blockedArtistIds)
                         .filterVideo(hideVideo)
                 }
             if (!autoLoadMoreEnabled && queue.shouldExpandToFullQueueWhenAutoLoadMoreDisabled() && queue.hasNextPage()) {
@@ -5040,6 +5071,7 @@ var originalQueueSize: Int = 0
                             loadNextQueuePageWithRetry(queue)
                                 .filterExplicit(hideExplicit)
                                 .filterVideo(hideVideo)
+                                .filterBlockedArtists(blockedArtistIds)
                         }
                     if (nextItems.isNotEmpty()) {
                         expandedItems += nextItems
@@ -5226,6 +5258,12 @@ var originalQueueSize: Int = 0
                     endpoint = WatchEndpoint(videoId = currentMediaId),
                     followAutomixPreview = true,
                 )
+            val blockedArtistIds =
+                try {
+                    withContext(Dispatchers.IO) { database.getBlockedArtistIds().toSet() }
+                } catch (_: Exception) {
+                    emptySet()
+                }
             val initialStatus =
                 withContext(Dispatchers.IO) {
                     radioQueue
@@ -5233,6 +5271,7 @@ var originalQueueSize: Int = 0
                         .filterExplicit(
                             dataStore.get(HideExplicitKey, false),
                         ).filterVideo(dataStore.get(HideVideoKey, false))
+                        .filterBlockedArtists(blockedArtistIds)
                 }
 
             if (
@@ -5336,9 +5375,17 @@ var originalQueueSize: Int = 0
         val currentMediaId = currentMeta.id
 
         scope.launch(SilentHandler) {
+            val blockedArtistIds =
+                try {
+                    withContext(Dispatchers.IO) { database.getBlockedArtistIds().toSet() }
+                } catch (_: Exception) {
+                    emptySet()
+                }
             try {
                 val radioQueue = YouTubeQueue(WatchEndpoint(videoId = currentMediaId), followAutomixPreview = true)
-                val status = withContext(Dispatchers.IO) { radioQueue.getInitialStatus() }
+                val status = withContext(Dispatchers.IO) {
+                    radioQueue.getInitialStatus().filterBlockedArtists(blockedArtistIds)
+                }
 
                 if (
                     infiniteQueueLoadGeneration != infiniteQueueGeneration.get() ||

@@ -13,6 +13,7 @@ import android.content.BroadcastReceiver
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
+import androidx.core.content.ContextCompat
 import android.content.IntentFilter
 import android.os.Build
 import androidx.datastore.preferences.core.edit
@@ -223,10 +224,11 @@ class App :
                         }
                     }
                 runCatching {
-                    registerReceiver(
+                    ContextCompat.registerReceiver(
+                        applicationContext,
                         receiver,
                         IntentFilter(Intent.ACTION_USER_UNLOCKED),
-                        Context.RECEIVER_NOT_EXPORTED,
+                        ContextCompat.RECEIVER_NOT_EXPORTED,
                     )
                     canvasUnlockReceiver = receiver
                 }.onFailure { error ->

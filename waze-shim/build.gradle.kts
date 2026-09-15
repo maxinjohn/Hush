@@ -74,8 +74,8 @@ android {
         applicationId = "com.spotify.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 170
-        versionName = "13.14.0"
+        versionCode = 171
+        versionName = "13.14.1"
     }
 
     flavorDimensions += "bridge"
@@ -141,6 +141,15 @@ android {
         }
     }
 
+    // NewApi is fatal here: this app runs on the user's device head unit, which can be as
+    // old as Android 8 (minSdk 26), and an above-minSdk call only fails at runtime.
+    lint {
+        lintConfig = file("lint.xml")
+        warningsAsErrors = false
+        abortOnError = true
+        checkDependencies = false
+    }
+
 sourceSets {
     getByName("main") {
         res.srcDir(file("build/generated/hushBridgeIcon/res"))
@@ -164,15 +173,13 @@ sourceSets {
 // referenced this build script, which the configuration cache cannot serialize.
 val shimApksZip = rootProject.file("waze-shim/build/outputs/apk/waze-shims.zip")
 
-val copyShimApksToMainAssets = tasks.register<Copy>("copyShimApksToMainAssets") {
+// Mirrors the app module's task of the same name (see app/build.gradle.kts): only
+// the mobile flavor's asset dir is written, because producing the archive inside
+// src/main/assets makes every non-mobile merge task consume another task's output
+// without an ordering relationship, which Gradle rejects as a validation failure.
+val copyShimApksToFlavorAssets = tasks.register<Copy>("copyShimApksToFlavorAssets") {
     // Consuming the Zip task's output requires declaring the producer, or Gradle
     // reports an implicit-dependency validation failure.
-    dependsOn(":waze-shim:packageShimApks")
-    from(shimApksZip)
-    into(rootProject.file("app/src/main/assets"))
-}
-
-val copyShimApksToFlavorAssets = tasks.register<Copy>("copyShimApksToFlavorAssets") {
     dependsOn(":waze-shim:packageShimApks")
     from(shimApksZip)
     into(rootProject.file("app/src/mobile/assets"))
@@ -182,7 +189,6 @@ val copyShimApks = tasks.register("copyShimApks") {
     description = "Copies Waze shim APKs zip into app assets"
     group = "hush"
     dependsOn(":waze-shim:packageShimApks")
-    dependsOn(copyShimApksToMainAssets)
     dependsOn(copyShimApksToFlavorAssets)
 }
 

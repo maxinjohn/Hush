@@ -829,6 +829,7 @@ private fun PresetSection(
     bandGains: FloatArray,
     onEditClick: (() -> Unit)? = null,
 ) {
+    val activeProfileId by viewModel.activeProfileId.collectAsState()
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -870,7 +871,7 @@ private fun PresetSection(
                 // Custom profiles — click to apply
                 presetNames.forEachIndexed { index, name ->
                     val profile = customProfiles?.getOrNull(index)
-                    val isSelected = profile != null && viewModel.activeProfileId.value == profile.id
+                    val isSelected = profile != null && activeProfileId == profile.id
                     ToggleButton(
                         checked = isSelected,
                         onCheckedChange = {

@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import app.hush.music.R
+import app.hush.music.utils.appNamespace
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -120,7 +121,7 @@ class AppIconRepository
                         author = null,
                         githubAuthorUrl = null,
                         previewDrawableResId = R.drawable.hush_app_icon,
-                        aliasClassName = "${context.packageName}.MainActivityAlias",
+                        aliasClassName = "$appNamespace.MainActivityAlias",
                         isDefault = true,
                     ),
                 )

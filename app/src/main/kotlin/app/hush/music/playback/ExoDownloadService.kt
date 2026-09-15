@@ -12,6 +12,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
+import android.os.Build
 import androidx.media3.common.C
 import androidx.media3.common.util.NotificationUtil
 import androidx.media3.common.util.Util
@@ -53,11 +54,7 @@ class ExoDownloadService :
         // stop transferring rather than merely be marked paused.
         when (intent?.action) {
             DownloadService.ACTION_ADD_DOWNLOAD -> {
-                val request =
-                    intent.getParcelableExtra(
-                        DownloadService.KEY_DOWNLOAD_REQUEST,
-                        DownloadRequest::class.java,
-                    )
+                val request = downloadRequestFrom(intent)
                 if (request != null) {
                     downloadUtil.requestFileDownload(request)
                     // Consumed here. Media3 still gets a neutral intent so the service's own
@@ -100,6 +97,25 @@ class ExoDownloadService :
         }
         return super.onStartCommand(intent, flags, startId)
     }
+
+    /**
+     * Reads the Media3 download request out of an add-download intent.
+     *
+     * The typed overload `Intent.getParcelableExtra(name, Class)` only exists from API
+     * 33 (Android 13). Below that it is a NoSuchMethodError, so asking for it unguarded
+     * threw on the way into every download and took the process down with it. The
+     * single-argument overload has existed since API 1, so use it there and cast.
+     */
+    private fun downloadRequestFrom(intent: Intent): DownloadRequest? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(
+                DownloadService.KEY_DOWNLOAD_REQUEST,
+                DownloadRequest::class.java,
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(DownloadService.KEY_DOWNLOAD_REQUEST) as? DownloadRequest
+        }
 
     override fun getDownloadManager() = downloadUtil.downloadManager
 

@@ -8,7 +8,6 @@
 package app.hush.music.utils
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -121,12 +120,13 @@ object NotificationArtworkLoader {
                 .use { response ->
                     if (!response.isSuccessful) return@use null
                     val body = response.body?.bytes()?.takeIf { it.isNotEmpty() } ?: return@use null
-                    val decoded = BitmapFactory.decodeByteArray(body, 0, body.size) ?: return@use null
+                    // Sampled decode: the full-resolution upload never exists in memory,
+                    // and the helper already returns software ARGB_8888, so the extra
+                    // full-size copy this used to make is gone too.
+                    val decoded = decodeBoundedBitmap(body, maxSizePx) ?: return@use null
                     val scaled = scaleBitmap(decoded, maxSizePx)
                     if (scaled !== decoded && !decoded.isRecycled) decoded.recycle()
-                    val result = scaled?.copy(Bitmap.Config.ARGB_8888, false)
-                    if (result !== scaled && scaled != null && !scaled.isRecycled) scaled.recycle()
-                    result
+                    scaled
                 }
         }.getOrNull()
     }

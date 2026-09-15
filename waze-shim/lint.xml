@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- API-level regressions are release-blocking.
+
+         The shim runs inside Waze's process on whatever device the user has, including
+         Android 8-11 head units, and its minSdk is 26. A call above that level compiles
+         cleanly and only fails at runtime, so it is enforced here instead: NewApi is
+         fatal and lintVital runs on every release assemble. -->
+    <issue id="NewApi" severity="fatal" />
+</lint>
