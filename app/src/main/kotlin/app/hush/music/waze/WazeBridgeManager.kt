@@ -1,13 +1,16 @@
 package app.hush.music.waze
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.os.Build
+import android.provider.Settings
 import app.hush.music.BuildConfig
 import app.hush.music.constants.WazeBridgeUpdateDismissalsKey
 import app.hush.music.utils.dataStore
+import androidx.core.content.FileProvider
 import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.flow.first
 import timber.log.Timber
@@ -15,6 +18,13 @@ import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
+
+/**
+ * The Settings.Global flag behind the user-visible "Verify apps" / Play Protect switch.
+ *
+ * There is no public constant for it, so it is spelled out here once rather than at the call site.
+ */
+private const val PACKAGE_VERIFIER_ENABLED_SETTING = "package_verifier_enable"
 
 data class WazeBridgeDefinition(
     val id: String,
@@ -28,6 +38,17 @@ data class WazeBridgeDefinition(
 enum class WazeBridgeState {
     NOT_INSTALLED,
     ORIGINAL_APP_INSTALLED,
+
+    /**
+     * An installed Bridge signed with a key Hush does not hold.
+     *
+     * Android only replaces an installed app when the new APK carries the same signing
+     * certificate, so this Bridge can never be updated in place: every update attempt ends in
+     * `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, and the only way forward is to remove it first. It is
+     * its own state because the alternative - reporting it as the provider's original app, with no
+     * update offered - left the user with a Bridge that silently could not update and no hint why.
+     */
+    BRIDGE_SIGNATURE_MISMATCH,
     BRIDGE_CURRENT,
     BRIDGE_UPDATE_AVAILABLE,
     BRIDGE_UPDATE_REQUIRED,
@@ -74,7 +95,16 @@ data class WazeBridgeInspection(
                 bundledVersionCode > installedVersionCode
 
     val canUninstall: Boolean
-        get() = isValidBridge
+        get() = isValidBridge || state == WazeBridgeState.BRIDGE_SIGNATURE_MISMATCH
+
+    /**
+     * True when this Bridge has to be removed before a fresh one can be installed.
+     *
+     * Nothing else can replace a mismatched Bridge - the certificate is checked by the platform
+     * before any of Hush's own logic runs - so the repair is always remove-then-install.
+     */
+    val needsRepair: Boolean
+        get() = state == WazeBridgeState.BRIDGE_SIGNATURE_MISMATCH
 }
 
 object WazeBridgeManager {
@@ -182,7 +212,18 @@ object WazeBridgeManager {
                     when {
                         !isTrustedBridge -> WazeBridgeInspection(
                             definition = definition,
-                            state = WazeBridgeState.ORIGINAL_APP_INSTALLED,
+                            // A package that declares the Bridge protocol but is signed by a key we
+                            // do not hold is one of our own Bridges from a build signed with a
+                            // different key - typically a debug-signed build. The provider's real
+                            // app carries the same protocol meta-data in some releases, so the
+                            // certs deciding this stay the fingerprint comparison above; what the
+                            // protocol tells us is that the package is ours to repair.
+                            state =
+                                if (installedProtocol != null) {
+                                    WazeBridgeState.BRIDGE_SIGNATURE_MISMATCH
+                                } else {
+                                    WazeBridgeState.ORIGINAL_APP_INSTALLED
+                                },
                             installedVersionCode = installedVersionCode,
                             installedVersionName = installedVersionName,
                             bundledVersionCode = bridge.versionCode,
@@ -287,6 +328,59 @@ object WazeBridgeManager {
             return null
         }
         return installFile
+    }
+
+    /**
+     * The intent that hands a staged Bridge APK to the system's installer.
+     *
+     * Shared so the screen (which wants the installer's result) and the automation entry point in the
+     * debug build (which only needs the install to happen) hand the platform exactly the same thing.
+     */
+    /**
+     * Whether this device's package verifier (Google Play Protect) scans sideloaded packages.
+     *
+     * When it does, an install Hush hands to the system can be held at Play Protect's "hasn't seen
+     * this app before" prompt: the installer screen closes, the package is not there yet, and the
+     * install only completes once that prompt is answered. Knowing this lets the screen name the
+     * cause and retry once, instead of reporting a bare failure the user cannot act on.
+     *
+     * Defaults to true when the setting cannot be read: assuming verification is the safer mistake,
+     * since it only means an extra sentence of guidance.
+     */
+    fun isInstallVerificationEnabled(context: Context): Boolean = runCatching {
+        Settings.Global.getInt(context.contentResolver, PACKAGE_VERIFIER_ENABLED_SETTING, 1) == 1
+    }.getOrDefault(true)
+
+    fun installerIntent(
+        context: Context,
+        apk: File,
+    ): Intent {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", apk)
+        return Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    /**
+     * Stages the bundled Bridge and asks the system to install it, without a screen to own the result.
+     *
+     * Returns false when there is nothing to install (already current, newer than bundled, or an APK
+     * that could not be staged), so a caller can tell "launched" from "nothing to do".
+     */
+    fun launchBridgeInstall(
+        context: Context,
+        inspection: WazeBridgeInspection,
+    ): Boolean {
+        val apk = extractInstallableBridge(context, inspection) ?: return false
+        return try {
+            context.startActivity(installerIntent(context, apk))
+            true
+        } catch (error: Exception) {
+            Timber.tag("WazeBridge").w(error, "Install: no installer activity for %s", inspection.definition.displayName)
+            false
+        }
     }
 
     private fun trustedHushBridgeFingerprints(context: Context): Set<String> {

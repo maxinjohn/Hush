@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-build-only components.
+
+  The Waze Bridge repair spans two system dialogs, so proving the app's half of it needs a way in
+  that does not involve a hand on the screen. This receiver is exported (adb has to reach it) and it
+  exists in no build that ships: nothing outside `src/debug` can see it, and it refuses to act unless
+  `BuildConfig.DEBUG`.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <receiver
+            android:name=".waze.WazeBridgeRepairDebugReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="app.hush.music.action.WAZE_REPAIR_DEBUG" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>

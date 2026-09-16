@@ -46,6 +46,7 @@ object SpotiFLACSessionRenewer {
     private const val CONNECT_TIMEOUT_MS = 15_000L
     private const val READ_TIMEOUT_MS = 20_000L
     private const val DEFAULT_REFRESH_PATH = "/session/refresh"
+    private const val DEFAULT_PLATFORM = "extension"
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -160,13 +161,70 @@ object SpotiFLACSessionRenewer {
             SpotiFLACDiag.log("session renew ($reason): no extension sessions found")
             return emptyList()
         }
-        val results = candidates.map { renew(context, it, force) }
+        // First make sure every record that the app has ever earned is present and
+        // usable: mirror it into the vault, and revive one whose record name moved
+        // (extension version bump) or which the runtime cleared after expiry.
+        val adoptions = reconcile(context, candidates, reason)
+        val results = (if (adoptions > 0) sessions(context) else candidates)
+            .map { renew(context, it, force) }
         val renewed = results.count { it.renewed }
         SpotiFLACDiag.log(
             "session renew ($reason): renewed=$renewed of ${results.size} [" +
                 results.joinToString(", ") { "${it.extensionId}:${it.detail}" } + "]",
         )
         return results
+    }
+
+    /**
+     * Mirrors live records into the durable vault and revives the unusable ones.
+     *
+     * A session is only ever lost through its *file*: the runtime derives the
+     * record name from the extension's app version, so a registry bump hides the
+     * session behind a new name, and the Go runtime deletes a record once it has
+     * expired. Both cases are recoverable from material the app already holds, and
+     * the renewer can then refresh the revived session back to valid without a
+     * Cloudflare round trip.
+     *
+     * @return how many records were adopted, so the caller can re-read them.
+     */
+    private fun reconcile(
+        context: Context,
+        candidates: List<ExtensionSession>,
+        reason: String,
+    ): Int {
+        var adopted = 0
+        candidates.forEach { session ->
+            val record = session.recordFile
+            val text = runCatching { record.takeIf { it.isFile }?.readText() }.getOrNull()
+            if (SpotiFLACSourceAuth.recordUsable(text, System.currentTimeMillis())) {
+                SpotiFLACSessionVault.remember(context, record, session.extensionId)
+                return@forEach
+            }
+            val before = if (text.isNullOrBlank()) "record missing" else "record expired"
+            val config = signedSessionConfigOf(context, session.extensionId)
+            val result = SpotiFLACSessionVault.adopt(
+                context = context,
+                extensionId = session.extensionId,
+                liveRecord = record,
+                namespace = session.namespace,
+                baseUrl = config?.baseUrl.orEmpty(),
+                platform = config?.platform.orEmpty().ifBlank { DEFAULT_PLATFORM },
+                currentAppVersion = session.appVersion,
+            )
+            if (result.adopted) {
+                adopted++
+                SpotiFLACDiag.log(
+                    "session reconcile ($reason): ${session.extensionId} $before -> " +
+                        "${result.detail} (minted ${result.appVersion})",
+                )
+                SpotiFLACSessionVault.remember(context, record, session.extensionId)
+            } else if (!text.isNullOrBlank()) {
+                // Nothing to revive with, but the material is still worth keeping:
+                // a later run may have a working gateway again.
+                SpotiFLACSessionVault.remember(context, record, session.extensionId)
+            }
+        }
+        return adopted
     }
 
     private fun renew(context: Context, session: ExtensionSession, force: Boolean): RenewResult {
@@ -205,39 +263,120 @@ object SpotiFLACSessionRenewer {
             )
         }
 
-        val refreshed = runCatching {
-            requestRefresh(context, session, record)
-        }.getOrElse { error ->
-            SpotiFLACDiag.log("session renew failed id=${session.extensionId} ${error.message}")
+        // The gateway binds a session to the app version that minted it, so the
+        // signature must carry the *record's* version. A manifest that has since
+        // been bumped is then retried as its new version: if the gateway accepts
+        // that, the session migrates to the new version instead of the user having
+        // to solve a challenge for an extension that was already verified.
+        val mintedVersion = record["app_version"].orEmpty().ifBlank { session.appVersion }
+        val signVersions = signVersionsFor(mintedVersion, session.appVersion)
+
+        var lastError: Throwable? = null
+        var refreshed: Map<String, String> = emptyMap()
+        var usedVersion: String? = null
+        for (version in signVersions) {
+            val attempt = runCatching { requestRefresh(context, session, record, version) }
+            val failure = attempt.exceptionOrNull()
+            if (failure == null) {
+                refreshed = attempt.getOrDefault(emptyMap())
+                usedVersion = version
+                break
+            }
+            lastError = failure
+            SpotiFLACDiag.log(
+                "session renew attempt failed id=${session.extensionId} signed=$version ${failure.message}",
+            )
+            // A 403 means the gateway refused this signature; a second version is
+            // worth trying, anything else (network, 5xx) is not version related.
+            if (failure.message?.contains("403") != true) break
+        }
+
+        if (lastError != null && usedVersion == null) {
             // Some sources (amazon, for one) are refused by the gateway outright.
             // Remember the refusal against this session generation so every app
             // start does not re-hammer the endpoint or spam the log; a freshly
             // verified session has a new id and is tried again immediately.
-            if (error.message?.contains("403") == true) {
+            if (lastError?.message?.contains("403") == true) {
                 markRenewalRejected(context, session.extensionId, sessionId)
             }
-            return RenewResult(session.extensionId, false, "request failed: ${error.message}")
+            return RenewResult(session.extensionId, false, "request failed: ${lastError?.message}")
         }
 
-        val newExpiry = refreshed["expires_at"]?.let(::parseExpiryMillis)
-        if (refreshed.isEmpty()) {
-            return RenewResult(session.extensionId, false, "gateway returned no session", newExpiry)
+        if (refreshed.isEmpty() && usedVersion == mintedVersion) {
+            return RenewResult(
+                session.extensionId,
+                false,
+                "gateway returned no session",
+                session.expiresAtMillis,
+            )
         }
+
+        // Re-bind the record to the version the gateway actually renewed under, so
+        // the next request signs the way this one just proved works.
+        val migrated = usedVersion != null && usedVersion != mintedVersion
+        if (migrated) {
+            refreshed = refreshed + ("app_version" to usedVersion!!)
+            SpotiFLACDiag.log(
+                "session migrated id=${session.extensionId} $mintedVersion -> $usedVersion",
+            )
+        }
+        val newExpiry = refreshed["expires_at"]?.let(::parseExpiryMillis) ?: session.expiresAtMillis
 
         return runCatching {
             val applied = applyRefresh(session, record, refreshed)
-            if (applied) {
+            if (applied || migrated) {
                 SpotiFLACDiag.log(
                     "session renewed id=${session.extensionId} expires=${refreshed["expires_at"]}",
                 )
                 Timber.tag(TAG).i("Renewed SpotiFLAC session for %s", session.extensionId)
-                RenewResult(session.extensionId, true, "renewed", newExpiry)
+                SpotiFLACSessionVault.remember(context, session.recordFile, session.extensionId)
+                RenewResult(
+                    session.extensionId,
+                    true,
+                    if (migrated) "renewed (migrated to $usedVersion)" else "renewed",
+                    newExpiry,
+                )
             } else {
                 RenewResult(session.extensionId, false, "superseded by a newer session", newExpiry)
             }
         }.getOrElse { error ->
             RenewResult(session.extensionId, false, "write failed: ${error.message}")
         }
+    }
+
+    /**
+     * The signing config for a renewal, preferring the manifest but falling back to
+     * the record itself.
+     *
+     * A record stores everything the gateway needs to identify the session
+     * (`base_url`, `platform`, and the version it was minted under), so a renewal
+     * still works when the extension's manifest has been replaced, removed and
+     * re-added, or is simply unreadable. That matters because the alternative is
+     * asking for a challenge the user has already paid for once.
+     */
+    private fun configForRefresh(
+        context: Context,
+        session: ExtensionSession,
+        record: Map<String, String>,
+        signVersion: String,
+    ): SignedSessionConfig? {
+        val manifest = signedSessionConfigOf(context, session.extensionId)
+        val baseUrl = record["base_url"]
+            ?.takeIf { it.isNotBlank() }
+            ?: manifest?.baseUrl
+            ?: return null
+        return SignedSessionConfig(
+            baseUrl = baseUrl,
+            appVersion = signVersion,
+            platform = record["platform"]?.takeIf { it.isNotBlank() }
+                ?: manifest?.platform
+                ?: SpotiFLACRequestSigner.DEFAULT_PLATFORM,
+            schemeLabel = manifest?.schemeLabel ?: SpotiFLACRequestSigner.DEFAULT_SCHEME_LABEL,
+            headerPrefix = manifest?.headerPrefix ?: SpotiFLACRequestSigner.DEFAULT_HEADER_PREFIX,
+            timeWindowSeconds = manifest?.timeWindowSeconds
+                ?: SpotiFLACRequestSigner.DEFAULT_TIME_WINDOW_SECONDS,
+            refreshPath = manifest?.refreshPath ?: DEFAULT_REFRESH_PATH,
+        )
     }
 
     /**
@@ -249,8 +388,10 @@ object SpotiFLACSessionRenewer {
         context: Context,
         session: ExtensionSession,
         record: Map<String, String>,
+        signVersion: String,
     ): Map<String, String> {
-        val config = signedSessionConfigOf(context, session.extensionId) ?: return emptyMap()
+        val config = configForRefresh(context, session, record, signVersion)
+            ?: throw IllegalStateException("no signed-session config for ${session.extensionId}")
         val body = buildJsonObject { put("install_id", record["install_id"].orEmpty()) }.toString()
         val url = config.baseUrl.trimEnd('/') + "/" + config.refreshPath.trimStart('/')
         // The signature covers the path of the *resolved* URL. The runtime builds
@@ -265,7 +406,7 @@ object SpotiFLACSessionRenewer {
             body = body,
             sessionId = record["session_id"].orEmpty(),
             sessionSecret = record["session_secret"].orEmpty(),
-            appVersion = config.appVersion,
+            appVersion = signVersion,
             platform = config.platform,
             schemeLabel = config.schemeLabel,
             headerPrefix = config.headerPrefix,
@@ -276,7 +417,7 @@ object SpotiFLACSessionRenewer {
             .url(url)
             .post(body.toRequestBody("application/json".toMediaType()))
             .header("Accept", "application/json")
-            .header("User-Agent", "SpotiFLAC-Mobile/${config.appVersion}")
+            .header("User-Agent", "SpotiFLAC-Mobile/$signVersion")
         headers.forEach { (name, value) -> requestBuilder.header(name, value) }
 
         httpClient.newCall(requestBuilder.build()).execute().use { response ->
@@ -422,6 +563,20 @@ object SpotiFLACSessionRenewer {
             recordFile = recordFile,
         )
     }
+
+    /**
+     * The versions to sign a renewal with, in order: the one the session was
+     * minted under first, then the extension's current version.
+     *
+     * The gateway binds a session to its minting version, so the record's own
+     * version is the only one that can succeed for an unchanged extension. The
+     * manifest's version is the second attempt because an extension that has since
+     * been updated mints sessions under its new version - if the gateway accepts
+     * the migration, an already-verified source stays verified across the update
+     * instead of dropping back to a challenge.
+     */
+    internal fun signVersionsFor(mintedVersion: String, currentVersion: String): List<String> =
+        listOf(mintedVersion, currentVersion).filter { it.isNotBlank() }.distinct()
 
     /**
      * Whether a session should be renewed now. Unknown expiry is treated as due

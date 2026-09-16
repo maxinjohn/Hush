@@ -2,6 +2,7 @@ package app.hush.music.ui.screens.settings
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,6 +17,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -36,6 +38,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.hush.music.R
 import app.hush.music.constants.SourcePriorityKey
 import app.hush.music.constants.SpotiFLACCacheStreamsKey
@@ -48,6 +51,9 @@ import app.hush.music.constants.SpotiFLACVerifiedOnlyKey
 import app.hush.music.constants.YoutubeStreamingEnabledKey
 import app.hush.music.spotiflac.ExtensionRepositoryManager
 import app.hush.music.spotiflac.SessionState
+import app.hush.music.spotiflac.SpotiFLACChallengeEngine
+import app.hush.music.spotiflac.SpotiFLACChallengeRoute
+import app.hush.music.spotiflac.SpotiFLACDiag
 import app.hush.music.spotiflac.SpotiFLACSessionManager
 import app.hush.music.spotiflac.SpotiFLACSessionRenewer
 import app.hush.music.spotiflac.SpotiFLACSourceAuthState
@@ -129,6 +135,16 @@ fun SpotiFLACSettingsScreen(
     var sessionValidity by remember { mutableStateOf<Map<String, Long?>>(emptyMap()) }
     var renewMessage by remember { mutableStateOf<String?>(null) }
     var isRenewingSessions by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // The same engine question the player overlay asks. A WebView older than Cloudflare's
+    // supported range never mints a token, so opening the challenge here would produce a check
+    // that can only time out - the browser route has to be offered instead. Resolved once per
+    // composition because it cannot change while the app is running.
+    val challengeEngine = remember { SpotiFLACChallengeEngine.current() }
+    val engineCapable = remember(challengeEngine) {
+        SpotiFLACChallengeEngine.canSolveCloudflare(challengeEngine)
+    }
 
     fun refreshSessionValidity() {
         sessionValidity = SpotiFLACSessionRenewer.sessions(context)
@@ -247,6 +263,13 @@ fun SpotiFLACSettingsScreen(
                 }
             }
             refreshSessionValidity()
+            if (ok) {
+                // The same report the overlay and the browser route make. Without it a successful
+                // verification from this screen woke nothing: a track parked on this source stayed
+                // parked, and the "needs verification" notice stayed up over a source that was
+                // already usable.
+                app.hush.music.spotiflac.SpotiFLAutoVerifier.notifyVerified(extensionId)
+            }
             verifyMessage = if (ok) {
                 val alsoVerified =
                     targets.count { verifyStatus[it] == SpotiFLACSourceAuthState.VERIFIED } - 1
@@ -594,17 +617,147 @@ fun SpotiFLACSettingsScreen(
                                 // Prefer the runtime's own pending auth URL (extension
                                 // preflight) over the Hush-side challenge when present.
                                 var runtimeAuthUrl by remember { mutableStateOf<String?>(null) }
+                                // A relay challenge that was raised for *this* visit. The stored one
+                                // from an earlier bootstrap is deliberately not used: a challenge is
+                                // single-use, so a saved URL is usually already spent, and opening
+                                // it anywhere can only end in the page's "Invalid request".
+                                var freshRelayUrl by remember { mutableStateOf<String?>(null) }
+                                // Once the browser owns verification, the in-app WebView must not load
+                                // the same page: a challenge is single-use, so whichever consumer gets
+                                // there first spends it and the other can only be told "Invalid
+                                // request". The WebView auto-opens within seconds of a challenge being
+                                // raised, which is exactly how the browser route kept failing.
+                                var browserMode by remember { mutableStateOf(false) }
                                 LaunchedEffect(Unit) {
                                     runtimeAuthUrl = withContext(Dispatchers.IO) {
                                         app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder
                                             .instance?.pendingRuntimeAuthUrl()
                                     }
+                                    if (runtimeAuthUrl == null) {
+                                        freshRelayUrl = withContext(Dispatchers.IO) {
+                                            sessionManager.bootstrap()
+                                            sessionManager.challengeUrl
+                                        }
+                                    }
                                 }
-                                val challengeUrl = runtimeAuthUrl ?: sessionManager.challengeUrl
-                                // Auto-show the WebView when challenge is pending
-                                LaunchedEffect(challengeUrl) {
-                                    if (challengeUrl != null && !showChallengeWebView && !isExchanging) {
+                                val challengeUrl = runtimeAuthUrl ?: freshRelayUrl
+                                // Record which challenge is in play, and who owns it, so a
+                                // verification that fails can be told apart from one that never got a
+                                // challenge at all - the two look identical on screen.
+                                LaunchedEffect(challengeUrl, browserMode) {
+                                    if (challengeUrl == null) return@LaunchedEffect
+                                    val id = challengeUrl.substringAfter("id=", "").substringBefore("&")
+                                    val state = challengeUrl.substringAfter("state=", "").substringBefore("&")
+                                    SpotiFLACDiag.log(
+                                        "relay challenge in play id=$id state=$state " +
+                                            "owner=${if (browserMode) "browser" else "app"} " +
+                                            "source=${if (runtimeAuthUrl != null) "runtime" else "relay"}",
+                                    )
+                                }
+                                // Auto-show the WebView when a challenge is pending - but only on
+                                // an engine that can actually solve it. Opening a page that can
+                                // never finish would hold the user in front of a dead check.
+                                LaunchedEffect(challengeUrl, engineCapable) {
+                                    if (engineCapable && challengeUrl != null &&
+                                        !showChallengeWebView && !isExchanging && !browserMode
+                                    ) {
                                         showChallengeWebView = true
+                                    }
+                                }
+
+                                // Declared here rather than inside the WebView branch: the same
+                                // grant is now also accepted from the browser route, which does
+                                // not have a WebView to capture it from.
+                                var grantCaptured by remember { mutableStateOf(false) }
+                                // Bumped when the challenge goes to the browser, so a retry can
+                                // wait for the grant again instead of the first attempt having
+                                // spent the watch.
+                                var browserRouteAttempt by remember { mutableStateOf(0) }
+                                val capturedGrant = remember { mutableStateOf("") }
+
+                                fun extractGrant(raw: String): String? {
+                                    if (raw.contains("grant=")) {
+                                        return android.net.Uri.parse(raw).getQueryParameter("grant")
+                                            ?.takeIf { it.isNotBlank() }
+                                    }
+                                    return raw.trim().takeIf { it.isNotBlank() }
+                                }
+
+                                fun captureGrant(raw: String) {
+                                    if (grantCaptured) return
+                                    val grant = extractGrant(raw) ?: return
+                                    grantCaptured = true
+                                    capturedGrant.value = grant
+                                    showChallengeWebView = false
+                                    Timber.tag(TAG).d("Grant captured (len=${grant.length})")
+                                    // The relay's own record of the flow. Its Timber lines never reach
+                                    // logcat in this build, so a verification that did not stick used to
+                                    // leave no trace at all beyond "it did not work".
+                                    SpotiFLACDiag.log(
+                                        "relay grant captured via ${if (browserMode) "browser" else "app"} " +
+                                            "(len=${grant.length})",
+                                    )
+                                    scope.launch {
+                                        isExchanging = true
+                                        val result = sessionManager.exchangeGrant(grant)
+                                        SpotiFLACDiag.log(
+                                            "relay grant exchange: success=${result.isSuccess} " +
+                                                "err=${result.exceptionOrNull()?.message ?: "none"} " +
+                                                "state=${result.getOrNull()}",
+                                        )
+                                        if (result.isSuccess) {
+                                            sessionManager.forceRestoreSession()
+                                        }
+                                        bootstrapError = result.exceptionOrNull()?.message
+                                        isExchanging = false
+                                    }
+                                }
+
+                                // The browser route is tap-only: solving the check in the browser
+                                // publishes the grant on the challenge page, which Hush reads back
+                                // for itself. The page's copied callback is still watched, for
+                                // browsers that offer one.
+                                LaunchedEffect(challengeUrl, engineCapable, browserRouteAttempt) {
+                                    // Follow the *route*, not the engine: once the challenge has
+                                    // been handed to a browser, that browser's grant is what Hush
+                                    // has to collect, whether or not the WebView could have done
+                                    // the job itself.
+                                    if (challengeUrl == null || browserRouteAttempt == 0) return@LaunchedEffect
+                                    val grant = SpotiFLACChallengeRoute.awaitBrowserGrant(
+                                        owner = lifecycleOwner,
+                                        context = context,
+                                        challengeUrl = challengeUrl,
+                                        // Shorter than the default wait: the relay gateway binds a
+                                        // challenge to the request that raised it, so a browser that
+                                        // cannot complete one should hand the job back to the app
+                                        // quickly rather than leaving the user waiting.
+                                        timeoutMs = BROWSER_ROUTE_TIMEOUT_MS,
+                                    )
+                                    if (grant != null) {
+                                        captureGrant(grant)
+                                        return@LaunchedEffect
+                                    }
+                                    // Nothing came back. The relay check has to be done by the app
+                                    // itself - it is raised for this install and carries a JS bridge
+                                    // only Hush owns - so give the in-app route a fresh challenge
+                                    // instead of leaving verification in a dead end. On a device
+                                    // whose WebView cannot run Cloudflare at all, say so, because
+                                    // then the per-source verification is the way in.
+                                    browserMode = false
+                                    if (engineCapable) {
+                                        withContext(Dispatchers.IO) { sessionManager.bootstrap() }
+                                        freshRelayUrl = sessionManager.challengeUrl
+                                        bootstrapError =
+                                            "Your browser could not finish this check - Hush is doing it in the app instead"
+                                        showChallengeWebView = true
+                                        SpotiFLACDiag.log(
+                                            "relay browser route produced no grant; in-app route retried " +
+                                                "with a fresh challenge",
+                                        )
+                                    } else {
+                                        bootstrapError =
+                                            "This device's WebView cannot run Cloudflare's check - verify " +
+                                                "a source instead, which can use your browser"
                                     }
                                 }
                                 Text(
@@ -633,35 +786,7 @@ fun SpotiFLACSettingsScreen(
                                             style = MaterialTheme.typography.bodySmall,
                                         )
                                     }
-                                } else if (showChallengeWebView && challengeUrl != null) {
-                                    var grantCaptured by remember { mutableStateOf(false) }
-                                    val capturedGrant = remember { mutableStateOf("") }
-
-                                    fun extractGrant(raw: String): String? {
-                                        if (raw.contains("grant=")) {
-                                            return android.net.Uri.parse(raw).getQueryParameter("grant")
-                                                ?.takeIf { it.isNotBlank() }
-                                        }
-                                        return raw.trim().takeIf { it.isNotBlank() }
-                                    }
-
-                                    fun captureGrant(raw: String) {
-                                        if (grantCaptured) return
-                                        val grant = extractGrant(raw) ?: return
-                                        grantCaptured = true
-                                        capturedGrant.value = grant
-                                        Timber.tag("SpotiFLACSettings").d("Grant captured (len=${grant.length})")
-                                        showChallengeWebView = false
-                                        scope.launch {
-                                            isExchanging = true
-                                            val result = sessionManager.exchangeGrant(grant)
-                                            if (result.isSuccess) {
-                                                sessionManager.forceRestoreSession()
-                                            }
-                                            bootstrapError = result.exceptionOrNull()?.message
-                                            isExchanging = false
-                                        }
-                                    }
+                                } else if (showChallengeWebView && challengeUrl != null && engineCapable) {
 
                                     androidx.compose.foundation.layout.Box(
                                         modifier = Modifier
@@ -765,12 +890,67 @@ fun SpotiFLACSettingsScreen(
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
+                                    ChallengeBrowserFallback(
+                                        url = challengeUrl,
+                                        onBrowserOpened = { browserRouteAttempt++ },
+                                        onStale = {
+                                            scope.launch {
+                                                bootstrapError =
+                                                    "That challenge was already used - getting a fresh one"
+                                                withContext(Dispatchers.IO) { sessionManager.bootstrap() }
+                                                freshRelayUrl = sessionManager.challengeUrl
+                                                bootstrapError = null
+                                            }
+                                        },
+                                        // Hand the browser a challenge of its own: the WebView is
+                                        // closed first so it cannot solve (and spend) the one the
+                                        // browser is about to open.
+                                        beforeOpen = {
+                                            browserMode = true
+                                            showChallengeWebView = false
+                                            withContext(Dispatchers.IO) { sessionManager.bootstrap() }
+                                            freshRelayUrl = sessionManager.challengeUrl
+                                            SpotiFLACDiag.log(
+                                                "browser route for the relay challenge: fresh " +
+                                                    "challenge ${freshRelayUrl ?: "(none)"}",
+                                            )
+                                            freshRelayUrl
+                                        },
+                                    ) { raw ->
+                                        captureGrant(raw)
+                                    }
                                     androidx.compose.material3.TextButton(onClick = {
                                         showChallengeWebView = false
                                     }) {
                                         Text("Cancel")
                                     }
                                 } else {
+                                    // A challenge that this device's WebView cannot solve: say so
+                                    // and offer the route that works instead of the retry loop.
+                                    if (challengeUrl != null && !engineCapable) {
+                                        Text(
+                                            text = SpotiFLACChallengeRoute.unsupportedNotice(challengeEngine),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        ChallengeBrowserFallback(
+                                        url = challengeUrl,
+                                        onBrowserOpened = { browserRouteAttempt++ },
+                                        onStale = {
+                                            scope.launch {
+                                                bootstrapError =
+                                                    "That challenge was already used - getting a fresh one"
+                                                withContext(Dispatchers.IO) { sessionManager.bootstrap() }
+                                                freshRelayUrl = sessionManager.challengeUrl
+                                                bootstrapError = null
+                                            }
+                                        },
+                                    ) { raw ->
+                                            captureGrant(raw)
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    }
                                     val retryError = bootstrapError
                                     if (retryError != null) {
                                         Text(
@@ -791,7 +971,12 @@ fun SpotiFLACSettingsScreen(
                                                 else if (newState == SessionState.ACTIVE) null
                                                 else "Failed to start verification"
                                             isBootstrapping = false
-                                            if (newState == SessionState.CHALLENGE_PENDING || newState == SessionState.ACTIVE) {
+                                            if (engineCapable &&
+                                                (
+                                                    newState == SessionState.CHALLENGE_PENDING ||
+                                                        newState == SessionState.ACTIVE
+                                                )
+                                            ) {
                                                 showChallengeWebView = true
                                             }
                                         }
@@ -1082,79 +1267,81 @@ fun SpotiFLACSettingsScreen(
                         modifier = Modifier.padding(16.dp),
                     )
                     var verifyGrantCaptured by remember(activeVerifyUrl) { mutableStateOf(false) }
-                    androidx.compose.ui.viewinterop.AndroidView(
-                        factory = {
-                            android.webkit.WebView(context).apply {
-                                layoutParams = android.view.ViewGroup.LayoutParams(
-                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                                )
-                                settings.javaScriptEnabled = true
-                                settings.domStorageEnabled = true
-                                addJavascriptInterface(
-                                    object : Any() {
-                                        @android.webkit.JavascriptInterface
-                                        fun postMessage(message: String) {
-                                            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                                if (!verifyGrantCaptured) {
-                                                    verifyGrantCaptured = true
-                                                    completeVerification(message)
-                                                }
-                                            }
-                                        }
-                                    },
-                                    "SpotiflacGrant",
-                                )
-                                webViewClient = object : android.webkit.WebViewClient() {
-                                    override fun shouldOverrideUrlLoading(
-                                        view: android.webkit.WebView?,
-                                        request: android.webkit.WebResourceRequest?,
-                                    ): Boolean {
-                                        val url = request?.url?.toString() ?: return false
-                                        if (url.contains("grant=") || url.contains("code=")) {
-                                            if (!verifyGrantCaptured) {
-                                                verifyGrantCaptured = true
-                                                completeVerification(url)
-                                            }
-                                            return true
-                                        }
-                                        return false
-                                    }
-
-                                    override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
-                                        super.onPageFinished(view, url)
-                                        if (verifyGrantCaptured) return
-                                        view?.evaluateJavascript(
-                                            """
-                                            (function() {
-                                                try {
-                                                    var grant = new URLSearchParams(window.location.search).get('grant')
-                                                        || new URLSearchParams(window.location.search).get('code');
-                                                    if (grant) return 'GRANT_FOUND:' + grant;
-                                                } catch(e) {}
-                                                return 'NO_GRANT';
-                                            })();
-                                            """.trimIndent(),
-                                        ) { result ->
-                                            if (result.contains("GRANT_FOUND:") && !verifyGrantCaptured) {
-                                                val grant = result.substringAfter("GRANT_FOUND:")
-                                                    .removeSurrounding("\"")
-                                                if (grant.isNotBlank()) {
-                                                    verifyGrantCaptured = true
-                                                    completeVerification(grant)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                webChromeClient = object : android.webkit.WebChromeClient() {}
-                                loadUrl(activeVerifyUrl)
+                    var verifyBrowserAttempt by remember(activeVerifyUrl) { mutableStateOf(0) }
+                    // A challenge that was already passed - in a browser, or before Hush's
+                    // process was killed - still publishes its unspent grant. Reading it here
+                    // finishes a repeat Verify without opening a WebView or a browser at all,
+                    // which is the only way verification can complete on a device whose engine
+                    // cannot run Cloudflare's check.
+                    LaunchedEffect(activeVerifyUrl) {
+                        if (verifyGrantCaptured) return@LaunchedEffect
+                        val recovered = SpotiFLACChallengeRoute.grantFromChallengePage(
+                            SpotiFLACChallengeRoute.readChallengePage(activeVerifyUrl),
+                        ) ?: return@LaunchedEffect
+                        if (verifyGrantCaptured) return@LaunchedEffect
+                        SpotiFLACDiag.log(
+                            "challenge for ${verifyExtensionId ?: "?"} was already solved; " +
+                                "recovering its grant",
+                        )
+                        verifyGrantCaptured = true
+                        completeVerification("grant=$recovered")
+                    }
+                    // An engine Cloudflare will not challenge never mints a token, so the page is
+                    // not opened at all on one: the browser route below does the work instead.
+                    if (engineCapable) {
+                        ExtensionChallengeWebView(
+                            url = activeVerifyUrl,
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                        ) { raw ->
+                            if (!verifyGrantCaptured) {
+                                verifyGrantCaptured = true
+                                completeVerification(raw)
                             }
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = SpotiFLACChallengeRoute.unsupportedNotice(challengeEngine),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                    // The browser route is tap-only here too: the grant is read back from the
+                    // challenge page rather than copied by hand. Only watched once the challenge
+                    // has actually been handed to a browser, and only when the WebView is not the
+                    // one doing the work.
+                    LaunchedEffect(activeVerifyUrl, engineCapable, verifyBrowserAttempt) {
+                        // The browser route is collected wherever it was chosen, not only on
+                        // devices whose WebView is too old to run the check.
+                        if (verifyBrowserAttempt == 0) return@LaunchedEffect
+                        val grant = SpotiFLACChallengeRoute.awaitBrowserGrant(
+                            owner = lifecycleOwner,
+                            context = context,
+                            challengeUrl = activeVerifyUrl,
+                        ) ?: return@LaunchedEffect
+                        if (!verifyGrantCaptured) {
+                            verifyGrantCaptured = true
+                            completeVerification(grant)
+                        }
+                    }
+                    ChallengeBrowserFallback(
+                        url = activeVerifyUrl,
+                        onBrowserOpened = { verifyBrowserAttempt++ },
+                        // A spent runtime challenge means this URL is finished: ask the runtime for
+                        // a new one rather than sending the user to a page that cannot deliver.
+                        onStale = {
+                            val id = verifyExtensionId
+                            verifyAuthUrl = null
+                            if (id != null) startVerification(id)
                         },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    )
+                    ) { raw ->
+                        if (!verifyGrantCaptured) {
+                            verifyGrantCaptured = true
+                            completeVerification(raw)
+                        }
+                    }
                     androidx.compose.material3.TextButton(onClick = {
                         verifyAuthUrl = null
                         verifyExtensionId = null
@@ -1167,7 +1354,204 @@ fun SpotiFLACSettingsScreen(
     }
 }
 
-/** Pulls the one-time grant (or `code`) out of an extension verification callback URL. */
+/**
+ * The extension verification page in an embedded WebView.
+ *
+ * Extracted because the same page now has two hosts: this WebView, and the browser route that
+ * replaces it entirely on a device whose WebView is too old for Cloudflare's check. Both report
+ * a captured grant through the same callback, so the capture plumbing lives in one place.
+ */
+@Composable
+private fun ExtensionChallengeWebView(
+    url: String,
+    modifier: Modifier = Modifier,
+    onGrant: (String) -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = {
+            android.webkit.WebView(context).apply {
+                layoutParams = android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                )
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                // The challenge page delivers its grant through a
+                // window.SpotiflacGrant.postMessage(...) bridge, because Chromium drops
+                // script-initiated custom-scheme navigation without a user gesture.
+                addJavascriptInterface(
+                    object : Any() {
+                        @android.webkit.JavascriptInterface
+                        fun postMessage(message: String) {
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                onGrant(message)
+                            }
+                        }
+                    },
+                    "SpotiflacGrant",
+                )
+                webViewClient = object : android.webkit.WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: android.webkit.WebView?,
+                        request: android.webkit.WebResourceRequest?,
+                    ): Boolean {
+                        val target = request?.url?.toString() ?: return false
+                        if (target.contains("grant=") || target.contains("code=")) {
+                            onGrant(target)
+                            return true
+                        }
+                        return false
+                    }
+
+                    override fun onPageFinished(view: android.webkit.WebView?, finishedUrl: String?) {
+                        super.onPageFinished(view, finishedUrl)
+                        view?.evaluateJavascript(QUERY_GRANT_JS) { result ->
+                            if (result.contains("GRANT_FOUND:")) {
+                                val grant = result.substringAfter("GRANT_FOUND:")
+                                    .removeSurrounding("\"")
+                                if (grant.isNotBlank()) onGrant(grant)
+                            }
+                        }
+                    }
+                }
+                // Cloudflare names an engine it will not challenge through the page console,
+                // which is otherwise invisible on a device we cannot inspect directly.
+                webChromeClient = object : android.webkit.WebChromeClient() {
+                    override fun onConsoleMessage(
+                        message: android.webkit.ConsoleMessage?,
+                    ): Boolean {
+                        val text = message?.message() ?: return false
+                        SpotiFLACDiag.log(
+                            "challenge console[$url] ${message.lineNumber()}: ${text.take(200)}",
+                        )
+                        return false
+                    }
+                }
+                loadUrl(url)
+            }
+        },
+        modifier = modifier,
+    )
+}
+
+/** Reads a `grant`/`code` parameter the challenge page may have left in its own URL. */
+private const val QUERY_GRANT_JS = """
+(function() {
+    try {
+        var params = new URLSearchParams(window.location.search);
+        var grant = params.get('grant') || params.get('code');
+        if (grant) return 'GRANT_FOUND:' + grant;
+    } catch (e) {}
+    return 'NO_GRANT';
+})();
+"""
+
+/**
+ * The route that works when the embedded WebView cannot: solve the check in the device's real
+ * browser, and Hush reads the grant back from the challenge page itself.
+ *
+ * Shared by both verification surfaces, so the fallback does not exist on only one of them - and
+ * on a device whose WebView is too old, it is the only way verification completes at all.
+ *
+ * @param onBrowserOpened the challenge has been handed to a browser, so the host can start
+ *   watching for the grant the page publishes once the check is solved.
+ * @param onStale the challenge is finished (already verified and spent), so there is nothing a
+ *   browser could complete. The host refreshes it instead of opening a page that can only answer
+ *   "Invalid request" - which is what a stored challenge URL from an earlier attempt produced.
+ * @param beforeOpen mints the URL the browser should actually open, or null when there is nothing
+ *   to open. A challenge is single-use and the in-app WebView solves it within seconds of it being
+ *   raised, so a browser handed *that* URL can only ever reach a spent one - the page answers
+ *   "Invalid request" no matter how often the user retries. The host therefore retires the WebView
+ *   and hands the browser a challenge of its own.
+ * @param onApply a pasted code or link, for the browsers that hand one over by hand.
+ */
+@Composable
+private fun ChallengeBrowserFallback(
+    url: String,
+    onBrowserOpened: () -> Unit = {},
+    onStale: () -> Unit = {},
+    beforeOpen: (suspend () -> String?)? = null,
+    onApply: (String) -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pasted by remember(url) { mutableStateOf("") }
+    Text(
+        text = "Solve it in your browser and Hush finishes on its own - there is nothing to " +
+            "copy back.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp),
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(horizontal = 8.dp),
+    ) {
+        androidx.compose.material3.TextButton(onClick = {
+            scope.launch {
+                val target = if (beforeOpen != null) {
+                    beforeOpen()
+                } else if (
+                    SpotiFLACChallengeRoute.readPageState(url) ==
+                    SpotiFLACChallengeRoute.PageState.Spent
+                ) {
+                    // Never hand a finished challenge to a browser: the page would solve and then
+                    // reject itself, which reads as "verification is broken" rather than "this link
+                    // is used up". Refresh instead.
+                    SpotiFLACDiag.log("challenge handed to the browser was already spent; refreshing")
+                    onStale()
+                    null
+                } else {
+                    url
+                }
+                if (target != null) {
+                    onBrowserOpened()
+                    SpotiFLACChallengeRoute.openInBrowser(context, target)
+                }
+            }
+        }) {
+            Text("Open in browser")
+        }
+        androidx.compose.material3.TextButton(onClick = {
+            SpotiFLACChallengeRoute.clipboardText(context)?.let { pasted = it }
+        }) {
+            Text("Paste code")
+        }
+    }
+    OutlinedTextField(
+        value = pasted,
+        onValueChange = { pasted = it },
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        label = { Text("Verification code or link") },
+        textStyle = MaterialTheme.typography.bodySmall,
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.End,
+    ) {
+        androidx.compose.material3.TextButton(
+            onClick = {
+                val callback = pasted.trim()
+                if (callback.isNotEmpty()) onApply(callback)
+            },
+            enabled = pasted.isNotBlank(),
+        ) {
+            Text("Apply")
+        }
+    }
+}
+
+/**
+ * How long the relay verification waits on a browser before taking the check back into the app.
+ *
+ * The relay gateway raises its challenge for this install and delivers the grant through a bridge
+ * only Hush owns, so a browser is the fallback route - not the one to wait on. Long enough for a
+ * real browser to load the page and solve the widget, short enough that a route that cannot finish
+ * hands back to the working one while the user is still looking at the screen.
+ */
+private const val BROWSER_ROUTE_TIMEOUT_MS = 45_000L
+
 /** Human-readable remaining time for a session that is still valid. */
 private fun formatSessionValidity(remainingSeconds: Long): String {
     if (remainingSeconds <= 0) return "expired"
@@ -1189,10 +1573,20 @@ private fun verificationGrantFrom(raw: String): String? {
         uri.getQueryParameter("code")?.takeIf { it.isNotBlank() }?.let { return it }
         uri.getQueryParameter("cb")?.let { nested -> verificationGrantFrom(nested) }?.let { return it }
     }
-    val match = Regex("(?:^|[?&#\\s])(?:grant|code)=([^&#\\s]+)").find(trimmed) ?: return null
-    return runCatching { android.net.Uri.decode(match.groupValues[1]) }.getOrNull()
-        ?.takeIf { it.isNotBlank() }
+    val match = Regex("(?:^|[?&#\\s])(?:grant|code)=([^&#\\s]+)").find(trimmed)
+    if (match != null) {
+        return runCatching { android.net.Uri.decode(match.groupValues[1]) }.getOrNull()
+            ?.takeIf { it.isNotBlank() }
+    }
+    // A bare token - what the page's JavaScript channel posts, and what a user pasting from the
+    // browser route may copy - carries no parameters to read. Accepted only when it cannot be
+    // anything else, so a pasted sentence or URL is never exchanged as a grant. Matches the
+    // player overlay's parser, because both accept the same code.
+    return trimmed.takeIf { BARE_GRANT_CODE.matches(it) }
 }
+
+/** Length and shape of a bare verification token: unreserved URL characters, nothing else. */
+private val BARE_GRANT_CODE = Regex("^[A-Za-z0-9._~-]{20,2048}$")
 
 /** Pulls the callback `state` used to bind a grant to the challenge that started it. */
 private fun verificationStateFrom(raw: String): String? {

@@ -132,3 +132,6 @@ core.*
 /SpotiFLAC-Mobile/
 /SpotiFLAC-Next/
 /SpotiFLAC-Module-Version/
+
+# SpotiFLAC runtime state written relative to the source tree (per-install id)
+/app/spotiflac/

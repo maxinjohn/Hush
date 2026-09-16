@@ -5,6 +5,10 @@
     <uses-sdk tools:overrideLibrary="com.mocharealm.accompanist.lyrics.ui" />
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Lets Hush remove one of its own Waze bridges through the platform's package installer, so
+         replacing a bridge signed with a different key is one confirmation rather than a trip to
+         the App Info screen. Normal permission: granted at install, no runtime prompt. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
@@ -101,6 +105,22 @@
                 <data
                     android:host="spotiflac-grant"
                     android:scheme="hush" />
+            </intent-filter>
+
+            <!-- SpotiFLAC session grant callback on the runtime's own callback scheme.
+                 The source challenge is a Cloudflare widget: on a device whose embedded
+                 WebView is too old for it, the check is solved in a real browser instead,
+                 and this is the link that browser hands back. MainActivity already parses
+                 this URI; registering it is what lets the grant reach it at all. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="session-grant"
+                    android:scheme="spotiflac" />
             </intent-filter>
 
             <!-- Youtube filter -->
@@ -381,6 +401,19 @@
         android:name="android.appwidget.provider"
         android:resource="@xml/widget_playback_capsule_info" />
 </receiver>
+
+<!-- Manual SpotiFLAC verification, triggered by the notification action when
+     automatic verification cannot run on this device (an old car WebView). Not
+     exported: only Hush's own PendingIntent sends this action. -->
+<receiver
+    android:name=".spotiflac.SpotiFLACManualVerifyReceiver"
+    android:enabled="true"
+    android:exported="false" />
+
+<receiver
+    android:name=".waze.WazeBridgeUninstallReceiver"
+    android:enabled="true"
+    android:exported="false" />
 
 <receiver
     android:name=".widget.PlaybackSpotlightWidgetReceiver"

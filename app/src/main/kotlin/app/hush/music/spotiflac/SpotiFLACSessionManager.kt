@@ -89,6 +89,30 @@ class SpotiFLACSessionManager @Inject constructor(
         private const val KEY_TURNSTILE_SITE_KEY = "turnstile_site_key"
         private const val KEY_SERVER_NONCE = "server_nonce"
         const val APP_VERSION = "4.9.6"
+
+        /** 32 lowercase hex characters, the only shape the gateway accepts. */
+        internal val INSTALL_ID_PATTERN = Regex("^[0-9a-f]{32}$")
+
+        /**
+         * The callback the gateway is willing to put in front of a solved challenge.
+         *
+         * Only the `spotiflac` scheme is reflected back into the page; any other scheme (including
+         * the `hush://spotiflac-grant` this used to send) arrives as an empty `callbackUrl`, so the
+         * page has no target and a browser-solved challenge can never return on its own.
+         */
+        internal fun callbackUrlFor(state: String): String =
+            "spotiflac://session-grant?cb_version=v2grant&state=$state"
+
+        /**
+         * What the relay puts in its callback's `state`.
+         *
+         * The gateway issues a nonce with a challenge and matches the solved grant back through it,
+         * so echoing the nonce is what lets a browser-solved challenge be completed. A literal
+         * state (the placeholder this used to send for every challenge) carries nothing for the
+         * gateway to match, which is a request it can only reject.
+         */
+        internal fun relayCallbackState(serverNonce: String?): String =
+            serverNonce?.trim()?.takeIf { it.isNotEmpty() } ?: "spotiflac"
         private const val PLATFORM = "extension"
         private const val SCHEME_LABEL = "ZARZ-HMAC-V1"
         private const val HEADER_PREFIX = "X-Zarz-"
@@ -101,6 +125,23 @@ class SpotiFLACSessionManager @Inject constructor(
         fun getInstance(): SpotiFLACSessionManager {
             return instance
                 ?: throw IllegalStateException("SpotiFLACSessionManager not initialized")
+        }
+
+        /**
+         * The gateway identity this install uses, without needing the DI instance.
+         *
+         * Prefs win while they exist; the vault is the fallback so a build that
+         * runs before the manager is constructed (or after a data wipe the vault
+         * survived) can still sign with the identity the gateway already trusts.
+         */
+        fun installIdOrNull(context: Context): String? {
+            val stored = runCatching {
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .getString(KEY_INSTALL_ID, null)
+            }.getOrNull()
+            if (!stored.isNullOrBlank() && stored.matches(INSTALL_ID_PATTERN)) return stored
+            return SpotiFLACSessionVault.storedInstallId(context)
+                ?.takeIf { it.matches(INSTALL_ID_PATTERN) }
         }
     }
 
@@ -131,20 +172,41 @@ class SpotiFLACSessionManager @Inject constructor(
     val installIdForRuntime: String?
         get() {
             ensureInstallId()
-            return installId.takeIf { it.matches(Regex("^[0-9a-f]{32}$")) }
+            return installId.takeIf { it.matches(INSTALL_ID_PATTERN) }
         }
 
     private fun ensureInstallId() {
         if (installId.isBlank()) {
-            installId = prefs.getString(KEY_INSTALL_ID, null) ?: generateInstallId()
+            installId = durableInstallId()
             prefs.edit().putString(KEY_INSTALL_ID, installId).apply()
         }
+        SpotiFLACSessionVault.rememberInstallId(context, installId)
+    }
+
+    /**
+     * The identity to keep using: prefs, then the vault, and only then a new one.
+     *
+     * Minting a fresh id is the expensive branch - the gateway has never seen it,
+     * so it answers with a Cloudflare challenge - which is why the vault is
+     * consulted first. That is what carries the identity through an app upgrade or
+     * a restore the vault survived.
+     */
+    private fun durableInstallId(): String {
+        prefs.getString(KEY_INSTALL_ID, null)?.takeIf { it.matches(INSTALL_ID_PATTERN) }
+            ?.let { return it }
+        SpotiFLACSessionVault.storedInstallId(context)?.takeIf { it.matches(INSTALL_ID_PATTERN) }
+            ?.let { id ->
+                Timber.tag(TAG).i("Restored SpotiFLAC install id from the session vault")
+                return id
+            }
+        return generateInstallId()
     }
 
     init {
         instance = this
-        installId = prefs.getString(KEY_INSTALL_ID, null) ?: generateInstallId()
+        installId = durableInstallId()
         prefs.edit().putString(KEY_INSTALL_ID, installId).apply()
+        SpotiFLACSessionVault.rememberInstallId(context, installId)
         restoreSession()
     }
 
@@ -321,7 +383,7 @@ class SpotiFLACSessionManager @Inject constructor(
 
             // Use a Hush-specific callback scheme to avoid the official SpotiFLAC app
             // intercepting the redirect (both apps register for spotiflac://).
-            val callbackUrl = "hush://spotiflac-grant?cb_version=v2grant&state=spotiflac"
+            val callbackUrl = callbackUrlFor(relayCallbackState(bootstrapResponse.serverNonce))
             val encodedCallback = java.net.URLEncoder.encode(callbackUrl, "UTF-8")
                 .replace("+", "%20")
             val challengeUrl = "$BASE_URL/challenge?id=${bootstrapResponse.challengeId}&cb=$encodedCallback"

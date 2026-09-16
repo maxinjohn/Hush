@@ -22,6 +22,7 @@ class SpotiFLAutoVerifierTest {
     @After
     fun tearDown() {
         SpotiFLAutoVerifier.cancel()
+        SpotiFLACVerificationRequest.dismiss()
     }
 
     @Test
@@ -88,6 +89,34 @@ class SpotiFLAutoVerifierTest {
         assertFalse(SpotiFLAutoVerifier.inCooldown("deezer", now + 11 * 60_000L))
         // An unknown source was never attempted, so it is never in cooldown.
         assertFalse(SpotiFLAutoVerifier.inCooldown("tidal-web", now))
+    }
+
+    @Test
+    fun `a verification completed outside the queue still wakes playback`() {
+        // The Audio Sources screen hosts its own challenge, and a source verified there was never
+        // in this queue - yet the track playback parked on it still has to be resumed, which is
+        // what the ticker and the listener exist for.
+        val before = SpotiFLAutoVerifier.verifiedTicker.value
+        SpotiFLAutoVerifier.notifyVerified("deezer")
+        assertNull(SpotiFLAutoVerifier.active.value)
+        assertEquals(before + 1, SpotiFLAutoVerifier.verifiedTicker.value)
+    }
+
+    @Test
+    fun `a verification clears the pending request it answers`() {
+        SpotiFLACVerificationRequest.request("qobuz-web")
+        assertEquals("qobuz-web", SpotiFLACVerificationRequest.pending.value)
+        SpotiFLAutoVerifier.notifyVerified("qobuz-web")
+        assertNull(SpotiFLACVerificationRequest.pending.value)
+    }
+
+    @Test
+    fun `a verified source outside the queue does not disturb a run in flight`() {
+        SpotiFLAutoVerifier.enqueue(listOf("deezer", "qobuz-web"), "test")
+        SpotiFLAutoVerifier.notifyVerified("tidal-web")
+        // The source being worked on is untouched: this reports someone else's success, not a
+        // completion of the active challenge.
+        assertEquals("deezer", SpotiFLAutoVerifier.active.value)
     }
 
     @Test
