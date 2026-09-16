@@ -6,6 +6,7 @@
 
 package app.hush.music.spotiflac
 
+import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -70,6 +71,14 @@ object SpotiFLAutoVerifier {
      */
     @Volatile var onSourceVerified: (() -> Unit)? = null
 
+    /**
+     * Application context used to preserve what a verification just earned.
+     *
+     * Set once at app start. Only needed for the vault mirror below, so a null
+     * value degrades to "no extra bookkeeping" rather than any user-visible change.
+     */
+    @Volatile var appContext: Context? = null
+
     private val queue = LinkedHashSet<String>()
     private val lastFailedAt = HashMap<String, Long>()
     private val lastAttemptAt = HashMap<String, Long>()
@@ -116,12 +125,25 @@ object SpotiFLAutoVerifier {
             lastFailedAt.remove(sourceId)
             _verifiedTicker.value += 1
             SpotiFLACDiag.log("auto-verify done: $sourceId verified")
+            rememberVerifiedMaterial(sourceId)
+            appContext?.let { SpotiFLACVerificationNotifier.clear(it, sourceId) }
             runCatching { onSourceVerified?.invoke() }
                 .onFailure { SpotiFLACDiag.log("verified listener failed: ${it.message}") }
         } else {
             queue.remove(sourceId)
             lastFailedAt[sourceId] = System.currentTimeMillis()
             SpotiFLACDiag.log("auto-verify gave up: $sourceId (cooldown ${RETRY_COOLDOWN_MS / 60_000}m)")
+            // Automatic could not do it on this device. On one whose WebView is older than
+            // Cloudflare supports, an automatic run can only ever time out, so the manual route
+            // is the only one there is - and it is offered as a notification because a car user
+            // may not have Hush in front of them. On a device where the in-app route works, a
+            // failure is far more likely to be a transient one (no network in a tunnel), so the
+            // in-app notice carries the same browser button and no notification is raised.
+            appContext?.let { context ->
+                if (!SpotiFLACChallengeEngine.canSolveCloudflare(SpotiFLACChallengeEngine.current())) {
+                    SpotiFLACVerificationNotifier.notify(context, sourceId)
+                }
+            }
         }
         startNext()
         // Nothing left to try automatically: hand the one source the user can still
@@ -131,6 +153,61 @@ object SpotiFLAutoVerifier {
             _status.value = "Verification for $sourceId needs a manual check"
             SpotiFLACVerificationRequest.request(sourceId)
         }
+    }
+
+    /**
+     * Reports that [sourceId] became usable, from whichever surface verified it.
+     *
+     * There are three: the automatic overlay, the browser route, and the challenge hosted by the
+     * Audio Sources screen. The first two already reported through here; the third did not, and the
+     * consequences were not cosmetic - a track parked waiting for that source was never resumed
+     * (nothing incremented [verifiedTicker], so [onSourceVerified] never fired), the "SpotiFLAC needs
+     * verification" card stayed on screen for a source that was already fine, and the freshly
+     * verified session was never mirrored into the vault. One entry point is what keeps a fourth
+     * surface from repeating the omission.
+     *
+     * Safe for a source the queue never held: finishing a run that is not in flight only records the
+     * success and wakes playback.
+     */
+    fun notifyVerified(sourceId: String) {
+        SpotiFLACVerificationRequest.dismiss()
+        finish(sourceId, verified = true)
+    }
+
+    /**
+     * Marks the active source as needing nothing, and moves to the next.
+     *
+     * A source that signs in with its own service has no Cloudflare check, so an attempt at one
+     * is not a failure: treating it as one put it in the retry cooldown, logged a give-up, and
+     * - on a device whose WebView cannot run the check - offered the user a manual verification
+     * for a source that was never broken.
+     */
+    fun finishNotRequired(sourceId: String) {
+        if (_active.value == sourceId) _active.value = null
+        queue.remove(sourceId)
+        lastFailedAt.remove(sourceId)
+        SpotiFLACDiag.log("auto-verify skipped: $sourceId needs no verification")
+        startNext()
+    }
+
+    /**
+     * Copies a freshly earned session into the durable vault at the moment it is
+     * known-good.
+     *
+     * Verification is the one event that can never be repeated for free: the grant
+     * is single-use and the challenge behind it is manual. Capturing it here means
+     * the session survives the extension's version moving, its record being cleared
+     * after expiry, and - when the vault is restored - a reinstall.
+     */
+    private fun rememberVerifiedMaterial(sourceId: String) {
+        val context = appContext ?: return
+        runCatching {
+            val record = SpotiFLACSessionRenewer.sessions(context)
+                .firstOrNull { it.extensionId == sourceId }
+                ?.recordFile ?: return@runCatching
+            SpotiFLACSessionVault.remember(context, record, sourceId)
+            SpotiFLACDiag.log("session vault updated for $sourceId")
+        }.onFailure { SpotiFLACDiag.log("session vault update failed for $sourceId: ${it.message}") }
     }
 
     /** Drops everything: used when the user cancels or SpotiFLAC is turned off. */

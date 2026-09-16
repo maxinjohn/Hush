@@ -30,6 +30,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.allowHardware
 import coil3.request.crossfade
 import app.hush.music.spotiflac.SpotiFLACDiag
+import app.hush.music.spotiflac.SpotiFLAutoVerifier
 import app.hush.music.spotiflac.SpotiFLACSessionRenewWorker
 import app.hush.music.spotiflac.SpotiFLACSessionRenewer
 import dagger.hilt.android.HiltAndroidApp
@@ -135,6 +136,9 @@ class App :
         BotGuardTokenGenerator.initialize(this)
         PreferenceStore.start(this)
         runCatching { SpotiFLACDiag.attach(this) }
+        // A Bridge repair spans a system uninstall, so the process can be recreated mid-repair; the
+        // half-finished repair has to be remembered across that.
+        runCatching { app.hush.music.waze.WazeBridgeRepair.attach(this) }
         if (BuildConfig.DEBUG) Timber.plant(Timber.DebugTree())
         try {
             Timber.plant(
@@ -247,6 +251,10 @@ class App :
             // manual Cloudflare check. Scheduling is cheap; the worker itself exits
             // without any network call when nothing is due.
             runCatching {
+                // Let a completed verification archive its session immediately: the
+                // grant behind it is single-use, so the material is worth keeping
+                // the moment it exists.
+                SpotiFLAutoVerifier.appContext = this@App
                 SpotiFLACSessionRenewWorker.schedulePeriodic(this@App)
                 SpotiFLACSessionRenewWorker.renewNow(this@App)
                 // Also renew inline: a session that lapsed during doze must be

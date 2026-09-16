@@ -1,9 +1,14 @@
 
 import org.gradle.api.tasks.bundling.Zip
 import org.gradle.api.tasks.Sync
+import java.io.File
 import java.io.FileInputStream
+import java.security.KeyStore
+import java.security.MessageDigest
 import java.util.Base64
 import java.util.Properties
+import java.util.jar.JarFile
+import java.util.zip.ZipFile
 
 plugins {
     id("com.android.application")
@@ -16,11 +21,35 @@ val localProperties = Properties().apply {
         }
     }
 }
+/**
+ * A signing value, with the environment taking precedence over `local.properties`.
+ *
+ * CI puts the decoded key in the environment (see `prepare-shim-signing.sh`), and that prepared key
+ * is what the release must be signed with, so it wins over anything a developer's checkout happens
+ * to carry.
+ */
 fun signingProperty(name: String): String? =
-    localProperties.getProperty(name)?.trim()?.takeIf { it.isNotBlank() }
-        ?: System.getenv(name)?.trim()?.takeIf { it.isNotBlank() }
+    System.getenv(name)?.trim()?.takeIf { it.isNotBlank() }
+        ?: localProperties.getProperty(name)?.trim()?.takeIf { it.isNotBlank() }
 
+/**
+ * Where the release key comes from, in order of precedence.
+ *
+ * `HUSH_SHIM_*` is what CI prepares: `.github/scripts/prepare-shim-signing.sh` decodes the
+ * `KEYSTORE` secret and exports these four names for the shim build. Nothing read them, so every
+ * CI build fell through to the *debug* signing config, whose keystore AGP generates per runner -
+ * which is why shims built locally and shims built in CI carried different certificates, and why
+ * an installed bridge could not be updated in place and had to be uninstalled and reinstalled.
+ *
+ * The `app/keystore` path is the local one, shared with the app's own release signing key, so both
+ * paths now sign with the same certificate.
+ */
+val shimKeystorePath = signingProperty("HUSH_SHIM_KEYSTORE")
 val releaseKeystoreFile = run {
+    shimKeystorePath?.let { prepared ->
+        val preparedFile = File(prepared)
+        if (preparedFile.isFile) return@run preparedFile
+    }
     val source = file("../app/keystore/release.keystore")
     if (!source.isFile) {
         source
@@ -45,15 +74,55 @@ val releaseKeystoreFile = run {
         }
     }
 }
-val releaseStorePassword = signingProperty("STORE_PASSWORD") ?: signingProperty("KEYSTORE_PASSWORD")
-val releaseKeyAlias = signingProperty("KEY_ALIAS")
-val releaseKeyPassword = signingProperty("KEY_PASSWORD")
+val releaseStorePassword =
+    signingProperty("HUSH_SHIM_STORE_PASSWORD")
+        ?: signingProperty("STORE_PASSWORD")
+        ?: signingProperty("KEYSTORE_PASSWORD")
+val releaseKeyAlias = signingProperty("HUSH_SHIM_KEY_ALIAS") ?: signingProperty("KEY_ALIAS")
+val releaseKeyPassword = signingProperty("HUSH_SHIM_KEY_PASSWORD") ?: signingProperty("KEY_PASSWORD")
 val hasReleaseSigningConfig =
     releaseKeystoreFile.isFile &&
         releaseStorePassword != null &&
         releaseKeyAlias != null &&
         releaseKeyPassword != null
 val unsignedReleaseBuild = System.getenv("HUSH_UNSIGNED_RELEASE_BUILD") == "true"
+
+/**
+ * Opt-in for a locally debug-signed bridge.
+ *
+ * Without it, shipping a bridge that is not signed by the release key fails the build instead of
+ * quietly producing an archive whose shims can never be updated in place on a user's phone.
+ */
+val allowDebugSignedShims =
+    System.getenv("HUSH_ALLOW_DEBUG_SIGNED_SHIMS")?.trim().equals("true", ignoreCase = true) == true
+
+/**
+ * The bridge's own version, taken from Hush's.
+ *
+ * A bridge ships inside Hush, and the updater only offers one when the *bundled* bridge is strictly
+ * newer than the installed one. A frozen `versionCode` made that condition impossible: once a
+ * bridge was installed, no later Hush could ever offer a newer bridge - the only way past it was to
+ * uninstall the bridge first, which is exactly what users had to do on every release. Deriving the
+ * code from Hush's keeps them in lockstep: every Hush release ships a strictly newer bridge.
+ *
+ * [SHIM_REVISION] leaves room to ship a bridge-only fix without a Hush version bump.
+ */
+val hushVersion: Pair<Int, String> = run {
+    val appGradle = rootProject.file("app/build.gradle.kts").readText()
+    val code = Regex("versionCode\\s*=\\s*(\\d+)").find(appGradle)?.groupValues?.get(1)?.toIntOrNull()
+    val name = Regex("versionName\\s*=\\s*\"([^\"]+)\"").find(appGradle)?.groupValues?.get(1)
+    require(code != null && !name.isNullOrBlank()) {
+        "Could not read Hush's versionCode/versionName from app/build.gradle.kts; " +
+            "the Waze bridge version is derived from it."
+    }
+    code to name
+}
+val hushVersionCode: Int = hushVersion.first
+val hushVersionName: String = hushVersion.second
+//
+// Overridable (`-PshimRevision=0`) so a lifecycle test can install a slightly older bridge and then
+// prove Hush upgrades it in place - the path that used to require an uninstall on every release.
+val shimRevision = providers.gradleProperty("shimRevision").orNull?.toIntOrNull() ?: 1
 val generatedHushBridgeIconResourcesDir = layout.buildDirectory.dir("generated/hushBridgeIcon/res")
 val syncHushBridgeIconResources = tasks.register<Sync>("syncHushBridgeIconResources") {
     from(rootProject.file("app/src/main/res")) {
@@ -74,8 +143,9 @@ android {
         applicationId = "com.spotify.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 171
-        versionName = "13.14.1"
+        // Derived, never frozen: see [hushVersionCode].
+        versionCode = hushVersionCode * 10 + shimRevision
+        versionName = hushVersionName
     }
 
     flavorDimensions += "bridge"
@@ -208,6 +278,18 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
+/**
+ * The bridges that end up inside Hush, and the step that guarantees they are releasable.
+ *
+ * A bridge is a normal Android app, so Android will only let Hush replace an installed one when
+ * the new APK carries the *same* signing certificate. A bridge signed by a per-machine debug key
+ * can therefore never be updated in place on a phone that already has one - the user has to
+ * uninstall it and install it again, on every release, forever.
+ *
+ * The check below reads the certificates out of the APKs that are about to be packaged and
+ * compares them with the release keystore's certificate, so the archive Hush embeds cannot be
+ * built from bridges that would break updating - the build fails instead, naming the fix.
+ */
 tasks.register<Zip>("packageShimApks") {
     group = "hush"
     description = "Packages the Waze bridge APKs for embedding in Hush."
@@ -223,6 +305,107 @@ tasks.register<Zip>("packageShimApks") {
     }
     destinationDirectory.set(layout.buildDirectory.dir("outputs/apk"))
     archiveFileName.set("waze-shims.zip")
+
+    // Runs after the assemble tasks above have produced the APKs, and before the archive is
+    // written, so a bridge that cannot be updated is never shipped.
+    doFirst {
+        if (unsignedReleaseBuild || allowDebugSignedShims) return@doFirst
+        if (!hasReleaseSigningConfig) {
+            // Nothing to verify against, and no key this machine could sign with. Builds that have
+            // no release key at all (a fresh clone, a pull request from a fork) still have to work,
+            // so this is a warning rather than a failure: the bridges are then debug-signed and Hush
+            // reports them as needing repair on the device. Release workflows prepare the key before
+            // this task runs, and fail there if it is missing.
+            logger.warn(
+                "Waze bridges are being packaged without a release keystore: they will be signed " +
+                    "with this machine's debug key, so an installed bridge cannot be updated in " +
+                    "place and Hush will offer to repair it. Set HUSH_SHIM_KEYSTORE / " +
+                    "HUSH_SHIM_STORE_PASSWORD / HUSH_SHIM_KEY_ALIAS / HUSH_SHIM_KEY_PASSWORD (or " +
+                    "app/keystore/release.keystore) to package release-signed bridges.",
+            )
+            return@doFirst
+        }
+
+        fun sha256Hex(bytes: ByteArray): String {
+            val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+            val out = StringBuilder(digest.size * 2)
+            digest.forEach { byte -> out.append("%02x".format(byte)) }
+            return out.toString()
+        }
+
+        // The release certificate itself, as DER bytes.
+        val expected: ByteArray = runCatching {
+            val alias = releaseKeyAlias ?: return@runCatching null
+            val keyStore = KeyStore.getInstance(KeyStore.getDefaultType())
+            releaseKeystoreFile.inputStream().use { stream ->
+                keyStore.load(stream, releaseStorePassword!!.toCharArray())
+            }
+            keyStore.getCertificate(alias)?.encoded
+        }.getOrNull() ?: throw GradleException(
+            "Cannot verify the Waze bridges: no readable release keystore is configured.\n" +
+                "Signing is what makes a bridge updatable on a phone that already has one, so the " +
+                "archive is refused rather than shipped with bridges signed by this machine's " +
+                "debug key.\n" +
+                "Configure app/keystore/release.keystore with STORE_PASSWORD/KEY_ALIAS/KEY_PASSWORD " +
+                "(or the HUSH_SHIM_KEYSTORE/HUSH_SHIM_STORE_PASSWORD/HUSH_SHIM_KEY_ALIAS/" +
+                "HUSH_SHIM_KEY_PASSWORD pair CI prepares).\n" +
+                "For a throwaway local build that will not be installed over an existing bridge, " +
+                "set HUSH_ALLOW_DEBUG_SIGNED_SHIMS=true.",
+        )
+
+        /** Index of [needle] inside [haystack], or -1. */
+        fun indexOf(haystack: ByteArray, needle: ByteArray): Int {
+            if (needle.isEmpty() || needle.size > haystack.size) return -1
+            outer@ for (start in 0..(haystack.size - needle.size)) {
+                for (offset in needle.indices) {
+                    if (haystack[start + offset] != needle[offset]) continue@outer
+                }
+                return start
+            }
+            return -1
+        }
+
+        // The `META-INF/*.RSA` block is a PKCS#7 structure that embeds the signer's certificate as
+        // DER, so the release certificate appears in it verbatim. Byte comparison rather than a
+        // parsed fingerprint keeps the check dependency-free.
+        fun carriesReleaseCertificate(apk: File): Boolean = runCatching {
+            ZipFile(apk).use { zip ->
+                var sawSignatureBlock = false
+                val entries = zip.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    val name = entry.name
+                    val isBlock =
+                        name.startsWith("META-INF/") &&
+                            (name.endsWith(".RSA") || name.endsWith(".DSA") || name.endsWith(".EC"))
+                    if (!isBlock) continue
+                    sawSignatureBlock = true
+                    val block = zip.getInputStream(entry).use { it.readBytes() }
+                    if (indexOf(block, expected) >= 0) return@use true
+                }
+                // No v1 block at all means the check cannot vouch for this APK.
+                !sawSignatureBlock
+            }
+        }.getOrDefault(false)
+
+        val mismatched = layout.buildDirectory.dir("outputs/apk")
+            .get().asFile
+            .walkTopDown()
+            .filter { it.isFile && it.name.endsWith("-release.apk") }
+            .filter { apk -> !carriesReleaseCertificate(apk) }
+            .map { it.name }
+            .toList()
+        if (mismatched.isNotEmpty()) {
+            throw GradleException(
+                "Refusing to package Waze bridges that are not signed by the release key: " +
+                    "${mismatched.joinToString(", ")}.\n" +
+                    "Android only replaces an installed bridge when the new APK has the same " +
+                    "certificate, so these could never be updated in place. Rebuild them with the " +
+                    "release keystore configured (see HUSH_SHIM_KEYSTORE* or app/keystore/release.keystore).",
+            )
+        }
+        logger.lifecycle("Waze bridges verified as release-signed (${sha256Hex(expected).take(16)}...)")
+    }
 }
 
 // Ensure generated icons are available before resource processing for all flavors

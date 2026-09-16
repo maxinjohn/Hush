@@ -2545,6 +2545,37 @@ class MainActivity : ComponentActivity() {
     private fun handleSpotiFLACGrant(grant: String) {
         timber.log.Timber.tag("SpotiFLACSettings").w("Deep link grant received (len=${grant.length})")
         lifecycleScope.launch {
+            // Two independent consumers hold gateway sessions: the extension runtime that
+            // resolves SpotiFLAC playback, and the relay session this app has always used.
+            // A grant is spent by the first exchange that redeems it, so the extension runtime
+            // goes first - it is what a verification run exists for - and the relay exchange
+            // below stays as-is for the older path.
+            //
+            // This is the route a grant takes when the challenge was solved in a real browser
+            // (the only route on a device whose embedded WebView is too old to run Cloudflare's
+            // check), so a deep link that never reached the runtime would leave the source
+            // looking unverified however many times it was checked.
+            try {
+                val bridge = app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder.instance
+                if (bridge != null) {
+                    val primary =
+                        app.hush.music.spotiflac.SpotiFLAutoVerifier.active.value
+                            ?: app.hush.music.spotiflac.SpotiFLACVerificationRequest.pending.value
+                    val targets = withContext(Dispatchers.IO) {
+                        bridge.grantTargetSourceIds(primary.orEmpty())
+                    }
+                    withContext(Dispatchers.IO) { bridge.deliverGrant(grant, targets) }
+                    val verified = primary?.takeIf { bridge.isSourceVerified(it) }
+                    if (verified != null) {
+                        // Report it exactly as the in-app surfaces do: without this the source stays
+                        // at the head of its queue waiting for a challenge that already happened, and
+                        // a track parked for it is never resumed.
+                        app.hush.music.spotiflac.SpotiFLAutoVerifier.notifyVerified(verified)
+                    }
+                }
+            } catch (e: Exception) {
+                timber.log.Timber.tag("SpotiFLACSettings").e(e, "Extension runtime grant delivery failed")
+            }
             try {
                 val sessionManager = app.hush.music.spotiflac.SpotiFLACSessionManager.getInstance()
                 val result = sessionManager.exchangeGrant(grant)
