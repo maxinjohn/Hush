@@ -1146,7 +1146,16 @@ fun SpotiFLACSettingsScreen(
                                             },
                                         )
                                     }
-                                    if (!notRequired) {
+                                    // Only offered when there is a check to raise. A source whose
+                                    // session is healthy has nothing to solve - the runtime keeps the
+                                    // challenge it registered, and that one is already spent - so a
+                                    // "Re-verify" button there could only answer "already verified",
+                                    // which reads as a broken button rather than as "nothing to do".
+                                    // A lapsed session (expired) is exactly when it is needed again; an
+                                    // expired one is shown as "Session expired - verify again" above.
+                                    // Routine renewal is the "Renew now" action below.
+                                    val canCheck = !notRequired && (!verified || expired)
+                                    if (canCheck) {
                                         androidx.compose.material3.TextButton(
                                             onClick = { startVerification(source.id) },
                                             enabled = !isExchanging,

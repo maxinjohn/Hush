@@ -120,6 +120,36 @@ class SpotiFLAutoVerifierTest {
     }
 
     @Test
+    fun `concurrent verification surfaces cannot corrupt the queue`() {
+        // Regression for a real race: this queue is finished from five places on five threads - the
+        // overlay and Audio Sources screen on main, the browser route on Dispatchers.Default, playback
+        // and the runtime bridge on their own contexts - and the collections behind it used to be
+        // plain, unsynchronized ones. A lost update leaves a source active forever, so every later one
+        // waits behind it and verification looks like it does nothing. Any ConcurrentModification or
+        // lost state shows up as a thrown exception here.
+        val failures = java.util.Collections.synchronizedList(mutableListOf<Throwable>())
+        val threads = (1..8).map { index ->
+            Thread {
+                try {
+                    repeat(40) { round ->
+                        SpotiFLAutoVerifier.enqueue(listOf("src$index"), "race", force = true)
+                        SpotiFLAutoVerifier.finish("src$index", verified = round % 2 == 0)
+                        SpotiFLAutoVerifier.queued()
+                        SpotiFLAutoVerifier.isRunning
+                    }
+                } catch (t: Throwable) {
+                    failures.add(t)
+                }
+            }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+        assertTrue("the queue raced: ${failures.firstOrNull()}", failures.isEmpty())
+        // Nothing can be left over: every source was finished as often as it was queued.
+        assertTrue(SpotiFLAutoVerifier.queued().isEmpty())
+    }
+
+    @Test
     fun `cancel clears the queue and the active source`() {
         SpotiFLAutoVerifier.enqueue(listOf("deezer", "qobuz-web"), "test")
         SpotiFLAutoVerifier.cancel()
