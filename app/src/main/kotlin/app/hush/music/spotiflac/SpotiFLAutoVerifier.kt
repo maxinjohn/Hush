@@ -79,6 +79,21 @@ object SpotiFLAutoVerifier {
      */
     @Volatile var appContext: Context? = null
 
+    /**
+     * Guards the three collections below.
+     *
+     * They were plain collections with no protection, and this object is called from five places on
+     * five threads: playback (its own coroutine context), the runtime bridge's preflight (IO), the
+     * browser route (a process-wide `Dispatchers.Default` scope, because it outlives any screen), the
+     * overlay and Audio Sources screens (main), and the notification receiver (main). A
+     * `LinkedHashSet`/`HashMap` mutated from two of those at once can lose an entry or throw
+     * `ConcurrentModificationException` out of `queued()`, which is how the queue silently wedges -
+     * a source left `active` forever, so every later one waits behind it and verification appears to
+     * do nothing. The lock is held only around the collections; listeners and flows are always
+     * touched outside it, so a callback that re-enters this object cannot deadlock.
+     */
+    private val lock = Any()
+
     private val queue = LinkedHashSet<String>()
     private val lastFailedAt = HashMap<String, Long>()
     private val lastAttemptAt = HashMap<String, Long>()
@@ -94,12 +109,15 @@ object SpotiFLAutoVerifier {
      */
     fun enqueue(sourceIds: List<String>, reason: String, force: Boolean = false) {
         val now = System.currentTimeMillis()
-        var added = 0
-        sourceIds.forEach { id ->
-            if (id.isBlank() || id == _active.value) return@forEach
-            val cooled = !force && lastFailedAt[id]?.let { now - it < RETRY_COOLDOWN_MS } ?: false
-            if (cooled) return@forEach
-            if (queue.add(id)) added++
+        val added = synchronized(lock) {
+            var count = 0
+            sourceIds.forEach { id ->
+                if (id.isBlank() || id == _active.value) return@forEach
+                val cooled = !force && lastFailedAt[id]?.let { now - it < RETRY_COOLDOWN_MS } ?: false
+                if (cooled) return@forEach
+                if (queue.add(id)) count++
+            }
+            count
         }
         if (added == 0) return
         SpotiFLACDiag.log(
@@ -109,7 +127,7 @@ object SpotiFLAutoVerifier {
     }
 
     /** The sources waiting for a challenge, in order. */
-    fun queued(): List<String> = queue.toList()
+    fun queued(): List<String> = synchronized(lock) { queue.toList() }
 
     /**
      * Marks the active source's attempt finished and moves to the next.
@@ -119,19 +137,28 @@ object SpotiFLAutoVerifier {
      */
     fun finish(sourceId: String, verified: Boolean) {
         if (_active.value == sourceId) _active.value = null
-        lastAttemptAt[sourceId] = System.currentTimeMillis()
+        // The success path's bookkeeping is one critical section: the ticker is a read-modify-write,
+        // and two surfaces can report the same verification at almost the same moment (a manual run
+        // and the browser route it started), which used to be able to lose one of the increments -
+        // and with it a parked track's only wake-up.
+        synchronized(lock) {
+            lastAttemptAt[sourceId] = System.currentTimeMillis()
+            if (verified) {
+                queue.remove(sourceId)
+                lastFailedAt.remove(sourceId)
+                _verifiedTicker.value += 1
+            } else {
+                queue.remove(sourceId)
+                lastFailedAt[sourceId] = System.currentTimeMillis()
+            }
+        }
         if (verified) {
-            queue.remove(sourceId)
-            lastFailedAt.remove(sourceId)
-            _verifiedTicker.value += 1
             SpotiFLACDiag.log("auto-verify done: $sourceId verified")
             rememberVerifiedMaterial(sourceId)
             appContext?.let { SpotiFLACVerificationNotifier.clear(it, sourceId) }
             runCatching { onSourceVerified?.invoke() }
                 .onFailure { SpotiFLACDiag.log("verified listener failed: ${it.message}") }
         } else {
-            queue.remove(sourceId)
-            lastFailedAt[sourceId] = System.currentTimeMillis()
             SpotiFLACDiag.log("auto-verify gave up: $sourceId (cooldown ${RETRY_COOLDOWN_MS / 60_000}m)")
             // Automatic could not do it on this device. On one whose WebView is older than
             // Cloudflare supports, an automatic run can only ever time out, so the manual route
@@ -149,7 +176,7 @@ object SpotiFLAutoVerifier {
         // Nothing left to try automatically: hand the one source the user can still
         // act on to the manual notice, rather than leaving playback parked with no
         // explanation. An automatic run that succeeded never reaches here.
-        if (queue.isEmpty() && _active.value == null && !verified) {
+        if (queueEmpty() && _active.value == null && !verified) {
             _status.value = "Verification for $sourceId needs a manual check"
             SpotiFLACVerificationRequest.request(sourceId)
         }
@@ -184,8 +211,10 @@ object SpotiFLAutoVerifier {
      */
     fun finishNotRequired(sourceId: String) {
         if (_active.value == sourceId) _active.value = null
-        queue.remove(sourceId)
-        lastFailedAt.remove(sourceId)
+        synchronized(lock) {
+            queue.remove(sourceId)
+            lastFailedAt.remove(sourceId)
+        }
         SpotiFLACDiag.log("auto-verify skipped: $sourceId needs no verification")
         startNext()
     }
@@ -212,10 +241,14 @@ object SpotiFLAutoVerifier {
 
     /** Drops everything: used when the user cancels or SpotiFLAC is turned off. */
     fun cancel() {
-        if (queue.isNotEmpty() || _active.value != null) {
-            SpotiFLACDiag.log("auto-verify cancelled (queued=${queue.size})")
+        val had = synchronized(lock) {
+            val size = queue.size
+            queue.clear()
+            size
         }
-        queue.clear()
+        if (had > 0 || _active.value != null) {
+            SpotiFLACDiag.log("auto-verify cancelled (queued=$had)")
+        }
         _active.value = null
         _status.value = null
     }
@@ -224,24 +257,37 @@ object SpotiFLAutoVerifier {
     val isRunning: Boolean get() = _active.value != null
 
     private fun startNext() {
-        if (_active.value != null) return
-        val next = queue.firstOrNull()
-        if (next == null) {
-            _status.value = null
+        // Claiming the next source and setting the active one is a single step: two threads finishing
+        // at once used to be able to both see an empty active slot and start the same source twice.
+        var next: String? = null
+        var queuedCount = 0
+        var attempted = 0
+        synchronized(lock) {
+            if (_active.value == null) {
+                next = queue.firstOrNull()
+                if (next != null) _active.value = next
+            }
+            queuedCount = queue.size
+            attempted = lastAttemptAt.size
+        }
+        val started = next
+        if (started == null) {
+            if (_active.value == null) _status.value = null
             return
         }
-        _active.value = next
-        _status.value = "Verifying $next…"
+        _status.value = "Verifying $started…"
         SpotiFLACDiag.log(
-            "auto-verify start: $next (queued=${queue.size} attempted=${lastAttemptAt.size})",
+            "auto-verify start: $started (queued=$queuedCount attempted=$attempted)",
         )
     }
 
+    private fun queueEmpty(): Boolean = synchronized(lock) { queue.isEmpty() }
+
     /** Exposed for tests: whether a source is inside its retry cooldown. */
     internal fun inCooldown(sourceId: String, nowMillis: Long): Boolean =
-        lastFailedAt[sourceId]?.let { nowMillis - it < RETRY_COOLDOWN_MS } ?: false
+        synchronized(lock) { lastFailedAt[sourceId]?.let { nowMillis - it < RETRY_COOLDOWN_MS } ?: false }
 
     internal fun recordFailureForTest(sourceId: String, atMillis: Long) {
-        lastFailedAt[sourceId] = atMillis
+        synchronized(lock) { lastFailedAt[sourceId] = atMillis }
     }
 }
