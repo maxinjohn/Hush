@@ -1,4 +1,6 @@
 
+import org.gradle.api.Action
+import org.gradle.api.Task
 import org.gradle.api.tasks.bundling.Zip
 import org.gradle.api.tasks.Sync
 import java.io.File
@@ -290,6 +292,137 @@ dependencies {
  * compares them with the release keystore's certificate, so the archive Hush embeds cannot be
  * built from bridges that would break updating - the build fails instead, naming the fix.
  */
+/**
+ * The bridge signature check, as a task action that carries only its own inputs.
+ *
+ * It cannot be written inline in the `doFirst` below. Reading a script value from inside that
+ * action captures the generated build script instance, and the configuration cache cannot restore
+ * it: the build fails at execution with
+ * `Cannot invoke "Build_gradle.getUnsignedReleaseBuild()" because "this.this$0" is null` - which is
+ * what broke CI's reproducibility stage, because the entry stored by the shim build was restored by
+ * the `assembleGmsMobileUniversalRelease` build that follows it. Every value the action needs is a
+ * parameter here, so nothing in the serialized action reaches back into the script.
+ */
+fun shimSignatureVerifier(
+    unsigned: Boolean,
+    allowDebugSigned: Boolean,
+    hasSigningConfig: Boolean,
+    keyAlias: String?,
+    keystoreFile: File,
+    storePassword: String?,
+    apkOutputDirectory: File,
+): Action<Task> = object : Action<Task> {
+    override fun execute(task: Task) {
+        val logger = task.logger
+        when {
+            // Nothing is expected to match a release key in these two modes.
+            unsigned || allowDebugSigned -> {}
+            // Nothing to verify against, and no key this machine could sign with. Builds that have no
+            // release key at all (a fresh clone, a pull request from a fork) still have to work, so
+            // this is a warning rather than a failure: the bridges are then debug-signed and Hush
+            // reports them as needing repair on the device. Release workflows prepare the key before
+            // this task runs, and fail there if it is missing.
+            !hasSigningConfig -> logger.warn(
+                "Waze bridges are being packaged without a release keystore: they will be signed " +
+                    "with this machine's debug key, so an installed bridge cannot be updated in " +
+                    "place and Hush will offer to repair it. Set HUSH_SHIM_KEYSTORE / " +
+                    "HUSH_SHIM_STORE_PASSWORD / HUSH_SHIM_KEY_ALIAS / HUSH_SHIM_KEY_PASSWORD (or " +
+                    "app/keystore/release.keystore) to package release-signed bridges.",
+            )
+
+            else -> {
+                // The release certificate itself, as DER bytes.
+                val expected: ByteArray = runCatching {
+                    val alias = keyAlias ?: return@runCatching null
+                    val keyStore = KeyStore.getInstance(KeyStore.getDefaultType())
+                    keystoreFile.inputStream().use { stream ->
+                        keyStore.load(stream, storePassword!!.toCharArray())
+                    }
+                    keyStore.getCertificate(alias)?.encoded
+                }.getOrNull() ?: throw GradleException(
+                    "Cannot verify the Waze bridges: no readable release keystore is configured.\n" +
+                        "Signing is what makes a bridge updatable on a phone that already has one, so the " +
+                        "archive is refused rather than shipped with bridges signed by this machine's " +
+                        "debug key.\n" +
+                        "Configure app/keystore/release.keystore with STORE_PASSWORD/KEY_ALIAS/KEY_PASSWORD " +
+                        "(or the HUSH_SHIM_KEYSTORE/HUSH_SHIM_STORE_PASSWORD/HUSH_SHIM_KEY_ALIAS/" +
+                        "HUSH_SHIM_KEY_PASSWORD pair CI prepares).\n" +
+                        "For a throwaway local build that will not be installed over an existing bridge, " +
+                        "set HUSH_ALLOW_DEBUG_SIGNED_SHIMS=true.",
+                )
+
+                val fingerprint = MessageDigest.getInstance("SHA-256")
+                    .digest(expected)
+                    .joinToString("") { byte -> "%02x".format(byte) }
+
+                val mismatched = mutableListOf<String>()
+                apkOutputDirectory.walkTopDown()
+                    .filter { it.isFile && it.name.endsWith("-release.apk") }
+                    .forEach { apk ->
+                        // The `META-INF/*.RSA` block is a PKCS#7 structure that embeds the signer's
+                        // certificate as DER, so the release certificate appears in it verbatim. Byte
+                        // comparison rather than a parsed fingerprint keeps the check dependency-free.
+                        var carriesReleaseCertificate = false
+                        var sawSignatureBlock = false
+                        runCatching {
+                            ZipFile(apk).use { zip ->
+                                val entries = zip.entries()
+                                while (entries.hasMoreElements()) {
+                                    val entry = entries.nextElement()
+                                    val name = entry.name
+                                    val isBlock =
+                                        name.startsWith("META-INF/") &&
+                                            (name.endsWith(".RSA") ||
+                                                name.endsWith(".DSA") ||
+                                                name.endsWith(".EC"))
+                                    if (!isBlock) continue
+                                    sawSignatureBlock = true
+                                    val block = zip.getInputStream(entry).use { it.readBytes() }
+                                    scan@ for (start in 0..(block.size - expected.size)) {
+                                        for (offset in expected.indices) {
+                                            if (block[start + offset] != expected[offset]) continue@scan
+                                        }
+                                        carriesReleaseCertificate = true
+                                        break
+                                    }
+                                    if (carriesReleaseCertificate) break
+                                }
+                            }
+                        }
+                        // No v1 block at all means the check cannot vouch for this APK.
+                        if (!sawSignatureBlock) carriesReleaseCertificate = true
+                        if (!carriesReleaseCertificate) mismatched += apk.name
+                    }
+
+                if (mismatched.isNotEmpty()) {
+                    throw GradleException(
+                        "Refusing to package Waze bridges that are not signed by the release key: " +
+                            "${mismatched.joinToString(", ")}.\n" +
+                            "Android only replaces an installed bridge when the new APK has the same " +
+                            "certificate, so these could never be updated in place. Rebuild them with the " +
+                            "release keystore configured (see HUSH_SHIM_KEYSTORE* or " +
+                            "app/keystore/release.keystore).",
+                    )
+                }
+                logger.lifecycle(
+                    "Waze bridges verified as release-signed (${fingerprint.take(16)}...)",
+                )
+            }
+        }
+    }
+}
+
+// Resolved at configuration time so the action above receives plain values.
+val shimSignatureVerifierAction = shimSignatureVerifier(
+    unsigned = unsignedReleaseBuild,
+    allowDebugSigned = allowDebugSignedShims,
+    hasSigningConfig = hasReleaseSigningConfig,
+    keyAlias = releaseKeyAlias,
+    keystoreFile = releaseKeystoreFile,
+    storePassword = releaseStorePassword,
+    apkOutputDirectory = layout.buildDirectory.dir("outputs/apk").get().asFile,
+)
+
 tasks.register<Zip>("packageShimApks") {
     group = "hush"
     description = "Packages the Waze bridge APKs for embedding in Hush."
@@ -308,104 +441,7 @@ tasks.register<Zip>("packageShimApks") {
 
     // Runs after the assemble tasks above have produced the APKs, and before the archive is
     // written, so a bridge that cannot be updated is never shipped.
-    doFirst {
-        if (unsignedReleaseBuild || allowDebugSignedShims) return@doFirst
-        if (!hasReleaseSigningConfig) {
-            // Nothing to verify against, and no key this machine could sign with. Builds that have
-            // no release key at all (a fresh clone, a pull request from a fork) still have to work,
-            // so this is a warning rather than a failure: the bridges are then debug-signed and Hush
-            // reports them as needing repair on the device. Release workflows prepare the key before
-            // this task runs, and fail there if it is missing.
-            logger.warn(
-                "Waze bridges are being packaged without a release keystore: they will be signed " +
-                    "with this machine's debug key, so an installed bridge cannot be updated in " +
-                    "place and Hush will offer to repair it. Set HUSH_SHIM_KEYSTORE / " +
-                    "HUSH_SHIM_STORE_PASSWORD / HUSH_SHIM_KEY_ALIAS / HUSH_SHIM_KEY_PASSWORD (or " +
-                    "app/keystore/release.keystore) to package release-signed bridges.",
-            )
-            return@doFirst
-        }
-
-        fun sha256Hex(bytes: ByteArray): String {
-            val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
-            val out = StringBuilder(digest.size * 2)
-            digest.forEach { byte -> out.append("%02x".format(byte)) }
-            return out.toString()
-        }
-
-        // The release certificate itself, as DER bytes.
-        val expected: ByteArray = runCatching {
-            val alias = releaseKeyAlias ?: return@runCatching null
-            val keyStore = KeyStore.getInstance(KeyStore.getDefaultType())
-            releaseKeystoreFile.inputStream().use { stream ->
-                keyStore.load(stream, releaseStorePassword!!.toCharArray())
-            }
-            keyStore.getCertificate(alias)?.encoded
-        }.getOrNull() ?: throw GradleException(
-            "Cannot verify the Waze bridges: no readable release keystore is configured.\n" +
-                "Signing is what makes a bridge updatable on a phone that already has one, so the " +
-                "archive is refused rather than shipped with bridges signed by this machine's " +
-                "debug key.\n" +
-                "Configure app/keystore/release.keystore with STORE_PASSWORD/KEY_ALIAS/KEY_PASSWORD " +
-                "(or the HUSH_SHIM_KEYSTORE/HUSH_SHIM_STORE_PASSWORD/HUSH_SHIM_KEY_ALIAS/" +
-                "HUSH_SHIM_KEY_PASSWORD pair CI prepares).\n" +
-                "For a throwaway local build that will not be installed over an existing bridge, " +
-                "set HUSH_ALLOW_DEBUG_SIGNED_SHIMS=true.",
-        )
-
-        /** Index of [needle] inside [haystack], or -1. */
-        fun indexOf(haystack: ByteArray, needle: ByteArray): Int {
-            if (needle.isEmpty() || needle.size > haystack.size) return -1
-            outer@ for (start in 0..(haystack.size - needle.size)) {
-                for (offset in needle.indices) {
-                    if (haystack[start + offset] != needle[offset]) continue@outer
-                }
-                return start
-            }
-            return -1
-        }
-
-        // The `META-INF/*.RSA` block is a PKCS#7 structure that embeds the signer's certificate as
-        // DER, so the release certificate appears in it verbatim. Byte comparison rather than a
-        // parsed fingerprint keeps the check dependency-free.
-        fun carriesReleaseCertificate(apk: File): Boolean = runCatching {
-            ZipFile(apk).use { zip ->
-                var sawSignatureBlock = false
-                val entries = zip.entries()
-                while (entries.hasMoreElements()) {
-                    val entry = entries.nextElement()
-                    val name = entry.name
-                    val isBlock =
-                        name.startsWith("META-INF/") &&
-                            (name.endsWith(".RSA") || name.endsWith(".DSA") || name.endsWith(".EC"))
-                    if (!isBlock) continue
-                    sawSignatureBlock = true
-                    val block = zip.getInputStream(entry).use { it.readBytes() }
-                    if (indexOf(block, expected) >= 0) return@use true
-                }
-                // No v1 block at all means the check cannot vouch for this APK.
-                !sawSignatureBlock
-            }
-        }.getOrDefault(false)
-
-        val mismatched = layout.buildDirectory.dir("outputs/apk")
-            .get().asFile
-            .walkTopDown()
-            .filter { it.isFile && it.name.endsWith("-release.apk") }
-            .filter { apk -> !carriesReleaseCertificate(apk) }
-            .map { it.name }
-            .toList()
-        if (mismatched.isNotEmpty()) {
-            throw GradleException(
-                "Refusing to package Waze bridges that are not signed by the release key: " +
-                    "${mismatched.joinToString(", ")}.\n" +
-                    "Android only replaces an installed bridge when the new APK has the same " +
-                    "certificate, so these could never be updated in place. Rebuild them with the " +
-                    "release keystore configured (see HUSH_SHIM_KEYSTORE* or app/keystore/release.keystore).",
-            )
-        }
-        logger.lifecycle("Waze bridges verified as release-signed (${sha256Hex(expected).take(16)}...)")
-    }
+    doFirst(shimSignatureVerifierAction)
 }
 
 // Ensure generated icons are available before resource processing for all flavors
