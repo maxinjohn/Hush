@@ -2729,6 +2729,26 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // Debug-only route entry: `adb shell am start -a android.intent.action.VIEW -d
+        // "hush://route?to=settings/player/audio_sources"`. Several screens (the SpotiFLAC
+        // source rows, among them) are otherwise reachable only by hand, which makes an
+        // automated check of them impossible on a device with no one in front of it - and a car
+        // head unit is exactly that device. The `hush://route` filter lives in the debug
+        // manifest, so this is unreachable in a build that ships; the guard is here as well so
+        // the route can never be driven even if that filter is ever copied forward.
+        if (isHushScheme && authority == "route") {
+            if (BuildConfig.DEBUG) {
+                uri.getQueryParameter("to")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { route ->
+                        runCatching {
+                            navController.navigate(route) { launchSingleTop = true }
+                        }.onFailure { reportException(it) }
+                    }
+            }
+            return
+        }
+
         when (val path = uri.pathSegments.firstOrNull()) {
             "playlist" -> {
                 uri.getQueryParameter("list")?.let { playlistId ->

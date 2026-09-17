@@ -7,6 +7,7 @@
 package app.hush.music.downloads
 
 import android.content.Context
+import app.hush.music.playback.StoredBytesOrigin
 import app.hush.music.spotiflac.SpotiFLACDiag
 import app.hush.music.storage.StorageFolderKind
 import app.hush.music.storage.StorageLocationRepository
@@ -107,6 +108,64 @@ class DownloadedFileStore
          * (or a volume change, or a reset) leave this index valid instead of orphaned.
          */
         private fun downloadsDirectory(): File = StorageLocationRepository.cacheDirectory(context, StorageFolderKind.DOWNLOADS)
+
+        /**
+         * Adopts a file the downloads folder already holds for a track.
+         *
+         * The index does not survive a reinstall, a data clear, or a restore onto another
+         * device, but the *files* do: they are ordinary files in a folder the user chose, named
+         * `<Artist> - <Title>.<container>`. So when a track is about to be resolved and nothing is
+         * recorded for it, the folder is asked whether it already holds this song. The rule is the
+         * one the user can see in their own file manager, which is what makes it predictable
+         * rather than clever. The index is re-established, so this costs one directory read per
+         * track, once.
+         *
+         * A file another entry already claims is skipped: two tracks with the same name are
+         * common, and the one whose download wrote the file is the one that owns it. The rules
+         * themselves live in [DownloadsFolderAdoption], where they can be tested directly.
+         *
+         * @return the adopted record, or null when the folder holds nothing for this track.
+         */
+        fun adoptExistingFile(
+            mediaId: String,
+            title: String?,
+            artist: String?,
+        ): DownloadedFile? {
+            if (mediaId.isBlank()) return null
+            ensureLoaded()
+            if (synchronized(this) { entries.containsKey(mediaId) }) return null
+            val stems = DownloadsFolderAdoption.candidateFileStems(title, artist)
+            if (stems.isEmpty()) return null
+            val candidates = runCatching {
+                downloadsDirectory().listFiles { file -> file.isFile && file.length() > 0L }?.toList()
+            }.getOrNull() ?: return null
+            if (candidates.isEmpty()) return null
+            val claimed =
+                synchronized(this) {
+                    entries.values.mapNotNull { it.fileName.takeIf { name -> name.isNotBlank() } }.toSet()
+                }
+            val match = DownloadsFolderAdoption.match(candidates, claimed, stems) ?: return null
+            val adopted =
+                DownloadedFile(
+                    mediaId = mediaId,
+                    path = match.absolutePath,
+                    // Which engine wrote these bytes is not knowable from the file alone, and
+                    // saying "YouTube" or "SpotiFLAC" here would be a guess that decides whether
+                    // the track may play with YouTube switched off. Unknown is the honest
+                    // value, and it is what a download recorded by an older build carries too.
+                    origin = StoredBytesOrigin.UNKNOWN.name,
+                    title = title.orEmpty(),
+                    artist = artist.orEmpty(),
+                    bytes = match.length(),
+                    createdAtMs = match.lastModified(),
+                    fileName = match.name,
+                )
+            record(adopted)
+            SpotiFLACDiag.log(
+                "downloads: re-adopted ${match.name} (${adopted.bytes} bytes) for mediaId=$mediaId",
+            )
+            return adopted
+        }
 
         fun totalBytes(): Long = all().sumOf { it.bytes }
 

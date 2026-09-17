@@ -33,6 +33,7 @@ import app.hush.music.downloads.DownloadedFileLocation
 import app.hush.music.downloads.DownloadedFileStore
 import app.hush.music.storage.StorageFolderKind
 import app.hush.music.storage.StorageLocationRepository
+import app.hush.music.spotiflac.SpotiFLACDiag
 import app.hush.music.spotiflac.SpotiFLACPlaybackIdentity
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -822,6 +823,11 @@ class DownloadUtil
             downloadedFileStore.forget(id)?.let { recorded ->
                 runCatching { resolvedDownloadedFile(recorded)?.delete() }
             }
+            // The cached copy of the same song goes too. It is the same audio a second time,
+            // and leaving it behind made a re-download of that song finish instantly from the
+            // bytes the user had just deleted - and kept a resolve answering with the old,
+            // possibly lower-quality file.
+            discardCachedPlaybackCopy(id)
             // The origin record describes bytes that no longer exist; a stale SPOTIFLAC
             // record would otherwise authorise the next download of this song to play with
             // YouTube switched off.
@@ -840,6 +846,7 @@ class DownloadUtil
             downloadedFileStore.all().forEach { recorded ->
                 runCatching { resolvedDownloadedFile(recorded)?.delete() }
                 downloadedFileStore.forget(recorded.mediaId)
+                discardCachedPlaybackCopy(recorded.mediaId)
                 downloadOriginStore.forget(recorded.mediaId)
                 // Same as removeDownload: this id's download-cache bytes go too, so the
                 // stamp check that follows sees the truth rather than the bytes being
@@ -853,6 +860,24 @@ class DownloadUtil
 
         /** The one ordinary file stored for [mediaId], or null when it is not a file download. */
         fun downloadedFileFor(mediaId: String): File? = downloadedFileStore.fileFor(mediaId)
+
+        /**
+         * Drops this song's SpotiFLAC playback file, if one is on disk.
+         *
+         * Called whenever a download is removed. Downloads and cached copies are two halves of
+         * the same song, so removing one has to remove the other: a cache left behind answers the
+         * next resolve with bytes the user asked to be rid of, and makes a fresh download of the
+         * same song appear to complete before it has fetched anything.
+         */
+        private fun discardCachedPlaybackCopy(mediaId: String) {
+            if (mediaId.isBlank()) return
+            runCatching {
+                app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder.instance
+                    ?.discardCachedPlaybackForMediaId(mediaId)
+            }.onFailure {
+                SpotiFLACDiag.log("discard cached playback copy failed for $mediaId: ${it.message}")
+            }
+        }
 
         /**
          * The file a record actually points at, following the current downloads folder.
@@ -982,13 +1007,21 @@ class DownloadUtil
                 }
                 val keepGoing = { isActive }
 
-                // 1) SpotiFLAC. Its lossless file usually already exists on disk, so the
-                // download is a copy into the user's folder rather than a fetch - and its
-                // container is FLAC by definition, which is the extension that belongs on it.
+                // 1) SpotiFLAC. Its file usually already exists on disk, so the download is a
+                // copy into the user's folder rather than a fetch. The extension comes from the
+                // bytes, not from an assumption about them: a source that has no lossless match
+                // answers with a lossy container instead (an `amazon` fallback arrives as
+                // MP4/AAC), and naming that `.flac` produced a file every player read as corrupt.
                 resolveSpotiFLACDownloadUri(mediaId)?.takeIf { it.scheme == "file" }?.path?.let { path ->
                     val source = File(path)
                     if (!source.isFile || source.length() <= 0L) return@let
-                    val target = claimTargetFile(directory, mediaId, title, artist, FLAC_EXTENSION)
+                    val target = claimTargetFile(
+                        directory,
+                        mediaId,
+                        title,
+                        artist,
+                        DownloadNaming.extensionForFile(source),
+                    )
                     try {
                         copyToFile(source, target, keepGoing, onProgress)
                     } finally {
@@ -1300,7 +1333,6 @@ class DownloadUtil
             private const val DEFAULT_MAX_PARALLEL_DOWNLOADS = 6
             private const val FILE_COPY_BUFFER_SIZE = 128 * 1024
             private const val PROGRESS_PUBLISH_INTERVAL_MS = 250L
-            private const val FLAC_EXTENSION = "flac"
             private const val PAUSED_STOP_REASON = 1
             private const val MAX_IDLE_DOWNLOAD_CONNECTIONS = 12
             private const val MAX_DOWNLOAD_HTTP_REQUESTS = 24

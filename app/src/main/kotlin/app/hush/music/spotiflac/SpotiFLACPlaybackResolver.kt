@@ -35,6 +35,12 @@ object SpotiFLACPlaybackResolver {
         quality: Quality = Quality.BEST,
         enabledSourceIds: List<String> = emptyList(),
     ): Result<YTPlayerUtils.PlaybackData> = withContext(Dispatchers.IO) {
+        // Renew anything close to expiry before using the sources. A session can only be refreshed
+        // while it is still valid, and the scheduled background run is at the mercy of doze - so
+        // playback, the moment the sessions are actually needed, takes the chance too. Nothing due
+        // costs a few small file reads and no request.
+        runCatching { SpotiFLACNativeRuntimeBridgeHolder.instance?.renewDueSessions("resolve") }
+
         val sourcesToTry = if (enabledSourceIds.isNotEmpty()) {
             enabledSourceIds
         } else {

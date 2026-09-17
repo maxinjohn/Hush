@@ -43,6 +43,20 @@ object SpotiFLACSessionRenewer {
      */
     const val RENEW_WINDOW_SECONDS = 3 * 3600L
 
+    /**
+     * How often the background renewer runs, in minutes.
+     *
+     * Kept far below [RENEW_WINDOW_SECONDS] rather than merely under it, because the window is the
+     * number of *chances* a session gets: a renewal is only accepted while the session is still
+     * valid, and WorkManager defers under doze, so a cadence that matched the window left exactly
+     * one attempt to be missed. A playback path also renews what is due, so this is the schedule
+     * for a device that is not playing.
+     */
+    const val BACKGROUND_INTERVAL_MINUTES = 60L
+
+    /** WorkManager's flex window in minutes; must stay below the interval above. */
+    const val BACKGROUND_FLEX_MINUTES = 15L
+
     private const val CONNECT_TIMEOUT_MS = 15_000L
     private const val READ_TIMEOUT_MS = 20_000L
     private const val DEFAULT_REFRESH_PATH = "/session/refresh"

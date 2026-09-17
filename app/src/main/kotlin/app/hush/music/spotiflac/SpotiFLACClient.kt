@@ -313,8 +313,37 @@ class SpotiFLACClient @Inject constructor(
         parseSearchResults(body)
     }
 
-    suspend fun testSource(source: String): Result<List<SpotiFLACSearchResult>> = resolveResultOf {
-        Timber.tag(TAG).d("Testing source: $source")
+    /**
+     * Checks whether one source can serve a track, through the engine playback actually uses.
+     *
+     * This used to ask the relay instead, and the relay is a *separate, optional* credential: with
+     * every source verified and downloading on the device, the Test button answered "Cloudflare
+     * verification required" for all of them, because the relay session was correctly not active.
+     * A test that fails for a working source asks about the wrong thing, so the engine is consulted
+     * first ([SpotiFLACNativeRuntimeBridge.testSource]) and the relay only backstops a build with no
+     * engine at all.
+     */
+    suspend fun testSource(source: String): Result<List<SpotiFLACSearchResult>> {
+        val bridge = SpotiFLACNativeRuntimeBridgeHolder.instance
+        if (bridge != null && bridge.isRuntimeAvailable) {
+            return bridge.testSource(source).map { verdict ->
+                // The verdict travels as the result's title so the caller keeps one shape: a
+                // non-empty result is a pass, and a failure carries its reason as the message.
+                listOf(SpotiFLACSearchResult(title = verdict, id = source))
+            }
+        }
+        return testSourceViaRelay(source)
+    }
+
+    /**
+     * The relay's `/health` check, for a build whose engine is unavailable.
+     *
+     * Kept because it is the only route left when the runtime is missing, and because its failure
+     * diagnostics (session id, secret length, expiry) are still the fastest way to see what the
+     * relay itself thinks. It is not what the Test button reports while an engine is present.
+     */
+    private suspend fun testSourceViaRelay(source: String): Result<List<SpotiFLACSearchResult>> = resolveResultOf {
+        Timber.tag(TAG).d("Testing source via relay: $source")
 
         val state = sessionManager.sessionState
         if (state == SessionState.NONE || state == SessionState.EXPIRED || state == SessionState.ERROR) {

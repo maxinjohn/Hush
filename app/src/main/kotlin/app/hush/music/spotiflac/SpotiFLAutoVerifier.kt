@@ -7,6 +7,10 @@
 package app.hush.music.spotiflac
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -78,6 +82,15 @@ object SpotiFLAutoVerifier {
      * value degrades to "no extra bookkeeping" rather than any user-visible change.
      */
     @Volatile var appContext: Context? = null
+
+    /**
+     * Carries work that must not block whichever thread reported a verification.
+     *
+     * A process-wide scope rather than a caller's: a verification can be reported from an
+     * Activity, a receiver, or composition, all of which may be gone a moment later, and the vault
+     * write has to survive whichever of them happened to be holding the thread.
+     */
+    private val vaultScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * Guards the three collections below.
@@ -230,13 +243,20 @@ object SpotiFLAutoVerifier {
      */
     private fun rememberVerifiedMaterial(sourceId: String) {
         val context = appContext ?: return
-        runCatching {
-            val record = SpotiFLACSessionRenewer.sessions(context)
-                .firstOrNull { it.extensionId == sourceId }
-                ?.recordFile ?: return@runCatching
-            SpotiFLACSessionVault.remember(context, record, sourceId)
-            SpotiFLACDiag.log("session vault updated for $sourceId")
-        }.onFailure { SpotiFLACDiag.log("session vault update failed for $sourceId: ${it.message}") }
+        // On IO, and off the caller: this is reached from the main thread by every surface that
+        // reports a verification (the settings screen, the overlay, the deep-link handler), and it
+        // lists the extensions directory and reads a record file before writing the vault. The
+        // grant is what makes the wait worth hiding - the UI has already been told the source is
+        // verified by the ticker above, and this only has to land before the process can die.
+        vaultScope.launch {
+            runCatching {
+                val record = SpotiFLACSessionRenewer.sessions(context)
+                    .firstOrNull { it.extensionId == sourceId }
+                    ?.recordFile ?: return@launch
+                SpotiFLACSessionVault.remember(context, record, sourceId)
+                SpotiFLACDiag.log("session vault updated for $sourceId")
+            }.onFailure { SpotiFLACDiag.log("session vault update failed for $sourceId: ${it.message}") }
+        }
     }
 
     /**

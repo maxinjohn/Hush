@@ -543,6 +543,16 @@ var originalQueueSize: Int = 0
     @Volatile
     private var lastLoginRecoveryPrompt: Pair<String, Long>? = null
     private val playbackStreamRecoveryTracker = PlaybackStreamRecoveryTracker()
+
+    /**
+     * Media ids already checked against the downloads folder for an unrecorded file.
+     *
+     * The check reads a directory and a database row, so it happens once per media id per
+     * process rather than on every open. A miss is safe to remember: a file only ever appears
+     * there through a download, which records itself as it finishes.
+     */
+    private val downloadAdoptionChecked =
+        java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val queuePageLoadMutex = Mutex()
     private val likeToggleMutex = Mutex()
     private var nextHistorySessionToken = 0L
@@ -770,6 +780,9 @@ var originalQueueSize: Int = 0
 
     @Inject
     lateinit var downloadedFileStore: app.hush.music.downloads.DownloadedFileStore
+
+    @Inject
+    lateinit var downloadUtil: DownloadUtil
 
     lateinit var localPlayer: ExoPlayer
         private set
@@ -3659,11 +3672,37 @@ var originalQueueSize: Int = 0
                             },
                         )
                     }
-                    app.hush.music.spotiflac.SpotiFLAutoVerifier.enqueue(
-                        listOfNotNull(error.sourceId),
-                        "playback",
-                    )
-                    reportSpotiFLACVerificationNeeded(error.sourceId)
+                    scope.launch(Dispatchers.IO) {
+                        // A record that merely lapsed is refreshable against the gateway without
+                        // any Cloudflare check, and the runtime refuses it either way - so the
+                        // refusal alone is not proof the user has anything to do. Restore what
+                        // the app already holds and renew what the gateway will renew, and only
+                        // raise the notice for what is genuinely left. Without this, one expired
+                        // record produced a verification prompt for a source the app could have
+                        // fixed by itself.
+                        val blocking = runCatching {
+                            spotiflacNativeRuntime.sourcesNeedingUserVerification()
+                        }.getOrDefault(emptyList())
+                        val sourceId = error.sourceId
+                        val recovered = sourceId != null && runCatching {
+                            spotiflacNativeRuntime.isSourceVerified(sourceId)
+                        }.getOrDefault(false)
+                        if (recovered) {
+                            app.hush.music.spotiflac.SpotiFLACDiag.log(
+                                "playback: $sourceId became usable by renewal - no challenge needed",
+                            )
+                            // Same entry point every other surface reports through, so a track
+                            // parked on this source resumes and the notice clears.
+                            app.hush.music.spotiflac.SpotiFLAutoVerifier.notifyVerified(sourceId)
+                            return@launch
+                        }
+                        val needsUser = blocking.ifEmpty { listOfNotNull(sourceId) }
+                        if (needsUser.isEmpty()) return@launch
+                        app.hush.music.spotiflac.SpotiFLAutoVerifier.enqueue(needsUser, "playback")
+                        withContext(Dispatchers.Main) {
+                            reportSpotiFLACVerificationNeeded(sourceId)
+                        }
+                    }
                 }
                 else -> Timber.tag("MusicService").w(error, "Native SpotiFLAC resolution failed for $title")
             }
@@ -9102,8 +9141,10 @@ var originalQueueSize: Int = 0
             // auto-skip preference applies as before.
             stopOnError()
             scope.launch(Dispatchers.IO) {
+                // Restore-and-renew first: a lapsed record is renewable without a challenge,
+                // and only what survives that is worth parking the track for.
                 val blocked = runCatching {
-                    spotiflacNativeRuntime.unverifiedDownloadSourceIds()
+                    spotiflacNativeRuntime.sourcesNeedingUserVerification()
                 }.getOrDefault(emptyList())
                 withContext(Dispatchers.Main) {
                     if (player.currentMediaItem?.mediaId != currentMediaId) return@withContext
@@ -9123,6 +9164,54 @@ var originalQueueSize: Int = 0
                         clearSourceVerificationHold()
                         if (dataStore.get(AutoSkipNextOnErrorKey, false)) skipOnError()
                     }
+                }
+            }
+            return
+        }
+
+        // Failing on bytes this device already holds: a malformed or unsupported container, a
+        // decode failure, or an IO error inside the file. Corruption does not have to shorten a
+        // file - bytes damaged in place leave the size and the container signature intact, so an
+        // integrity check passes and the failure only appears once a decoder reaches the damaged
+        // frame.
+        val unreadableStoredBytes =
+            error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+                error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+                error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+                error.errorCode == PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE ||
+                error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND
+
+        // A download is served straight off disk and outranks every cache, so a damaged one fails
+        // identically on every attempt: the retry re-prepares the very same bytes. Drop it - the
+        // record, the file, and any cached copy of the same song - and re-resolve, which is what
+        // removing the download by hand would have done. Asking the user to find a broken download
+        // in a list in order to play a track the app cannot play is the wrong way round.
+        val downloadedEntry =
+            runCatching { downloadedFileStore.get(currentMediaId) }.getOrNull()
+        if (downloadedEntry != null && !isLocalMedia && unreadableStoredBytes &&
+            playbackStreamRecoveryTracker.registerRetryAttempt(currentMediaId)
+        ) {
+            val resumeIndex = player.currentMediaItemIndex
+            val resumePosition = player.currentPosition.coerceAtLeast(0L)
+            android.util.Log.w(
+                TAG,
+                "onPlayerError: downloaded file unreadable for $currentMediaId " +
+                    "(code=${error.errorCode}) - discarding the download and re-resolving",
+            )
+            app.hush.music.spotiflac.SpotiFLACDiag.log(
+                "discarding unreadable download mediaId=$currentMediaId " +
+                    "file=${downloadedEntry.fileName} bytes=${downloadedEntry.bytes} " +
+                    "code=${error.errorCode} (retrying every source)",
+            )
+            scope.launch(Dispatchers.IO) {
+                // Removes the file, its record and the cached copy of the same song, so the next
+                // attempt fetches it again from a source that works.
+                runCatching { downloadUtil.removeDownload(currentMediaId) }
+                withContext(Dispatchers.Main) {
+                    if (player.currentMediaItem?.mediaId != currentMediaId) return@withContext
+                    player.seekTo(resumeIndex, resumePosition)
+                    player.prepare()
                 }
             }
             return
@@ -9489,6 +9578,12 @@ var originalQueueSize: Int = 0
      * layer anywhere in between ([PlaybackByteSource.LOCAL_FILE]), while a resolved remote
      * stream still goes through both caches ([PlaybackByteSource.CACHED]) so range
      * requests, seeking and offline playback behave exactly as before.
+     *
+     * One more thing is decided here, for the same reason: a song whose downloaded file is
+     * already in the downloads folder but whose index entry was lost (a reinstall, a data
+     * clear, a restore onto another device) is matched back to this track by name and served
+     * from disk. A download exists to be played locally, so finding the file is worth a
+     * lookup; see [adoptDownloadedFile].
      */
     private fun createDataSourceFactory(): DataSource.Factory {
         // Built once and shared across opens, exactly as before: both are factories, so
@@ -9557,6 +9652,34 @@ var originalQueueSize: Int = 0
     }
 
     /**
+     * Re-establishes a download's record from the file the user still has.
+     *
+     * A downloads index lives in the app's private data, so a reinstall, a data clear, or a
+     * restore onto another device loses it while the files - ordinary files in a folder the user
+     * chose - stay behind. Without this, a song whose file is already sitting there was streamed
+     * from the network again, which is the opposite of what downloading it was for.
+     *
+     * The track's name is what the file is matched on, and this is the point where a media id
+     * still has a database row to ask, so the lookup belongs here and happens once per media id.
+     */
+    private fun adoptDownloadedFile(mediaId: String): java.io.File? {
+        if (mediaId.isBlank()) return null
+        if (!downloadAdoptionChecked.add(mediaId)) return null
+        return runCatching {
+            val song =
+                runBlocking(Dispatchers.IO) { database.song(mediaId).first() }
+                    ?: return@runCatching null
+            val adopted =
+                downloadedFileStore.adoptExistingFile(
+                    mediaId = mediaId,
+                    title = song.song.title,
+                    artist = song.artists.joinToString(", ") { it.name },
+                ) ?: return@runCatching null
+            java.io.File(adopted.path).takeIf { it.isFile }
+        }.getOrNull()
+    }
+
+    /**
      * The single resolution path for a playback open.
      *
      * It reads as a sequence of guards, and each one is the reason a step below it is
@@ -9609,12 +9732,23 @@ var originalQueueSize: Int = 0
         // is what downloading it was for. Serving the file also skips the resolver, so the
         // source label is published here for the same reason the SpotiFLAC branch below
         // publishes it - otherwise the player falls back to guessing.
-        downloadedFileStore.fileFor(mediaId)?.let { downloaded ->
+        (downloadedFileStore.fileFor(mediaId) ?: adoptDownloadedFile(mediaId))?.let { downloaded ->
             if (downloadedFileStore.get(mediaId)?.origin == StoredBytesOrigin.SPOTIFLAC.name) {
                 publishSpotiFLACCachedLabel(mediaId)
                 publishSpotiFLACFileFormat(mediaId)
             }
             Timber.tag(TAG).i("serving downloaded file for mediaId=$mediaId: ${downloaded.name}")
+            // Also in the diagnostic log, because "these bytes came from the user's download"
+            // is the answer to the question every playback complaint starts with, and Timber
+            // lines do not survive a logcat buffer on a head unit.
+            app.hush.music.spotiflac.SpotiFLACDiag.log(
+                "serving downloaded file for mediaId=$mediaId: ${downloaded.name}" +
+                    (if (downloadedFileStore.get(mediaId)?.origin == StoredBytesOrigin.SPOTIFLAC.name) {
+                        " (SpotiFLAC)"
+                    } else {
+                        ""
+                    }),
+            )
             scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
             return dataSpec.withUri(downloaded.toUri())
         }
@@ -10086,7 +10220,8 @@ var originalQueueSize: Int = 0
     ): Boolean =
         runCatching {
             val redirected = ContentMetadata.getRedirectedUri(cache.getContentMetadata(mediaId))
-            redirected?.path?.contains(SPOTIFLAC_PLAYBACK_PATH_SEGMENT) == true
+            val path = redirected?.path ?: return@runCatching false
+            SPOTIFLAC_PLAYBACK_PATH_SEGMENTS.any { segment -> path.contains(segment) }
         }.getOrDefault(false)
 
     private fun hasFullyDownloadedLocalPlayback(mediaId: String): Boolean {
@@ -11381,11 +11516,18 @@ var originalQueueSize: Int = 0
         private const val HELD_RECOVERY_POLL_MS = 400L
 
         /**
-         * Path segment of the directory SpotiFLAC stores fetched playback files in.
-         * Media3 records the URI a cached response came from, so this is how cached
-         * bytes are attributed to SpotiFLAC rather than to YouTube.
+         * Path segments of the directories SpotiFLAC stores fetched playback files in.
+         *
+         * Media3 records the URI a cached response came from, so this is how cached bytes are
+         * attributed to SpotiFLAC rather than to YouTube. Two entries because the folder moved:
+         * these files now live in a subfolder of the song-cache location the user picks in
+         * Storage, and entries written before that move still name the old private path.
          */
-        private const val SPOTIFLAC_PLAYBACK_PATH_SEGMENT = "/spotiflac/playback/"
+        private val SPOTIFLAC_PLAYBACK_PATH_SEGMENTS =
+            listOf(
+                "/${app.hush.music.spotiflac.SpotiFLACPlaybackCache.CACHE_SUBDIRECTORY_NAME}/",
+                "/spotiflac/playback/",
+            )
 
         /** Upper bound on outstanding one-shot YouTube overrides - one per tap, no more. */
         private const val MAX_FORCE_YOUTUBE_ONCE = 32

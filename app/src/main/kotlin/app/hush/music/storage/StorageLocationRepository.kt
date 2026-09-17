@@ -50,6 +50,7 @@ import app.hush.music.constants.StorageFolderTreeUriKey
 import app.hush.music.di.DownloadCache
 import app.hush.music.di.PlayerCache
 import app.hush.music.playback.DownloadUtil
+import app.hush.music.spotiflac.SpotiFLACPlaybackCache
 import app.hush.music.ui.player.CanvasArtworkPlaybackCache
 import app.hush.music.utils.ArtworkStorage
 import app.hush.music.utils.PreferenceStore
@@ -235,7 +236,18 @@ class StorageLocationRepository
                     onProgress(StorageCacheClearProgress(kind = kind, percent = 0))
                     val cleared =
                         when (kind) {
-                            StorageCacheKind.SONGS -> clearReleasedMediaCache(playerCache, StorageFolderKind.SONG_CACHE, onProgress)
+                            StorageCacheKind.SONGS -> {
+                                val cleared =
+                                    clearReleasedMediaCache(playerCache, StorageFolderKind.SONG_CACHE, onProgress)
+                                // SpotiFLAC's cached songs live in this folder too, so their index
+                                // has to go with it. An entry kept past its bytes would keep a
+                                // source label, a codec row and an offline badge describing songs
+                                // this device no longer has.
+                                if (cleared) {
+                                    runCatching { SpotiFLACPlaybackCache.getInstance()?.forgetAll() }
+                                }
+                                cleared
+                            }
                             StorageCacheKind.DOWNLOADS -> clearDownloads(onProgress)
                             StorageCacheKind.IMAGES -> clearImageCache(onProgress)
                             StorageCacheKind.CANVAS -> clearCanvasCache(onProgress)

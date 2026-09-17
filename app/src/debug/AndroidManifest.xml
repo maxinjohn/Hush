@@ -19,6 +19,27 @@
             </intent-filter>
         </receiver>
 
+        <!-- Navigation, driven from a shell:
+               adb shell am start -a android.intent.action.VIEW -d "hush://route?to=settings/player/audio_sources"
+             A settings screen can only be reached by hand otherwise, which puts an automated
+             check of what it renders out of reach on a device nobody is holding - a car head
+             unit, for instance. MainActivity also refuses the route unless BuildConfig.DEBUG,
+             and this filter exists in no build that ships. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="route"
+                    android:scheme="hush" />
+            </intent-filter>
+        </activity>
+
         <!-- SpotiFLAC source verification, driven from a shell. Verification on a device whose
              WebView is too old for Cloudflare can only be finished in a browser, so proving the
              route needs a way in that does not involve a tap on a car screen. -->

@@ -148,10 +148,32 @@ fun SpotiFLACSettingsScreen(
         SpotiFLACChallengeEngine.canSolveCloudflare(challengeEngine)
     }
 
-    fun refreshSessionValidity() {
-        sessionValidity = SpotiFLACSessionRenewer.sessions(context)
-            .associate { it.extensionId to it.remainingSeconds }
+    /**
+     * Re-reads how long each verified source's session has left.
+     *
+     * This walks the extensions directory and reads one manifest plus one session record per source,
+     * so it is done off the main thread. It is called from composition - on every verification tick,
+     * after a renewal, after a check completes - and reading files there is a stall the user sees as
+     * jank rather than as a slow function, which is the worst kind on a head unit with slow storage.
+     */
+    suspend fun refreshSessionValidity() {
+        sessionValidity = withContext(Dispatchers.IO) {
+            SpotiFLACSessionRenewer.sessions(context)
+                .associate { it.extensionId to it.remainingSeconds }
+        }
     }
+
+    // What actually gates a download, read from the same state the source list shows: the
+    // built-in engine's per-source sessions. The relay session in the card below is a
+    // separate, optional credential, and reporting *that* as "authentication needed" while
+    // every source was verified is what told a user to open a browser for a check that had
+    // already been passed - the loop this card kept causing.
+    val verifiedSessionIds = verifyStatus.filterValues { it == SpotiFLACSourceAuthState.VERIFIED }.keys
+    val soonestSessionExpiry =
+        verifiedSessionIds
+            .mapNotNull { sessionValidity[it] }
+            .filter { it > 0 }
+            .minOrNull()
 
     /**
      * Re-reads every enabled source's auth state from the runtime.
@@ -183,7 +205,13 @@ fun SpotiFLACSettingsScreen(
         refreshSessionValidity()
     }
 
-    LaunchedEffect(sources, spotiflacEnabled) {
+    // Keyed on the set of enabled sources rather than on the row objects themselves. A row carries
+    // its own test state, and warming the runtime can end in the verifier recording a result, which
+    // writes that state back into this same list - so keying on the rows re-ran this effect, warmed
+    // the runtime again, asked the verifier again, and so on for as long as the screen stayed open.
+    // Ids compare structurally, so a result landing no longer re-triggers the warm-up.
+    val enabledSourceIds = remember(sources) { sources.filter { it.enabled }.map { it.source.id } }
+    LaunchedEffect(enabledSourceIds, spotiflacEnabled) {
         if (!spotiflacEnabled) {
             // Nothing is in use, so nothing can be reported as needing a check either.
             verifyStatus = emptyMap()
@@ -653,38 +681,69 @@ fun SpotiFLACSettingsScreen(
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
-                            text = "Legacy relay session. Playback uses the built-in SpotiFLAC engine, which keeps its own per-source sessions, so you normally never need this. Only used if the built-in engine fails.",
+                            text = "Downloads run through the bundled SpotiFLAC engine, which keeps one signed session per source. This card reports those sessions; a source is only asked for a check when its session has expired and could not be refreshed on its own.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Downloads always run through the bundled upstream runtime
-                        // (gobackend AAR); verification unlocks the extension pipeline.
-                        Text(
-                            text = if (sessionState == SessionState.ACTIVE) {
-                                "Downloads run through the bundled SpotiFLAC extension runtime."
-                            } else {
-                                "Downloads run through the bundled SpotiFLAC extension runtime after verification."
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-
-                        when (sessionState) {
+                        // A verified source outranks the relay session: it is what downloads
+                        // actually use, so while anything is verified this card must never report
+                        // "not authenticated" and offer a browser check. The relay branches stay
+                        // reachable, but only when nothing is verified through the engine.
+                        when (if (verifiedSessionIds.isEmpty()) sessionState else SessionState.ACTIVE) {
                             SessionState.ACTIVE -> {
                                 Text(
-                                    text = "Session Active",
+                                    text =
+                                        if (verifiedSessionIds.isEmpty()) {
+                                            "Session Active"
+                                        } else {
+                                            "${verifiedSessionIds.size} source${
+                                                if (verifiedSessionIds.size == 1) "" else "s"
+                                            } verified"
+                                        },
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                androidx.compose.material3.TextButton(onClick = {
-                                    scope.launch {
-                                        sessionManager.clearSession()
+                                if (verifiedSessionIds.isEmpty()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    androidx.compose.material3.TextButton(onClick = {
+                                        scope.launch {
+                                            sessionManager.clearSession()
+                                        }
+                                    }) {
+                                        Text("Clear Session")
                                     }
-                                }) {
-                                    Text("Clear Session")
+                                } else {
+                                    Text(
+                                        text = soonestSessionExpiry?.let { remaining ->
+                                            "Renews by itself - earliest expiry in ${
+                                                formatSessionValidity(remaining)
+                                            }."
+                                        } ?: "Renews by itself; a source is only re-verified if its session lapses.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        text = verifiedSessionIds.sorted().joinToString(", "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    if (sessionState == SessionState.ACTIVE) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "The legacy relay session is also active. It is kept as a fallback only - playback does not use it.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        androidx.compose.material3.TextButton(onClick = {
+                                            scope.launch {
+                                                sessionManager.clearSession()
+                                            }
+                                        }) {
+                                            Text("Clear Legacy Session")
+                                        }
+                                    }
                                 }
                             }
                             SessionState.CHALLENGE_PENDING -> {
@@ -1812,6 +1871,20 @@ private fun SourceRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // The reason a test failed belongs *here*, under the row it is about, not in
+            // the narrow trailing slot next to the name. A raw gateway sentence rendered
+            // there wrapped to two lines and pushed the switch and arrows out of the row,
+            // so a failure looked like a broken layout instead of a result. One line, with
+            // the rest scrolled off rather than reflowing the row.
+            if (sourceWithState.testState == SourceTestState.FAILED) {
+                Text(
+                    text = sourceWithState.testError?.takeIf { it.isNotBlank() } ?: "Source test failed",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
         }
 
         when (sourceWithState.testState) {
@@ -1830,12 +1903,12 @@ private fun SourceRow(
                 )
             }
             SourceTestState.FAILED -> {
+                // Short and always the same width: the reason is on the detail line above.
                 Text(
-                    text = sourceWithState.testError ?: "FAIL",
+                    text = "FAIL",
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(horizontal = 4.dp),
-                    maxLines = 2,
                 )
             }
             SourceTestState.IDLE -> {}

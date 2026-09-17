@@ -63,6 +63,9 @@ class ExtensionRepositoryManager @Inject constructor(
 
         private const val MAX_REGISTRY_BYTES = 512 * 1024
 
+        /** Longest failure summary a source row keeps for its one-line test result. */
+        private const val MAX_TEST_ERROR_LENGTH = 90
+
         private val REGISTRY_URLS = listOf(
             "https://raw.githubusercontent.com/spotiflacapp/spotiflac-extension/main/registry.json",
             "https://raw.githubusercontent.com/zarzet/spotiflac-extension/main/registry.json",
@@ -321,8 +324,29 @@ class ExtensionRepositoryManager @Inject constructor(
         val current = _sources.value.toMutableList()
         val index = current.indexOfFirst { it.source.id == sourceId }
         if (index >= 0) {
-            current[index] = current[index].copy(testState = state, testError = error)
+            current[index] = current[index].copy(testState = state, testError = shortTestError(error))
             _sources.value = current
+        }
+    }
+
+    /**
+     * A one-line summary of a failed test, for the row that shows it.
+     *
+     * A gateway refusal arrives as a whole response body - HTML, a JSON envelope, or an
+     * exception with the request in its message - and the row has one line to say what
+     * happened. Taking the first line and clipping it keeps the record about the result
+     * rather than about the transport.
+     */
+    private fun shortTestError(error: String?): String? {
+        val firstLine = error.orEmpty()
+            .lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() }
+            ?: return null
+        return if (firstLine.length <= MAX_TEST_ERROR_LENGTH) {
+            firstLine
+        } else {
+            firstLine.take(MAX_TEST_ERROR_LENGTH - 1).trimEnd() + "\u2026"
         }
     }
 

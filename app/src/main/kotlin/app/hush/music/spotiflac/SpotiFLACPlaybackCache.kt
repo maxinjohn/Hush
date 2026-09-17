@@ -9,6 +9,8 @@ package app.hush.music.spotiflac
 import android.content.Context
 import app.hush.music.constants.MaxSongCacheSizeKey
 import app.hush.music.constants.SpotiFLACCacheStreamsKey
+import app.hush.music.storage.StorageFolderKind
+import app.hush.music.storage.StorageLocationRepository
 import app.hush.music.utils.PreferenceStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.Serializable
@@ -81,7 +83,25 @@ class SpotiFLACPlaybackCache @Inject constructor(
     companion object {
         private const val TAG = "SpotiFLACCache"
         private const val INDEX_FILE_NAME = "playback_cache_index.json"
-        private const val PLAYBACK_DIR = "spotiflac/playback"
+
+        /**
+         * Subfolder of the Storage screen's song-cache location that holds these files.
+         *
+         * These are cached songs, so they belong with the other cached songs rather than in
+         * the app's private data directory. Pointing Storage's cache folder at an SD card or a
+         * Downloads folder has to move *all* of it, and the size cap and "clear cache" have to
+         * see it. A subfolder rather than the folder root because Media3's streaming cache owns
+         * the root (it refuses to open on a directory another cache already holds).
+         */
+        const val CACHE_SUBDIRECTORY_NAME = "spotiflac-playback"
+
+        /**
+         * Where these files were written before the folder was wired to Storage.
+         *
+         * Moved on first use, so a cached song survives the upgrade instead of being
+         * resolved (and downloaded) again.
+         */
+        private const val LEGACY_PLAYBACK_DIR = "spotiflac/playback"
 
         /** Default cap for streamed playback files. */
         /** Matches the Storage screen's default "Max song cache size". */
@@ -182,6 +202,10 @@ class SpotiFLACPlaybackCache @Inject constructor(
     @Volatile
     private var loaded = false
 
+    /** Whether the one-time move out of the app's private data directory has been tried. */
+    @Volatile
+    private var legacyMigrationAttempted = false
+
     init {
         instance = this
     }
@@ -207,7 +231,99 @@ class SpotiFLACPlaybackCache @Inject constructor(
     /** Configured cap in bytes; 0 when eviction is unlimited. */
     fun limitBytes(): Long = limitBytesForMegabytes(storageSongCacheMegabytes())
 
-    fun playbackDir(): File = File(context.filesDir, PLAYBACK_DIR).apply { mkdirs() }
+    fun playbackDir(): File {
+        val directory =
+            StorageLocationRepository
+                .cacheDirectory(context, StorageFolderKind.SONG_CACHE)
+                .resolve(CACHE_SUBDIRECTORY_NAME)
+        migrateLegacyPlaybackDir(directory)
+        return directory.apply { mkdirs() }
+    }
+
+    /**
+     * Moves files written before this folder was wired to the Storage setting.
+     *
+     * Only the bytes need moving: entries are keyed by track key and resolved from the file
+     * found beside them ([repairFilePaths]), which is the same lookup an extension swap already
+     * relies on. Attempted once per process, and it gives up quietly when the legacy folder is
+     * gone - which is the normal case after the first run.
+     */
+    private fun migrateLegacyPlaybackDir(target: File) {
+        if (legacyMigrationAttempted) return
+        legacyMigrationAttempted = true
+        val legacy = File(context.filesDir, LEGACY_PLAYBACK_DIR)
+        if (!legacy.isDirectory) return
+        val moved = runCatching {
+            if (!target.isDirectory && !target.mkdirs()) return@runCatching 0
+            var count = 0
+            legacy.listFiles()?.forEach { source ->
+                if (!source.isFile) return@forEach
+                val destination = File(target, source.name)
+                val relocated =
+                    when {
+                        destination.isFile -> source.delete()
+                        source.renameTo(destination) -> true
+                        // A different volume (an SD card) cannot be renamed across, so the
+                        // bytes are copied and only then are the originals dropped.
+                        else ->
+                            runCatching {
+                                source.copyTo(destination, overwrite = true)
+                                source.delete()
+                            }.getOrDefault(false)
+                    }
+                if (relocated) count++
+            }
+            if (legacy.listFiles().isNullOrEmpty()) legacy.delete()
+            count
+        }.getOrDefault(0)
+        if (moved > 0) {
+            SpotiFLACDiag.log("cache: moved $moved file(s) into the Storage cache folder")
+        }
+    }
+
+    /**
+     * Points entries whose recorded path no longer exists at the file beside them.
+     *
+     * A recorded absolute path stops being true the moment the cache folder moves - and it
+     * also stops being true when the runtime replaces the requested `.media` name with the real
+     * container. Both leave a valid file in the cache, so the entry is re-pointed rather than
+     * discarded; without this, moving the cache folder would report every cached song as gone
+     * until something happened to heal it one at a time.
+     */
+    private fun repairFilePaths() {
+        // The directory is asked for *first*, because asking is what performs the one-time move
+        // out of the app's private data directory. Judging entries before that would compare them
+        // against paths the files are about to be moved away from - and by the time the index was
+        // read again those files would look like orphans and be deleted, which is exactly the
+        // opposite of what moving them was for.
+        val directory = playbackDir()
+        val missing = synchronized(this) { entries.values.filter { !File(it.filePath).isFile } }
+        if (missing.isEmpty()) return
+        val byTrackKey =
+            runCatching {
+                directory
+                    .listFiles { file -> file.isFile && file.length() > 0L }
+                    ?.filter { it.name.substringBeforeLast('.') !in writingKeys }
+                    ?.groupBy { it.name.substringBeforeLast('.') }
+            }.getOrNull() ?: return
+        var repaired = 0
+        synchronized(this) {
+            missing.forEach { entry ->
+                val match = byTrackKey[entry.trackKey]?.maxByOrNull { it.length() } ?: return@forEach
+                entries[entry.trackKey] =
+                    entry.copy(
+                        filePath = match.absolutePath,
+                        extension = match.extension,
+                        sizeBytes = match.length(),
+                    )
+                repaired++
+            }
+        }
+        if (repaired > 0) {
+            SpotiFLACDiag.log("cache: re-pointed $repaired entr(ies) after the cache folder moved")
+            persist()
+        }
+    }
 
     /** Deterministic output path handed to the runtime for a track. */
     fun outputFileFor(trackKey: String): File = File(playbackDir(), "$trackKey.media")
@@ -572,17 +688,45 @@ class SpotiFLACPlaybackCache @Inject constructor(
      * Pinned entries are excluded so a configured-cache eviction can never delete a
      * file the user explicitly kept.
      */
-    fun removeForMediaId(mediaId: String): Long {
+    fun removeForMediaId(mediaId: String): Long = removeEntryForMediaId(mediaId, pinnedIsRemovable = false)
+
+    /**
+     * Drops the cached copy of [mediaId], pinned or not.
+     *
+     * Used when a download is removed. That cached file is the same song a second time, and
+     * leaving it behind made the next download of the song finish instantly from bytes the user
+     * had just deleted - and kept answering a resolve with the discarded copy, including its
+     * quality. Only this track's files are touched.
+     */
+    fun discardForMediaId(mediaId: String): Long = removeEntryForMediaId(mediaId, pinnedIsRemovable = true)
+
+    private fun removeEntryForMediaId(mediaId: String, pinnedIsRemovable: Boolean): Long {
         if (mediaId.isBlank()) return 0L
         ensureLoaded()
         val trackKey = synchronized(this) { mediaIdIndex[mediaId] } ?: return 0L
         val entry = synchronized(this) { entries[trackKey] } ?: return 0L
-        if (entry.pinned) return 0L
+        if (entry.pinned && !pinnedIsRemovable) return 0L
         var freed = 0L
         val file = File(entry.filePath)
         if (file.isFile) {
             freed += file.length()
             runCatching { file.delete() }
+        }
+        // A partially written file can also sit beside the recorded path when the runtime
+        // swapped the requested extension for the real container.
+        runCatching {
+            playbackDir()
+                .listFiles { candidate ->
+                    candidate.isFile &&
+                        candidate.name.substringBeforeLast('.') == trackKey &&
+                        candidate.name.substringBeforeLast('.') !in writingKeys
+                }
+                ?.forEach { sibling ->
+                    if (sibling.absolutePath != file.absolutePath) {
+                        freed += sibling.length()
+                        sibling.delete()
+                    }
+                }
         }
         synchronized(this) {
             entries.remove(trackKey)
@@ -590,7 +734,8 @@ class SpotiFLACPlaybackCache @Inject constructor(
         }
         persistSoon()
         SpotiFLACDiag.log(
-            "cache removed mediaId=$mediaId key=$trackKey bytes=$freed (download removed)",
+            "cache removed mediaId=$mediaId key=$trackKey bytes=$freed " +
+                if (pinnedIsRemovable) "(download removed)" else "(cache eviction)",
         )
         return freed
     }
@@ -636,8 +781,30 @@ class SpotiFLACPlaybackCache @Inject constructor(
                 entries.clear()
                 mediaIdIndex.clear()
             }
+            // Before anything reads or reconciles: an entry still naming its old path would
+            // otherwise be dropped as stale, and its file deleted as an orphan.
+            repairFilePaths()
             loaded = true
         }
+    }
+
+    /**
+     * Forgets every entry, files included.
+     *
+     * Used after Storage clears the song cache, whose folder these files live in: the entries
+     * are bookkeeping for bytes that no longer exist, and keeping them would leave a source
+     * label, a codec row and an offline badge describing songs this device does not have.
+     */
+    fun forgetAll() {
+        ensureLoaded()
+        val files = synchronized(this) { entries.values.map { it.filePath } }
+        files.forEach { path -> runCatching { File(path).takeIf { it.isFile }?.delete() } }
+        synchronized(this) {
+            entries.clear()
+            mediaIdIndex.clear()
+        }
+        persist()
+        SpotiFLACDiag.log("cache index cleared (song cache cleared in Storage)")
     }
 
     private fun persist() {

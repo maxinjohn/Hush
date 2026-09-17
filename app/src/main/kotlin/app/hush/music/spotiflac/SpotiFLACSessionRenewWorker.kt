@@ -16,9 +16,13 @@ import java.util.concurrent.TimeUnit
  * Renews SpotiFLAC extension sessions in the background so a session that is
  * still valid never silently lapses into a manual Cloudflare verification.
  *
- * The interval is well under [SpotiFLACSessionRenewer.RENEW_WINDOW_SECONDS] of a
- * typical session lifetime, so a single successful run is enough; runs that find
- * nothing due exit immediately without a network call.
+ * The cadence is deliberately much shorter than [SpotiFLACSessionRenewer.RENEW_WINDOW_SECONDS]:
+ * a session is renewed only while it is still valid (the runtime refuses to refresh an expired
+ * one), so the interval is the number of chances a run gets inside that window. At three hours
+ * the period and the window were the *same* length - one deferred run - and WorkManager defers
+ * freely under doze - and the session lapsed, which is a manual Cloudflare check for a user who
+ * did nothing wrong. An hourly run means three attempts inside the window, and a run that finds
+ * nothing due costs a preference read and no network call.
  */
 class SpotiFLACSessionRenewWorker(
     context: Context,
@@ -37,8 +41,11 @@ class SpotiFLACSessionRenewWorker(
         private const val ONE_SHOT_WORK_NAME = "spotiflac_session_renew_now"
 
         /**
-         * Keeps a periodic renewer registered. Uses KEEP so a session that is
-         * already scheduled is never pushed out by a later app start.
+         * Keeps a periodic renewer registered at the cadence below the renewal window.
+         *
+         * The policy is UPDATE rather than KEEP: an install that already registered the old
+         * three-hour request keeps that interval under KEEP, so the tighter cadence would reach
+         * only fresh installs and every existing user would stay on the schedule that lapses.
          */
         fun schedulePeriodic(context: Context) {
             val constraints = Constraints
@@ -46,15 +53,15 @@ class SpotiFLACSessionRenewWorker(
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
             val request = PeriodicWorkRequestBuilder<SpotiFLACSessionRenewWorker>(
-                3,
-                TimeUnit.HOURS,
-                30,
+                SpotiFLACSessionRenewer.BACKGROUND_INTERVAL_MINUTES,
+                TimeUnit.MINUTES,
+                SpotiFLACSessionRenewer.BACKGROUND_FLEX_MINUTES,
                 TimeUnit.MINUTES,
             ).setConstraints(constraints).build()
             runCatching {
                 WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                     PERIODIC_WORK_NAME,
-                    ExistingPeriodicWorkPolicy.KEEP,
+                    ExistingPeriodicWorkPolicy.UPDATE,
                     request,
                 )
             }
