@@ -81,7 +81,6 @@ import app.hush.music.ui.component.PreferenceEntry
 import app.hush.music.ui.component.PreferenceGroup
 import app.hush.music.ui.component.SwitchPreference
 import app.hush.music.ui.utils.backToMain
-import app.hush.music.constants.SpotiFLACEnabledKey
 import app.hush.music.utils.rememberPreference
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -101,7 +100,6 @@ fun DebugSettings(navController: NavController) {
             defaultValue = false,
         )
 
-    val (spotiflacEnabled, setSpotiflacEnabled) = rememberPreference(SpotiFLACEnabledKey, defaultValue = false)
 
     val playerConnection = LocalPlayerConnection.current
 
@@ -157,18 +155,6 @@ fun DebugSettings(navController: NavController) {
                         icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
                         checked = showCodecOnPlayer,
                         onCheckedChange = onShowCodecOnPlayerChange,
-                    )
-                }
-            }
-
-            PreferenceGroup(title = "Audio Sources") {
-                item {
-                    SwitchPreference(
-                        title = { Text("SpotiFLAC") },
-                        description = "Lossless audio from Tidal, Qobuz, Deezer & more",
-                        icon = { Icon(painterResource(R.drawable.integration), null) },
-                        checked = spotiflacEnabled,
-                        onCheckedChange = setSpotiflacEnabled,
                     )
                 }
             }

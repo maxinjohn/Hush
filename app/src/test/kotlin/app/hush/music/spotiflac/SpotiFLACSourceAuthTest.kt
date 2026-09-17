@@ -61,16 +61,51 @@ class SpotiFLACSourceAuthTest {
         )
     }
 
+    /**
+     * The regression that made a fresh install report nothing to verify: the auth state is read
+     * from the extension's extracted manifest, and on a first run the packages have not been
+     * extracted yet - so every source, including the ones that do demand a Cloudflare check, was
+     * classified as needing nothing. The automatic verification queue stayed empty, a download then
+     * failed with `verification_required`, and the user was sent to solve a check the app had just
+     * said was unnecessary. "Not read" has to be its own answer.
+     */
     @Test
-    fun `unreadable manifest is treated as not requiring a session`() {
+    fun `an unreadable manifest is unknown, never nothing to verify`() {
+        val unreadable = listOf(
+            null,
+            "",
+            "   ",
+            "not json at all",
+            "{\"signedSession\":\"oops\"}", // the block is not the object it claims to be
+            "{\"signedSession\":{\"namespace\":\"zarz-v2\"}}", // no base url to scope a session
+        )
+        unreadable.forEach { manifest ->
+            val state = SpotiFLACSourceAuth.state(manifest, null, now)
+            assertEquals(
+                "manifest ${manifest ?: "<null>"} must not claim a source needs nothing",
+                SpotiFLACSourceAuthState.UNKNOWN,
+                state,
+            )
+            // Unknown is still attempted: the runtime is the authority on whether a source can serve.
+            assertTrue(state.isUsable)
+        }
+        // A readable manifest that declares no session block is the *other* answer, and it is the
+        // only one that may be reported as "nothing to verify" - this is what SoundCloud and the
+        // YouTube Music provider genuinely look like.
         assertEquals(
             SpotiFLACSourceAuthState.NOT_REQUIRED,
-            SpotiFLACSourceAuth.state("not json at all", null, now),
+            SpotiFLACSourceAuth.state("{\"name\":\"soundcloud\",\"type\":[\"download_provider\"]}", null, now),
         )
-        assertEquals(
-            SpotiFLACSourceAuthState.NOT_REQUIRED,
-            SpotiFLACSourceAuth.state(null, null, now),
-        )
+    }
+
+    @Test
+    fun `only a readable manifest with no session block is skipped as nothing to verify`() {
+        assertTrue(SpotiFLACSourceAuth.declaresNoSignedSession("{\"name\":\"soundcloud\"}"))
+        // An unread one must not be skipped for: that is how a grant was lost for a package that
+        // had simply not been extracted yet.
+        assertFalse(SpotiFLACSourceAuth.declaresNoSignedSession(null))
+        assertFalse(SpotiFLACSourceAuth.declaresNoSignedSession("not json"))
+        assertFalse(SpotiFLACSourceAuth.declaresNoSignedSession(gatewayManifest))
     }
 
     @Test
@@ -124,6 +159,7 @@ class SpotiFLACSourceAuthTest {
     fun `only an unverified source is unusable`() {
         assertTrue(SpotiFLACSourceAuthState.VERIFIED.isUsable)
         assertTrue(SpotiFLACSourceAuthState.NOT_REQUIRED.isUsable)
+        assertTrue(SpotiFLACSourceAuthState.UNKNOWN.isUsable)
         assertFalse(SpotiFLACSourceAuthState.NEEDS_VERIFICATION.isUsable)
     }
 

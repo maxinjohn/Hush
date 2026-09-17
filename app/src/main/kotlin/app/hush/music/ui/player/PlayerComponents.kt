@@ -5806,10 +5806,13 @@ fun WideLandscapePlayerContent(
     // media3 "downloaded" badge even though they are unrelated facts.
     val sourceInfo = remember(playbackSourceLabel) { PlaybackSourceLabels.parse(playbackSourceLabel) }
     val sourceValue = sourceInfo.displayName()
+    // A source sweep has no fraction to report yet, so it names the source being tried; only
+    // once bytes are actually moving does a percentage become the true statement.
     val deliveryCaption =
-        downloadProgress
-            ?.takeIf { !it.fromCache && it.percent in 1..99 }
-            ?.let { stringResource(R.string.spotiflac_downloading_percent, it.percent) }
+        downloadProgress?.fetchingLabel()
+            ?: downloadProgress
+                ?.takeIf { !it.fromCache && it.percent in 1..99 }
+                ?.let { stringResource(R.string.spotiflac_downloading_percent, it.percent) }
             ?: sourceInfo.delivery.displayName()
     val audioValue =
         currentFormat?.codecLabel()?.takeIf { it.isNotBlank() }

@@ -691,6 +691,23 @@ fun CodecInfoRow(
     // YouTube play, that is how a track could read as a 5 MB WebM live stream while a 30 MB
     // FLAC was being fetched for it. Saying nothing is correct until a source is published.
     val resolvedPlaybackClient = playbackClient ?: activeClientLabel
+    // A source sweep publishes download progress naming the provider being tried, but no source
+    // label (that only appears once a resolve succeeds) - so this row, the one that names the
+    // source, rendered blank for the entire window. Measured on device: an uncached track sat at
+    // 0:00 for 18 seconds while `deezer` refused and `qobuz-web` stalled, with this line empty
+    // throughout, which is what makes a slow source read as a track that never started.
+    // Remembered unconditionally, like the two flows above: `LocalPlayerConnection` is a
+    // `staticCompositionLocalOf` whose value starts null and becomes the bound connection once
+    // the service is up, so this whole subtree recomposes with the other branch taken. A
+    // `remember` reached only through `?:` is not wrapped in a group by the Compose compiler, so
+    // that recomposition would hand this slot to `collectAsStateWithLifecycle`'s own state - on
+    // the surface that can be composed before the service binds, which is a startup crash.
+    val fallbackProgressFlow =
+        remember { kotlinx.coroutines.flow.MutableStateFlow<PlaybackDownloadProgress?>(null) }
+    val downloadProgress by (
+        LocalPlayerConnection.current?.activeDownloadProgress ?: fallbackProgressFlow
+    ).collectAsStateWithLifecycle(initialValue = null)
+    val fetching = downloadProgress?.fetchingLabel()
 
     // Resolved before the string is built, because the labelling helpers are composable and
     // cannot be called from inside a buildString lambda. The delivery is appended so this row
@@ -712,24 +729,28 @@ fun CodecInfoRow(
     ) {
         Text(
             text =
-                buildString {
-                    append(codec)
-                    if (bitrate != "Unknown") {
-                        append(" • ")
-                        append(bitrate)
-                    }
-                    if (fileSize.isNotEmpty()) {
-                        append(" • ")
-                        append(fileSize)
-                    }
-                    if (sourceText != null) {
-                        append(" • ")
-                        append(sourceText)
-                        if (deliveryText != null) {
-                            append(" (").append(deliveryText.lowercase()).append(")")
+                // While a source is still being fetched there is no codec/bitrate/size to
+                // report for the new track, so the fetching state replaces the line rather
+                // than leaving it blank.
+                fetching
+                    ?: buildString {
+                        append(codec)
+                        if (bitrate != "Unknown") {
+                            append(" • ")
+                            append(bitrate)
                         }
-                    }
-                },
+                        if (fileSize.isNotEmpty()) {
+                            append(" • ")
+                            append(fileSize)
+                        }
+                        if (sourceText != null) {
+                            append(" • ")
+                            append(sourceText)
+                            if (deliveryText != null) {
+                                append(" (").append(deliveryText.lowercase()).append(")")
+                            }
+                        }
+                    },
             style = MaterialTheme.typography.labelSmall,
             fontFamily = FontFamily.Monospace,
             color = textColor,
@@ -824,6 +845,36 @@ fun PlaybackSourceRow(
 }
 
 /**
+ * True while a SpotiFLAC source sweep is still running for this track.
+ *
+ * The runtime reports a sweep as progress with no bytes behind it at all - `checking_session`
+ * -> `resolving_metadata` -> `resolving_stream` - and emits no fraction, because there is
+ * nothing to measure yet. Reading `percent == 0` as "a download in progress" is what left the
+ * player looking frozen for that whole window: measured on device, pressing play on an
+ * uncached track held the player at 0:00 for 18 seconds while providers were tried and
+ * abandoned in turn (`deezer` refused in 3s, then `qobuz-web` sat on `resolving_stream`),
+ * which is indistinguishable from a track that never started. The source being tried is
+ * already in this payload, so the honest thing to show is which one that is.
+ */
+val PlaybackDownloadProgress.isResolvingSource: Boolean
+    get() = !fromCache && bytesTotal <= 0L && percent <= 0
+
+/**
+ * "Fetching from qobuz-web…" while a source is being tried, or null once real bytes are
+ * moving - at which point [R.string.spotiflac_downloading_percent] is the true statement.
+ */
+@Composable
+fun PlaybackDownloadProgress.fetchingLabel(): String? =
+    if (!isResolvingSource) {
+        null
+    } else {
+        sourceId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { stringResource(R.string.spotiflac_fetching_from_source, it) }
+            ?: stringResource(R.string.spotiflac_fetching_audio)
+    }
+
+/**
  * Shows what a SpotiFLAC track is doing right now: fetching it (with real progress
  * and speed) or replaying it from the on-device cache.
  */
@@ -838,12 +889,16 @@ fun SpotiFLACDownloadStatus(
     // the same thing.
     if (progress.fromCache || progress.percent >= 100) return
 
+    // A source sweep has no fraction to show, so it says which source it is trying and moves
+    // an indeterminate bar, rather than sitting on a frozen "Downloading 0%".
+    val fetching = progress.fetchingLabel()
     val label =
-        buildString {
-            append(stringResource(R.string.spotiflac_downloading_percent, progress.percent))
-            progress.speedLabel?.let { append(" • ").append(it) }
-            progress.sizeLabel?.let { append(" of ").append(it) }
-        }
+        fetching
+            ?: buildString {
+                append(stringResource(R.string.spotiflac_downloading_percent, progress.percent))
+                progress.speedLabel?.let { append(" • ").append(it) }
+                progress.sizeLabel?.let { append(" of ").append(it) }
+            }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier.padding(horizontal = 10.dp, vertical = 2.dp),
@@ -855,18 +910,30 @@ fun SpotiFLACDownloadStatus(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        if (progress.percent in 1..99) {
-            Spacer(Modifier.height(3.dp))
-            LinearProgressIndicator(
-                progress = { progress.percent / 100f },
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(2.dp)
-                        .clip(RoundedCornerShape(1.dp)),
-                color = textColor,
-                trackColor = textColor.copy(alpha = 0.22f),
-            )
+        Spacer(Modifier.height(3.dp))
+        when {
+            fetching != null ->
+                LinearProgressIndicator(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(2.dp)
+                            .clip(RoundedCornerShape(1.dp)),
+                    color = textColor,
+                    trackColor = textColor.copy(alpha = 0.22f),
+                )
+
+            progress.percent in 1..99 ->
+                LinearProgressIndicator(
+                    progress = { progress.percent / 100f },
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(2.dp)
+                            .clip(RoundedCornerShape(1.dp)),
+                    color = textColor,
+                    trackColor = textColor.copy(alpha = 0.22f),
+                )
         }
     }
 }

@@ -176,6 +176,34 @@ object SpotiFLACSessionRenewer {
     }
 
     /**
+     * Puts back any session the runtime cannot currently see, from what the app already earned.
+     *
+     * A session record's *file name* is derived from the extension's app version, so a registry
+     * update that bumps a version leaves a verified session sitting under the old name - and the
+     * source then reports as needing a challenge it has already passed, which is what makes a car
+     * user solve the same check twice. The vault is keyed by extension rather than by version, so
+     * this writes such a session back under the name in use now.
+     *
+     * Cheap and side-effect free when there is nothing to do: it reads the per-extension records
+     * and returns without writing anything unless one is genuinely unusable.
+     *
+     * @return the extension ids that became usable because of this call.
+     */
+    fun restoreFromVault(context: Context): List<String> {
+        val candidates = runCatching { sessions(context) }.getOrNull() ?: return emptyList()
+        val unusable = candidates.filter { !it.hasSession || it.isExpired }.map { it.extensionId }
+        if (unusable.isEmpty()) return emptyList()
+        val adopted = runCatching { reconcile(context, candidates, "restore") }.getOrDefault(0)
+        if (adopted == 0) return emptyList()
+        val usableNow = runCatching { sessions(context) }
+            .getOrDefault(emptyList())
+            .filter { it.hasSession && !it.isExpired }
+            .map { it.extensionId }
+            .toSet()
+        return unusable.filter { it in usableNow }
+    }
+
+    /**
      * Mirrors live records into the durable vault and revives the unusable ones.
      *
      * A session is only ever lost through its *file*: the runtime derives the

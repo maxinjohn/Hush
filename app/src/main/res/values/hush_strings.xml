@@ -514,6 +514,8 @@
     <string name="spotiflac_playing_from_cache">Playing from cache</string>
     <string name="spotiflac_download_ready">Ready</string>
     <string name="spotiflac_downloading_percent">Downloading %1$d%%</string>
+    <string name="spotiflac_fetching_from_source">Fetching from %1$s…</string>
+    <string name="spotiflac_fetching_audio">Fetching audio…</string>
     <string name="spotiflac_playback_priority">Playback priority</string>
     <string name="spotiflac_playback_priority_desc">Choose which engine is tried first. Hush works down the list when a source cannot play a track.</string>
     <string name="spotiflac_priority_first">1st</string>

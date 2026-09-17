@@ -7,6 +7,7 @@ import android.provider.Settings
 import app.hush.music.constants.SpotiFLACTryNextSourceKey
 import app.hush.music.constants.SpotiFLACVerifiedOnlyKey
 import app.hush.music.utils.PlaybackDownloadProgress
+import app.hush.music.constants.SpotiFLACEnabledKey
 import app.hush.music.utils.PreferenceStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -116,39 +117,42 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
     }
 
     /**
-     * Delivers a Turnstile grant to every enabled extension using the exact
-     * upstream handshake: SetExtensionSessionGrantByID → completeGrant action.
-     * The runtime exchanges the grant against the gateway itself, so its signed
-     * sessions are independent of Hush's but share the same install identity.
-     */
-    /**
-     * Every source a single verification grant should be applied to: the source
-     * that raised the challenge first, then the other enabled download sources.
+     * The extension a pending runtime challenge belongs to, or null when there is none.
      *
-     * A grant is exchanged per extension (the exchange payload carries the
-     * extension's own app version), so one solved challenge can refresh several
-     * sources at once instead of forcing one Cloudflare check per source. The
-     * challenged source comes first because that exchange is guaranteed to work,
-     * and every other delivery already fails in isolation.
+     * A pending challenge is raised by one extension's own preflight, and only that extension
+     * can exchange the grant it publishes, so every surface that shows a runtime challenge has
+     * to deliver the grant back to this id rather than to whichever source the user tapped.
      */
-    fun grantTargetSourceIds(primarySourceId: String): List<String> {
-        val enabled = runCatching {
-            repositoryManager.getEnabledSourceIds()
-        }.getOrDefault(emptyList())
-        val others = enabled.filter {
-            it.isNotBlank() &&
-                !it.equals(primarySourceId, ignoreCase = true) &&
-                !it.equals("spotify-web", ignoreCase = true)
-        }
-        // Sources with no signed-session contract have no grant to complete (the
-        // runtime answers "Action function not found: completeGrant"), so offering
-        // them one only produces noise. The challenged source is kept regardless:
-        // its package may not be extracted yet at this point, and dropping it would
-        // throw away the one grant that is guaranteed to be redeemable.
-        return (listOf(primarySourceId) + others.filter {
-            SpotiFLACSourceAuth.requiresSignedSession(manifestJsonFor(it))
-        }).filter { it.isNotBlank() }
+    fun pendingRuntimeAuth(): PendingExtensionAuth? {
+        val backend = backendClass ?: return null
+        return runCatching {
+            val raw = invokeString(backend, "getAllPendingAuthRequestsJSON")
+            if (raw.isBlank() || raw == "[]") return null
+            val arr = json.parseToJsonElement(raw)
+            (arr as? kotlinx.serialization.json.JsonArray)
+                ?.firstNotNullOfOrNull { entry ->
+                    val obj = entry as? kotlinx.serialization.json.JsonObject ?: return@firstNotNullOfOrNull null
+                    val authUrl = obj["auth_url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                        ?: return@firstNotNullOfOrNull null
+                    PendingExtensionAuth(
+                        extensionId = obj["extension_id"]?.jsonPrimitive?.content
+                            ?.takeIf { it.isNotBlank() } ?: return@firstNotNullOfOrNull null,
+                        authUrl = authUrl,
+                        callbackUrl = obj["callback_url"]?.jsonPrimitive?.content,
+                    )
+                }
+        }.getOrNull()
     }
+
+    /**
+     * The owner of the runtime challenge for [extensionId], or null when the runtime holds none.
+     *
+     * Prefers the challenge raised for this extension; the runtime's list is walked in order, so
+     * a challenge raised while a *different* provider was being tried is still returned - with
+     * its own id, which is the id the grant must go back to.
+     */
+    suspend fun challengeOwnerFor(extensionId: String): String? =
+        withContext(Dispatchers.IO) { pendingAuthFor(extensionId)?.extensionId?.takeIf { it.isNotBlank() } }
 
     /** The raw manifest of an extracted extension, or null when unavailable. */
     private fun manifestJsonFor(sourceId: String): String? {
@@ -160,6 +164,25 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
         return runCatching { manifest.readText() }.getOrNull()
     }
 
+    /**
+     * Delivers a Turnstile grant to the extension whose challenge raised it, using the exact
+     * upstream handshake: SetExtensionSessionGrantByID → completeGrant action.
+     * The runtime exchanges the grant against the gateway itself, so its signed
+     * sessions are independent of Hush's but share the same install identity.
+     *
+     * The delivery target is the challenge's *owner* and nothing else. A grant is bound to the
+     * challenge behind it, and a challenge is raised per extension - `/bootstrap` answers each
+     * extension's own client signature with its own challenge, and the exchange payload carries
+     * that extension's app version. Handing the same grant to any other extension is answered
+     * `session exchange failed: HTTP 403`: measured on device, one grant delivered to four
+     * sources verified exactly one and was refused three times. Those refusals were not cosmetic
+     * - each one marks the source as still needing verification, so the next play raised the
+     * same challenge again, which is the loop a car user sees as "I verify and it still says
+     * 403". An empty list (the owner could not be determined, e.g. a bare deep-link callback) is
+     * the one case where more than one source is tried.
+     *
+     * @see pendingRuntimeAuth the owner of a pending runtime challenge.
+     */
     suspend fun deliverGrant(grant: String, sourceIds: List<String>) = withContext(Dispatchers.IO) {
         runCatching {
             val trimmed = grant.trim()
@@ -171,11 +194,12 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
             }.filter { it.isNotBlank() && !it.equals("spotify-web", ignoreCase = true) }
             for (id in ids) {
                 try {
-                    // A missing manifest means "unknown", not "not required", so
-                    // only a manifest that positively declares no signed session is
-                    // skipped - otherwise an unextracted package would lose the grant.
+                    // A missing manifest means "unknown", not "not required", so only a
+                    // manifest that was readable *and* declares no signed session is skipped -
+                    // otherwise an unextracted package, or one this app could not parse, would
+                    // silently lose the grant.
                     val manifest = manifestJsonFor(id)
-                    if (manifest != null && !SpotiFLACSourceAuth.requiresSignedSession(manifest)) {
+                    if (manifest != null && SpotiFLACSourceAuth.declaresNoSignedSession(manifest)) {
                         continue
                     }
                     ensurePackageLoaded(backend, id, repositoryManager.getSourceForId(id))
@@ -224,10 +248,21 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
                 seedSignedSessionFor(id)
             }
             SpotiFLACDiag.log("prewarm done ids=${ids.joinToString(",")}")
-            // Sources that cannot download yet get their challenge solved now, in
-            // the background, instead of surfacing as a failed track later.
-            unverifiedDownloadExtensionIds().takeIf { it.isNotEmpty() }?.let { blocked ->
-                SpotiFLAutoVerifier.enqueue(blocked, "prewarm")
+            // Sources that cannot download yet get their challenge solved now, in the
+            // background, instead of surfacing as a failed track later - but only while
+            // SpotiFLAC is actually in use. With it off every source is unused, and an
+            // automatic run is not a harmless no-op: on a device whose WebView cannot run
+            // Cloudflare's check (a car head unit) it ends with a browser tab opening by
+            // itself, asking the user to solve a challenge for playback that is not routed
+            // through SpotiFLAC at all. The preference is read here, at the moment the
+            // attempt would start, so a source queued while it was on is never verified after
+            // it has been switched off either.
+            if (PreferenceStore.get(SpotiFLACEnabledKey) == true) {
+                unverifiedDownloadExtensionIds().takeIf { it.isNotEmpty() }?.let { blocked ->
+                    SpotiFLAutoVerifier.enqueue(blocked, "prewarm")
+                }
+            } else {
+                SpotiFLACDiag.log("prewarm: no automatic verification (SpotiFLAC is disabled)")
             }
         }.onFailure { SpotiFLACDiag.log("prewarm failed msg=${it.message}") }
     }
@@ -278,15 +313,26 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
         val fromRegistry =
             sourceIds.ifEmpty { repositoryManager.sources.value.map { it.source.id } }
                 .filter { it.isNotBlank() && !it.equals("spotify-web", ignoreCase = true) }
-        val base = if (fromRegistry.isNotEmpty()) {
-            fromRegistry
-        } else {
-            installedDownloadExtensionIds().also { ids ->
-                if (ids.isNotEmpty()) {
-                    SpotiFLACDiag.log("candidates from installed packages: ${ids.joinToString(",")}")
-                }
-            }
+                .distinct()
+        // The registry and the extension packages on disk disagree in both directions,
+        // and the sweep should follow what can actually download. See
+        // SpotiFLACCandidateOrder for why an unavailable source is demoted, not dropped.
+        val installed = installedDownloadExtensionIds()
+        if (fromRegistry.isEmpty() && installed.isNotEmpty()) {
+            SpotiFLACDiag.log("candidates from installed packages: ${installed.joinToString(",")}")
         }
+        val ordered = SpotiFLACCandidateOrder.order(registry = fromRegistry, installed = installed)
+        if (ordered.unavailable.isNotEmpty() && ordered.loadable.isNotEmpty()) {
+            SpotiFLACDiag.log(
+                "candidates demoted (extension package unavailable): ${ordered.unavailable.joinToString(",")}",
+            )
+        }
+        if (ordered.extras.isNotEmpty() && ordered.loadable.isNotEmpty()) {
+            SpotiFLACDiag.log(
+                "candidates added from installed packages: ${ordered.extras.joinToString(",")}",
+            )
+        }
+        val base = ordered.all
         // The download pipeline pauses at the first provider that needs
         // verification, so an already-usable source must be tried first or it
         // never gets a chance. Stable-partition keeps user ordering within groups.
@@ -502,6 +548,16 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
         )
     }
 
+    /** A challenge [extensionId] raised itself. Loading and enabling it is part of asking. */
+    private suspend fun ownChallenge(
+        backend: Class<*>,
+        extensionId: String,
+    ): PendingExtensionAuth? {
+        ensurePackageLoaded(backend, extensionId, repositoryManager.getSourceForId(extensionId))
+        invokeVoid(backend, "setExtensionEnabledByID", extensionId, true)
+        return perExtensionPendingAuth(backend, extensionId)
+    }
+
     /**
      * The challenge to show for a source, raising one if the runtime has none yet.
      *
@@ -510,14 +566,21 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
      * for one directly means the "Verify" button works instead of answering "play a
      * track first" - the health check runs the extension's own availability path,
      * which is where an expired session raises its PendingAuthRequest.
+     *
+     * This extension's *own* challenge is what is looked for first, because the runtime's global
+     * list is the wrong answer for a per-source request: it holds challenges other providers raised,
+     * and returning one of those skipped the health probe below entirely - so the source the user
+     * asked about never raised a challenge of its own, and the check they solved was for a different
+     * source. The global list stays as the last resort it was meant to be.
      */
     suspend fun ensureChallenge(extensionId: String): PendingExtensionAuth? = withContext(Dispatchers.IO) {
         runCatching {
-            pendingAuthFor(extensionId)?.let { return@runCatching it }
             val backend = requireBackend()
+            initializeRuntime(backend)
+            ownChallenge(backend, extensionId)?.let { return@runCatching it }
             runCatching { invokeString(backend, "checkExtensionHealthJSON", extensionId) }
                 .onFailure { SpotiFLACDiag.log("health probe for $extensionId failed: ${it.message}") }
-            pendingAuthFor(extensionId)
+            ownChallenge(backend, extensionId) ?: runtimePendingAuthFor(backend, extensionId)
         }.onFailure { SpotiFLACDiag.log("ensureChallenge $extensionId failed: ${it.message}") }.getOrNull()
     }
 
@@ -537,19 +600,7 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
      * Mirrors upstream: the runtime registers a PendingAuthRequest when it needs
      * a fresh challenge, and the host app opens that URL in a WebView.
      */
-    fun pendingRuntimeAuthUrl(): String? {
-        val backend = backendClass ?: return null
-        return runCatching {
-            val raw = invokeString(backend, "getAllPendingAuthRequestsJSON")
-            if (raw.isBlank() || raw == "[]") return null
-            val arr = json.parseToJsonElement(raw)
-            (arr as? kotlinx.serialization.json.JsonArray)
-                ?.firstNotNullOfOrNull { entry ->
-                    (entry as? kotlinx.serialization.json.JsonObject)
-                        ?.get("auth_url")?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-                }
-        }.getOrNull()
-    }
+    fun pendingRuntimeAuthUrl(): String? = pendingRuntimeAuth()?.authUrl
 
     suspend fun resolve(
         title: String,
@@ -826,6 +877,9 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
                     mediaId = mediaId,
                     outputDir = outputDir,
                     outputPath = outputPath,
+                    // The *request*, not this attempt's token: it is what the user asked for,
+                    // and the useful thing to name when a source answers with something else.
+                    requestedQuality = quality,
                 ) { pkg ->
                     buildRequest(
                         sourceId = sourceId,
@@ -896,10 +950,17 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
             // switching one source off no longer looks like the whole chain giving up.
             val lastFailure = failures.lastOrNull()
             val retryQuality = retryTokens[sourceId]
+            // Two ways a source was never really asked for this track: it cannot deliver the
+            // quality, or it answered with audio this app cannot play (a Dolby track where FLAC was
+            // requested). Both are retried at the source's own lossy option, because that is a
+            // question it can actually answer.
+            val retryable = lastFailure != null &&
+                (SpotiFLACQualityCascade.isQualityLimited(lastFailure) ||
+                    SpotiFLACQualityCascade.isUnplayableFormat(lastFailure))
             if (retryQuality != null &&
                 lastFailure != null &&
                 lastFailure.startsWith("$sourceId@$quality=") &&
-                SpotiFLACQualityCascade.isQualityLimited(lastFailure)
+                retryable
             ) {
                 SpotiFLACDiag.log(
                     "source $sourceId cannot serve $quality; retrying it at its own " +
@@ -937,6 +998,7 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
         mediaId: String?,
         outputDir: File,
         outputPath: File,
+        requestedQuality: String,
         buildJson: (PreparedPackage) -> String,
     ): ResolvedFile {
         ensurePackageLoaded(backend, sourceId, source)
@@ -967,6 +1029,12 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
                         "stage=${stalled.stage ?: "-"} " +
                         "silent=${stalled.stalledMillis}ms - abandoned, trying next provider",
                 )
+                // The runtime's own account of the attempt is captured at the moment it is given
+                // up on, because the stall report says only *that* it stopped and which stage it
+                // stopped in - never why. That gap is the whole question for a provider that
+                // abandons every track at the same stage (measured: qobuz-web at
+                // `resolving_stream`, every track tried), and the runtime log holds the reason.
+                dumpRuntimeLogs("stall-$sourceId")
                 throw stalled
             }
         val response = json.parseToJsonElement(responseText).jsonObject
@@ -996,15 +1064,56 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
             )
         }
         val path = response["file_path"]?.jsonPrimitive?.content.orEmpty()
-        val file = File(path.ifBlank { outputPath.absolutePath })
+        var file = File(path.ifBlank { outputPath.absolutePath })
         require(file.isFile && file.length() > 0L) {
             "SpotiFLAC runtime returned no playable file for $sourceId"
         }
+        // A provider that delivers an encrypted stream delivers the key to it as well (Amazon's
+        // `ffmpeg.mov_key` contract). The runtime forwards both fields and decrypts nothing, so
+        // the decryption the provider asked for happens here - before anything judges the bytes,
+        // and before the file is recorded as this track's copy.
+        SpotiFLACDecryptionContract.parse(response)?.let { contract ->
+            file = applyDownloadDecryption(file, contract, sourceId)
+        }
         val bitDepth = response["actual_bit_depth"]?.jsonPrimitive?.content?.toIntOrNull()
         val sampleRate = response["actual_sample_rate"]?.jsonPrimitive?.content?.toIntOrNull()
+        val reportedCodec = response["audio_codec"]?.jsonPrimitive?.content
+            ?.takeIf { it.isNotBlank() }
+        // A download of the right size can still be audio nothing can play. Amazon's extension
+        // offers Dolby Digital Plus and Atmos beside its lossless FLAC, and a Dolby track is silent
+        // on a device with no AC-3/AC-4 output path: playback starts, the position advances, and no
+        // sound comes out. Every line Hush used to write called that a success, because nothing
+        // looked at the answer - so the answer is checked here, and an unplayable one is treated as
+        // this source failing instead of as the track playing.
+        val probe = SpotiFLACFileIntegrity.readProbe(file)
+
+        val container = probe?.let { SpotiFLACFileIntegrity.containerOf(it) }
+        val dolby = probe?.let { SpotiFLACFileIntegrity.dolbyFormatOf(it) }
+            ?: SpotiFLACFileIntegrity.dolbyFormatOfCodecName(reportedCodec)
+        // Amazon hands the runtime an encrypted stream and a key; if that decryption did not
+        // happen the payload is the right size and silently has no audio, which is the exact
+        // failure the listener reported. It is named here rather than played.
+        val encrypted = probe?.let { SpotiFLACFileIntegrity.isEncryptedStream(it) } == true
+        if (dolby != null || encrypted || container == null) {
+            val detail = when {
+                encrypted -> "the stream is still encrypted, and no usable key accompanied it " +
+                    "(Amazon delivers it encrypted; the decryption is the host's step)"
+                dolby != null -> "Dolby $dolby, which has no output path on this device"
+                else -> "no recognisable audio container (head=" +
+                    (probe?.take(8)?.joinToString("") { "%02x".format(it) } ?: "unreadable") + ")"
+            }
+            SpotiFLACDiag.log(
+                "download unusable id=$sourceId $detail requested=$requestedQuality " +
+                    "codec=${reportedCodec ?: "-"} file=${file.name} bytes=${file.length()}",
+            )
+            throw SpotiFLACException(
+                "provider '$sourceId' ${SpotiFLACQualityCascade.UNPLAYABLE_FORMAT_MARKER} " +
+                    "($detail; requested quality was $requestedQuality)",
+            )
+        }
         SpotiFLACDiag.log(
             "download ok id=$sourceId file=${file.name} bytes=${file.length()} alreadyExists=$alreadyExists " +
-                "codec=${response["audio_codec"]?.jsonPrimitive?.content ?: "-"} bits=$bitDepth rate=$sampleRate",
+                "container=$container codec=${reportedCodec ?: "-"} bits=$bitDepth rate=$sampleRate",
         )
         _downloadProgress.value =
             PlaybackDownloadProgress(
@@ -1030,6 +1139,54 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
             sampleRate = sampleRate,
             bitDepth = bitDepth,
         )
+    }
+
+    /**
+     * Carries out a provider's decryption contract on a finished download.
+     *
+     * A contract this app cannot act on is *reported*, not guessed at: the bytes are then judged
+     * by the integrity check below, which names an unusable stream rather than playing silence.
+     * A contract that is acted on and fails is this source failing, so the sweep moves to the next
+     * provider instead of handing the listener a track that cannot play.
+     *
+     * The file that comes back may have a different name and extension than the one the runtime
+     * wrote: the lossless FLAC case is a container that has to become a real `.flac`, and the
+     * provider's own `output_extension` governs the rest.
+     */
+    private fun applyDownloadDecryption(
+        file: File,
+        contract: SpotiFLACDecryptionContract,
+        sourceId: String,
+    ): File {
+        if (!contract.isSupported) {
+            SpotiFLACDiag.log(
+                "decryption not usable id=$sourceId strategy=${contract.strategy.ifBlank { "-" }} " +
+                    "format=${contract.inputFormat.ifBlank { "-" }}",
+            )
+            return file
+        }
+        return try {
+            val decrypted = SpotiFLACMovKeyDecryptor.decrypt(
+                source = file,
+                keyHex = contract.keyHex,
+                outputExtension = contract.outputExtension,
+                log = { line -> SpotiFLACDiag.log(line) },
+            )
+            SpotiFLACDiag.log(
+                "decryption ok id=$sourceId strategy=${contract.strategy} output=${decrypted.output} " +
+                    "format=${decrypted.originalFormat} fragments=${decrypted.fragmentsDecrypted} " +
+                    "samples=${decrypted.samplesDecrypted} bytes=${decrypted.bytesDecrypted} " +
+                    "file=${decrypted.file.name}",
+            )
+            decrypted.file
+        } catch (error: SpotiFLACMovKeyDecryptor.DecryptionFailedException) {
+            SpotiFLACDiag.log("decryption failed id=$sourceId reason=${error.message}")
+            Timber.tag(TAG).w(error, "SpotiFLAC decryption failed for $sourceId")
+            throw SpotiFLACException(
+                "provider '$sourceId' ${SpotiFLACQualityCascade.UNPLAYABLE_FORMAT_MARKER} " +
+                    "(the stream is encrypted and could not be decrypted: ${error.message})",
+            )
+        }
     }
 
     /**

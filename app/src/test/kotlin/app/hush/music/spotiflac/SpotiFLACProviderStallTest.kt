@@ -128,8 +128,64 @@ class SpotiFLACProviderStallTest {
         // A genuinely new event moves it forward and remembers the stage.
         meter.onProgress(seq = 8L, stage = "resolving_stream", nowMs = 9_000L)
         assertEquals("resolving_stream", meter.lastStage)
-        assertFalse(meter.shouldAbandon(nowMs = 9_000L + timeout - 1))
-        assertTrue(meter.shouldAbandon(nowMs = 9_000L + timeout))
+        assertEquals(9_000L, meter.lastProgressAt())
+        // No byte has arrived, so this attempt is still resolving and the wider idle budget
+        // applies (see `a provider waiting on its own declared retry ...`). The meter here
+        // starts when the event arrives, which keeps the absolute ceiling out of the way of
+        // the boundary being checked - it would otherwise fire first, at 25s from the start.
+        val resolving = ProviderStallMeter(startedAtMs = 9_000L)
+        resolving.onProgress(seq = 1L, stage = "resolving_stream", nowMs = 9_000L)
+        val resolution = SpotiFLACProviderStallPolicy.RESOLUTION_STALL_TIMEOUT_MS
+        assertFalse(resolving.shouldAbandon(nowMs = 9_000L + resolution - 1))
+        assertTrue(resolving.shouldAbandon(nowMs = 9_000L + resolution))
+    }
+
+    @Test
+    fun `a provider waiting on its own declared retry is not abandoned as stalled`() {
+        // Measured on device: qobuz-web's extension answers PROVIDER_UNAVAILABLE,
+        // retryable, retry_after_seconds=10; the runtime waits the declared 10s and calls
+        // it again, and Hush abandoned the attempt at 8s - before the retry it had just
+        // been told to make could begin. The provider was answering in the only way it
+        // can, and every track was skipped for it (5 of 5 tried).
+        val meter = ProviderStallMeter(startedAtMs = 0L)
+        meter.onProgress(seq = 1L, stage = "resolving_stream", nowMs = 2_000L)
+        assertFalse(meter.hasTransferred())
+        // The declared retry, plus the resolution work that follows it.
+        assertFalse(meter.shouldAbandon(nowMs = 2_000L + 10_000L))
+        assertFalse(
+            meter.shouldAbandon(
+                nowMs = 2_000L + SpotiFLACProviderStallPolicy.RESOLUTION_STALL_TIMEOUT_MS - 1,
+            ),
+        )
+    }
+
+    @Test
+    fun `a zero-byte progress event is not a transfer`() {
+        // The runtime's resolving stages report `bytes=0/0`: a progress event with no data
+        // behind it. Counting that as a transfer puts every resolution phase on the tight
+        // transfer window, which is exactly how qobuz-web stayed abandoned at 8.1s even after
+        // the resolution budget was introduced.
+        val meter = ProviderStallMeter(startedAtMs = 0L)
+        meter.onProgress(seq = 1L, stage = "resolving_stream", bytesReceived = 0L, nowMs = 1_000L)
+        assertFalse(meter.hasTransferred())
+        assertFalse(meter.shouldAbandon(nowMs = 1_000L + 10_000L))
+        val resolution = SpotiFLACProviderStallPolicy.RESOLUTION_STALL_TIMEOUT_MS
+        assertFalse(meter.shouldAbandon(nowMs = 1_000L + resolution - 1))
+    }
+
+    @Test
+    fun `the tight window applies again once bytes have moved`() {
+        // Silence after data has flowed means a stopped transfer, not a provider asking for
+        // time, so the narrow window governs the rest of the attempt.
+        val meter = ProviderStallMeter(startedAtMs = 0L)
+        meter.onProgress(seq = 1L, stage = "resolving_stream", nowMs = 1_000L)
+        meter.onProgress(seq = 2L, stage = "downloading", bytesReceived = 4_000_000L, nowMs = 3_000L)
+        assertTrue(meter.hasTransferred())
+        assertFalse(meter.shouldAbandon(nowMs = 3_000L + timeout - 1))
+        assertEquals(
+            ProviderAbandonReason.STALLED,
+            meter.abandonReason(nowMs = 3_000L + timeout),
+        )
     }
 
     @Test

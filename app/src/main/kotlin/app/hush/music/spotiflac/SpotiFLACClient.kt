@@ -182,7 +182,7 @@ class SpotiFLACClient @Inject constructor(
         quality: String = "best",
         source: String? = null,
         relayUrl: String? = null,
-    ): Result<SpotiFLACTrackResponse> = runCatching {
+    ): Result<SpotiFLACTrackResponse> = resolveResultOf {
         Timber.tag(TAG).d("Resolving Spotify track: $spotifyTrackId (quality=$quality, source=$source)")
 
         val sourceParam = if (!source.isNullOrBlank()) "&source=$source" else ""
@@ -237,7 +237,7 @@ class SpotiFLACClient @Inject constructor(
         quality: String = "best",
         source: String? = null,
         relayUrl: String? = null,
-    ): Result<SpotiFLACTrackResponse> = runCatching {
+    ): Result<SpotiFLACTrackResponse> = resolveResultOf {
         Timber.tag(TAG).d("Resolving by ISRC: $isrc (quality=$quality, source=$source)")
 
         val sourceParam = if (!source.isNullOrBlank()) "&source=$source" else ""
@@ -289,7 +289,7 @@ class SpotiFLACClient @Inject constructor(
         query: String,
         source: String? = null,
         relayUrl: String? = null,
-    ): Result<List<SpotiFLACSearchResult>> = runCatching {
+    ): Result<List<SpotiFLACSearchResult>> = resolveResultOf {
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8").replace("+", "%20")
         val sourceParam = if (!source.isNullOrBlank()) "&source=$source" else ""
         val path = "/search?q=$encodedQuery$sourceParam"
@@ -313,7 +313,7 @@ class SpotiFLACClient @Inject constructor(
         parseSearchResults(body)
     }
 
-    suspend fun testSource(source: String): Result<List<SpotiFLACSearchResult>> = runCatching {
+    suspend fun testSource(source: String): Result<List<SpotiFLACSearchResult>> = resolveResultOf {
         Timber.tag(TAG).d("Testing source: $source")
 
         val state = sessionManager.sessionState
@@ -373,7 +373,7 @@ class SpotiFLACClient @Inject constructor(
         // /health is a connectivity check and intentionally returns a status object,
         // not search results. A successful health response means the source is reachable.
         if (status in 200..299 && body.contains("\"status\"", ignoreCase = true)) {
-            return@runCatching listOf(
+            return@resolveResultOf listOf(
                 SpotiFLACSearchResult(title = "__health_ok__", id = source),
             )
         }

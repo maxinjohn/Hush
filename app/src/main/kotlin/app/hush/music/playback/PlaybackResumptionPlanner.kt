@@ -20,12 +20,19 @@ internal object PlaybackResumptionPlanner {
         val startPositionMs: Long,
     )
 
+    /**
+     * @param fallbackItems what to play when there is nothing loaded *and* nothing persisted - the
+     *   state a fresh install, a cleared data directory, or a reinstalled head unit leaves behind.
+     *   The caller supplies it (recently played, in its own order) and it is only consulted for a
+     *   request that is about to play something, never for a browse one.
+     */
     fun <T> resolve(
         currentItems: List<T>,
         currentIndex: Int,
         currentPositionMs: Long,
         persistedItems: PersistedItems<T>?,
         isForPlayback: Boolean,
+        fallbackItems: List<T> = emptyList(),
     ): Result<T> {
         val persisted = persistedItems
         val usePersistedItems =
@@ -53,6 +60,18 @@ internal object PlaybackResumptionPlanner {
                 currentIndex = currentIndex,
                 positionMs = currentPositionMs,
                 isForPlayback = isForPlayback,
+            )
+        }
+
+        // With nothing loaded and nothing persisted, a request that is about to play is exactly
+        // the one that used to be answered with an empty timeline - the transport press that did
+        // nothing. A request that is only browsing is left alone, so a controller connecting to
+        // display the queue does not cause playback.
+        if (isForPlayback && fallbackItems.isNotEmpty()) {
+            return fallbackItems.toResult(
+                currentIndex = 0,
+                positionMs = 0L,
+                isForPlayback = true,
             )
         }
 

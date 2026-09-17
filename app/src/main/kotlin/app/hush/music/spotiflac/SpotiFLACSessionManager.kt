@@ -439,10 +439,20 @@ class SpotiFLACSessionManager @Inject constructor(
         }
 
         if (status < 200 || status >= 300) {
-            // Auth failures mean the current session is invalid — clear so next attempt starts fresh
+            // The grant was refused, not the session. This request carries no session credentials
+            // at all - only the grant, the install id and the client identity - so a 401/403 here
+            // cannot be evidence that the stored session is invalid, and clearing it destroyed a
+            // working session every time a grant belonged to another client.
+            //
+            // That is the field case this protects: on a device whose WebView cannot run
+            // Cloudflare, the only challenge on screen is the extension runtime's, and its grant
+            // is answered 403 by this exchange by construction. Clearing on it wiped the relay
+            // session, re-raised every source's challenge and left the card showing the 403 no
+            // matter how many times the check was solved.
             if (status == 401 || status == 403) {
-                Timber.tag(TAG).w("Exchange auth failed ($status), clearing session")
-                clearSession()
+                Timber.tag(TAG).w(
+                    "Grant exchange refused ($status); keeping the stored session: ${body.take(120)}",
+                )
             }
             throw SpotiFLACException("Exchange failed with HTTP $status: ${body.take(200)}")
         }

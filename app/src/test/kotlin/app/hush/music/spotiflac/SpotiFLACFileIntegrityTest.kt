@@ -170,4 +170,97 @@ class SpotiFLACFileIntegrityTest {
         assertFalse(SpotiFLACFileIntegrity.looksLikeAudio(bytes(0x66, 0x4C))) // "fL"
         assertEquals("flac", SpotiFLACFileIntegrity.containerOf("fLaC".toByteArray()))
     }
+
+    @Test
+    fun `a Dolby stream is named from its bytes`() {
+        // A bare AC-3/E-AC-3 sync frame: Amazon's extension can return this where a lossless
+        // request was made, and it is the case that plays with no audio on a head unit.
+        val dolbyFrame = bytes(0x0B, 0x77, 0x00, 0x00) + ByteArray(28)
+        assertEquals("eac3", SpotiFLACFileIntegrity.dolbyFormatOf(dolbyFrame))
+
+        // Inside an MP4 the codec is named by its sample entry, which sits past the container
+        // signature - so the probe has to be read further than the head for this to be seen.
+        fun mp4(sampleEntry: String): ByteArray {
+            val head = bytes(0, 0, 0, 0x20) + "ftypM4A ".toByteArray()
+            return head + ByteArray(16) + sampleEntry.toByteArray() + ByteArray(16)
+        }
+        assertEquals("ac4", SpotiFLACFileIntegrity.dolbyFormatOf(mp4("ac-4")))
+        assertEquals("eac3", SpotiFLACFileIntegrity.dolbyFormatOf(mp4("ec-3")))
+        assertEquals("eac3", SpotiFLACFileIntegrity.dolbyFormatOf(mp4("dec3")))
+        assertEquals("ac3", SpotiFLACFileIntegrity.dolbyFormatOf(mp4("ac-3")))
+    }
+
+    @Test
+    fun `ordinary audio is never mistaken for Dolby`() {
+        // The rejection this feeds is what stops a silent download from being played, so a false
+        // positive would throw away working lossless audio - the containers the sources return
+        // have to pass.
+        assertNull(SpotiFLACFileIntegrity.dolbyFormatOf(flacHead))
+        assertNull(SpotiFLACFileIntegrity.dolbyFormatOf(oggHead))
+        assertNull(SpotiFLACFileIntegrity.dolbyFormatOf(mp3FrameHead))
+        assertNull(SpotiFLACFileIntegrity.dolbyFormatOf(webmHead))
+        // An ordinary AAC-in-MP4 track is a valid answer to a lossy request.
+        assertNull(SpotiFLACFileIntegrity.dolbyFormatOf(m4aHead))
+        val aacInMp4 = bytes(0, 0, 0, 0x20) + "ftypM4A ".toByteArray() +
+            ByteArray(16) + "mp4a".toByteArray() + ByteArray(16)
+        assertNull(SpotiFLACFileIntegrity.dolbyFormatOf(aacInMp4))
+        assertNull(SpotiFLACFileIntegrity.dolbyFormatOf(ByteArray(0)))
+    }
+
+    @Test
+    fun `an encrypted payload is recognised and never mistaken for audio`() {
+        // Amazon hands the runtime an encrypted ISO-BMFF stream plus a key. When the decryption does
+        // not happen, the file is exactly the right size and has no decodable audio - the reported
+        // "plays but silent" case - so this has to be seen rather than played.
+        fun mp4(vararg boxes: String): ByteArray {
+            val head = bytes(0, 0, 0, 0x20) + "ftypM4A ".toByteArray()
+            return head + ByteArray(8) +
+                boxes.joinToString("|") { it }.toByteArray() + ByteArray(16)
+        }
+        assertTrue(SpotiFLACFileIntegrity.isEncryptedStream(mp4("enca") + "sinf".toByteArray()))
+        assertTrue(SpotiFLACFileIntegrity.isEncryptedStream(mp4("schm")))
+        assertTrue(SpotiFLACFileIntegrity.isEncryptedStream(mp4("tenc")))
+
+        // An encrypted payload is not audio: an entry cached before the download path learned to
+        // check this must be discarded rather than served as silence on every replay.
+        val encrypted = mp4("enca") + "sinf".toByteArray()
+        assertFalse(SpotiFLACFileIntegrity.looksLikeAudio(encrypted))
+        assertEquals(
+            Verdict.NOT_AUDIO,
+            SpotiFLACFileIntegrity.verdict(
+                fileLength = 11_938_211L,
+                recordedLength = 11_938_211L,
+                head = encrypted,
+            ),
+        )
+        assertEquals(
+            Action.DISCARD,
+            SpotiFLACFileIntegrity.actionFor(
+                SpotiFLACFileIntegrity.verdict(11_938_211L, 11_938_211L, encrypted),
+                rewriting = false,
+                pinned = false,
+            ),
+        )
+
+        // An ordinary, decrypted MP4 must not be caught by it: that would reject every good download.
+        val plain = bytes(0, 0, 0, 0x20) + "ftypM4A ".toByteArray() +
+            ByteArray(16) + "mp4a".toByteArray() + ByteArray(16)
+        assertFalse(SpotiFLACFileIntegrity.isEncryptedStream(plain))
+        assertFalse(SpotiFLACFileIntegrity.isEncryptedStream(flacHead))
+        // The check is a property of the ISO-BMFF head, so a non-MP4 is never "encrypted".
+        assertFalse(SpotiFLACFileIntegrity.isEncryptedStream(oggHead))
+        assertFalse(SpotiFLACFileIntegrity.isEncryptedStream(ByteArray(0)))
+    }
+
+    @Test
+    fun `a runtime-reported codec name is read too`() {
+        assertEquals("ac4", SpotiFLACFileIntegrity.dolbyFormatOfCodecName("ac-4"))
+        assertEquals("ac4", SpotiFLACFileIntegrity.dolbyFormatOfCodecName("AC4"))
+        assertEquals("eac3", SpotiFLACFileIntegrity.dolbyFormatOfCodecName("ec-3"))
+        assertEquals("eac3", SpotiFLACFileIntegrity.dolbyFormatOfCodecName("eac3"))
+        assertEquals("ac3", SpotiFLACFileIntegrity.dolbyFormatOfCodecName("ac3"))
+        assertNull(SpotiFLACFileIntegrity.dolbyFormatOfCodecName("flac"))
+        assertNull(SpotiFLACFileIntegrity.dolbyFormatOfCodecName("opus"))
+        assertNull(SpotiFLACFileIntegrity.dolbyFormatOfCodecName(null))
+    }
 }

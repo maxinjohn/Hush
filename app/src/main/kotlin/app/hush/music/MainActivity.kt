@@ -2561,11 +2561,20 @@ class MainActivity : ComponentActivity() {
                     val primary =
                         app.hush.music.spotiflac.SpotiFLAutoVerifier.active.value
                             ?: app.hush.music.spotiflac.SpotiFLACVerificationRequest.pending.value
-                    val targets = withContext(Dispatchers.IO) {
-                        bridge.grantTargetSourceIds(primary.orEmpty())
-                    }
+                    // A grant redeems only for the extension whose challenge raised it, and the
+                    // queue's active source is not necessarily that extension (a deep link can
+                    // arrive while another source's challenge is pending), so the owner is asked
+                    // for explicitly before falling back to the queued source.
+                    val owner = withContext(Dispatchers.IO) {
+                        bridge.pendingRuntimeAuth()?.extensionId
+                            ?: primary?.let { bridge.challengeOwnerFor(it) }
+                    } ?: primary
+                    // An empty target list is the "owner unknown" case, which is the only one where
+                    // more than one extension is tried.
+                    val targets = owner?.trim()?.takeIf { it.isNotEmpty() }?.let { listOf(it) }
+                        ?: emptyList()
                     withContext(Dispatchers.IO) { bridge.deliverGrant(grant, targets) }
-                    val verified = primary?.takeIf { bridge.isSourceVerified(it) }
+                    val verified = owner?.takeIf { bridge.isSourceVerified(it) }
                     if (verified != null) {
                         // Report it exactly as the in-app surfaces do: without this the source stays
                         // at the head of its queue waiting for a challenge that already happened, and
@@ -2578,12 +2587,28 @@ class MainActivity : ComponentActivity() {
             }
             try {
                 val sessionManager = app.hush.music.spotiflac.SpotiFLACSessionManager.getInstance()
-                val result = sessionManager.exchangeGrant(grant)
-                if (result.isSuccess) {
-                    sessionManager.forceRestoreSession()
-                    timber.log.Timber.tag("SpotiFLACSettings").d("Session obtained via deep link")
+                // The relay only has a grant to exchange while its *own* challenge is outstanding:
+                // the extension runtime shares this callback scheme, so without this check every
+                // runtime verification also offered its grant to the relay, which refuses a foreign
+                // grant with HTTP 403 - the error a car user was shown while the verification had in
+                // fact succeeded. A live relay session means there is nothing to redeem either.
+                val relayOutstanding = sessionManager.challengeUrl != null &&
+                    !sessionManager.hasActiveSession()
+                if (!relayOutstanding) {
+                    timber.log.Timber.tag("SpotiFLACSettings").d(
+                        "Grant belongs to the extension runtime; relay exchange not needed " +
+                            "(challengeOutstanding=%b sessionActive=%b)",
+                        sessionManager.challengeUrl != null,
+                        sessionManager.hasActiveSession(),
+                    )
                 } else {
-                    timber.log.Timber.tag("SpotiFLACSettings").w("Exchange failed: ${result.exceptionOrNull()?.message}")
+                    val result = sessionManager.exchangeGrant(grant)
+                    if (result.isSuccess) {
+                        sessionManager.forceRestoreSession()
+                        timber.log.Timber.tag("SpotiFLACSettings").d("Session obtained via deep link")
+                    } else {
+                        timber.log.Timber.tag("SpotiFLACSettings").w("Exchange failed: ${result.exceptionOrNull()?.message}")
+                    }
                 }
             } catch (e: Exception) {
                 timber.log.Timber.tag("SpotiFLACSettings").e(e, "Failed to handle SpotiFLAC grant")

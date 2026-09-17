@@ -105,6 +105,10 @@ fun SpotiFLACVerificationOverlay() {
     val engineCapable = remember(engine) { SpotiFLACChallengeEngine.canSolveCloudflare(engine) }
 
     var authUrl by remember(extensionId) { mutableStateOf<String?>(null) }
+    // The extension that actually raised the challenge. The runtime's pending list also carries a
+    // challenge raised while a different provider was being tried, and only its owner can exchange
+    // the grant it publishes - delivering to anyone else is answered HTTP 403.
+    var challengeOwner by remember(extensionId) { mutableStateOf(extensionId) }
     var expectedState by remember(extensionId) { mutableStateOf<String?>(null) }
     var status by remember(extensionId) { mutableStateOf<String?>(null) }
     var busy by remember(extensionId) { mutableStateOf(false) }
@@ -166,6 +170,12 @@ fun SpotiFLACVerificationOverlay() {
         if (pending == null) {
             abandon("No verification challenge for $extensionId")
             return@LaunchedEffect
+        }
+        challengeOwner = pending.extensionId.takeIf { it.isNotBlank() } ?: extensionId
+        if (challengeOwner != extensionId) {
+            SpotiFLACDiag.log(
+                "verification for $extensionId: the pending challenge belongs to $challengeOwner",
+            )
         }
         expectedState = expectedVerificationState(pending.authUrl)
         browserChallengeUrl = pending.authUrl
@@ -246,30 +256,32 @@ fun SpotiFLACVerificationOverlay() {
         status = "Finishing verification…"
         val bridge = SpotiFLACNativeRuntimeBridgeHolder.instance
         scope.launch {
-            // One solved challenge can refresh every enabled source, so apply the
-            // grant to all of them instead of making the user repeat the check per
-            // source (and they then expire together rather than one at a time).
-            val targets = withContext(Dispatchers.IO) {
-                bridge?.grantTargetSourceIds(extensionId) ?: listOf(extensionId)
-            }
-            withContext(Dispatchers.IO) { bridge?.deliverGrant(grant, targets) }
-            val ok = bridge?.isSourceVerified(extensionId) ?: false
+            // The grant goes to the challenge's owner, and only there: a grant is bound to the
+            // challenge behind it, so a delivery to another extension is refused with HTTP 403
+            // and leaves that source looking unverified however often the check is solved.
+            val owner = challengeOwner
+            withContext(Dispatchers.IO) { bridge?.deliverGrant(grant, listOf(owner)) }
+            val ok = bridge?.isSourceVerified(owner) ?: false
             SpotiFLACDiag.log(
                 "overlay verification for $extensionId: authenticated=$ok automatic=$automatic " +
-                    "targets=${targets.joinToString(",")}",
+                    "target=$owner",
             )
             busy = false
             authUrl = null
             if (automatic) {
-                SpotiFLAutoVerifier.finish(extensionId, verified = ok)
+                // A challenge belonging to another source still verified *that* source, so it has
+                // to leave the queue as verified; the source this run was queued for did not
+                // become usable and keeps its own attempt.
+                if (ok && owner != extensionId) SpotiFLAutoVerifier.notifyVerified(owner)
+                SpotiFLAutoVerifier.finish(extensionId, verified = ok && owner == extensionId)
             } else if (ok) {
-                status = "$extensionId verified — resuming playback"
+                status = "$owner verified — resuming playback"
                 // Report through the surfaces' shared entry point, not just this one: a source may
                 // also have been parked by playback, holding a track until it became usable.
-                SpotiFLAutoVerifier.notifyVerified(extensionId)
+                SpotiFLAutoVerifier.notifyVerified(owner)
                 SpotiFLACVerificationRequest.closeChallenge()
             } else {
-                status = "Verification for $extensionId did not complete — try again"
+                status = "Verification for $owner did not complete — try again"
             }
         }
     }

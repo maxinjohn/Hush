@@ -202,24 +202,29 @@ class SpotiFLACSessionManagerTest {
         assertEquals("ex-s", manager.currentSession?.sessionId)
     }
 
+    // A refused *grant* is not a refused session. The exchange request carries no session
+    // credentials, so neither a 401 nor a 403 can be evidence that the stored session is invalid -
+    // and clearing on them destroyed a working session whenever a grant belonged to another client
+    // (the extension runtime's challenge is answered 403 by this exchange by construction, which
+    // left a car user re-verifying forever).
     @Test
-    fun `exchangeGrant clears session on 401`() = runTest {
+    fun `exchangeGrant keeps the stored session on 401`() = runTest {
         val manager = createManagerWithSession()
         val mgr2 = createManager(MockEngine { respondError(HttpStatusCode.Unauthorized, "Unauthorized") })
         setSessionOnManager(mgr2, manager.currentSession!!)
         val result = mgr2.exchangeGrant("bad")
         assertTrue(result.isFailure)
-        assertNull(mgr2.currentSession)
+        assertEquals(manager.currentSession, mgr2.currentSession)
     }
 
     @Test
-    fun `exchangeGrant clears session on 403`() = runTest {
+    fun `exchangeGrant keeps the stored session on 403`() = runTest {
         val manager = createManagerWithSession()
         val mgr2 = createManager(MockEngine { respondError(HttpStatusCode.Forbidden, "Forbidden") })
         setSessionOnManager(mgr2, manager.currentSession!!)
         val result = mgr2.exchangeGrant("bad")
         assertTrue(result.isFailure)
-        assertNull(mgr2.currentSession)
+        assertEquals(manager.currentSession, mgr2.currentSession)
     }
 
     @Test

@@ -141,6 +141,28 @@ class SpotiFLACQualityCascadeTest {
     }
 
     @Test
+    fun `an unplayable answer is a reason to retry the source, not a catalogue miss`() {
+        // Amazon answers a lossless request with Dolby Digital Plus or Atmos on some tracks. That
+        // is silent on a device with no AC-3/AC-4 output path, so it must not be remembered as
+        // "this source does not have the track" - it is retried at the source's own lossy option,
+        // exactly like a source that cannot deliver the requested quality.
+        val unplayable =
+            "provider 'amazon' ${SpotiFLACQualityCascade.UNPLAYABLE_FORMAT_MARKER} " +
+                "(Dolby ac4; requested quality was LOSSLESS)"
+        assertTrue(SpotiFLACQualityCascade.isUnplayableFormat(unplayable))
+        // The two are distinct questions, and neither may answer for the other: a plain catalogue
+        // miss is neither, and a quality limit is not an unplayable answer.
+        assertFalse(SpotiFLACQualityCascade.isQualityLimited(unplayable))
+        assertFalse(
+            SpotiFLACQualityCascade.isUnplayableFormat(
+                "provider 'deezer' has no compatible lossless quality for \"LOSSLESS\"",
+            ),
+        )
+        assertFalse(SpotiFLACQualityCascade.isUnplayableFormat("no results"))
+        assertFalse(SpotiFLACQualityCascade.isUnplayableFormat(null))
+    }
+
+    @Test
     fun `budget covers the extra attempts the lossy retry adds`() {
         val lossless = SpotiFLACQualityCascade.sweepBudgetMs(sourceCount = 8, quality = "LOSSLESS")
         val lossy = SpotiFLACQualityCascade.sweepBudgetMs(sourceCount = 8, quality = "320")
