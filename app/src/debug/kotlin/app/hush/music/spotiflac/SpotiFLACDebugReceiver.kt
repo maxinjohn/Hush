@@ -11,16 +11,25 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import androidx.core.net.toUri
 import androidx.datastore.preferences.core.edit
+import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.DownloadService
 import app.hush.music.BuildConfig
 import app.hush.music.constants.SpotiFLACEnabledKey
 import app.hush.music.constants.YoutubeStreamingEnabledKey
+import app.hush.music.playback.ExoDownloadService
 import app.hush.music.utils.dataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Drives a SpotiFLAC source verification from a shell. **Debug builds only.**
@@ -48,8 +57,20 @@ import kotlinx.coroutines.withContext
  * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op bytes --es path /data/.../file.flac
  * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op verify  --es source amazon
  * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op toggle  --es source youtube
+ * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op download --es source <mediaId>
+ * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op remove-download --es source <mediaId>
  * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op play    --es path /data/.../file.flac
+ * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op source-row \
+ *     --es source deezer --es state failed --es message "403 on test for deezer"
  * ```
+ *
+ * `source-test` runs the Audio Sources Test button's own call and reports its verdict, which is how
+ * a failing Test gets attributed to what it actually asked about.
+ *
+ * `source-row` forces what one source row renders, and exists because that screen exposes nothing
+ * to the accessibility tree: a row's result cannot be tapped into existence or read back on a
+ * device with nobody in front of it. It writes through the same `setSourceTestState` the row's own
+ * Test button uses, so what it produces is the real state and not a mock-up.
  *
  * `verify` drives the automatic in-app route and waits for its verdict, so the path that must work
  * with nobody in front of the device can be proven from a shell.
@@ -104,6 +125,20 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
 
                     OP_TOGGLE -> toggleSource(context.applicationContext, source)
 
+                    OP_DOWNLOAD -> downloadTrack(context.applicationContext, source)
+
+                    OP_REMOVE_DOWNLOAD -> removeDownload(context.applicationContext, source)
+
+                    OP_SOURCE_TEST -> sourceTest(source)
+
+                    OP_RENEW -> renewSessions(context.applicationContext)
+
+                    OP_SOURCE_ROW -> setSourceRow(
+                        source = source,
+                        state = intent.getStringExtra(EXTRA_STATE).orEmpty(),
+                        message = intent.getStringExtra(EXTRA_MESSAGE).orEmpty(),
+                    )
+
                     else -> log("unknown operation=%s", operation)
                 }
             } catch (error: Throwable) {
@@ -136,22 +171,32 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
             runtimePending?.authUrl?.take(120) ?: "none",
             runtimePending?.extensionId ?: "none",
         )
+        // Read through the same manager the Audio Sources screen renders from, so a probe can say
+        // what a row *has* - including the test result and its reason - even though that screen
+        // exposes nothing to the accessibility tree.
+        val rows = runCatching {
+            ExtensionRepositoryManager.getInstance().sources.value.associateBy { it.source.id }
+        }.getOrDefault(emptyMap())
         for (source in sources) {
             val state = bridge.sourceAuthState(source)
             val pending = bridge.pendingAuthFor(source)
+            val row = rows[source]
             log(
-                "state source=%s auth=%s verified=%b challengeOwner=%s challenge=%s",
+                "state source=%s auth=%s verified=%b test=%s reason=%s challengeOwner=%s challenge=%s",
                 source,
                 state,
                 bridge.isSourceVerified(source),
+                row?.testState ?: "absent",
+                (row?.testError ?: "none").take(60),
                 pending?.extensionId ?: "none",
                 pending?.authUrl?.take(120) ?: "none",
             )
             log(
-                "spotiflac-debug step=state source=%s verdict=ok auth=%s verified=%b owner=%s",
+                "spotiflac-debug step=state source=%s verdict=ok auth=%s verified=%b test=%s owner=%s",
                 source,
                 state,
                 bridge.isSourceVerified(source),
+                row?.testState ?: "absent",
                 pending?.extensionId ?: "none",
             )
         }
@@ -191,6 +236,204 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
             pageState?.let { it::class.simpleName } ?: "unreadable",
         )
     }
+
+    /**
+     * Downloads a track through the app's real download path.
+     *
+     * The download/cache relationship is the part that cannot be checked by reading code: a
+     * download has to land as one ordinary file in the downloads folder, and the same song must
+     * not also be served out of the playback cache once it is removed. Both are exercised here so
+     * a headless run can gate on them, because the alternative is tapping the player on a device.
+     *
+     * `source` is the media id, which is the same key the player and the download record use.
+     */
+    private fun downloadTrack(
+        context: Context,
+        mediaId: String,
+    ) {
+        if (mediaId.isBlank()) {
+            return log("spotiflac-debug step=download source=- verdict=FAIL reason=no-media-id")
+        }
+        val request =
+            DownloadRequest
+                .Builder(mediaId, mediaId.toUri())
+                .setCustomCacheKey(mediaId)
+                .setData(mediaId.toByteArray())
+                .build()
+        DownloadService.sendAddDownload(context, ExoDownloadService::class.java, request, false)
+        log("spotiflac-debug step=download source=%s verdict=REQUESTED", mediaId)
+    }
+
+    /**
+     * Removes a download the same way the player's offline badge does, and reports what is left.
+     *
+     * The interesting part is not the file: it is everything *besides* the file that described
+     * it. A record or a cached copy left behind means the next download of that song completes
+     * from bytes the user just deleted, so both stores are read back and reported.
+     */
+    private suspend fun removeDownload(
+        context: Context,
+        mediaId: String,
+    ) {
+        if (mediaId.isBlank()) {
+            return log("spotiflac-debug step=remove-download source=- verdict=FAIL reason=no-media-id")
+        }
+        DownloadService.sendRemoveDownload(context, ExoDownloadService::class.java, mediaId, false)
+        // The removal is handled by the download service, so give it a moment before reporting the
+        // state it left behind rather than the state it was asked to leave.
+        delay(REMOVAL_SETTLE_MS)
+        val recordStillIndexed = downloadRecordPresent(context, mediaId)
+        val cachedCopy = cachedPlaybackCopy(context, mediaId)
+        log(
+            "spotiflac-debug step=remove-download source=%s verdict=%s record=%b cachedCopy=%b",
+            mediaId,
+            if (recordStillIndexed || cachedCopy != null) "FAIL" else "ok",
+            recordStillIndexed,
+            cachedCopy != null,
+        )
+    }
+
+    /**
+     * Runs the same test the Audio Sources row's button runs, from a shell.
+     *
+     * The button's verdict is only reachable by tapping it, and a failing verdict is the thing worth
+     * attributing, so this calls the identical entry point rather than reproducing it.
+     */
+    private suspend fun sourceTest(source: String) {
+        if (source.isBlank()) {
+            return log("spotiflac-debug step=source-test source=- verdict=FAIL reason=no-source")
+        }
+        val started = System.currentTimeMillis()
+        val result = runCatching { SpotiFLACClient.getInstance().testSource(source) }
+            .getOrElse { failure -> Result.failure(failure) }
+        val elapsed = System.currentTimeMillis() - started
+        val verdict = result.getOrNull()?.firstOrNull()?.title?.take(120)
+        log(
+            "spotiflac-debug step=source-test source=%s verdict=%s elapsed=%dms detail=%s",
+            source,
+            if (result.isSuccess) "ok" else "FAIL",
+            elapsed,
+            verdict ?: result.exceptionOrNull()?.message?.take(160) ?: "no detail",
+        )
+    }
+
+    /**
+     * Runs the Audio Sources "Renew" button's own call and reports what it changed on disk.
+     *
+     * The button is only worth offering if it renews rather than merely re-reading, and the two are
+     * indistinguishable from the screen: a renewed session and a recomputed timer both leave a later
+     * expiry showing. The gateway answers a genuine renewal with a *new* `session_id` alongside the
+     * new `expires_at`, so the record's own generation is reported before and after - an unchanged id
+     * with a moved expiry is a timer, a changed id is a renewal.
+     */
+    private suspend fun renewSessions(context: Context) {
+        val before = sessionSnapshot(context)
+        val attempt = withContext(Dispatchers.IO) {
+            runCatching { SpotiFLACSessionRenewer.renewAll(context, force = true, reason = "debug") }
+        }
+        val results = attempt.getOrNull()
+        if (results == null) {
+            return log("spotiflac-debug step=renew verdict=FAIL reason=${attempt.exceptionOrNull()?.message}")
+        }
+        if (results.isEmpty()) {
+            return log("spotiflac-debug step=renew verdict=FAIL reason=no-sessions")
+        }
+        val after = sessionSnapshot(context)
+        results.forEach { result ->
+            val was = before[result.extensionId]
+            val now = after[result.extensionId]
+            log(
+                "spotiflac-debug step=renew source=%s renewed=%b detail=%s id=%s->%s expires=%s->%s",
+                result.extensionId,
+                result.renewed,
+                result.detail,
+                was?.first ?: "-",
+                now?.first ?: "-",
+                was?.second ?: "-",
+                now?.second ?: "-",
+            )
+        }
+    }
+
+    /** Each extension's session id (short) and stored expiry, as they are right now. */
+    private fun sessionSnapshot(context: Context): Map<String, Pair<String, String>> =
+        runCatching {
+            SpotiFLACSessionRenewer.sessions(context).associate { session ->
+                val record = runCatching {
+                    Json.parseToJsonElement(session.recordFile.readText()).jsonObject
+                }.getOrNull()
+                session.extensionId to (
+                    (record?.get("session_id")?.jsonPrimitive?.contentOrNull?.take(8) ?: "none") to
+                        (record?.get("expires_at")?.jsonPrimitive?.contentOrNull ?: "none")
+                    )
+            }
+        }.getOrDefault(emptyMap())
+
+    /**
+     * Forces one source row's test state, so what a row renders can be read back from a shell.
+     *
+     * The Audio Sources screen exposes nothing to the accessibility tree, so on a device nobody is
+     * holding a row cannot be tapped into a failing state - and a failed row is the case worth
+     * checking, because its reason used to be drawn in the narrow slot beside the name and pushed
+     * the switch and the reorder arrows out of the row. Writing through
+     * [ExtensionRepositoryManager.setSourceTestState] means the row receives the same value its own
+     * Test button produces, clipping and all, rather than a mock-up of it.
+     */
+    private suspend fun setSourceRow(
+        source: String,
+        state: String,
+        message: String,
+    ) {
+        val manager = SpotiFLACNativeRuntimeBridgeHolder.repositoryManager
+        if (manager == null) {
+            return log("spotiflac-debug step=source-row source=%s verdict=FAIL reason=no-repository", source)
+        }
+        if (source.isBlank()) {
+            return log("spotiflac-debug step=source-row source=- verdict=FAIL reason=no-source")
+        }
+        val testState =
+            when (state.lowercase()) {
+                "failed", "fail" -> SourceTestState.FAILED
+                "testing" -> SourceTestState.TESTING
+                "success", "ok" -> SourceTestState.SUCCESS
+                else -> SourceTestState.IDLE
+            }
+        manager.setSourceTestState(source, testState, message.takeIf { it.isNotBlank() })
+        log(
+            "spotiflac-debug step=source-row source=%s verdict=ok state=%s messageLength=%d",
+            source,
+            testState,
+            message.length,
+        )
+    }
+
+    /**
+     * Whether the downloads index still lists [mediaId].
+     *
+     * Read from the index file rather than through the store, because the claim being checked is
+     * "the record is gone from disk": a store that still holds it in memory would answer for a
+     * state that does not survive the next launch.
+     */
+    private fun downloadRecordPresent(
+        context: Context,
+        mediaId: String,
+    ): Boolean =
+        runCatching {
+            val index = java.io.File(context.filesDir, DOWNLOADS_INDEX_FILE_NAME)
+            index.isFile && index.readText().contains("\"$mediaId\"")
+        }.getOrDefault(false)
+
+    /** The cached playback copy of [mediaId], or null when there is none left. */
+    private fun cachedPlaybackCopy(
+        context: Context,
+        mediaId: String,
+    ): String? =
+        runCatching {
+            SpotiFLACPlaybackCache.getInstance()
+                ?.entryForMediaId(mediaId)
+                ?.filePath
+                ?.takeIf { java.io.File(it).isFile }
+        }.getOrNull()
 
     /**
      * Flips an audio-source switch the same way its settings row does.
@@ -644,6 +887,19 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
         const val OP_VERIFY = "verify"
         const val OP_PLAY = "play"
         const val OP_TOGGLE = "toggle"
+        const val OP_DOWNLOAD = "download"
+        const val OP_REMOVE_DOWNLOAD = "remove-download"
+        const val OP_SOURCE_ROW = "source-row"
+        const val OP_SOURCE_TEST = "source-test"
+        const val OP_RENEW = "renew"
+        const val EXTRA_STATE = "state"
+        const val EXTRA_MESSAGE = "message"
+
+        /** The downloads index file, read directly to prove a removal reached the disk. */
+        private const val DOWNLOADS_INDEX_FILE_NAME = "downloaded_files.json"
+
+        /** How long a removal is given to reach the stores before it is reported on. */
+        private const val REMOVAL_SETTLE_MS = 2_500L
 
         const val EXTRA_TITLE = "title"
         const val EXTRA_ARTIST = "artist"

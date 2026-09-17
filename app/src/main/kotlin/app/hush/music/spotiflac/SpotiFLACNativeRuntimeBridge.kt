@@ -25,7 +25,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -70,7 +73,18 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
     companion object {
         private const val TAG = "SpotiFLACNative"
         private const val GOBACKEND_CLASS = "gobackend.Gobackend"
-        private const val CACHE_DIR = "spotiflac/playback"
+
+        /** Longest reason a failed source test carries into the row that shows it. */
+        private const val MAX_TEST_REASON = 160
+
+        /** The statuses an extension's health payload reports when a source is usable. */
+        private val HEALTHY_STATUSES = setOf("online", "ok", "healthy", "pass", "available")
+
+        /** What the runtime calls a version it has already loaded, i.e. not a failure. */
+        private const val ALREADY_INSTALLED = "already installed"
+
+        /** How much of an unrecognised load report survives into the diagnostic log. */
+        private const val MAX_LOAD_REPORT = 200
 
         /** Hush's media app version reported to the gateway and extension gates. */
         private const val RUNTIME_APP_VERSION = SpotiFLACSessionManager.APP_VERSION
@@ -114,6 +128,7 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
 
     init {
         SpotiFLACNativeRuntimeBridgeHolder.instance = this
+        SpotiFLACNativeRuntimeBridgeHolder.repositoryManager = repositoryManager
     }
 
     /**
@@ -258,13 +273,83 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
             // attempt would start, so a source queued while it was on is never verified after
             // it has been switched off either.
             if (PreferenceStore.get(SpotiFLACEnabledKey) == true) {
-                unverifiedDownloadExtensionIds().takeIf { it.isNotEmpty() }?.let { blocked ->
+                sourcesAwaitingVerification().takeIf { it.isNotEmpty() }?.let { blocked ->
                     SpotiFLAutoVerifier.enqueue(blocked, "prewarm")
                 }
             } else {
                 SpotiFLACDiag.log("prewarm: no automatic verification (SpotiFLAC is disabled)")
             }
         }.onFailure { SpotiFLACDiag.log("prewarm failed msg=${it.message}") }
+    }
+
+    /**
+     * Refreshes whichever sessions are near enough to expiry to be renewed, and nothing else.
+     *
+     * The background worker is the scheduled path, but WorkManager defers work freely under doze
+     * and an hourly run can be pushed past a session's expiry - at which point the gateway refuses
+     * the refresh, the runtime clears the record, and a user who did nothing wrong is asked to solve
+     * a Cloudflare check. A source is only ever renewed while it is still valid, so the fix is to
+     * take the chances that actually occur: this runs on the playback path, which is exactly when
+     * the app is being used and therefore when a session must not lapse.
+     *
+     * Cheap when nothing is due: records are small files and a session inside its window is the
+     * only thing that costs a request.
+     */
+    suspend fun renewDueSessions(reason: String) = withContext(Dispatchers.IO) {
+        runCatching { SpotiFLACSessionRenewer.renewAll(context, reason = reason) }
+            .onSuccess { results ->
+                val renewed = results.filter { it.renewed }.map { it.extensionId }
+                if (renewed.isNotEmpty()) {
+                    SpotiFLACDiag.log(
+                        "session renew ($reason): refreshed ${renewed.joinToString(",")}",
+                    )
+                }
+            }
+            .onFailure { SpotiFLACDiag.log("session renew ($reason) failed: ${it.message}") }
+    }
+
+    /**
+     * The installed sources that genuinely need the user, after the app has given itself
+     * every chance to satisfy them.
+     *
+     * A Cloudflare check is the one step that cannot be automated and cannot be undone, so
+     * it has to be the last resort rather than the first guess. Two things make a healthy
+     * session look absent, and neither is the user's problem: the runtime deletes a record
+     * once `expires_at` passes, and a registry update changes the record's *file name*,
+     * which hashes the extension's app version. Both are recoverable by the app itself -
+     * the vault holds the material, and the gateway will refresh a lapsed session without a
+     * challenge - so this restores, then renews, and only reports what is still missing.
+     * Without it, every launch raised the same verification dialog for a source whose
+     * session the app was already holding.
+     */
+    private fun sourcesAwaitingVerification(): List<String> {
+        val restored = runCatching { SpotiFLACSessionRenewer.restoreFromVault(context) }
+            .getOrDefault(emptyList())
+        if (restored.isNotEmpty()) {
+            SpotiFLACDiag.log(
+                "prewarm: sessions restored from the vault for ${restored.joinToString(",")}",
+            )
+        }
+        val blocked = unverifiedDownloadExtensionIds()
+        if (blocked.isEmpty()) return blocked
+        // A record that merely lapsed is refreshed against the gateway, which needs no
+        // challenge. Only a refresh the gateway refuses leaves the source to the user.
+        val renewed = runCatching { SpotiFLACSessionRenewer.renewAll(context, reason = "prewarm-blocked") }
+            .getOrDefault(emptyList())
+            .filter { it.renewed }
+            .map { it.extensionId }
+        if (renewed.isNotEmpty()) {
+            SpotiFLACDiag.log(
+                "prewarm: renewed sessions for ${renewed.joinToString(",")} before asking",
+            )
+        }
+        val stillBlocked = unverifiedDownloadExtensionIds()
+        if (stillBlocked.isEmpty()) {
+            SpotiFLACDiag.log(
+                "prewarm: ${blocked.joinToString(",")} no longer need a verification",
+            )
+        }
+        return stillBlocked
     }
 
     data class ResolvedFile(
@@ -421,9 +506,134 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
      * Download sources that cannot be used until they are verified.
      *
      * Exposed so playback can ask for a verification when it has to park a track,
-     * rather than waiting for the next prewarm.
+     * rather than waiting for the next prewarm. This is the raw reading; prefer
+     * [sourcesNeedingUserVerification] where the answer decides whether to interrupt the
+     * user, because a lapsed record shows up here as unverified even when the gateway
+     * would renew it without any challenge.
      */
     fun unverifiedDownloadSourceIds(): List<String> = unverifiedDownloadExtensionIds()
+
+    /**
+     * The sources a user actually has to act on, suspension-safe for playback.
+     *
+     * A source that answered `verification_required` is not proof that the user has
+     * anything to do: the runtime refuses a record whose `expires_at` has passed even
+     * though the same record can be refreshed against the gateway without any Cloudflare
+     * check. So the same order as the app-open path applies - restore what the app already
+     * holds, renew what the gateway will renew - and only the remainder is reported.
+     */
+    suspend fun sourcesNeedingUserVerification(): List<String> =
+        withContext(Dispatchers.IO) { sourcesAwaitingVerification() }
+
+    /**
+     * Asks the built-in engine whether one source can serve a track, the way playback would.
+     *
+     * The Audio Sources Test button used to answer this through the relay's `/health?source=`
+     * endpoint using Hush's relay session - a credential playback does not use. Measured on the
+     * device: all four signed sources were `VERIFIED` and downloading, while Test answered
+     * "Cloudflare verification required - open SpotiFLAC settings to authenticate" for every one of
+     * them, because the relay session was (correctly) not active. A test that fails for a source
+     * that works is worse than no test, and it was asking about the wrong credential entirely.
+     *
+     * This runs the engine's own path instead: the extension package must load, the source must not
+     * be holding a pending challenge, and the extension's own health probe must answer. Its payload
+     * is the source's real verdict - `{"extension_id":"deezer","status":"online","checks":[...]}`
+     * measured on the device - and a failing check is reported as the reason.
+     *
+     * The runtime's `isExtensionAuthenticatedByID` is deliberately *not* consulted: it answers false
+     * for sources that are verified, playing and downloading on this device (the runtime marks one
+     * authenticated inside its download preflight, not before it), so gating on it would reproduce
+     * the very failure this replaces - a test that fails for a source that works.
+     *
+     * @param sourceId an extension id, or the registry's `providerKey` for the same source.
+     * @return the probe's own short verdict, or a failure whose message is the reason.
+     */
+    suspend fun testSource(sourceId: String): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val backend = requireBackend()
+            initializeRuntime(backend)
+            val id = extensionIdFor(sourceId)
+            ensurePackageLoaded(backend, id, repositoryManager.getSourceForId(id))
+            if (SpotiFLACSourceAuth.declaresNoSignedSession(manifestJsonFor(id))) {
+                return@runCatching "$id needs no signed session"
+            }
+            val probe = runCatching { invokeString(backend, "checkExtensionHealthJSON", id) }
+            val probeBody = probe.getOrNull().orEmpty()
+            SpotiFLACDiag.log("engine test $id: health=${probeBody.take(200)}")
+            // A challenge for *this* extension is the one thing a health probe cannot resolve on
+            // its own, so it is reported as the reason rather than as a generic failure.
+            ownChallenge(backend, id)?.let { pending ->
+                throw SpotiFLACException(
+                    "Needs verification - the engine raised a challenge for $id" +
+                        pending.authUrl?.takeIf { it.isNotBlank() }?.let { url -> " ($url)" }.orEmpty(),
+                )
+            }
+            probe.exceptionOrNull()?.let { failure ->
+                throw SpotiFLACException(
+                    failure.message?.take(MAX_TEST_REASON) ?: "health probe failed for $id",
+                )
+            }
+            healthVerdict(probeBody, id)
+        }
+    }
+
+    /**
+     * The extension id behind whatever a caller named a source.
+     *
+     * The Audio Sources rows hand over the registry's `providerKey` when there is one, and that is
+     * not always the extension id - the registry's `tidal` is the extension `tidal-web`. Both name
+     * the same source, so both are accepted; an unknown name is passed through unchanged, so a
+     * failure still names what the user tapped.
+     */
+    private fun extensionIdFor(requested: String): String {
+        val wanted = requested.trim()
+        val sources = repositoryManager.sources.value
+        sources.firstOrNull { it.source.id.equals(wanted, ignoreCase = true) }
+            ?.let { return it.source.id }
+        sources.firstOrNull { it.source.providerKey.equals(wanted, ignoreCase = true) }
+            ?.let { return it.source.id }
+        return wanted
+    }
+
+    /** A JSON field's text, treating a JSON null as absent. */
+    private fun JsonObject.textOrNull(key: String): String? =
+        this[key]
+            ?.jsonPrimitive
+            ?.content
+            ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+
+    /**
+     * The extension's own verdict, in one line, or a failure naming the check that failed.
+     *
+     * The payload is a report rather than a boolean: a top-level status plus one entry per check, so
+     * a source that answers with a status this does not recognise is still reported *as it answered*
+     * instead of being forced into pass/fail by a vocabulary that could drift.
+     */
+    private fun healthVerdict(
+        body: String,
+        id: String,
+    ): String {
+        val payload = runCatching { json.parseToJsonElement(body.trim()).jsonObject }.getOrNull()
+            ?: return "engine answered for $id"
+        payload.textOrNull("error")?.let { throw SpotiFLACException(it.take(MAX_TEST_REASON)) }
+        val failedCheck =
+            (payload["checks"] as? JsonArray)
+                ?.mapNotNull { it as? JsonObject }
+                ?.firstOrNull { check ->
+                    val status = check.textOrNull("status")?.lowercase()
+                    status != null && status !in HEALTHY_STATUSES && check["required"]?.jsonPrimitive?.content != "false"
+                }
+        if (failedCheck != null) {
+            val label = failedCheck.textOrNull("label") ?: failedCheck.textOrNull("id") ?: id
+            val status = failedCheck.textOrNull("status").orEmpty()
+            throw SpotiFLACException("$label is $status".take(MAX_TEST_REASON))
+        }
+        val status = payload.textOrNull("status") ?: payload.textOrNull("state") ?: "engine answered"
+        if (status.lowercase() in HEALTHY_STATUSES) return status.take(MAX_TEST_REASON)
+        // A top-level status that is neither healthy nor one of the two states above is still the
+        // source's own answer, and reporting it verbatim is more useful than a generic failure.
+        return status.take(MAX_TEST_REASON)
+    }
 
     /**
      * Stops the runtime from routing fallback downloads through extensions whose
@@ -814,7 +1024,10 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
 
         val tryNextSource = PreferenceStore.get(SpotiFLACTryNextSourceKey) ?: true
         val itemId = "hush-" + (mediaId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString())
-        val outputDir = File(context.filesDir, CACHE_DIR).apply { mkdirs() }
+        // The same folder the cached files live in, so an uncached fetch is written beside
+        // them and cleaned up by the same reconciliation rather than accumulating in a
+        // second location nothing looks at any more.
+        val outputDir = playbackCache.playbackDir()
         // A deterministic path lets the runtime reuse an existing file instead
         // of downloading it again (already_exists) and gives Hush a stable
         // cache location per track.
@@ -1313,9 +1526,46 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
             // Load extensions extracted by earlier runs before any playback path
             // asks for them, mirroring upstream's startup sequence.
             runCatching { invokeString(backend, "loadExtensionsFromDir", extensionsDir.absolutePath) }
-                .onSuccess { SpotiFLACDiag.log("loadExtensionsFromDir: ${it.take(200)}") }
+                .onSuccess { report ->
+                    SpotiFLACDiag.log("loadExtensionsFromDir: ${summariseExtensionLoad(report)}")
+                }
                 .onFailure { SpotiFLACDiag.log("loadExtensionsFromDir failed: ${it.message}") }
             initialized = true
+        }
+    }
+
+    /**
+     * One line for what the runtime reported when it loaded the extensions directory.
+     *
+     * The runtime lists an extension it *skipped* because that exact version was already loaded in
+     * the same `errors` array it uses for real failures. Logged raw, every start wrote a blob whose
+     * first entries were "already installed" - truncated mid-word at 200 characters - and the one
+     * place a head-unit user can look for a failure therefore opened with something that looked like
+     * one. Skips are counted; anything else is still shown, and never truncated away.
+     *
+     * Falls back to the raw text for a payload this does not recognise, so an unfamiliar shape is
+     * still visible rather than summarised into silence.
+     */
+    internal fun summariseExtensionLoad(report: String): String {
+        val trimmed = report.trim()
+        if (trimmed.isEmpty()) return "ok"
+        val payload = runCatching { json.parseToJsonElement(trimmed).jsonObject }.getOrNull()
+            ?: return trimmed.take(MAX_LOAD_REPORT)
+        val errors = (payload["errors"] as? JsonArray)
+            ?.map { element -> element.jsonPrimitive.contentOrNull ?: element.toString() }
+            .orEmpty()
+        val skipped = errors.filter { it.contains(ALREADY_INSTALLED, ignoreCase = true) }
+        val failures = errors.filterNot { it.contains(ALREADY_INSTALLED, ignoreCase = true) }
+        val loaded = (payload["loaded"] as? JsonArray)?.size
+        return buildString {
+            if (loaded != null) append("loaded=").append(loaded).append(' ')
+            append("skipped=").append(skipped.size)
+            if (failures.isEmpty()) {
+                append(" errors=0")
+            } else {
+                append(" errors=").append(failures.size).append(": ")
+                    .append(failures.joinToString("; ").take(MAX_LOAD_REPORT))
+            }
         }
     }
 
@@ -1909,6 +2159,16 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
     /** As [playbackFileForMediaId], dropping the file and its index entry. */
     fun removeCachedPlaybackForMediaId(mediaId: String): Long = playbackCache.removeForMediaId(mediaId)
 
+    /**
+     * The same, for a song whose download was just removed: the cached copy goes with it.
+     *
+     * A removed download must not come back as cached bytes - the next download of that song
+     * would then complete instantly from the file the user just deleted, and a resolve would
+     * keep serving the discarded quality. Pinned status does not protect it here; the user's
+     * request to remove the download outranks it.
+     */
+    fun discardCachedPlaybackForMediaId(mediaId: String): Long = playbackCache.discardForMediaId(mediaId)
+
     fun cacheStats(): SpotiFLACCacheStats = playbackCache.stats()
 
     fun clearPlaybackCache(): Long = playbackCache.clear()
@@ -1955,4 +2215,15 @@ class SpotiFLACVerificationRequiredException(
 object SpotiFLACNativeRuntimeBridgeHolder {
     @Volatile
     var instance: SpotiFLACNativeRuntimeBridge? = null
+
+    /**
+     * The repository manager the bridge was built with.
+     *
+     * Held for one reason: the debug receiver drives what a source row renders (`op=source-row`),
+     * because that screen's content is not exposed to the accessibility tree and so cannot be
+     * tapped or read back by a shell on a device nobody is holding. Nothing in the app reads
+     * this, and it is null in any build that never constructs a bridge.
+     */
+    @Volatile
+    var repositoryManager: ExtensionRepositoryManager? = null
 }

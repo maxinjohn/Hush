@@ -72,8 +72,8 @@ android {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 173
-        versionName = "13.14.3"
+        versionCode = 174
+        versionName = "13.14.4"
 
         ndk {
             // ABI filters are set per product flavor (arm64, universal, etc.).
@@ -595,4 +595,160 @@ tasks.configureEach {
     if (name.contains("Mobile")) {
         dependsOn(copyShimApks)
     }
+}
+
+/**
+ * The text inside a function call, from its `(` to the `)` that closes it.
+ *
+ * Quoted strings are skipped so a `)` inside one cannot end the call early, which matters
+ * because these call sites pass file paths and titles.
+ */
+private fun callBody(
+    source: String,
+    openParenIndex: Int,
+): String? {
+    var depth = 0
+    var inString = false
+    var index = openParenIndex
+    while (index < source.length) {
+        val character = source[index]
+        when {
+            inString ->
+                when (character) {
+                    '\\' -> index++
+                    '"' -> inString = false
+                }
+
+            character == '"' -> inString = true
+            character == '(' -> depth++
+            character == ')' -> {
+                depth--
+                if (depth == 0) return source.substring(openParenIndex + 1, index)
+            }
+        }
+        index++
+    }
+    return null
+}
+
+/** Splits a call's arguments at its top-level commas, dropping a trailing comma's gap. */
+private fun callArguments(body: String): List<String> {
+    val arguments = mutableListOf<String>()
+    var depth = 0
+    var inString = false
+    var start = 0
+    var index = 0
+    while (index < body.length) {
+        val character = body[index]
+        when {
+            inString ->
+                when (character) {
+                    '\\' -> index++
+                    '"' -> inString = false
+                }
+
+            character == '"' -> inString = true
+            character == '(' || character == '[' || character == '{' -> depth++
+            character == ')' || character == ']' || character == '}' -> depth--
+            character == ',' && depth == 0 -> {
+                arguments += body.substring(start, index)
+                start = index + 1
+            }
+        }
+        index++
+    }
+    arguments += body.substring(start)
+    return arguments.map { it.trim() }.filter { it.isNotEmpty() }
+}
+
+/** The string literal this identifier is initialised with in [source], if it is one. */
+private fun literalInitialiserOf(
+    identifier: String,
+    source: String,
+): String? {
+    if (!identifier.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) return null
+    val pattern =
+        Regex(
+            "(?:const\\s+)?val\\s+" + Regex.escape(identifier) +
+                "\\s*(?::\\s*[\\w<>.?]+)?\\s*=\\s*(\"(?:[^\"\\\\]|\\\\.)*\")",
+        )
+    return pattern.find(source)?.groupValues?.get(1)
+}
+
+/** The 1-based line [index] falls on, so a failure names the place to look. */
+private fun lineOf(
+    source: String,
+    index: Int,
+): Int = source.take(index).count { it == '\n' } + 1
+
+/**
+ * Rejects a download that is named with a hand-written container extension.
+ *
+ * v13.14.3 downloaded tracks as `.flac` files whose first bytes were `ftypmp42`. The SpotiFLAC
+ * branch passed a `FLAC_EXTENSION` constant it had declared itself, on the assumption that this
+ * source's output "is FLAC by definition" - which stops being true the moment a source falls
+ * back to a lossy container (measured: a track with no lossless match arrives as MP4/AAC). The
+ * file was perfect and every player called it corrupt, and no build step could tell, because a
+ * wrong extension is only a string.
+ *
+ * So the shape is enforced instead: an extension handed to the naming path has to come from
+ * `DownloadNaming`, which derives it - from the file's own header, or from the served mime type.
+ * A literal, or a constant initialised from one, fails every assemble.
+ *
+ * Deliberately not a rule about which containers are legal: this is about *provenance*. A new
+ * container can be supported without touching this guard, and a wrong guess cannot be added
+ * without failing the release build CI produces - which is where the last one should have died.
+ */
+val verifyDownloadNaming by tasks.registering {
+    description = "Fails when a download name is given a hand-written container extension"
+    group = "verification"
+
+    // Functions whose last argument becomes a file's extension.
+    val namingFunctions = listOf("claimTargetFile(", "DownloadNaming.fileName(")
+    val sources = fileTree("src/main/kotlin") { include("**/*.kt") }
+    inputs
+        .files(sources)
+        .withPropertyName("downloadNamingSources")
+        .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+
+    doLast {
+        val violations = mutableListOf<String>()
+        sources.files.sorted().forEach { file ->
+            val source = file.readText()
+            namingFunctions.forEach { function ->
+                var index = source.indexOf(function)
+                while (index >= 0) {
+                    // A documentation comment naming the function is not a call site.
+                    val lineStart = source.lastIndexOf('\n', (index - 1).coerceAtLeast(0)) + 1
+                    val lineEnd = source.indexOf('\n', index).takeIf { it >= 0 } ?: source.length
+                    val line = source.substring(lineStart, lineEnd).trimStart()
+                    val isComment = line.startsWith("*") || line.startsWith("//")
+                    val body = if (isComment) null else callBody(source, index + function.length - 1)
+                    val extension = body?.let { callArguments(it).lastOrNull() }
+                    if (extension != null) {
+                        val literal = extension.takeIf { it.startsWith("\"") } ?: literalInitialiserOf(extension, source)
+                        if (literal != null) {
+                            violations += "${file.path}:${lineOf(source, index)}: " +
+                                "$function is given the extension $literal directly. " +
+                                "Pass one derived from the file (DownloadNaming.extensionForFile) " +
+                                "or the served type (DownloadNaming.extensionForMimeType)."
+                        }
+                    }
+                    index = source.indexOf(function, index + function.length)
+                }
+            }
+        }
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "A download name may not carry a hand-written container extension:\n" +
+                    violations.joinToString("\n") { "  $it" },
+            )
+        }
+    }
+}
+
+// Every assemble, so the guard runs on the debug builds used locally and on the release
+// builds CI signs - the same reach the NewApi lint guard has.
+tasks.matching { it.name.startsWith("assemble") }.configureEach {
+    dependsOn(verifyDownloadNaming)
 }

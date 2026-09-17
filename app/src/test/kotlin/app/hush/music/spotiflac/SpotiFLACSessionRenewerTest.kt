@@ -19,6 +19,28 @@ class SpotiFLACSessionRenewerTest {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     // ------------------------------------------------------------------
+    // Background cadence — a session is only renewable while it is valid,
+    // so the interval is how many attempts a window contains
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `the background renewer gets several attempts inside the renewal window`() {
+        val windowMinutes = SpotiFLACSessionRenewer.RENEW_WINDOW_SECONDS / 60
+        assertTrue(
+            "an interval that matches the window leaves a single, deferrable attempt",
+            SpotiFLACSessionRenewer.BACKGROUND_INTERVAL_MINUTES <= windowMinutes / 3,
+        )
+    }
+
+    @Test
+    fun `the flex window stays below the interval`() {
+        assertTrue(
+            SpotiFLACSessionRenewer.BACKGROUND_FLEX_MINUTES <
+                SpotiFLACSessionRenewer.BACKGROUND_INTERVAL_MINUTES,
+        )
+    }
+
+    // ------------------------------------------------------------------
     // Signing — golden values computed from the Go implementation
     // ------------------------------------------------------------------
 

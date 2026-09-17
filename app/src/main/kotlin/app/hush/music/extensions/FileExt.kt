@@ -15,7 +15,16 @@ import java.util.zip.ZipOutputStream
 
 operator fun File.div(child: String): File = File(this, child)
 
-fun File.directorySizeBytes(): Long {
+fun File.directorySizeBytes(): Long = directorySizeBytes(excludedDirectoryNames = emptySet())
+
+/**
+ * The same measurement, leaving out child directories by name.
+ *
+ * Needed now that some cached songs live in a subfolder of the song-cache folder: the
+ * Storage screen reports that share separately, so counting the whole tree here would
+ * count the same bytes twice and overstate what the player's cache occupies.
+ */
+fun File.directorySizeBytes(excludedDirectoryNames: Set<String>): Long {
     val stack = ArrayDeque<File>()
     if (!runCatching { exists() }.getOrDefault(false)) return 0L
     stack.add(this)
@@ -27,7 +36,10 @@ fun File.directorySizeBytes(): Long {
             continue
         }
         val children = runCatching { file.listFiles() }.getOrNull() ?: continue
-        children.forEach { child -> stack.add(child) }
+        children.forEach { child ->
+            if (child.isDirectory && child.name in excludedDirectoryNames) return@forEach
+            stack.add(child)
+        }
     }
     return totalBytes
 }

@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class DownloadNamingTest {
 
@@ -132,5 +133,52 @@ class DownloadNamingTest {
         val name = DownloadNaming.uniqueFileName("Song.flac") { true }
         assertTrue(name.startsWith("Song ("))
         assertTrue(name.endsWith(".flac"))
+    }
+
+    @Test
+    fun `the extension follows the bytes, not the name the file was given`() {
+        // Measured on device: a track whose source had no lossless match came back as MP4/AAC
+        // but was written as `.flac`, and every player read the result as corrupt. The header
+        // is the only evidence that cannot be wrong about what a file contains.
+        assertEquals("flac", extensionOf(bytes = "fLaC\u0000\u0000\u0000\u0022", named = ".media"))
+        assertEquals(
+            "m4a",
+            extensionOf(bytes = "\u0000\u0000\u0000\u0018ftypmp42isom", named = ".flac"),
+        )
+        assertEquals("webm", extensionOf(bytes = "\u001aEß£\u0001\u0000\u0000\u0000", named = ".flac"))
+        assertEquals("ogg", extensionOf(bytes = "OggS\u0000\u0002\u0000\u0000", named = ".media"))
+        assertEquals("wav", extensionOf(bytes = "RIFF\u0000\u0000\u0000\u0000WAVE", named = ".media"))
+        // ID3-tagged MP3, and the bare MPEG frame sync the same files carry mid-stream.
+        assertEquals("mp3", extensionOf(bytes = "ID3\u0004\u0000\u0000", named = ".flac"))
+        assertEquals("mp3", extensionOf(bytes = "\u00ff\u00fb\u0090\u0064", named = ".flac"))
+        // ADTS AAC: same 0xFFFx sync, but layer bits 00 mark it as AAC rather than MPEG audio.
+        assertEquals("aac", extensionOf(bytes = "\u00ff\u00f1\u0050\u0080", named = ".flac"))
+    }
+
+    @Test
+    fun `an unreadable header never invents a container`() {
+        // The runtime writes `.media` before it knows what it produced. Trusting that name
+        // would put `.media` on a finished download; guessing `.flac` is the bug this fixes.
+        assertEquals("audio", extensionOf(bytes = "not-a-container!", named = ".media"))
+        assertEquals("audio", extensionOf(bytes = "", named = ".media"))
+    }
+
+    @Test
+    fun `a known container name is the fallback when the header is not recognised`() {
+        assertEquals("opus", extensionOf(bytes = "?????", named = ".opus"))
+    }
+
+    /** Writes [bytes] into a temp file named for [named] and asks for its extension. */
+    private fun extensionOf(
+        bytes: String,
+        named: String,
+    ): String {
+        val file = File.createTempFile("naming", named)
+        try {
+            file.writeBytes(bytes.toByteArray(Charsets.ISO_8859_1))
+            return DownloadNaming.extensionForFile(file)
+        } finally {
+            file.delete()
+        }
     }
 }

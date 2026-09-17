@@ -6,6 +6,8 @@
 
 package app.hush.music.downloads
 
+import java.io.File
+
 /**
  * Names and extensions for downloaded files.
  *
@@ -101,6 +103,92 @@ object DownloadNaming {
         return if (subtype.isNotBlank()) sanitizeExtension(subtype) else FALLBACK_EXTENSION
     }
 
+    /**
+     * The container extension for the bytes actually in [file].
+     *
+     * Read from the file's own header rather than from anything a caller *believes* the
+     * container is. That belief is wrong often enough to matter: a source with no lossless
+     * match answers with a lossy container instead, and the SpotiFLAC branch used to name
+     * every one of its files `.flac` on the assumption that its output is always FLAC. A
+     * track downloaded from `amazon` at its `opus` fallback was therefore written as a
+     * 4.7 MB `.flac` whose first bytes were `ftypmp42` - an MP4/AAC file that every player
+     * treats as corrupt, which is exactly how the user described it.
+     *
+     * [fallback] is used only when the header is unrecognised (an empty file, or a container
+     * added after this was written). It deliberately does not default to a real container:
+     * naming an unknown file `.flac` is the bug this exists to prevent.
+     */
+    fun extensionForFile(
+        file: File,
+        fallback: String = FALLBACK_EXTENSION,
+    ): String {
+        containerFromHeader(readHeader(file))?.let { return it }
+        // No header this knows. The file's own extension is the next best evidence, but only
+        // names this recognises are trusted, so the runtime's `.media` placeholder cannot
+        // become a file's extension either.
+        val named = sanitizeExtension(file.extension)
+        return if (named in KNOWN_CONTAINERS) named else sanitizeExtension(fallback)
+    }
+
+    /** How much of a file is read to identify its container. */
+    private const val HEADER_BYTES = 16
+
+    /** Reads up to [HEADER_BYTES] bytes, or null when the file cannot be read. */
+    private fun readHeader(file: File): ByteArray? =
+        runCatching {
+            file.inputStream().use { stream ->
+                val buffer = ByteArray(HEADER_BYTES)
+                var filled = 0
+                while (filled < buffer.size) {
+                    val read = stream.read(buffer, filled, buffer.size - filled)
+                    if (read <= 0) break
+                    filled += read
+                }
+                if (filled == 0) null else buffer.copyOf(filled)
+            }
+        }.getOrNull()
+
+    /**
+     * The container a leading header identifies, or null when it is not one of them.
+     *
+     * Only unambiguous signatures are matched. A container is announced by its own magic
+     * rather than guessed from a length, so a file that is actually something else is never
+     * labelled for the sake of a match.
+     */
+    private fun containerFromHeader(header: ByteArray?): String? {
+        val bytes = header ?: return null
+        fun ascii(start: Int, length: Int): String? =
+            if (bytes.size >= start + length) {
+                String(bytes, start, length, Charsets.US_ASCII)
+            } else {
+                null
+            }
+        fun byte(at: Int): Int? = if (bytes.size > at) bytes[at].toInt() and 0xFF else null
+
+        // "fLaC"
+        if (ascii(0, 4) == "fLaC") return "flac"
+        // ISO base media: "....ftyp", as written by every MP4/M4A muxer.
+        if (ascii(4, 4) == "ftyp") return "m4a"
+        // Matroska/WebM EBML header (0x1A45DFA3).
+        if (byte(0) == 0x1A && byte(1) == 0x45 && byte(2) == 0xDF && byte(3) == 0xA3) return "webm"
+        // Ogg page ("OggS"); codec detection would need the header body, and the container
+        // is what the extension names.
+        if (ascii(0, 4) == "OggS") return "ogg"
+        // RIFF....WAVE
+        if (ascii(0, 4) == "RIFF" && ascii(8, 4) == "WAVE") return "wav"
+        // ID3-tagged MP3, or a bare MPEG audio frame sync (0xFFEx/0xFFFx).
+        if (ascii(0, 3) == "ID3") return "mp3"
+        byte(0)?.let { first ->
+            val second = byte(1) ?: return@let
+            if (first == 0xFF && second and 0xE0 == 0xE0) {
+                // 0xFFF_ is an ADTS AAC frame (layer bits 00); MPEG audio has a real layer.
+                val layer = second and 0x06
+                return if (layer == 0x00) "aac" else "mp3"
+            }
+        }
+        return null
+    }
+
     /** `<Artist> - <Title>.<extension>`, degrading to whichever half is known. */
     fun fileName(
         title: String?,
@@ -140,5 +228,14 @@ object DownloadNaming {
 
     private const val UNKNOWN_FIELD = "Unknown"
     private const val FALLBACK_EXTENSION = "audio"
+
+    /**
+     * Container names this trusts when a file has no recognisable header.
+     *
+     * A fixed set rather than "anything alphabetic": `extensionForFile` falls back to a
+     * file's own name, and the runtime writes `.media` there before it knows the container.
+     */
+    private val KNOWN_CONTAINERS =
+        setOf("flac", "m4a", "mp4", "webm", "ogg", "oga", "opus", "mp3", "wav", "aac", "aiff", "wma")
     private const val MAX_UNIQUE_ATTEMPTS = 1000
 }

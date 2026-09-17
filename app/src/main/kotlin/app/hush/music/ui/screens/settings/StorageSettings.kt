@@ -280,7 +280,15 @@ fun StorageSettings(
             playerCacheSize =
                 withContext(Dispatchers.IO) {
                     val cacheSpace = tryOrNull { playerCache.cacheSpace } ?: 0L
-                    if (cacheSpace == 0L) playerCacheDir.directorySizeBytes() else cacheSpace
+                    // The SpotiFLAC files inside this folder are reported as their own
+                    // share below, so they must not be counted here as well.
+                    if (cacheSpace == 0L) {
+                        playerCacheDir.directorySizeBytes(
+                            excludedDirectoryNames = setOf(SpotiFLACPlaybackCache.CACHE_SUBDIRECTORY_NAME),
+                        )
+                    } else {
+                        cacheSpace
+                    }
                 }
             spotiflacCacheBytes =
                 withContext(Dispatchers.IO) {
