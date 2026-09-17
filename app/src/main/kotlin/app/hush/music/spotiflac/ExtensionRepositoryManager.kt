@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
@@ -172,6 +173,12 @@ class ExtensionRepositoryManager @Inject constructor(
             _sources.value = sources
 
             Timber.tag(TAG).d("Synced ${sources.size} sources from ${REGISTRY_URLS.size} repos")
+        } catch (e: CancellationException) {
+            // A cancelled sync is not a failed one. Swallowing this would run the
+            // "registry is down, publish builtins only" fallback on a coroutine that
+            // has already been cancelled - overwriting the live source list with the
+            // built-in subset because the caller went away.
+            throw e
         } catch (e: Exception) {
             Timber.tag(TAG).w(e, "Failed to sync registries, using builtins")
             val enabledIds = loadEnabledIds()
@@ -213,6 +220,11 @@ class ExtensionRepositoryManager @Inject constructor(
                     ext.copy(repositoryId = url)
                 })
                 Timber.tag(TAG).d("Fetched ${safeExtensions.size}/${registry.extensions.size} safe extensions from $url")
+            } catch (e: CancellationException) {
+                // Reached through `httpClient.get`: without this the cancellation is
+                // reported as "this registry URL failed" and the loop moves on to
+                // issue another request on a coroutine that is already cancelled.
+                throw e
             } catch (e: Exception) {
                 Timber.tag(TAG).w(e, "Failed to fetch registry from $url")
             }

@@ -10,13 +10,17 @@ package app.hush.music.playback
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.offline.Download
+import app.hush.music.spotiflac.SpotiFLACDiag
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
@@ -85,6 +89,16 @@ class MediaLibrarySessionCallback
         var toggleStartRadio: () -> Unit = {}
         var toggleLibrary: () -> Unit = {}
 
+        /**
+         * Invoked when a transport command arrives with nothing loaded to act on it.
+         *
+         * A hardware or headset key press is delivered to the session, not to the app's own
+         * transport buttons, so a car or a headset pressing skip on a freshly installed app used
+         * to be swallowed by an empty player. The service wires this to the same recovery the
+         * in-app buttons use.
+         */
+        var onEmptyPlayerTransportRequest: (() -> Unit)? = null
+
         private data class AutoPlaylistSortOption(
             val sortType: PlaylistSongSortType,
             val descending: Boolean,
@@ -135,6 +149,45 @@ class MediaLibrarySessionCallback
             )
         }
 
+        override fun onPlayerCommandRequest(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            playerCommand: Int,
+        ): Int {
+            // Only the commands that mean "play me something" are answered, and only while the
+            // timeline is empty: with items loaded the player handles them itself and this must
+            // stay out of the way. `prepare` is deliberately absent - Android Auto sends it on
+            // every connect, and starting playback because a car screen opened is not a transport
+            // press.
+            if (session.player.mediaItemCount == 0 && playerCommand in EMPTY_PLAYER_TRANSPORT_COMMANDS) {
+                SpotiFLACDiag.log("empty-player transport recovery: command=$playerCommand")
+                onEmptyPlayerTransportRequest?.invoke()
+            }
+            return super.onPlayerCommandRequest(session, controller, playerCommand)
+        }
+
+        override fun onMediaButtonEvent(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            intent: Intent,
+        ): Boolean {
+            // A headset or steering-wheel key with nothing loaded is the same dead press the app's
+            // own buttons hit - and it is the only press that stays inside the media session, so
+            // the player would be asked to skip an empty timeline. Consume it and rebuild a queue
+            // instead, rather than letting it fall through to the default handling.
+            if (session.player.mediaItemCount == 0 && intent.action == Intent.ACTION_MEDIA_BUTTON) {
+                val event = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+                if (event?.action == KeyEvent.ACTION_DOWN &&
+                    TransportRecoveryPolicy.requestsPlaybackForKeyCode(event.keyCode)
+                ) {
+                    SpotiFLACDiag.log("empty-player media button recovery: keyCode=${event.keyCode}")
+                    onEmptyPlayerTransportRequest?.invoke()
+                    return true
+                }
+            }
+            return super.onMediaButtonEvent(session, controller, intent)
+        }
+
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -158,6 +211,16 @@ class MediaLibrarySessionCallback
                             )
                         }
                     }
+                // Read only in the case it can be used: a playback request with nothing loaded
+                // and nothing persisted. This is the media-key path, where a skip or a play
+                // reaches the player directly and never passes the UI transport policy, so
+                // without a fallback here those presses are the ones that do nothing at all.
+                val fallbackItems =
+                    if (isForPlayback && currentItems.isEmpty() && persistedItems == null) {
+                        withContext(Dispatchers.IO) { database.historyRecoveryItems() }
+                    } else {
+                        emptyList()
+                    }
                 val result =
                     PlaybackResumptionPlanner.resolve(
                         currentItems = currentItems,
@@ -165,6 +228,7 @@ class MediaLibrarySessionCallback
                         currentPositionMs = player.currentPosition,
                         persistedItems = persistedItems,
                         isForPlayback = isForPlayback,
+                        fallbackItems = fallbackItems,
                     )
                 MediaSession.MediaItemsWithStartPosition(
                     result.items,
@@ -2029,6 +2093,19 @@ class MediaLibrarySessionCallback
         }
 
         companion object {
+            /**
+             * Transport commands that mean "play something", and so may trigger a cold-start
+             * recovery when the timeline is empty. Mirrors [TransportRecoveryPolicy].
+             */
+            private val EMPTY_PLAYER_TRANSPORT_COMMANDS =
+                setOf(
+                    Player.COMMAND_PLAY_PAUSE,
+                    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_TO_NEXT,
+                    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_TO_PREVIOUS,
+                )
+
             private const val EXTRA_CONTENT_STYLE_SUPPORTED = "android.media.browse.CONTENT_STYLE_SUPPORTED"
             private const val EXTRA_CONTENT_STYLE_BROWSABLE_HINT =
                 "android.media.browse.CONTENT_STYLE_BROWSABLE_HINT"

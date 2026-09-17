@@ -41,6 +41,22 @@ object SpotiFLACQualityCascade {
     /** The runtime's own wording for "I cannot deliver that quality". */
     private const val QUALITY_LIMIT_MARKER = "no compatible "
 
+    /**
+     * The wording for "this source answered with audio that cannot be played".
+     *
+     * A source can return a *different question's* answer: Amazon's extension serves Dolby
+     * Digital Plus and Atmos beside its lossless FLAC, and a Dolby stream is silent on a device
+     * with no AC-3/AC-4 output path - the player advances and nothing is audible. That is not a
+     * catalogue miss, so remembering it as one would keep the track failing forever; it is the
+     * same kind of answer as "I cannot deliver that quality", and is retried the same way - by
+     * asking that source for the lossy option it does declare.
+     */
+    const val UNPLAYABLE_FORMAT_MARKER = "answered with audio this app cannot play"
+
+    /** True when a failure was "that answer cannot be played", not "not in my catalogue". */
+    fun isUnplayableFormat(failure: String?): Boolean =
+        failure?.contains(UNPLAYABLE_FORMAT_MARKER) == true
+
     /** A quality option as a source's manifest declares it. */
     data class QualityOption(
         val id: String,

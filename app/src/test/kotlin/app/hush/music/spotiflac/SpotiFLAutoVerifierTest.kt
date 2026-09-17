@@ -157,4 +157,23 @@ class SpotiFLAutoVerifierTest {
         assertTrue(SpotiFLAutoVerifier.queued().isEmpty())
         assertFalse(SpotiFLAutoVerifier.isRunning)
     }
+
+    @Test
+    fun `turning SpotiFLAC off drops the run and the pending notice`() {
+        // The preference flipping to off is the one moment the app must stop asking purely on its
+        // own initiative: everything queued and everything already shown was raised for playback
+        // that will no longer route through SpotiFLAC, and on a device whose WebView cannot run
+        // Cloudflare's check the leftover offer is a browser tab a car user is asked to open for
+        // nothing. `appContext` is deliberately not set here, which is the same degraded path the
+        // verifier takes when it has no context: no notification bookkeeping, but never a crash.
+        SpotiFLAutoVerifier.enqueue(listOf("amazon", "tidal-web"), "prewarm")
+        SpotiFLACVerificationRequest.request("deezer")
+        assertEquals("deezer", SpotiFLACVerificationRequest.pending.value)
+
+        SpotiFLAutoVerifier.disableForPreferenceChange()
+
+        assertNull(SpotiFLAutoVerifier.active.value)
+        assertTrue(SpotiFLAutoVerifier.queued().isEmpty())
+        assertNull(SpotiFLACVerificationRequest.pending.value)
+    }
 }

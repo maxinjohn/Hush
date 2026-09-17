@@ -38,6 +38,16 @@ object SpotiFLACFileIntegrity {
     /** How much of the file is read to identify its container. */
     const val HEAD_BYTES = 16
 
+    /**
+     * How much is read when the question is not just "which container" but "which audio".
+     *
+     * The container signature lives in the first bytes, but in an MP4 the *codec* is named by the
+     * sample entry inside the `stsd` box, which sits well past them - an Atmos or Dolby Digital
+     * Plus track is an ordinary MP4 until you read far enough to see `ac-4`/`ec-3`. Four kilobytes
+     * covers the sample-entry table of anything a music source returns, and is one read.
+     */
+    const val PROBE_BYTES = 4_096
+
     /** What a cached file looked like when it was checked. */
     enum class Verdict {
         /** Playable as far as a signature and a length can tell. */
@@ -73,8 +83,17 @@ object SpotiFLACFileIntegrity {
         return if (looksLikeAudio(head)) Verdict.OK else Verdict.NOT_AUDIO
     }
 
-    /** True when [head] begins with a container this app is expected to play. */
-    fun looksLikeAudio(head: ByteArray): Boolean = containerOf(head) != null
+    /**
+     * True when [head] begins with a container this app is expected to play.
+     *
+     * A still-encrypted stream does not count, even though its container is a perfectly ordinary
+     * MP4: it is a file nothing can decode, and treating it as audio is how a cached Amazon entry
+     * would keep being served as silence on every replay. This is the same judgement the download
+     * path makes, so a file that was accepted before that check existed is dropped now instead of
+     * being trusted forever.
+     */
+    fun looksLikeAudio(head: ByteArray): Boolean =
+        containerOf(head) != null && !isEncryptedStream(head)
 
     /** What a cache lookup should do with a file. */
     enum class Action {
@@ -147,6 +166,81 @@ object SpotiFLACFileIntegrity {
         }
         return null
     }
+
+    /**
+     * A Dolby-family stream, which is not what a music request asked for.
+     *
+     * Amazon's extension offers Dolby Digital Plus (`eac3`) and Atmos (`ac4`) beside its lossless
+     * FLAC, and a track it answers with one of those is silent on a device with no AC-3/AC-4 output
+     * path - the player advances and nothing is audible. A silence cannot be told apart from a
+     * working track by any of Hush's own log lines, because nothing looks at the bytes, which is why
+     * this is detected rather than assumed.
+     *
+     * Returns the codec token (`eac3`, `ac3` or `ac4`) or null when the stream is not Dolby.
+     */
+    fun dolbyFormatOf(probe: ByteArray): String? {
+        if (probe.size >= 2 &&
+            probe[0] == 0x0B.toByte() &&
+            probe[1] == 0x77.toByte()
+        ) {
+            // A bare AC-3/E-AC-3 sync frame: the stream is Dolby with no container around it.
+            return "eac3"
+        }
+        // Inside an MP4 the sample entry names the codec: ac-4 for Atmos, ec-3 (with its
+        // configuration boxes dac3/dec3) for Dolby Digital Plus, ac-3 for plain Dolby Digital.
+        if (probe.size < 8 || !probe.startsWithAscii("ftyp", offset = 4)) return null
+        val text = String(probe, 0, probe.size.coerceAtMost(PROBE_BYTES), Charsets.ISO_8859_1)
+        return when {
+            text.contains("ac-4") || text.contains("dac4") -> "ac4"
+            text.contains("ec-3") || text.contains("dec3") -> "eac3"
+            text.contains("ac-3") || text.contains("dac3") -> "ac3"
+            else -> null
+        }
+    }
+
+    /**
+     * Whether a probe shows a stream that is still encrypted.
+     *
+     * Amazon's extension hands the runtime an encrypted stream plus a decryption key
+     * (`ffmpeg.mov_key` over an ISO-BMFF payload), so what reaches Hush is only playable if that
+     * decryption actually happened. When it does not, the result is a file of exactly the right size
+     * that carries no decodable audio - the player advances and nothing is audible, and no other
+     * player opens it either. An encrypted sample entry (`enca`/`encv`) or the protection scheme
+     * boxes (`sinf`/`schm`/`tenc`) are what name that condition, and they sit at the head of the
+     * file, inside [PROBE_BYTES].
+     */
+    fun isEncryptedStream(probe: ByteArray): Boolean {
+        if (probe.size < 8 || !probe.startsWithAscii("ftyp", offset = 4)) return false
+        val text = String(probe, 0, probe.size.coerceAtMost(PROBE_BYTES), Charsets.ISO_8859_1)
+        return text.contains("enca") || text.contains("encv") ||
+            text.contains("sinf") || text.contains("schm") || text.contains("tenc")
+    }
+
+    /**
+     * The Dolby token a runtime-reported codec name names, or null.
+     *
+     * The runtime reports the codec it downloaded (`audio_codec`), which is a second, independent
+     * way to see the same thing the bytes show - and the one that still works when a stream's
+     * sample entry sits past [PROBE_BYTES].
+     */
+    fun dolbyFormatOfCodecName(name: String?): String? {
+        val token = name?.trim()?.lowercase(Locale.US) ?: return null
+        return when {
+            token.contains("ac4") || token.contains("ac-4") -> "ac4"
+            token.contains("eac3") || token.contains("e-ac-3") || token.contains("ec-3") -> "eac3"
+            token.contains("ac3") || token.contains("ac-3") -> "ac3"
+            else -> null
+        }
+    }
+
+    /** Reads at most [PROBE_BYTES] from [file], for a container *and* codec check. */
+    fun readProbe(file: File): ByteArray? = runCatching {
+        file.inputStream().use { stream ->
+            val buffer = ByteArray(PROBE_BYTES)
+            val read = stream.read(buffer)
+            if (read <= 0) ByteArray(0) else buffer.copyOf(read)
+        }
+    }.getOrNull()
 
     private fun ByteArray.startsWithAscii(
         value: String,

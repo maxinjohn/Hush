@@ -30,9 +30,27 @@ enum class SpotiFLACSourceAuthState {
 
     /** The source has no signed-session contract; there is nothing to verify. */
     NOT_REQUIRED,
+
+    /**
+     * The source's manifest could not be read, so what it needs is not known yet.
+     *
+     * This is a distinct answer from [NOT_REQUIRED], and conflating the two is what made a fresh
+     * install report nothing to verify: on a first run the extension packages have not been
+     * extracted yet, so there is no manifest to read, and every source - including the ones that do
+     * demand a Cloudflare check - was classified as needing nothing. The automatic verification
+     * queue therefore stayed empty, a download later failed with `verification_required`, and the
+     * user was sent to solve a check the app had just said was unnecessary.
+     */
+    UNKNOWN,
     ;
 
-    /** True when a download through this source can be attempted right now. */
+    /**
+     * True when a download through this source can be attempted right now.
+     *
+     * Unknown counts as usable on purpose: the runtime is the authority on whether a source can
+     * serve, and refusing to try a source this app simply has not read yet would turn a missing
+     * manifest into a failed track.
+     */
     val isUsable: Boolean get() = this != NEEDS_VERIFICATION
 }
 
@@ -49,20 +67,50 @@ object SpotiFLACSourceAuth {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    /**
-     * Whether the manifest declares a signed-session contract. Unreadable or
-     * missing manifests are reported as "no contract", because the caller cannot
-     * ask the user to solve a challenge for a source it cannot even describe.
-     */
-    fun requiresSignedSession(manifestJson: String?): Boolean {
-        if (manifestJson.isNullOrBlank()) return false
-        val signed = runCatching {
-            json.parseToJsonElement(manifestJson).jsonObject["signedSession"]?.jsonObject
-        }.getOrNull() ?: return false
+    /** What a manifest says about signed sessions. */
+    private enum class Contract {
+        /** Not readable as a manifest, so what the source needs is not known. */
+        UNREADABLE,
+
+        /** Readable, and it declares no signed session: there is nothing to verify. */
+        NONE,
+
+        /** Readable, and it declares the scope of a signed session. */
+        SIGNED,
+    }
+
+    private fun contractOf(manifestJson: String?): Contract {
+        if (manifestJson.isNullOrBlank()) return Contract.UNREADABLE
+        val root = runCatching { json.parseToJsonElement(manifestJson).jsonObject }.getOrNull()
+            ?: return Contract.UNREADABLE
+        val element = root["signedSession"] ?: return Contract.NONE
+        val signed = runCatching { element.jsonObject }.getOrNull() ?: return Contract.UNREADABLE
         val namespace = signed["namespace"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         val baseUrl = signed["baseUrl"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-        return namespace.isNotEmpty() && baseUrl.isNotEmpty()
+        // A signed-session block with no scope is a manifest this app cannot act on, which is an
+        // unknown rather than a source that needs nothing.
+        return if (namespace.isNotEmpty() && baseUrl.isNotEmpty()) Contract.SIGNED else Contract.UNREADABLE
     }
+
+    /**
+     * Whether the manifest positively declares a signed-session contract.
+     *
+     * Only a *readable* manifest can answer this, so a false result is not the same statement as
+     * "needs no verification" - [state] exists to keep those apart, and callers that only need the
+     * positive case (this one) must not read a false as "nothing to do".
+     */
+    fun requiresSignedSession(manifestJson: String?): Boolean =
+        contractOf(manifestJson) == Contract.SIGNED
+
+    /**
+     * Whether the manifest was readable *and* declares no signed session.
+     *
+     * The only condition under which a source can be skipped as "nothing to verify": a manifest
+     * that could not be read says nothing either way, and skipping on that is what lost a grant for
+     * a package that had simply not been extracted yet.
+     */
+    fun declaresNoSignedSession(manifestJson: String?): Boolean =
+        contractOf(manifestJson) == Contract.NONE
 
     /** The signed-session record's id and secret, when both are non-blank. */
     fun recordSessionId(recordJson: String?): String? {
@@ -102,13 +150,22 @@ object SpotiFLACSourceAuth {
         return expiry > nowMillis
     }
 
-    /** The full classification, from the manifest plus its session record. */
-    fun state(manifestJson: String?, recordJson: String?, nowMillis: Long): SpotiFLACSourceAuthState {
-        if (!requiresSignedSession(manifestJson)) return SpotiFLACSourceAuthState.NOT_REQUIRED
-        return if (recordUsable(recordJson, nowMillis)) {
-            SpotiFLACSourceAuthState.VERIFIED
-        } else {
-            SpotiFLACSourceAuthState.NEEDS_VERIFICATION
+    /**
+     * The full classification, from the manifest plus its session record.
+     *
+     * A manifest that cannot be read is [SpotiFLACSourceAuthState.UNKNOWN], never "nothing to
+     * verify": the caller can only tell those apart by having read the manifest, and reporting an
+     * unread one as a source with no contract is how a source that does need a check came to be
+     * presented as ready.
+     */
+    fun state(manifestJson: String?, recordJson: String?, nowMillis: Long): SpotiFLACSourceAuthState =
+        when (contractOf(manifestJson)) {
+            Contract.UNREADABLE -> SpotiFLACSourceAuthState.UNKNOWN
+            Contract.NONE -> SpotiFLACSourceAuthState.NOT_REQUIRED
+            Contract.SIGNED -> if (recordUsable(recordJson, nowMillis)) {
+                SpotiFLACSourceAuthState.VERIFIED
+            } else {
+                SpotiFLACSourceAuthState.NEEDS_VERIFICATION
+            }
         }
-    }
 }

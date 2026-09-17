@@ -44,6 +44,31 @@ object SpotiFLACProviderStallPolicy {
     const val STALL_TIMEOUT_MS = 8_000L
 
     /**
+     * Idle budget while the attempt is still resolving, before any byte has arrived.
+     *
+     * A provider is allowed to answer "temporarily unavailable, retry in N seconds", and the
+     * runtime honours that itself: qobuz-web's extension returns `PROVIDER_UNAVAILABLE`,
+     * `retryable`, `retry_after_seconds: 10`, and the runtime then waits 10s before its next of
+     * three attempts. An idle window shorter than the declaration abandons the attempt before the
+     * retry it was just told to make can begin. Measured on device, qobuz-web was recorded as
+     * "stalled for 8222ms (stuck on resolving_stream)" while the runtime's log for that same
+     * attempt read "Provider temporarily unavailable for extension qobuz-web; retrying in 10s
+     * (attempt 2/3)" - so the provider was answering, in the only way it can, and every track was
+     * abandoned for it.
+     *
+     * The tighter window is right once data is moving, where silence means a stopped socket; it is
+     * wrong before that, where it turns a provider asking for time into one that never answers.
+     *
+     * Sized to cover exactly one declared retry (10s, the value qobuz-web actually sends) plus
+     * room for the work that follows it - not the provider's whole retry budget. Waiting longer
+     * buys nothing when the provider is genuinely unavailable, and it is paid by the listener:
+     * measured on device, a single sweep spent 20s of its 45s budget on qobuz-web alone before
+     * falling back to YouTube, and the player sits at 0:00 for that entire window. The runtime's
+     * own attempts are 10s apart, so one cycle is what a provider that can answer needs.
+     */
+    const val RESOLUTION_STALL_TIMEOUT_MS = 14_000L
+
+    /**
      * Hard ceiling for one provider attempt that is not moving bytes.
      *
      * Without it a provider that reports just enough to look alive could still hold
@@ -218,6 +243,31 @@ class ProviderStallMeter(
         transferSilenceMillis(nowMs) < SpotiFLACProviderStallPolicy.STALL_TIMEOUT_MS
 
     /**
+     * True once any real byte has arrived, so the attempt is transferring, not resolving.
+     *
+     * Strictly *more than zero*: the runtime's resolving stages report `bytes=0/0`, which is a
+     * progress event with no data behind it. Counting that as a transfer would put every
+     * resolution phase on the tight transfer window and undo the resolution budget entirely -
+     * measured on device as qobuz-web still being abandoned at 8.1s after that budget was added.
+     */
+    fun hasTransferred(): Boolean = transferredBytes.get() > 0L
+
+    /**
+     * The idle budget for what this attempt is currently doing.
+     *
+     * Before a byte moves the provider is resolving, and it may be waiting on a retry it declared
+     * itself - which is not a wedge, and must not be abandoned as one
+     * ([SpotiFLACProviderStallPolicy.RESOLUTION_STALL_TIMEOUT_MS]). Once bytes are arriving,
+     * silence means the transfer stopped, and the tight window is the right one.
+     */
+    private fun idleTimeoutMs(): Long =
+        if (hasTransferred()) {
+            SpotiFLACProviderStallPolicy.STALL_TIMEOUT_MS
+        } else {
+            SpotiFLACProviderStallPolicy.RESOLUTION_STALL_TIMEOUT_MS
+        }
+
+    /**
      * Why this attempt should be abandoned, or null while it still deserves waiting.
      *
      * The ceiling is counted from the last real transfer rather than the attempt start:
@@ -227,7 +277,7 @@ class ProviderStallMeter(
      */
     fun abandonReason(nowMs: Long = SystemClock.elapsedRealtime()): ProviderAbandonReason? =
         when {
-            SpotiFLACProviderStallPolicy.isStalled(lastProgressAtMs.get(), nowMs) ->
+            SpotiFLACProviderStallPolicy.isStalled(lastProgressAtMs.get(), nowMs, idleTimeoutMs()) ->
                 ProviderAbandonReason.STALLED
             SpotiFLACProviderStallPolicy.isOverCeiling(ceilingBaselineMs(), nowMs) ->
                 ProviderAbandonReason.CEILING

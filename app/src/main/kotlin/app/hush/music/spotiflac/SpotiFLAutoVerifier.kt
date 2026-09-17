@@ -239,6 +239,23 @@ object SpotiFLAutoVerifier {
         }.onFailure { SpotiFLACDiag.log("session vault update failed for $sourceId: ${it.message}") }
     }
 
+    /**
+     * Drops the run, the passive notice and every manual offer, because SpotiFLAC is off now.
+     *
+     * Called when the preference flips, so the app stops asking for something it will not use -
+     * including the notification a car user would otherwise still be prompted to tap.
+     */
+    fun disableForPreferenceChange() {
+        val affected = synchronized(lock) {
+            (queue + listOfNotNull(_active.value)).toSet()
+        } + listOfNotNull(SpotiFLACVerificationRequest.pending.value)
+        cancel()
+        SpotiFLACVerificationRequest.dismiss()
+        val context = appContext ?: return
+        affected.forEach { id -> SpotiFLACVerificationNotifier.clear(context, id) }
+        SpotiFLACDiag.log("auto-verify cleared for disable (${affected.size} source(s))")
+    }
+
     /** Drops everything: used when the user cancels or SpotiFLAC is turned off. */
     fun cancel() {
         val had = synchronized(lock) {

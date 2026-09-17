@@ -120,6 +120,27 @@ object SpotiFLACBrowserVerification {
             SpotiFLACDiag.log("manual verification for $id: the runtime raised no challenge")
             return false
         }
+        // The extension that raised the challenge, which is not always the one the user picked:
+        // the runtime's list also carries a challenge raised while a *different* provider was
+        // being tried, and only its owner can exchange the grant it publishes. Delivering to
+        // anyone else is answered HTTP 403, so verification would fail no matter how many times
+        // the check was solved.
+        val challengeOwner = pending.extensionId.takeIf { it.isNotBlank() } ?: id
+        if (challengeOwner != id) {
+            SpotiFLACDiag.log(
+                "manual verification for $id: the pending challenge belongs to $challengeOwner",
+            )
+        }
+        // The run was requested for [id]; when the pending challenge belonged to another
+        // extension, that extension is what gets verified. Release the requested source's attempt
+        // either way, or the auto-verifier's active slot would stay claimed forever - a source
+        // left `active` makes every later one wait behind it, which is exactly "verification does
+        // nothing" on the next track.
+        fun releaseRequested() {
+            if (challengeOwner == id) return
+            SpotiFLACDiag.log("manual verification covered $challengeOwner; releasing $id")
+            SpotiFLAutoVerifier.finish(id, verified = false)
+        }
 
         // The runtime hands back the same challenge it already registered, so a check the user
         // solved earlier - in a browser, or before Hush's process was killed - is still sitting
@@ -127,9 +148,10 @@ object SpotiFLACBrowserVerification {
         // instantly instead of opening a browser at a challenge that was already passed.
         when (val state = SpotiFLACChallengeRoute.readPageState(pending.authUrl)) {
             is SpotiFLACChallengeRoute.PageState.Grant -> {
-                if (withContext(Dispatchers.IO) { applyGrant(bridge, id, state.token) }) {
-                    _status.value = "$id verified"
-                    markVerified(id)
+                if (withContext(Dispatchers.IO) { applyGrant(bridge, challengeOwner, state.token) }) {
+                    _status.value = "$challengeOwner verified"
+                    markVerified(challengeOwner)
+                    releaseRequested()
                     return true
                 }
             }
@@ -137,9 +159,10 @@ object SpotiFLACBrowserVerification {
             // reach a page that answers "Invalid request". Say so instead of opening it.
             SpotiFLACChallengeRoute.PageState.Spent -> {
                 _status.value =
-                    "The check for $id was already completed - reopen verification for a fresh one"
+                    "The check for $challengeOwner was already completed - reopen verification for a fresh one"
                 SpotiFLACDiag.log("manual verification for $id: the runtime's challenge is spent")
                 SpotiFLACVerificationNotifier.clear(context, id)
+                releaseRequested()
                 return false
             }
             else -> Unit
@@ -158,37 +181,38 @@ object SpotiFLACBrowserVerification {
         )
         if (grant == null) {
             _status.value = "The browser did not finish the check - try again"
-            SpotiFLACDiag.log("manual verification for $id: no grant within the wait window")
+            SpotiFLACDiag.log("manual verification for $challengeOwner: no grant within the wait window")
+            releaseRequested()
             return false
         }
 
-        val ok = withContext(Dispatchers.IO) { applyGrant(bridge, id, grant) }
-        if (ok) markVerified(id)
+        val ok = withContext(Dispatchers.IO) { applyGrant(bridge, challengeOwner, grant) }
+        if (ok) markVerified(challengeOwner)
         _status.value = if (ok) {
-            "$id verified"
+            "$challengeOwner verified"
         } else {
-            "Verification for $id did not complete - try again"
+            "Verification for $challengeOwner did not complete - try again"
         }
+        releaseRequested()
         return ok
     }
 
     /**
-     * Hands a grant to the runtime for every source that challenge refreshes.
+     * Hands a grant to the one extension whose challenge raised it.
      *
-     * A solved challenge can renew more than the source it was raised for, so the grant is
-     * applied to the whole set instead of making the user repeat the check per source.
+     * [extensionId] is the challenge's owner, never the source the user happened to tap: the
+     * grant is bound to that challenge, so a delivery to any other extension is refused with
+     * HTTP 403 and leaves the source looking unverified however often the check is solved.
      */
     private suspend fun applyGrant(
         bridge: SpotiFLACNativeRuntimeBridge,
         extensionId: String,
         grant: String,
     ): Boolean {
-        val targets = bridge.grantTargetSourceIds(extensionId).ifEmpty { listOf(extensionId) }
-        bridge.deliverGrant(grant, targets)
+        bridge.deliverGrant(grant, listOf(extensionId))
         val verified = bridge.isSourceVerified(extensionId)
         SpotiFLACDiag.log(
-            "manual verification for $extensionId: authenticated=$verified " +
-                "targets=${targets.joinToString(",")}",
+            "manual verification for $extensionId: authenticated=$verified target=$extensionId",
         )
         return verified
     }

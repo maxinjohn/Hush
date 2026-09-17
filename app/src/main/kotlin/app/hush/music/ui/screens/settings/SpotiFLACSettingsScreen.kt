@@ -38,6 +38,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.hush.music.R
 import app.hush.music.constants.SourcePriorityKey
@@ -151,17 +153,68 @@ fun SpotiFLACSettingsScreen(
             .associate { it.extensionId to it.remainingSeconds }
     }
 
+    /**
+     * Re-reads every enabled source's auth state from the runtime.
+     *
+     * The runtime's own signed-session record is the single source of truth, so a verification
+     * performed by *any* surface - the automatic run, the player overlay, the notification, the
+     * grant deep link, or this screen - shows up here as soon as it lands. Reading it only once,
+     * when the screen appeared, is what made a source the app had already verified still read
+     * "Verification needed", sending the user back to solve a check whose grant was already spent.
+     */
+    suspend fun refreshVerifyStatus() {
+        // Before reporting a source as needing a check, make sure the session it already earned is
+        // where the runtime looks for it. A record's file name is derived from the extension's app
+        // version, so a registry bump hides a verified session behind a stale name and the source
+        // asks for a challenge it has already passed - the "I verified and it wants another check"
+        // loop. The vault is keyed by extension, so restoring from it is what keeps one
+        // verification enough for every surface.
+        val restored = withContext(Dispatchers.IO) {
+            runCatching { SpotiFLACSessionRenewer.restoreFromVault(context) }.getOrDefault(emptyList())
+        }
+        if (restored.isNotEmpty()) {
+            SpotiFLACDiag.log("session restored from vault: ${restored.joinToString(",")}")
+        }
+        verifyStatus = withContext(Dispatchers.IO) {
+            val bridge = app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder.instance
+            if (bridge == null || !bridge.isRuntimeAvailable) return@withContext verifyStatus
+            repoManager.getEnabledSourceIds().associateWith { bridge.sourceAuthState(it) }
+        }
+        refreshSessionValidity()
+    }
+
     LaunchedEffect(sources, spotiflacEnabled) {
-        if (!spotiflacEnabled) return@LaunchedEffect
+        if (!spotiflacEnabled) {
+            // Nothing is in use, so nothing can be reported as needing a check either.
+            verifyStatus = emptyMap()
+            return@LaunchedEffect
+        }
         withContext(Dispatchers.IO) {
             val bridge = app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder.instance
                 ?: return@withContext
             if (!bridge.isRuntimeAvailable) return@withContext
             bridge.prepareForPlayback(repoManager.getEnabledSourceIds())
-            verifyStatus =
-                repoManager.getEnabledSourceIds().associateWith { bridge.sourceAuthState(it) }
         }
-        refreshSessionValidity()
+        refreshVerifyStatus()
+    }
+
+    val verifiedTicker by app.hush.music.spotiflac.SpotiFLAutoVerifier.verifiedTicker.collectAsState()
+    val autoVerificationSource by app.hush.music.spotiflac.SpotiFLAutoVerifier.active.collectAsState()
+
+    // A verification that completes anywhere else has to reach these rows without the user leaving
+    // and returning: otherwise the only button on offer is this screen's own "Verify", and the
+    // challenge behind it is the one that was just spent - which reads as "I verified and it still
+    // wants another check". The ticker is bumped by the verifier for exactly this, and the active
+    // slot is watched so a run that gives up also un-sticks the row.
+    LaunchedEffect(verifiedTicker, autoVerificationSource) {
+        if (!spotiflacEnabled) return@LaunchedEffect
+        refreshVerifyStatus()
+    }
+
+    // Coming back from a check solved in a browser - the only route on a device whose WebView is
+    // older than Cloudflare supports - is a resume, and it is exactly when the state has changed.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (spotiflacEnabled) scope.launch { refreshVerifyStatus() }
     }
 
     fun renewSessionsNow() {
@@ -192,6 +245,16 @@ fun SpotiFLACSettingsScreen(
                 verifyMessage = "SpotiFLAC runtime is not available in this build"
                 return@launch
             }
+            // A source whose package has not been read yet cannot be classified, and on a fresh
+            // install that is every source. Preparing it is what turns "Verify" into a real answer
+            // instead of a button that either does nothing or offers a check for a source that
+            // needs none.
+            if (bridge.sourceAuthState(extensionId) == SpotiFLACSourceAuthState.UNKNOWN) {
+                withContext(Dispatchers.IO) {
+                    runCatching { bridge.prepareForPlayback(listOf(extensionId)) }
+                }
+                refreshVerifyStatus()
+            }
             when (bridge.sourceAuthState(extensionId)) {
                 SpotiFLACSourceAuthState.NOT_REQUIRED -> {
                     // SoundCloud and the YouTube Music provider sign in with the
@@ -204,6 +267,14 @@ fun SpotiFLACSettingsScreen(
                 SpotiFLACSourceAuthState.VERIFIED -> {
                     verifyMessage = "$extensionId is already verified"
                     verifyStatus = verifyStatus + (extensionId to SpotiFLACSourceAuthState.VERIFIED)
+                    return@launch
+                }
+                // Still unread after preparing it: there is no challenge to raise, and saying so is
+                // better than opening one for a source the runtime may not even have.
+                SpotiFLACSourceAuthState.UNKNOWN -> {
+                    verifyMessage =
+                        "Could not read $extensionId's package — reinstall it from Repositories, " +
+                            "then verify"
                     return@launch
                 }
                 SpotiFLACSourceAuthState.NEEDS_VERIFICATION -> Unit
@@ -250,16 +321,18 @@ fun SpotiFLACSettingsScreen(
         scope.launch {
             isExchanging = true
             val bridge = app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder.instance
-            // A grant is exchanged per extension, so apply it to every enabled
-            // source: one solved challenge then refreshes all of them at once.
-            val targets = withContext(Dispatchers.IO) {
-                bridge?.grantTargetSourceIds(extensionId) ?: listOf(extensionId)
-            }
-            withContext(Dispatchers.IO) { bridge?.deliverGrant(grant, targets) }
+            // The grant belongs to the extension that raised the challenge, and this screen
+            // already resolved that owner into `extensionId` (the runtime's pending auth carries
+            // its own id). Delivering it anywhere else is answered HTTP 403, so the target is the
+            // owner alone - other sources each need their own check, which the auto-verifier
+            // queues by itself.
+            withContext(Dispatchers.IO) { bridge?.deliverGrant(grant, listOf(extensionId)) }
             val ok = bridge?.isSourceVerified(extensionId) ?: false
             verifyStatus = withContext(Dispatchers.IO) {
                 repoManager.getEnabledSourceIds().associateWith {
-                    bridge?.sourceAuthState(it) ?: SpotiFLACSourceAuthState.NOT_REQUIRED
+                    // Unknown, not "nothing to verify": with no runtime there is no answer at all,
+                    // and claiming the source needs nothing is what hid a required check.
+                    bridge?.sourceAuthState(it) ?: SpotiFLACSourceAuthState.UNKNOWN
                 }
             }
             refreshSessionValidity()
@@ -271,13 +344,7 @@ fun SpotiFLACSettingsScreen(
                 app.hush.music.spotiflac.SpotiFLAutoVerifier.notifyVerified(extensionId)
             }
             verifyMessage = if (ok) {
-                val alsoVerified =
-                    targets.count { verifyStatus[it] == SpotiFLACSourceAuthState.VERIFIED } - 1
-                if (alsoVerified > 0) {
-                    "$extensionId verified · $alsoVerified other source(s) refreshed too"
-                } else {
-                    "$extensionId verified"
-                }
+                "$extensionId verified"
             } else {
                 "Verification for $extensionId did not complete — try again"
             }
@@ -383,11 +450,18 @@ fun SpotiFLACSettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "⚠ Experimental — currently in testing and may not work. Do not enable.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // The enable switch lives here, with the rest of the audio-source
+                    // configuration, rather than behind dev mode: it changes which engine
+                    // plays the user's music, and hiding that in an experimental menu made a
+                    // working source look like a debug toy. It stays locked on while YouTube
+                    // is off, because something has to be able to play - the same rule the
+                    // YouTube switch above follows from the other side.
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.spotiflac_enabled),
+                        checked = spotiflacEnabled,
+                        onCheckedChange = if (youtubeEnabled) setSpotiflacEnabled else null,
+                        enabled = youtubeEnabled,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
@@ -614,9 +688,15 @@ fun SpotiFLACSettingsScreen(
                                 }
                             }
                             SessionState.CHALLENGE_PENDING -> {
-                                // Prefer the runtime's own pending auth URL (extension
-                                // preflight) over the Hush-side challenge when present.
-                                var runtimeAuthUrl by remember { mutableStateOf<String?>(null) }
+                                // Prefer the runtime's own pending auth (extension preflight) over the
+                                // Hush-side challenge when present - and keep the whole request, not
+                                // just its URL: the extension that raised it is what decides where the
+                                // grant goes back to.
+                                var runtimePending by remember {
+                                    mutableStateOf<
+                                        app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridge.PendingExtensionAuth?
+                                        >(null)
+                                }
                                 // A relay challenge that was raised for *this* visit. The stored one
                                 // from an earlier bootstrap is deliberately not used: a challenge is
                                 // single-use, so a saved URL is usually already spent, and opening
@@ -629,18 +709,24 @@ fun SpotiFLACSettingsScreen(
                                 // raised, which is exactly how the browser route kept failing.
                                 var browserMode by remember { mutableStateOf(false) }
                                 LaunchedEffect(Unit) {
-                                    runtimeAuthUrl = withContext(Dispatchers.IO) {
+                                    runtimePending = withContext(Dispatchers.IO) {
                                         app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder
-                                            .instance?.pendingRuntimeAuthUrl()
+                                            .instance?.pendingRuntimeAuth()
                                     }
-                                    if (runtimeAuthUrl == null) {
+                                    if (runtimePending == null) {
                                         freshRelayUrl = withContext(Dispatchers.IO) {
                                             sessionManager.bootstrap()
                                             sessionManager.challengeUrl
                                         }
                                     }
                                 }
-                                val challengeUrl = runtimeAuthUrl ?: freshRelayUrl
+                                val challengeUrl = runtimePending?.authUrl ?: freshRelayUrl
+                                // The extension the displayed challenge belongs to, when it is the
+                                // runtime's. Its grant redeems only for that extension, and it is not
+                                // a relay grant at all - the relay exchange answers it with HTTP 403,
+                                // which is the error the session card used to show on a device that
+                                // could only verify through a browser.
+                                val runtimeOwner = runtimePending?.extensionId
                                 // Record which challenge is in play, and who owns it, so a
                                 // verification that fails can be told apart from one that never got a
                                 // challenge at all - the two look identical on screen.
@@ -651,7 +737,7 @@ fun SpotiFLACSettingsScreen(
                                     SpotiFLACDiag.log(
                                         "relay challenge in play id=$id state=$state " +
                                             "owner=${if (browserMode) "browser" else "app"} " +
-                                            "source=${if (runtimeAuthUrl != null) "runtime" else "relay"}",
+                                            "source=${if (runtimeOwner != null) "runtime:$runtimeOwner" else "relay"}",
                                     )
                                 }
                                 // Auto-show the WebView when a challenge is pending - but only on
@@ -675,6 +761,49 @@ fun SpotiFLACSettingsScreen(
                                 var browserRouteAttempt by remember { mutableStateOf(0) }
                                 val capturedGrant = remember { mutableStateOf("") }
 
+                                // A spent challenge cannot be handed to a browser: the page would
+                                // solve and then reject itself, which reads as "verification is
+                                // broken" rather than "this link is used up". Ask the universe that
+                                // owns it for a fresh one - the extension for a runtime challenge
+                                // (through the per-source Verify flow, which is owner-aware), the
+                                // relay otherwise.
+                                fun refreshChallenge() {
+                                    val owner = runtimeOwner
+                                    scope.launch {
+                                        bootstrapError =
+                                            "That challenge was already used - getting a fresh one"
+                                        if (owner != null) {
+                                            startVerification(owner)
+                                        } else {
+                                            withContext(Dispatchers.IO) { sessionManager.bootstrap() }
+                                            freshRelayUrl = sessionManager.challengeUrl
+                                        }
+                                        bootstrapError = null
+                                    }
+                                }
+
+                                // What "Open in browser" hands the device's browser. A runtime
+                                // challenge is opened unchanged, because its grant comes back to the
+                                // extension that raised it; a relay challenge is replaced with a fresh
+                                // one first, because the WebView is closed here and cannot solve (and
+                                // spend) the one the browser is about to open.
+                                val browserTarget: suspend () -> String? = {
+                                    browserMode = true
+                                    showChallengeWebView = false
+                                    val owner = runtimeOwner
+                                    if (owner != null) {
+                                        runtimePending?.authUrl
+                                    } else {
+                                        withContext(Dispatchers.IO) { sessionManager.bootstrap() }
+                                        freshRelayUrl = sessionManager.challengeUrl
+                                        SpotiFLACDiag.log(
+                                            "browser route for the relay challenge: fresh " +
+                                                "challenge ${freshRelayUrl ?: "(none)"}",
+                                        )
+                                        freshRelayUrl
+                                    }
+                                }
+
                                 fun extractGrant(raw: String): String? {
                                     if (raw.contains("grant=")) {
                                         return android.net.Uri.parse(raw).getQueryParameter("grant")
@@ -690,15 +819,49 @@ fun SpotiFLACSettingsScreen(
                                     capturedGrant.value = grant
                                     showChallengeWebView = false
                                     Timber.tag(TAG).d("Grant captured (len=${grant.length})")
-                                    // The relay's own record of the flow. Its Timber lines never reach
-                                    // logcat in this build, so a verification that did not stick used to
-                                    // leave no trace at all beyond "it did not work".
+                                    // Which universe this grant belongs to, and where it went. Its Timber
+                                    // lines never reach logcat in this build, so a verification that did
+                                    // not stick used to leave no trace at all beyond "it did not work".
                                     SpotiFLACDiag.log(
-                                        "relay grant captured via ${if (browserMode) "browser" else "app"} " +
-                                            "(len=${grant.length})",
+                                        "grant captured via ${if (browserMode) "browser" else "app"} " +
+                                            "(len=${grant.length}) " +
+                                            "route=${runtimeOwner?.let { "runtime:$it" } ?: "relay"}",
                                     )
                                     scope.launch {
                                         isExchanging = true
+                                        val owner = runtimeOwner
+                                        if (owner != null) {
+                                            // The extension runtime's own challenge. Its grant redeems
+                                            // only for the extension that raised it, and it is not a
+                                            // relay credential at all: offering it to the relay
+                                            // exchange is answered HTTP 403, which then cleared Hush's
+                                            // own session and left this card showing that 403 however
+                                            // many times the check was solved.
+                                            val bridge =
+                                                app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder
+                                                    .instance
+                                            val ok = withContext(Dispatchers.IO) {
+                                                bridge?.deliverGrant(grant, listOf(owner))
+                                                bridge?.isSourceVerified(owner) ?: false
+                                            }
+                                            SpotiFLACDiag.log(
+                                                "runtime grant delivery: success=$ok extension=$owner",
+                                            )
+                                            if (ok) {
+                                                // Reports through the shared entry point, so a track
+                                                // parked on this source resumes and the notice clears.
+                                                app.hush.music.spotiflac.SpotiFLAutoVerifier
+                                                    .notifyVerified(owner)
+                                                bootstrapError = null
+                                                verifyMessage = "$owner verified"
+                                            } else {
+                                                bootstrapError =
+                                                    "The check for $owner could not be finished - " +
+                                                        "open its verification from the source list and try again"
+                                            }
+                                            isExchanging = false
+                                            return@launch
+                                        }
                                         val result = sessionManager.exchangeGrant(grant)
                                         SpotiFLACDiag.log(
                                             "relay grant exchange: success=${result.isSuccess} " +
@@ -893,29 +1056,14 @@ fun SpotiFLACSettingsScreen(
                                     ChallengeBrowserFallback(
                                         url = challengeUrl,
                                         onBrowserOpened = { browserRouteAttempt++ },
-                                        onStale = {
-                                            scope.launch {
-                                                bootstrapError =
-                                                    "That challenge was already used - getting a fresh one"
-                                                withContext(Dispatchers.IO) { sessionManager.bootstrap() }
-                                                freshRelayUrl = sessionManager.challengeUrl
-                                                bootstrapError = null
-                                            }
-                                        },
+                                        onStale = { refreshChallenge() },
                                         // Hand the browser a challenge of its own: the WebView is
                                         // closed first so it cannot solve (and spend) the one the
-                                        // browser is about to open.
-                                        beforeOpen = {
-                                            browserMode = true
-                                            showChallengeWebView = false
-                                            withContext(Dispatchers.IO) { sessionManager.bootstrap() }
-                                            freshRelayUrl = sessionManager.challengeUrl
-                                            SpotiFLACDiag.log(
-                                                "browser route for the relay challenge: fresh " +
-                                                    "challenge ${freshRelayUrl ?: "(none)"}",
-                                            )
-                                            freshRelayUrl
-                                        },
+                                        // browser is about to open. A runtime challenge is opened
+                                        // as-is - it belongs to an extension, and swapping it for a
+                                        // relay challenge here would show the user one check while
+                                        // Hush waited on a different one.
+                                        beforeOpen = { browserTarget() },
                                     ) { raw ->
                                         captureGrant(raw)
                                     }
@@ -937,15 +1085,7 @@ fun SpotiFLACSettingsScreen(
                                         ChallengeBrowserFallback(
                                         url = challengeUrl,
                                         onBrowserOpened = { browserRouteAttempt++ },
-                                        onStale = {
-                                            scope.launch {
-                                                bootstrapError =
-                                                    "That challenge was already used - getting a fresh one"
-                                                withContext(Dispatchers.IO) { sessionManager.bootstrap() }
-                                                freshRelayUrl = sessionManager.challengeUrl
-                                                bootstrapError = null
-                                            }
-                                        },
+                                        onStale = { refreshChallenge() },
                                     ) { raw ->
                                             captureGrant(raw)
                                         }
@@ -1102,7 +1242,7 @@ fun SpotiFLACSettingsScreen(
                             style = MaterialTheme.typography.titleSmall,
                         )
                         Text(
-                            text = "Solve the Cloudflare check once and the grant is applied to every enabled source, so one check covers all of them. Sources that sign in with their own service are marked as needing no verification.",
+                            text = "Each source keeps its own gateway session, so a check verifies the source that raised it and is kept from then on - it never has to be solved twice. Sources that sign in with their own service are marked as needing no verification.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1114,6 +1254,12 @@ fun SpotiFLACSettingsScreen(
                                 val authState = verifyStatus[source.id]
                                 val verified = authState == SpotiFLACSourceAuthState.VERIFIED
                                 val notRequired = authState == SpotiFLACSourceAuthState.NOT_REQUIRED
+                                // Not read yet is not the same answer as "needs a check". Reporting
+                                // unknown as "Verification needed" is what made this list claim work
+                                // that had already been done - and reporting it as "no verification
+                                // needed" is what hid a check that was genuinely required.
+                                val unknown = authState == null ||
+                                    authState == SpotiFLACSourceAuthState.UNKNOWN
                                 val remaining = sessionValidity[source.id]
                                 val expired = remaining != null && remaining <= 0
                                 Row(
@@ -1131,6 +1277,7 @@ fun SpotiFLACSettingsScreen(
                                                 // signs in with the service itself, so
                                                 // there is no Cloudflare check to offer.
                                                 notRequired -> "No verification needed"
+                                                unknown -> "Checking session…"
                                                 !verified -> "Verification needed"
                                                 expired -> "Session expired — verify again"
                                                 remaining == null -> "Verified"
@@ -1154,7 +1301,7 @@ fun SpotiFLACSettingsScreen(
                                     // A lapsed session (expired) is exactly when it is needed again; an
                                     // expired one is shown as "Session expired - verify again" above.
                                     // Routine renewal is the "Renew now" action below.
-                                    val canCheck = !notRequired && (!verified || expired)
+                                    val canCheck = !unknown && !notRequired && (!verified || expired)
                                     if (canCheck) {
                                         androidx.compose.material3.TextButton(
                                             onClick = { startVerification(source.id) },

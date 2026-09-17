@@ -1156,6 +1156,9 @@ var originalQueueSize: Int = 0
             toggleLike = ::toggleLike
             toggleStartRadio = ::toggleStartRadio
             toggleLibrary = ::toggleLibrary
+            // Hardware and headset keys reach the session, not the app's transport buttons, so a
+            // skip or a play on a fresh install has to be answered from here too.
+            onEmptyPlayerTransportRequest = ::recoverQueueIfEmpty
         }
         mediaSession =
             MediaLibrarySession
@@ -1390,6 +1393,11 @@ var originalQueueSize: Int = 0
                 }
                 if (changed && !enabled) {
                     clearIncompatiblePlaybackCache()
+                    // Stop asking for verifications the moment SpotiFLAC is switched off: a
+                    // queued source, the passive notice and the manual notification were all
+                    // raised for playback that can no longer route through SpotiFLAC, and the
+                    // notification in particular asks a car user to leave the app for nothing.
+                    app.hush.music.spotiflac.SpotiFLAutoVerifier.disableForPreferenceChange()
                 } else if (enabled && !spotiflacSessionManager.hasActiveSession()) {
                     scope.launch(Dispatchers.IO) {
                         spotiflacSessionManager.forceRestoreSession()
@@ -1398,13 +1406,6 @@ var originalQueueSize: Int = 0
                         }
                     }
                 }
-            }
-
-        dataStore.data
-            .map { it[app.hush.music.constants.SpotiFLACDevGateKey] ?: false }
-            .distinctUntilChanged()
-            .collectLatest(scope) { gate ->
-                spotiflacDevGate = gate
             }
 
         dataStore.data
@@ -2808,8 +2809,6 @@ var originalQueueSize: Int = 0
     @Volatile
     private var spotiflacEnabled = false
     @Volatile
-    private var spotiflacDevGate = false
-    @Volatile
     private var devMode = false
     @Volatile
     private var sourcePriorityList: List<String> = listOf("SPOTIFLAC", "YOUTUBE")
@@ -2877,25 +2876,45 @@ var originalQueueSize: Int = 0
         youtubeAvailable = ytAvailable,
     )
 
+    /**
+     * Moves the track that is playing *right now* onto the routing the toggles just chose,
+     * and leaves the rest of the queue exactly where it was.
+     *
+     * This used to `clearMediaItems()` and then `setMediaItem()` the current track back, which
+     * threw away every item after it. The periodic queue save then wrote that one-song queue
+     * over the persisted copy, so turning a source on or off also cost the user everything
+     * queued behind the current track - immediately in the queue screen, and permanently after
+     * the next restart. Replacing the item in place keeps the timeline intact.
+     *
+     * The replacement carries the media id as its URI again - the same placeholder every queue
+     * item is built with - so Media3's own resolving data source re-runs
+     * [resolvePlaybackDataSpec] for this item and follows the new engine order. Pinning the URL
+     * resolved here instead would freeze the item on the engine that was just switched off (or
+     * hide the one just switched on) for every later seek and re-open.
+     */
     private fun reResolveCurrentTrackForSourceToggle() {
+        val index = player.currentMediaItemIndex
         val item = player.currentMediaItem ?: return
         val mediaId = item.mediaId
-        if (mediaId.isBlank() || mediaId.isLocalMediaId()) return
+        if (mediaId.isBlank() || mediaId.isLocalMediaId() || index < 0) return
         val wasPlaying = player.isPlaying
         val position = player.currentPosition
         scope.launch(SilentHandler) {
             runCatching {
                 player.pause()
-                player.clearMediaItems()
-                val resolved = resolveAndCachePlaybackUrl(mediaId)
-                val replacement = item.buildUpon()
-                    .setUri(resolved.url)
-                    .build()
-                player.setMediaItem(replacement, position)
+                player.replaceMediaItem(index, item.buildUpon().setUri(mediaId).build())
+                player.seekTo(index, position)
                 player.prepare()
                 player.playWhenReady = wasPlaying
+                // The queue size is part of the contract, not decoration: a source toggle must
+                // cost the user nothing but the stream they were listening to. A regression
+                // here is invisible on screen until the next restart, so it is recorded where
+                // a shell can read it.
+                app.hush.music.spotiflac.SpotiFLACDiag.log(
+                    "source toggle: re-opened current item index=$index queueItems=${player.mediaItemCount}",
+                )
             }.onFailure { error ->
-                Timber.tag(TAG).w(error, "Failed to re-resolve current track after source toggle")
+                Timber.tag(TAG).w(error, "Failed to re-open current track after source toggle")
             }
         }
     }
@@ -3093,7 +3112,11 @@ var originalQueueSize: Int = 0
         mediaId: String,
         preferredClientOverride: PlayerStreamClient? = null,
     ): AuthScopedCacheValue {
-        val resolutionKey = "$mediaId|${preferredClientOverride?.name ?: "default"}"
+        val resolutionKey =
+            PlaybackResolutionKeys.of(
+                mediaId = mediaId,
+                preferredClientOverride = preferredClientOverride?.name,
+            )
         playbackUrlResolutionInFlight[resolutionKey]?.let { existing ->
             return existing.await()
         }
@@ -4025,6 +4048,38 @@ var originalQueueSize: Int = 0
         startPlaybackUrlPrefetch(mediaId)
         if (maxWaitMs > 0L) {
             awaitPlaybackUrlPrefetch(mediaId, maxWaitMs)
+        }
+    }
+
+    /**
+     * Stops resolving the tracks a skip has left behind.
+     *
+     * The resolve for the item being skipped away from is owned by the service IO scope, so
+     * Media3 cancelling that load does *not* stop it: the sweep keeps holding the extension
+     * runtime until its own budget expires. The track the user skipped *to* then waits behind
+     * it for that same runtime, which is why skipping during a SpotiFLAC download looked like
+     * a wedged player - the transport stayed on "fetching" for as long as the abandoned sweep
+     * had left to run. Cancelling the deferred unwinds the native attempt through the provider
+     * watchdog's "superseded" path, which already knows how to abort it.
+     *
+     * Only ids nobody is waiting for are dropped, so the item now playing and anything keyed
+     * to it survive.
+     */
+    private fun cancelAbandonedPlaybackResolutions(keepMediaIds: Set<String>) {
+        val inFlight = playbackUrlResolutionInFlight
+        if (inFlight.isEmpty()) return
+        val abandoned = PlaybackResolutionKeys.abandoned(inFlight.keys, keepMediaIds)
+        var cancelled = 0
+        for (key in abandoned) {
+            val deferred = inFlight.remove(key) ?: continue
+            deferred.cancel()
+            cancelled++
+        }
+        if (cancelled > 0) {
+            Timber.tag(TAG).i("Cancelled %d abandoned playback resolve(s)", cancelled)
+            app.hush.music.spotiflac.SpotiFLACDiag.log(
+                "abandoned resolves cancelled=$cancelled keep=${keepMediaIds.joinToString(",")}",
+            )
         }
     }
 
@@ -7756,6 +7811,17 @@ var originalQueueSize: Int = 0
         activeDownloadProgress.value = null
         lastPublishedPlaybackClient = null
 
+        // A skip or an auto-advance abandons the resolution for the track we just left. Drop
+        // it here rather than letting it finish: it would otherwise keep occupying the
+        // SpotiFLAC runtime while the track now playing tries to resolve its own stream.
+        // Queue replacement (PLAYLIST_CHANGED) is exempt - the items it brings are the ones
+        // that are about to be wanted, and they are resolving as this runs.
+        if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+            cancelAbandonedPlaybackResolutions(
+                keepMediaIds = setOfNotNull(mediaItem?.mediaId?.takeIf { it.isNotBlank() }),
+            )
+        }
+
         mediaItem?.mediaId
             ?.takeIf { it.isNotBlank() && !it.isLocalMediaId() }
             ?.let(::startPlaybackUrlPrefetch)
@@ -8591,25 +8657,88 @@ var originalQueueSize: Int = 0
                 val prefs = dataStore.data.first()
                 val persistedQueue = readPersistentObject<PersistQueue>(PERSISTENT_QUEUE_FILE)
                 val persistedPlayerState = readPersistentObject<PersistPlayerState>(PERSISTENT_PLAYER_STATE_FILE)
+                var recovered = false
+                var wantsPlayback = false
                 withContext(Dispatchers.Main) {
                     val commandsToExecute = pendingWazeCommands.toList()
                     pendingWazeCommands.clear()
+                    wantsPlayback =
+                        commandsToExecute.any { command ->
+                            TransportRecoveryPolicy.requestsPlayback(command.getStringExtra("command"))
+                        }
                     if (persistedQueue != null) {
                         restorePersistentQueue(persistedQueue, prefs)
                         persistedPlayerState?.let {
                             restorePersistentPlayerState(it, restoredQueue = true)
                         }
                     }
-                    for (command in commandsToExecute) {
-                        executeWazeCommand(command)
+                    // A file that decoded but materialised nothing (truncated, or written by a
+                    // build whose queue model has since changed) leaves the same dead timeline
+                    // as no file at all, so the player decides - not the read.
+                    if (player.mediaItemCount > 0) {
+                        for (command in commandsToExecute) {
+                            executeWazeCommand(command)
+                        }
+                        recovered = true
                     }
                 }
+                // Nothing to drive the transport with. Only a command that was asking for music
+                // may rebuild one: an empty-player "pause" or "stop" must stay a no-op rather
+                // than starting music the user did not ask for.
+                if (!recovered && wantsPlayback) recoverQueueFromHistory()
             } catch (e: Exception) {
                 Timber.tag(TAG).w(e, "Failed to restore queue for Waze command")
             } finally {
                 wazeColdStartRecoveryJob = null
             }
         }
+    }
+
+    /**
+     * Rebuilds a play queue from what the device still knows when nothing was persisted.
+     *
+     * A fresh install, a cleared data directory, or a car head unit that was reinstalled all
+     * leave no persisted queue behind. Every entry point that reaches here exists so that a
+     * transport press is never a dead button - but the only recovery was "read the persisted
+     * queue and replay it", so in exactly those cases next/previous/play did nothing at all and
+     * said nothing about it.
+     *
+     * Recently played is the only context still on the device, so that is what is rebuilt - and
+     * as a real queue, not a single track, so next/previous and the queue screen work afterwards
+     * instead of only the first song starting. The DAO hands history back newest-first, which is
+     * also the order the user left off in: the track they stopped on becomes item 0 and next
+     * walks back through the session.
+     *
+     * @return true when playback was started.
+     */
+    private suspend fun recoverQueueFromHistory(): Boolean {
+        // Blocked artists are filtered inside, for the same reason a restored queue filters them:
+        // this is a timeline the user did not build by hand.
+        val items =
+            runCatching { withContext(Dispatchers.IO) { database.historyRecoveryItems() } }
+                .onFailure { Timber.tag(TAG).w(it, "cold-start recovery: history unavailable") }
+                .getOrDefault(emptyList())
+        if (items.isEmpty()) {
+            app.hush.music.spotiflac.SpotiFLACDiag.log(
+                "cold-start recovery: no persisted queue and nothing in history to play",
+            )
+            return false
+        }
+        app.hush.music.spotiflac.SpotiFLACDiag.log(
+            "cold-start recovery: no persisted queue; playing ${items.size} recently played item(s) from ${items.first().mediaId}",
+        )
+        withContext(Dispatchers.Main) {
+            playQueue(
+                ListQueue(
+                    title = null,
+                    items = items,
+                    startIndex = 0,
+                    position = 0L,
+                ),
+                playWhenReady = true,
+            )
+        }
+        return true
     }
 
     private fun onMediaItemTransitionInternal() {

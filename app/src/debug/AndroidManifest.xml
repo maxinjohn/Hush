@@ -18,6 +18,18 @@
                 <action android:name="app.hush.music.action.WAZE_REPAIR_DEBUG" />
             </intent-filter>
         </receiver>
+
+        <!-- SpotiFLAC source verification, driven from a shell. Verification on a device whose
+             WebView is too old for Cloudflare can only be finished in a browser, so proving the
+             route needs a way in that does not involve a tap on a car screen. -->
+        <receiver
+            android:name=".spotiflac.SpotiFLACDebugReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="app.hush.music.action.SPOTIFLAC_DEBUG" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>
