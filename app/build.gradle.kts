@@ -598,88 +598,141 @@ tasks.configureEach {
 }
 
 /**
- * The text inside a function call, from its `(` to the `)` that closes it.
+ * Rejects a download that is named with a hand-written container extension, as a task action that
+ * carries only its own inputs.
  *
- * Quoted strings are skipped so a `)` inside one cannot end the call early, which matters
- * because these call sites pass file paths and titles.
+ * It cannot be written as an inline `doLast`. Every value such an action reads - the file list, the
+ * function names, the parsing helpers - is a member of the generated build script, so reading one
+ * captures the script instance, and the configuration cache cannot serialize one:
+ * `Task ':app:verifyDownloadNaming' of type 'org.gradle.api.DefaultTask': cannot serialize Gradle
+ * script object references`. CI stores the configuration cache, so the guard that protects every
+ * assemble was itself what failed the release build's reproducibility stage. Everything the action
+ * needs arrives as a parameter, and the parsing helpers are its own members, so nothing in the
+ * serialized action reaches back into the script.
  */
-private fun callBody(
-    source: String,
-    openParenIndex: Int,
-): String? {
-    var depth = 0
-    var inString = false
-    var index = openParenIndex
-    while (index < source.length) {
-        val character = source[index]
-        when {
-            inString ->
-                when (character) {
-                    '\\' -> index++
-                    '"' -> inString = false
-                }
+fun downloadNamingVerifier(sources: List<File>): Action<Task> = object : Action<Task> {
+    /**
+     * The text inside a function call, from its `(` to the `)` that closes it.
+     *
+     * Quoted strings are skipped so a `)` inside one cannot end the call early, which matters
+     * because these call sites pass file paths and titles.
+     */
+    private fun callBody(
+        source: String,
+        openParenIndex: Int,
+    ): String? {
+        var depth = 0
+        var inString = false
+        var index = openParenIndex
+        while (index < source.length) {
+            val character = source[index]
+            when {
+                inString ->
+                    when (character) {
+                        '\\' -> index++
+                        '"' -> inString = false
+                    }
 
-            character == '"' -> inString = true
-            character == '(' -> depth++
-            character == ')' -> {
-                depth--
-                if (depth == 0) return source.substring(openParenIndex + 1, index)
+                character == '"' -> inString = true
+                character == '(' -> depth++
+                character == ')' -> {
+                    depth--
+                    if (depth == 0) return source.substring(openParenIndex + 1, index)
+                }
+            }
+            index++
+        }
+        return null
+    }
+
+    /** Splits a call's arguments at its top-level commas, dropping a trailing comma's gap. */
+    private fun callArguments(body: String): List<String> {
+        val arguments = mutableListOf<String>()
+        var depth = 0
+        var inString = false
+        var start = 0
+        var index = 0
+        while (index < body.length) {
+            val character = body[index]
+            when {
+                inString ->
+                    when (character) {
+                        '\\' -> index++
+                        '"' -> inString = false
+                    }
+
+                character == '"' -> inString = true
+                character == '(' || character == '[' || character == '{' -> depth++
+                character == ')' || character == ']' || character == '}' -> depth--
+                character == ',' && depth == 0 -> {
+                    arguments += body.substring(start, index)
+                    start = index + 1
+                }
+            }
+            index++
+        }
+        arguments += body.substring(start)
+        return arguments.map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    /** The string literal this identifier is initialised with in [source], if it is one. */
+    private fun literalInitialiserOf(
+        identifier: String,
+        source: String,
+    ): String? {
+        if (!identifier.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) return null
+        val pattern =
+            Regex(
+                "(?:const\\s+)?val\\s+" + Regex.escape(identifier) +
+                    "\\s*(?::\\s*[\\w<>.?]+)?\\s*=\\s*(\"(?:[^\"\\\\]|\\\\.)*\")",
+            )
+        return pattern.find(source)?.groupValues?.get(1)
+    }
+
+    /** The 1-based line [index] falls on, so a failure names the place to look. */
+    private fun lineOf(
+        source: String,
+        index: Int,
+    ): Int = source.take(index).count { it == '\n' } + 1
+
+    override fun execute(task: Task) {
+        // Functions whose last argument becomes a file's extension.
+        val namingFunctions = listOf("claimTargetFile(", "DownloadNaming.fileName(")
+        val violations = mutableListOf<String>()
+        sources.forEach { file ->
+            val source = file.readText()
+            namingFunctions.forEach { function ->
+                var index = source.indexOf(function)
+                while (index >= 0) {
+                    // A documentation comment naming the function is not a call site.
+                    val lineStart = source.lastIndexOf('\n', (index - 1).coerceAtLeast(0)) + 1
+                    val lineEnd = source.indexOf('\n', index).takeIf { it >= 0 } ?: source.length
+                    val line = source.substring(lineStart, lineEnd).trimStart()
+                    val isComment = line.startsWith("*") || line.startsWith("//")
+                    val body = if (isComment) null else callBody(source, index + function.length - 1)
+                    val extension = body?.let { callArguments(it).lastOrNull() }
+                    if (extension != null) {
+                        val literal = extension.takeIf { it.startsWith("\"") }
+                            ?: literalInitialiserOf(extension, source)
+                        if (literal != null) {
+                            violations += "${file.path}:${lineOf(source, index)}: " +
+                                "$function is given the extension $literal directly. " +
+                                "Pass one derived from the file (DownloadNaming.extensionForFile) " +
+                                "or the served type (DownloadNaming.extensionForMimeType)."
+                        }
+                    }
+                    index = source.indexOf(function, index + function.length)
+                }
             }
         }
-        index++
-    }
-    return null
-}
-
-/** Splits a call's arguments at its top-level commas, dropping a trailing comma's gap. */
-private fun callArguments(body: String): List<String> {
-    val arguments = mutableListOf<String>()
-    var depth = 0
-    var inString = false
-    var start = 0
-    var index = 0
-    while (index < body.length) {
-        val character = body[index]
-        when {
-            inString ->
-                when (character) {
-                    '\\' -> index++
-                    '"' -> inString = false
-                }
-
-            character == '"' -> inString = true
-            character == '(' || character == '[' || character == '{' -> depth++
-            character == ')' || character == ']' || character == '}' -> depth--
-            character == ',' && depth == 0 -> {
-                arguments += body.substring(start, index)
-                start = index + 1
-            }
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "A download name may not carry a hand-written container extension:\n" +
+                    violations.joinToString("\n") { "  $it" },
+            )
         }
-        index++
     }
-    arguments += body.substring(start)
-    return arguments.map { it.trim() }.filter { it.isNotEmpty() }
 }
-
-/** The string literal this identifier is initialised with in [source], if it is one. */
-private fun literalInitialiserOf(
-    identifier: String,
-    source: String,
-): String? {
-    if (!identifier.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) return null
-    val pattern =
-        Regex(
-            "(?:const\\s+)?val\\s+" + Regex.escape(identifier) +
-                "\\s*(?::\\s*[\\w<>.?]+)?\\s*=\\s*(\"(?:[^\"\\\\]|\\\\.)*\")",
-        )
-    return pattern.find(source)?.groupValues?.get(1)
-}
-
-/** The 1-based line [index] falls on, so a failure names the place to look. */
-private fun lineOf(
-    source: String,
-    index: Int,
-): Int = source.take(index).count { it == '\n' } + 1
 
 /**
  * Rejects a download that is named with a hand-written container extension.
@@ -703,48 +756,16 @@ val verifyDownloadNaming by tasks.registering {
     description = "Fails when a download name is given a hand-written container extension"
     group = "verification"
 
-    // Functions whose last argument becomes a file's extension.
-    val namingFunctions = listOf("claimTargetFile(", "DownloadNaming.fileName(")
     val sources = fileTree("src/main/kotlin") { include("**/*.kt") }
     inputs
         .files(sources)
         .withPropertyName("downloadNamingSources")
         .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
 
-    doLast {
-        val violations = mutableListOf<String>()
-        sources.files.sorted().forEach { file ->
-            val source = file.readText()
-            namingFunctions.forEach { function ->
-                var index = source.indexOf(function)
-                while (index >= 0) {
-                    // A documentation comment naming the function is not a call site.
-                    val lineStart = source.lastIndexOf('\n', (index - 1).coerceAtLeast(0)) + 1
-                    val lineEnd = source.indexOf('\n', index).takeIf { it >= 0 } ?: source.length
-                    val line = source.substring(lineStart, lineEnd).trimStart()
-                    val isComment = line.startsWith("*") || line.startsWith("//")
-                    val body = if (isComment) null else callBody(source, index + function.length - 1)
-                    val extension = body?.let { callArguments(it).lastOrNull() }
-                    if (extension != null) {
-                        val literal = extension.takeIf { it.startsWith("\"") } ?: literalInitialiserOf(extension, source)
-                        if (literal != null) {
-                            violations += "${file.path}:${lineOf(source, index)}: " +
-                                "$function is given the extension $literal directly. " +
-                                "Pass one derived from the file (DownloadNaming.extensionForFile) " +
-                                "or the served type (DownloadNaming.extensionForMimeType)."
-                        }
-                    }
-                    index = source.indexOf(function, index + function.length)
-                }
-            }
-        }
-        if (violations.isNotEmpty()) {
-            throw GradleException(
-                "A download name may not carry a hand-written container extension:\n" +
-                    violations.joinToString("\n") { "  $it" },
-            )
-        }
-    }
+    // The action is built here, from an already-resolved file list, so what gets stored in the
+    // configuration cache is data rather than a reference to this script. Sorted, so a failure
+    // reports the same order twice.
+    doLast(downloadNamingVerifier(sources.files.sorted()))
 }
 
 // Every assemble, so the guard runs on the debug builds used locally and on the release
