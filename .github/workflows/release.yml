@@ -76,7 +76,20 @@ jobs:
             exit 0
           fi
           git commit -m "chore: sync release docs for bump workflow [skip ci]"
-          git push
+          # Two pushes minutes apart - a release branch and then main - start two of these runs,
+          # and the loser's plain `git push` is rejected as a non-fast-forward. That failed the
+          # job and left CHANGELOG.md unsynced for a documentation-only reason, so the push is
+          # retried after rebasing. Bounded, so a real conflict still fails the job.
+          for attempt in 1 2 3; do
+            if git push; then
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt); rebasing onto the remote and retrying."
+            git pull --rebase --autostash
+            sleep 5
+          done
+          echo "Could not push the regenerated docs after 3 attempts." >&2
+          exit 1
 
   reproducibility:
     needs: check-version
