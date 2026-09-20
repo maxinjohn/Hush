@@ -51,8 +51,6 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -93,6 +91,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.bush.translator.Language
 import me.bush.translator.Translator
+import app.hush.music.ui.component.HushIconButton
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.R
 import app.hush.music.ai.AiLyricsDocumentParser
 import app.hush.music.ai.AiLyricsSegment
@@ -234,7 +234,7 @@ fun LyricsMenu(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier.padding(12.dp),
             ) {
-                LoadingIndicator(modifier = Modifier.size(40.dp))
+                HushProgressSpinner(modifier = Modifier.size(40.dp))
             }
         }
     }
@@ -666,7 +666,7 @@ fun LyricsMenu(
                             shapes = ButtonDefaults.shapes(),
                         ) {
                             if (isTranslationInProgress) {
-                                LoadingIndicator(modifier = Modifier.size(18.dp))
+                                HushProgressSpinner(modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
                             }
                             Text(stringResource(R.string.translate))
@@ -935,12 +935,12 @@ private fun LyricsSearchResultHeader(
                 )
             }
             if (isSearching) {
-                LoadingIndicator(
+                HushProgressSpinner(
                     modifier = Modifier.size(menuActionIconSize()),
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
-            IconButton(
+            HushIconButton(
                 onClick = onDismiss,
                 modifier = Modifier.size(48.dp),
             ) {
@@ -1035,7 +1035,7 @@ private fun LyricsSearchResultItem(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(
+                HushIconButton(
                     onClick = onExpandedChange,
                     modifier = Modifier.size(48.dp),
                 ) {
@@ -1190,7 +1190,7 @@ private fun LyricsSearchLoadingContent() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        LoadingIndicator(modifier = Modifier.size(40.dp))
+        HushProgressSpinner(modifier = Modifier.size(40.dp))
         Text(
             text = stringResource(R.string.lyrics_searching_providers),
             style = MaterialTheme.typography.bodyMedium,
@@ -1210,7 +1210,7 @@ private fun LyricsSearchFooterLoading() {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
     ) {
-        LoadingIndicator(modifier = Modifier.size(24.dp))
+        HushProgressSpinner(modifier = Modifier.size(24.dp))
         Text(
             text = stringResource(R.string.lyrics_search_still_searching),
             style = MaterialTheme.typography.bodySmall,
@@ -1442,7 +1442,7 @@ private fun LyricsSearchInputHeader(onDismiss: () -> Unit) {
             modifier = Modifier.weight(1f),
         )
 
-        IconButton(onClick = onDismiss) {
+        HushIconButton(onClick = onDismiss) {
             Icon(
                 painter = painterResource(R.drawable.close),
                 contentDescription = stringResource(R.string.close),
@@ -1475,7 +1475,7 @@ private fun LyricsSearchTextField(
         trailingIcon =
             if (value.text.isNotEmpty()) {
                 {
-                    IconButton(onClick = { onValueChange(TextFieldValue()) }) {
+                    HushIconButton(onClick = { onValueChange(TextFieldValue()) }) {
                         Icon(
                             painter = painterResource(R.drawable.close),
                             contentDescription = stringResource(R.string.clear),

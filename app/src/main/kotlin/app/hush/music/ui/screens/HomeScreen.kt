@@ -7,6 +7,8 @@
 
 package app.hush.music.ui.screens
 
+import app.hush.music.ui.component.HushProgressSpinner
+import app.hush.music.ui.component.HushLinearLoader
 import androidx.activity.compose.BackHandler
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
@@ -29,8 +31,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -239,7 +239,7 @@ private fun HomeStatePane(
             modifier = Modifier.padding(32.dp),
         ) {
             if (showLoadingIndicator) {
-                LoadingIndicator()
+                HushProgressSpinner()
             } else {
                 iconResId?.let {
                     Icon(
@@ -343,7 +343,7 @@ private fun HomeContent(
                             key = "chip_loading_progress",
                             contentType = "chip_loading_progress",
                         ) {
-                            LinearProgressIndicator(
+                            HushLinearLoader(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
@@ -583,7 +583,7 @@ private fun HomeContent(
                                         .padding(32.dp)
                                         .animateItem(),
                             ) {
-                                LoadingIndicator()
+                                HushProgressSpinner()
                             }
                         }
                     }

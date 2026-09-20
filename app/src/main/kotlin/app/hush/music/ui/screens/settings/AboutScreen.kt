@@ -47,7 +47,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -80,6 +79,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.ui.component.HushBrandHeader
@@ -308,7 +308,7 @@ private fun AboutLoadingContent(modifier: Modifier = Modifier) {
         modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
-        LoadingIndicator(modifier = Modifier.size(40.dp))
+        HushProgressSpinner(modifier = Modifier.size(40.dp))
     }
 }
 
@@ -526,7 +526,7 @@ private fun DialogStatusContent(
         verticalArrangement = Arrangement.Center,
     ) {
         if (!showRetry) {
-            LoadingIndicator(modifier = Modifier.size(40.dp))
+            HushProgressSpinner(modifier = Modifier.size(40.dp))
         }
         Text(
             text = message,
@@ -1052,7 +1052,7 @@ private fun ContributorStatusContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (!showRetry) {
-            LoadingIndicator(modifier = Modifier.size(32.dp))
+            HushProgressSpinner(modifier = Modifier.size(32.dp))
         }
         Text(
             text = message,

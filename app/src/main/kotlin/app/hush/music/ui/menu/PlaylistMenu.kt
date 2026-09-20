@@ -26,11 +26,9 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LocalContentColor
@@ -60,6 +58,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import app.hush.music.ui.component.HushIconButton
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalDatabase
 import app.hush.music.LocalDownloadUtil
 import app.hush.music.LocalPlayerConnection
@@ -479,7 +479,7 @@ fun PlaylistMenu(
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             trailingContent = {
                 if (playlist.playlist.isEditable != true) {
-                    IconButton(
+                    HushIconButton(
                         onClick = {
                             database.query {
                                 dbPlaylist?.playlist?.toggleLike()?.let { update(it) }
@@ -788,7 +788,7 @@ fun PlaylistMenu(
                             ListItem(
                                 headlineContent = { Text(text = stringResource(R.string.downloading)) },
                                 leadingContent = {
-                                    CircularWavyProgressIndicator(
+                                    HushProgressSpinner(
                                         modifier = Modifier.size(24.dp),
                                     )
                                 },

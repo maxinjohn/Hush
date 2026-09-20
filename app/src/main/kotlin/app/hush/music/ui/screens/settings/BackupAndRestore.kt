@@ -47,7 +47,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -93,6 +92,7 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.constants.ShowSpotifyPlaylistsKey
@@ -467,7 +467,7 @@ private fun PreferenceGroupScope.spotifyAccountPreferences(
                 icon = { Icon(painterResource(R.drawable.spotify_icon), null) },
                 trailingContent = {
                     AnimatedVisibility(visible = state.isLoading) {
-                        CircularWavyProgressIndicator(
+                        HushProgressSpinner(
                             modifier = Modifier.size(28.dp),
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -503,7 +503,7 @@ private fun PreferenceGroupScope.spotifyAccountPreferences(
             icon = { SpotifyAccountIcon(avatarUrl = state.accountAvatarUrl) },
             trailingContent = {
                 AnimatedVisibility(visible = state.isLoading) {
-                    CircularWavyProgressIndicator(
+                    HushProgressSpinner(
                         modifier = Modifier.size(28.dp),
                         color = MaterialTheme.colorScheme.primary,
                     )

@@ -43,12 +43,17 @@ class SpotiFLACSourceAuthTest {
         }
     """.trimIndent()
 
-    private fun record(expiresAt: String?, secret: String? = "secret"): String = """
+    private fun record(
+        expiresAt: String?,
+        secret: String? = "secret",
+        appVersion: String? = null,
+    ): String = """
         {
           "install_id": "33894ee68f2492788d5a6fd8572e363b",
           "session_id": "sess_live",
           "session_secret": ${if (secret == null) "null" else "\"$secret\""},
           "expires_at": ${if (expiresAt == null) "null" else "\"$expiresAt\""}
+          ${if (appVersion == null) "" else ",\n          \"app_version\": \"$appVersion\""}
         }
     """.trimIndent()
 
@@ -161,6 +166,65 @@ class SpotiFLACSourceAuthTest {
         assertTrue(SpotiFLACSourceAuthState.NOT_REQUIRED.isUsable)
         assertTrue(SpotiFLACSourceAuthState.UNKNOWN.isUsable)
         assertFalse(SpotiFLACSourceAuthState.NEEDS_VERIFICATION.isUsable)
+    }
+
+    @Test
+    fun `a record minted for the version the source signs with is verified`() {
+        val bound = record("2026-09-14T00:42:10.393Z", appVersion = "deezer@1.3.5")
+        assertEquals("deezer@1.3.5", SpotiFLACSourceAuth.recordAppVersion(bound))
+        assertEquals("deezer@1.3.5", SpotiFLACSourceAuth.manifestAppVersion(gatewayManifest))
+        assertTrue(SpotiFLACSourceAuth.recordBoundToSource(bound, gatewayManifest))
+        assertEquals(
+            SpotiFLACSourceAuthState.VERIFIED,
+            SpotiFLACSourceAuth.state(gatewayManifest, bound, now),
+        )
+    }
+
+    /**
+     * The bug that made a source read as verified while every one of its requests was refused: a
+     * registry update rewrites `signedSession.appVersion`, and the gateway binds a session to the
+     * exact version that minted it - so the session the user already paid a challenge for cannot
+     * serve the updated extension, and no renewal can move it forward.
+     */
+    @Test
+    fun `a registry update that moves the source's version strands its session`() {
+        val stranded = record("2026-09-14T00:42:10.393Z", appVersion = "deezer@1.3.4")
+        // Nothing about it looks wrong on its own: id, secret and an expiry in the future.
+        assertTrue(SpotiFLACSourceAuth.recordUsable(stranded, now))
+        assertFalse(SpotiFLACSourceAuth.recordBoundToSource(stranded, gatewayManifest))
+        assertEquals(
+            SpotiFLACSourceAuthState.NEEDS_VERIFICATION,
+            SpotiFLACSourceAuth.state(gatewayManifest, stranded, now),
+        )
+        // Same extension, later build - this is exactly the amazon 2.3.8 -> 2.3.10 case.
+        assertTrue(
+            SpotiFLACSessionVault.sameExtension("amzn@2.3.8", "amzn@2.3.10"),
+        )
+    }
+
+    /**
+     * The seam the renewer calls, which has the two versions in hand rather than the JSON that
+     * carries them. Passing a version where JSON was expected parsed to "no version known" and read
+     * as a match, so a stranded session was reported as fine - the bug this pins.
+     */
+    @Test
+    fun `the binding rule works on the versions themselves`() {
+        assertTrue(SpotiFLACSourceAuth.versionsBound("amzn@2.3.8", "amzn@2.3.8"))
+        assertTrue(SpotiFLACSourceAuth.versionsBound("AMZN@2.3.8", "amzn@2.3.8"))
+        assertFalse(SpotiFLACSourceAuth.versionsBound("amzn@2.3.8", "amzn@2.3.10"))
+        assertTrue(SpotiFLACSourceAuth.versionsBound(null, "amzn@2.3.10"))
+        assertTrue(SpotiFLACSourceAuth.versionsBound("amzn@2.3.8", null))
+        assertTrue(SpotiFLACSourceAuth.versionsBound("  ", "amzn@2.3.10"))
+    }
+
+    /** A field that cannot be compared says nothing, so it must not demand a check. */
+    @Test
+    fun `an unknown minting version is never treated as a mismatch`() {
+        assertTrue(SpotiFLACSourceAuth.recordBoundToSource(record(null), gatewayManifest))
+        assertTrue(SpotiFLACSourceAuth.recordBoundToSource(record(null, appVersion = "deezer@1.3.5"), null))
+        assertNull(SpotiFLACSourceAuth.manifestAppVersion(null))
+        assertNull(SpotiFLACSourceAuth.manifestAppVersion("not json"))
+        assertNull(SpotiFLACSourceAuth.recordAppVersion("not json"))
     }
 
     @Test

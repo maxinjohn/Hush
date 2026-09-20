@@ -20,7 +20,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -51,6 +50,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -81,6 +81,7 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import app.hush.music.ui.component.hushMarquee
 import app.hush.music.R
 import app.hush.music.ui.theme.HushDesign
 import app.hush.music.ui.theme.rememberHushAccentGradient
@@ -90,6 +91,7 @@ import app.hush.music.constants.EnableHapticFeedbackKey
 import app.hush.music.constants.MiniPlayerArtworkInnerSize
 import app.hush.music.constants.MiniPlayerArtworkOuterSize
 import app.hush.music.constants.MiniPlayerHeight
+import app.hush.music.constants.PulseMatrixEnabledDefault
 import app.hush.music.constants.PulseMatrixEnabledKey
 import app.hush.music.constants.PulseMatrixThemeKey
 import app.hush.music.constants.PulseMatrixMiniPlayerKey
@@ -101,9 +103,14 @@ import app.hush.music.playback.PlayerConnection
 import app.hush.music.together.TogetherSessionState
 import app.hush.music.utils.rememberPreference
 import app.hush.music.utils.rememberEnumPreference
+import app.hush.music.utils.fetchFraction
+import app.hush.music.utils.isFetchingTrack
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.ui.player.visualizer.PulseMatrixCanvas
 import app.hush.music.ui.player.visualizer.PulseMatrixEngine
 import app.hush.music.ui.player.visualizer.PulseMatrixSettings
+import app.hush.music.ui.player.visualizer.PulseMatrixConsumerToken
+import app.hush.music.ui.player.visualizer.PulseMatrixDefaultTheme
 import app.hush.music.ui.player.visualizer.PulseMatrixTheme
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
@@ -116,9 +123,21 @@ data class MiniPlayerContentColors(
     val progressTrack: Color,
     val artworkContainer: Color,
     val artworkBorder: Color,
-    val primaryButtonContainer: Color,
+    /**
+     * Fill behind the previous/next buttons.
+     *
+     * The play/pause button is not in here: it is filled with the accent gradient, so this
+     * only ever paints a *secondary* control.
+     */
+    val secondaryButtonContainer: Color,
+    /**
+     * Icon tint for those buttons.
+     *
+     * It has to contrast with [secondaryButtonContainer], which is a faint tint rather than a
+     * filled accent circle - see [MiniPlayerTransportButton].
+     */
+    val secondaryButtonIcon: Color,
     val buttonBorder: Color,
-    val buttonIcon: Color,
     val disabledButtonIcon: Color,
     val togetherContainer: Color,
     val togetherContent: Color,
@@ -308,7 +327,7 @@ fun RowScope.MiniPlayerInfo(
                 color = colors.title,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.basicMarquee(),
+                modifier = Modifier.hushMarquee(),
             )
         }
 
@@ -325,7 +344,7 @@ fun RowScope.MiniPlayerInfo(
                 color = colors.secondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.basicMarquee(),
+                modifier = Modifier.hushMarquee(),
             )
         }
     }
@@ -351,10 +370,11 @@ private fun MiniPlayerArtwork(
                 .aspectRatio(1f),
     ) {
         if (isLoading) {
-            CircularWavyProgressIndicator(
+            // The ring around the artwork turns on its own rather than relying on the platform to
+            // animate it, which a device with animations off does not do.
+            HushProgressSpinner(
                 modifier = Modifier.fillMaxSize(),
                 color = colors.progress,
-                trackColor = colors.progressTrack,
             )
         } else {
             // While a SpotiFLAC track is still being fetched the ring shows that
@@ -383,8 +403,8 @@ private fun MiniPlayerArtwork(
                         shape = CircleShape,
                     ),
         ) {
-            val (pulseMatrixEnabled) = rememberPreference(PulseMatrixEnabledKey, false)
-            val (pulseMatrixThemeStr) = rememberPreference(PulseMatrixThemeKey, PulseMatrixTheme.AURORA.name)
+            val (pulseMatrixEnabled) = rememberPreference(PulseMatrixEnabledKey, PulseMatrixEnabledDefault)
+            val (pulseMatrixThemeStr) = rememberPreference(PulseMatrixThemeKey, PulseMatrixDefaultTheme.name)
             val pulseMatrixTheme = PulseMatrixTheme.valueOf(pulseMatrixThemeStr)
             val (pulseMatrixMiniPlayer) = rememberPreference(PulseMatrixMiniPlayerKey, true)
             val (pulseMatrixIntensityStr) = rememberPreference(PulseMatrixIntensityKey, PulseMatrixSettings.IntensityLevel.NORMAL.name)
@@ -417,7 +437,10 @@ private fun MiniPlayerArtwork(
 
             if (pulseMatrixEnabled && pulseMatrixMiniPlayer) {
                 LaunchedEffect(Unit) {
-                    var acquired = false
+                    // A token, not a counter: this effect releases only its own
+                    // registration, so overlapping with the full player during a transition
+                    // cannot stop the visualiser the other screen is still showing.
+                    var token: PulseMatrixConsumerToken? = null
                     var lastSid = 0
                     try {
                         while (true) {
@@ -425,20 +448,18 @@ private fun MiniPlayerArtwork(
                                 playerConnection.player.audioSessionId
                             } catch (_: Exception) { 0 }
                             if (sid > 0 && sid != lastSid) {
-                                if (!acquired) {
-                                    PulseMatrixEngine.acquire(sid)
-                                    acquired = true
+                                if (token == null) {
+                                    token = PulseMatrixEngine.acquire(sid)
+                                    lastSid = if (token != null) sid else 0
                                 } else {
                                     PulseMatrixEngine.changeSession(sid)
+                                    lastSid = sid
                                 }
-                                lastSid = sid
                             }
                             delay(100)
                         }
                     } finally {
-                        if (acquired) {
-                            PulseMatrixEngine.release()
-                        }
+                        token?.release()
                     }
                 }
 
@@ -467,6 +488,15 @@ private fun MiniPlayerTransportButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     isPrimary: Boolean = false,
+    /**
+     * Draw a spinner instead of the icon while this track is still being prepared.
+     *
+     * Only the play/pause button uses this. It is the button a user presses when nothing is
+     * happening yet, so it is the one that has to say "working on it" rather than showing a
+     * play glyph for a track whose audio has not arrived - which reads as a dead button, and
+     * was reported as exactly that while a SpotiFLAC track was downloading.
+     */
+    isLoading: Boolean = false,
     colors: MiniPlayerContentColors,
 ) {
     val view = LocalView.current
@@ -481,7 +511,16 @@ private fun MiniPlayerTransportButton(
         if (isPrimary) {
             Modifier.background(accentGradient, CircleShape)
         } else {
-            Modifier.background(colors.primaryButtonContainer.copy(alpha = 0.12f), CircleShape)
+            // A disabled secondary button fades its own container towards the surface, so the
+            // two states differ in the fill as well as the glyph - otherwise "off" and "on"
+            // were one shade apart and neither was readable.
+            val container =
+                if (enabled) {
+                    colors.secondaryButtonContainer
+                } else {
+                    colors.secondaryButtonContainer.copy(alpha = colors.secondaryButtonContainer.alpha * 0.4f)
+                }
+            Modifier.background(container, CircleShape)
         }
     val borderColor =
         if (enabled) {
@@ -490,10 +529,10 @@ private fun MiniPlayerTransportButton(
             colors.buttonBorder.copy(alpha = 0.12f)
         }
     val iconTint =
-        if (enabled) {
-            if (isPrimary) MaterialTheme.colorScheme.onPrimary else colors.buttonIcon
-        } else {
-            colors.disabledButtonIcon
+        when {
+            !enabled -> colors.disabledButtonIcon
+            isPrimary -> MaterialTheme.colorScheme.onPrimary
+            else -> colors.secondaryButtonIcon
         }
 
     Box(
@@ -502,12 +541,13 @@ private fun MiniPlayerTransportButton(
             Modifier
                 .then(modifier)
                 .size(if (isPrimary) 40.dp else 36.dp)
-                .clip(CircleShape)
-                .then(backgroundModifier)
-                .border(width = 0.5.dp, color = borderColor, shape = CircleShape)
+                // Press motion first: the ring is drawn in this button's own layer, and these controls
+                // are 40dp inside a 48dp touch target, so the halo's own outer edge (1.30x a 40dp box)
+                // is the only part of it that shows past the fill. Keep this above the clip.
                 .hushPressable(
                     enabled = enabled,
                     pressScale = HushDesign.ChipPressScale,
+                    haloColor = iconTint,
                     onClick = {
                     if (enableHapticFeedback) {
                         view.performHapticFeedback(
@@ -517,14 +557,28 @@ private fun MiniPlayerTransportButton(
                     }
                     onClick()
                 },
-                ),
+                )
+                .clip(CircleShape)
+                .then(backgroundModifier)
+                .border(width = 0.5.dp, color = borderColor, shape = CircleShape),
     ) {
-        Icon(
-            painter = painterResource(iconResId),
-            contentDescription = contentDescription,
-            tint = iconTint,
-            modifier = Modifier.size(if (isPrimary) 22.dp else 18.dp),
-        )
+        if (isLoading) {
+            // The full player's indicator, so the bar and the sheet cannot disagree: determinate
+            // when the runtime reports bytes moving, and turning on its own when it does not. The
+            // standard indeterminate indicator was frozen here on a device whose animation scale is
+            // off, which is what a play/pause button "stuck" for a whole download looks like.
+            FetchingIndicator(
+                modifier = Modifier.size(if (isPrimary) 22.dp else 18.dp),
+                color = iconTint,
+            )
+        } else {
+            Icon(
+                painter = painterResource(iconResId),
+                contentDescription = contentDescription,
+                tint = iconTint,
+                modifier = Modifier.size(if (isPrimary) 22.dp else 18.dp),
+            )
+        }
     }
 }
 
@@ -534,6 +588,7 @@ private fun MiniPlayerTransportControls(
     playbackState: Int,
     canSkipPrevious: Boolean,
     canSkipNext: Boolean,
+    isLoading: Boolean,
     playerConnection: PlayerConnection,
     colors: MiniPlayerContentColors,
 ) {
@@ -579,6 +634,7 @@ private fun MiniPlayerTransportControls(
                     }
                 },
                 isPrimary = true,
+                isLoading = isLoading,
                 colors = colors,
             )
         }
@@ -610,12 +666,15 @@ fun NewMiniPlayerContent(
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsStateWithLifecycle()
     val canSkipNext by playerConnection.canSkipNext.collectAsStateWithLifecycle()
     val downloadProgress by playerConnection.activeDownloadProgress.collectAsStateWithLifecycle()
-    val activeDownloadFraction =
-        downloadProgress
-            ?.takeIf { !it.fromCache && it.percent in 1..99 }
-            ?.let { it.percent / 100f }
+    // The full player's rule, "not while it is playing" included: a fetch signal that outlives the
+    // audio would leave the bar drawing a download ring over a song that is already playing.
+    val activeDownloadFraction = downloadProgress.fetchFraction(mediaMetadata?.id, isPlaying)
 
-    val rawLoading = playbackState == Player.STATE_BUFFERING
+    // The same rule the full player uses: a SpotiFLAC track is fetched before media3 has
+    // anything to buffer, so buffering alone leaves the transport looking idle during a fetch.
+    val rawLoading =
+        playbackState == Player.STATE_BUFFERING ||
+            (!isPlaying && downloadProgress.isFetchingTrack(mediaMetadata?.id))
     var isLoading by remember(mediaMetadata?.id) { mutableStateOf(rawLoading) }
     LaunchedEffect(rawLoading) {
         if (rawLoading) {
@@ -677,13 +736,21 @@ fun NewMiniPlayerContent(
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        MiniPlayerTransportControls(
-            isPlaying = isPlaying,
-            playbackState = playbackState,
-            canSkipPrevious = canSkipPrevious,
-            canSkipNext = canSkipNext,
-            playerConnection = playerConnection,
-            colors = colors,
-        )
+        // The fetch fraction the sheet already reads, handed to the bar's button: a real percentage
+        // is the only kind of progress that survives a device with its animations turned off, and
+        // the source sweep that has no percentage gets the turning arc instead.
+        CompositionLocalProvider(
+            LocalPlayerFetchFraction provides activeDownloadFraction,
+        ) {
+            MiniPlayerTransportControls(
+                isPlaying = isPlaying,
+                playbackState = playbackState,
+                canSkipPrevious = canSkipPrevious,
+                canSkipNext = canSkipNext,
+                isLoading = isLoading,
+                playerConnection = playerConnection,
+                colors = colors,
+            )
+        }
     }
 }

@@ -97,6 +97,33 @@ class PlaybackSourceInfoTest {
     }
 
     @Test
+    fun `a youtube label carrying a download is a device file, not a live stream`() {
+        // The exact shape Hush publishes when it serves a downloaded file after resolving the URL.
+        val info = PlaybackSourceLabels.parse("YouTube • Vision • downloaded")
+        assertEquals(PlaybackEngine.YOUTUBE, info.engine)
+        assertEquals("Vision", info.provider)
+        assertEquals(PlaybackDelivery.DEVICE_DOWNLOAD, info.delivery)
+        assertTrue(info.isFromDeviceFile)
+    }
+
+    @Test
+    fun `a bare download label still says the audio is on the device`() {
+        val info = PlaybackSourceLabels.parse(PlaybackSourceLabels.DOWNLOADED)
+        assertEquals(PlaybackEngine.UNKNOWN, info.engine)
+        assertNull(info.provider)
+        assertEquals(PlaybackDelivery.DEVICE_DOWNLOAD, info.delivery)
+        assertTrue(info.isFromDeviceFile)
+    }
+
+    @Test
+    fun `a provider named downloaded is still treated as the attribute`() {
+        // Guard against the split promoting "downloaded" into the provider slot, exactly like "cached".
+        val info = PlaybackSourceLabels.parse("YouTube • downloaded • Vision")
+        assertEquals("Vision", info.provider)
+        assertEquals(PlaybackDelivery.DEVICE_DOWNLOAD, info.delivery)
+    }
+
+    @Test
     fun `a provider named cached is still treated as the cache attribute`() {
         // Guard against the split accidentally promoting "cached" into the provider slot.
         val info = PlaybackSourceLabels.parse("SpotiFLAC • cached • deezer")

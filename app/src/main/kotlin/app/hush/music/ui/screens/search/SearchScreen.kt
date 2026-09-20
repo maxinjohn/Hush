@@ -12,10 +12,11 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
@@ -26,10 +27,8 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,6 +53,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -70,11 +70,12 @@ import app.hush.music.R
 import app.hush.music.extensions.togglePlayPause
 import app.hush.music.innertube.models.AlbumItem
 import app.hush.music.innertube.models.ArtistItem
+import app.hush.music.innertube.models.BrowseEndpoint
 import app.hush.music.innertube.models.SongItem
 import app.hush.music.innertube.models.WatchEndpoint
 import app.hush.music.models.toMediaMetadata
 import app.hush.music.playback.queues.YouTubeQueue
-import app.hush.music.search.SearchDiscoveryUiModel
+import app.hush.music.innertube.pages.MoodAndGenres
 import app.hush.music.ui.component.LocalMenuState
 import app.hush.music.ui.component.NavigationTitle
 import app.hush.music.ui.component.YouTubeGridItem
@@ -88,7 +89,6 @@ import app.hush.music.ui.menu.YouTubeAlbumMenu
 import app.hush.music.ui.menu.YouTubeArtistMenu
 import app.hush.music.ui.menu.YouTubeSongMenu
 import app.hush.music.ui.screens.MoodAndGenresButton
-import app.hush.music.ui.screens.MoodAndGenresButtonHeight
 import app.hush.music.viewmodels.SearchDiscoveryScreenState
 import app.hush.music.viewmodels.SearchDiscoveryTab
 import app.hush.music.viewmodels.SearchDiscoveryViewModel
@@ -103,6 +103,7 @@ fun SearchScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val lazyListState = rememberLazyListState()
+    val moodColumnCount = rememberMoodColumnCount()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val scrollToTop =
         backStackEntry
@@ -205,16 +206,13 @@ fun SearchScreen(
                                 modifier = Modifier.animateItem(),
                             )
                         }
-                        item(
-                            key = "search_explore_moods",
-                            contentType = "mood_genres_grid",
-                        ) {
-                            SearchMoodAndGenresGrid(
-                                data = currentState.data,
-                                navController = navController,
-                                modifier = Modifier.animateItem(),
-                            )
-                        }
+                        moodAndGenresRows(
+                            items = currentState.data.moodAndGenres,
+                            columnCount = moodColumnCount,
+                            onSelect = { endpoint ->
+                                navController.navigate("youtube_browse/${endpoint.browseId}?params=${endpoint.params}")
+                            },
+                        )
                     }
 
                     SearchDiscoveryTab.SUGGESTIONS -> {
@@ -339,47 +337,70 @@ private fun SearchDiscoveryTabs(
     }
 }
 
+/**
+ * How many mood/genre cards fit on one row.
+ *
+ * The rows are emitted into the surrounding [LazyColumn], so each one has to work out the same
+ * column count on its own; the window width is identical for all of them, which is what keeps
+ * the rows aligned.
+ */
 @Composable
-private fun SearchMoodAndGenresGrid(
-    data: SearchDiscoveryUiModel,
-    navController: NavController,
-    modifier: Modifier = Modifier,
-) {
-    BoxWithConstraints(
-        modifier =
-            modifier
-                .fillMaxWidth(),
-    ) {
-        val columnCount = (maxWidth.value / MoodAndGenresMinCellWidth.value).toInt().coerceAtLeast(1)
-        val rowCount = ((data.moodAndGenres.size + columnCount - 1) / columnCount).coerceAtLeast(1)
+private fun rememberMoodColumnCount(): Int {
+    val configuration = LocalConfiguration.current
+    return (configuration.screenWidthDp / MoodAndGenresMinCellWidth.value).toInt().coerceAtLeast(1)
+}
 
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = MoodAndGenresMinCellWidth),
-            contentPadding = PaddingValues(6.dp),
-            userScrollEnabled = false,
-            verticalArrangement = Arrangement.spacedBy(0.dp),
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height((MoodAndGenresButtonHeight + 12.dp) * rowCount + 12.dp),
+/**
+ * The mood/genre cards, one lazy item per row.
+ *
+ * This used to be a `LazyVerticalGrid` with `userScrollEnabled = false` inside the search
+ * LazyColumn, given an exact height for every row it would hold. Being "not scrollable" and
+ * exactly as tall as its content, the inner grid considered every card visible and built the
+ * whole set at once - fifty-odd cards, each with its own gradients and artwork request, in the
+ * frame where the search screen opens. Emitting the rows into the outer list keeps the exact
+ * same layout while only building the rows near the viewport, which is the difference that
+ * matters on a low-RAM device.
+ */
+private fun LazyListScope.moodAndGenresRows(
+    items: List<MoodAndGenres.Item>,
+    columnCount: Int,
+    onSelect: (BrowseEndpoint) -> Unit,
+) {
+    if (items.isEmpty()) return
+
+    val rows = items.chunked(columnCount)
+    rows.forEachIndexed { rowIndex, rowItems ->
+        item(
+            key = "search_explore_moods_row_$rowIndex",
+            contentType = "mood_genres_row",
         ) {
-            items(
-                items = data.moodAndGenres,
-                key = { item -> "${item.title}:${item.endpoint.browseId}:${item.endpoint.params}" },
-                contentType = { "mood_genres_item" },
-            ) { item ->
-                MoodAndGenresButton(
-                    title = item.title,
-                    stripeColor = item.stripeColor,
-                    endpoint = item.endpoint,
-                    onClick = {
-                        navController.navigate("youtube_browse/${item.endpoint.browseId}?params=${item.endpoint.params}")
-                    },
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(6.dp),
-                )
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        // Matches the padding the old grid put around its cells, so the cards
+                        // keep the same width and the same inset from the screen edge.
+                        .padding(horizontal = 6.dp)
+                        .then(if (rowIndex == 0) Modifier.padding(top = 6.dp) else Modifier)
+                        .then(if (rowIndex == rows.lastIndex) Modifier.padding(bottom = 6.dp) else Modifier)
+                        .animateItem(),
+            ) {
+                rowItems.forEach { item ->
+                    MoodAndGenresButton(
+                        title = item.title,
+                        stripeColor = item.stripeColor,
+                        endpoint = item.endpoint,
+                        onClick = { onSelect(item.endpoint) },
+                        modifier =
+                            Modifier
+                                .weight(1f)
+                                .padding(6.dp),
+                    )
+                }
+                // A short last row must not stretch its cards across the full width.
+                repeat(columnCount - rowItems.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
             }
         }
     }

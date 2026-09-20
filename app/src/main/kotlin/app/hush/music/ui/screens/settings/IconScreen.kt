@@ -49,7 +49,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.RadioButton
@@ -84,6 +83,7 @@ import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.ui.component.IconButton
@@ -511,7 +511,7 @@ private fun AppIconRow(
             },
         trailingContent = {
             if (isApplying) {
-                LoadingIndicator(modifier = Modifier.size(32.dp))
+                HushProgressSpinner(modifier = Modifier.size(32.dp))
             } else {
                 RadioButton(
                     selected = icon.isSelected,
@@ -719,7 +719,7 @@ private fun IconScreenLoading(modifier: Modifier = Modifier) {
         modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
-        LoadingIndicator(modifier = Modifier.size(48.dp))
+        HushProgressSpinner(modifier = Modifier.size(48.dp))
     }
 }
 

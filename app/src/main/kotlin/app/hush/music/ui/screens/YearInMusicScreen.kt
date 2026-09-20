@@ -47,7 +47,6 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -95,6 +94,7 @@ import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.constants.DisableBlurKey
@@ -1678,7 +1678,7 @@ private fun RecapShareButton(
                 label = "shareProgress",
             ) { generating ->
                 if (generating) {
-                    CircularWavyProgressIndicator(
+                    HushProgressSpinner(
                         modifier = Modifier.size(22.dp),
                         color = RecapCream,
                     )

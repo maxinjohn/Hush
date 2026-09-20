@@ -26,7 +26,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -53,6 +52,7 @@ import androidx.media3.common.C
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
+import app.hush.music.ui.component.HushIconButton
 import app.hush.music.R
 import app.hush.music.constants.AodAccentStyle
 import app.hush.music.constants.AodAccentStyleKey
@@ -183,7 +183,7 @@ fun AodPlayerScreen(
                 ),
     ) {
         if (showExitButton) {
-            IconButton(
+            HushIconButton(
                 onClick = onExit,
                 modifier =
                     Modifier
@@ -398,7 +398,7 @@ private fun AodControls(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        IconButton(
+        HushIconButton(
             onClick = {
                 if (enableHapticFeedback) {
                     view.performHapticFeedback(
@@ -471,7 +471,7 @@ private fun AodControls(
             }
 
             AodControlStyle.MINIMAL -> {
-                IconButton(
+                HushIconButton(
                     onClick = {
                         if (enableHapticFeedback) {
                             view.performHapticFeedback(
@@ -493,7 +493,7 @@ private fun AodControls(
             }
         }
 
-        IconButton(
+        HushIconButton(
             onClick = {
                 if (enableHapticFeedback) {
                     view.performHapticFeedback(

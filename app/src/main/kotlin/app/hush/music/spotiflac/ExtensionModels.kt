@@ -52,6 +52,33 @@ data class ExtensionSource(
         get() = types.any { it.equals("download_provider", ignoreCase = true) } ||
             category.equals("download", ignoreCase = true)
 
+    /**
+     * What this source is for, in the terms the session list describes rows with.
+     *
+     * A registry entry carries no `types` list - that lives in the extension's own manifest, readable
+     * only once the package has been extracted - so `category` and `tags` are what is known about a
+     * source before anything is downloaded. Without this the session list had no role to go on and
+     * described Apple Music and Spotify Web with the same sentence it uses for a download provider,
+     * which is exactly what made them look like sources that had lost a session rather than ones that
+     * never had one. Checked against the registries Hush reads: every download source publishes
+     * `category: "download"`, and the two that cannot download publish `"integration"` - with
+     * Apple Music carrying a `lyrics` tag and Spotify Web a plain metadata one.
+     */
+    val declaredRoles: List<String>
+        get() =
+            if (types.isNotEmpty()) {
+                types
+            } else {
+                buildList {
+                    val kind = category.orEmpty().trim()
+                    when {
+                        kind.equals("download", ignoreCase = true) -> add("download_provider")
+                        kind.isNotEmpty() -> add("metadata_provider")
+                    }
+                    if (tags.any { it.equals("lyrics", ignoreCase = true) }) add("lyrics_provider")
+                }
+            }
+
     val isSafeRegistryEntry: Boolean
         get() {
             if (!id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}"))) return false

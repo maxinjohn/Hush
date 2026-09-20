@@ -125,6 +125,17 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
     private var lastNotifyChildrenChangedAt = 0L
 
     /**
+     * When Hush last actually said what it was doing, and what we then told Waze.
+     *
+     * Together these are what let the bridge notice that the player it is mirroring has gone
+     * away: the session advertises playback, and the snapshots feeding it have stopped. See
+     * [WazePlaybackFreshnessPolicy].
+     */
+    @Volatile private var lastSnapshotAppliedAtMs = 0L
+    @Volatile private var advertisedPlaybackState = PlaybackStateCompat.STATE_NONE
+    private var snapshotFreshnessJob: kotlinx.coroutines.Job? = null
+
+    /**
      * Content fingerprint of the last queue applied to the MediaSession.
      * The app's revision counter resets when its MusicService restarts, so
      * revision comparison alone silently drops every queue update afterwards.
@@ -219,7 +230,68 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
             Log.e(TAG, "Failed to register metadata receiver", e)
         }
 
+        startSnapshotFreshnessWatchdog()
+
         Log.d(TAG, "onCreate complete - NOT starting foreground (will start when Waze connects)")
+    }
+
+    /**
+     * Drops the advertised playback once Hush has gone quiet, so Waze stops offering a pause.
+     *
+     * Idempotent and self-restarting: it keeps running for the life of the service because the
+     * condition it watches for can happen at any time (a relaunch, a crash, a head unit killing
+     * the app), and it does nothing at all until snapshots have been seen at least once.
+     */
+    private fun startSnapshotFreshnessWatchdog() {
+        if (snapshotFreshnessJob?.isActive == true) return
+        snapshotFreshnessJob =
+            serviceScope.launch {
+                while (true) {
+                    delay(WazePlaybackFreshnessPolicy.CHECK_INTERVAL_MS)
+                    val lastApplied = lastSnapshotAppliedAtMs
+                    if (lastApplied == 0L) continue
+                    val state = advertisedPlaybackState
+                    val advertising =
+                        state == PlaybackStateCompat.STATE_PLAYING ||
+                            state == PlaybackStateCompat.STATE_BUFFERING
+                    val silenceMs = SystemClock.elapsedRealtime() - lastApplied
+                    if (!WazePlaybackFreshnessPolicy.isAbandoned(silenceMs, advertising)) continue
+                    Log.w(
+                        TAG,
+                        "Hush has been silent for ${silenceMs}ms while this bridge advertised " +
+                            "state=$state - publishing PAUSED so Waze offers play again",
+                    )
+                    publishAbandonedPlayback()
+                }
+            }
+    }
+
+    /**
+     * Publishes `PAUSED` for a player that is no longer reporting, keeping the last position.
+     *
+     * Position and metadata are left alone deliberately: the track Waze is showing is still the
+     * track the user was on, and it is still resumable. Only the claim that audio is currently
+     * coming out is withdrawn - which is the one thing that was false, and the one thing Waze's
+     * transport button is drawn from.
+     */
+    private fun publishAbandonedPlayback() {
+        val session = mediaSession ?: return
+        val snapshot = latestSnapshot
+        advertisedPlaybackState = PlaybackStateCompat.STATE_PAUSED
+        pendingPlaybackState = null
+        pendingSeekPositionMs = null
+        runCatching {
+            session.setPlaybackState(
+                buildPlaybackState(
+                    state = PlaybackStateCompat.STATE_PAUSED,
+                    position = snapshot?.positionMs ?: 0L,
+                    speed = 0f,
+                    bufferedPosition = snapshot?.bufferedPositionMs ?: 0L,
+                    activeQueueItemId = snapshot?.activeQueueItemId ?: -1L,
+                    updateTimeMs = SystemClock.elapsedRealtime(),
+                ),
+            )
+        }.onFailure { Log.w(TAG, "Failed to publish the abandoned-playback state", it) }
     }
 
     override fun onBind(intent: Intent?): IBinder? {
@@ -465,6 +537,23 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         }
 
         override fun onPause() {
+            // The button Waze drew came from our advertised state, and that claim may not be one
+            // the player still backs - Hush can go quiet at any moment while we are still
+            // advertising playback. Forwarding a literal `pause` then starts Hush up only to be
+            // told to pause, which is the reported "tapping play in Waze does nothing". See
+            // [WazePlaybackFreshnessPolicy.pauseNeedsProbe].
+            val lastApplied = lastSnapshotAppliedAtMs
+            val silenceMs =
+                if (lastApplied == 0L) {
+                    Long.MAX_VALUE
+                } else {
+                    SystemClock.elapsedRealtime() - lastApplied
+                }
+            if (WazePlaybackFreshnessPolicy.pauseNeedsProbe(silenceMs)) {
+                Log.d(TAG, "onPause with nothing recent to go on (silent ${silenceMs}ms) - probing")
+                pauseAfterProbe()
+                return
+            }
             Log.d(TAG, "onPause")
             if (sendCommandToHush("pause")) {
                 publishOptimisticPlaybackState(PlaybackStateCompat.STATE_PAUSED)
@@ -627,6 +716,8 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
         latestSnapshot = snapshot
         latestSnapshotSequence = snapshot.sequenceNumber
         latestSnapshotTimestampMs = snapshot.timestampMs
+        // Hush is talking again, so the silence watchdog starts over.
+        lastSnapshotAppliedAtMs = SystemClock.elapsedRealtime()
 
         try {
             val queueFingerprint = buildQueueFingerprint(snapshot.queue)
@@ -722,6 +813,7 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
                     updateTimeMs = snapshot.timestampMs,
                 ),
             )
+            advertisedPlaybackState = resolvedState
             notificationTitle = snapshot.title
             notificationSubtitle = displaySubtitle
             updateNotification()
@@ -792,11 +884,52 @@ class WazeIntegrationService : MediaBrowserServiceCompat(), MetadataUpdateListen
     private fun playbackSpeedFor(state: Int, sourceSpeed: Float): Float =
         if (state == PlaybackStateCompat.STATE_PLAYING) sourceSpeed.takeIf { it > 0f } ?: 1f else 0f
 
+    /**
+     * Asks the player to speak before forwarding a pause that has nothing recent behind it.
+     *
+     * A sync makes Hush publish a snapshot straight away if it is alive, so the answer *is* the
+     * player's existence - and the snapshot itself says whether it is playing. Nothing arriving
+     * inside the probe window means the claim we drew the button from came from a player that is
+     * gone, so the tap is forwarded as `play` instead of `pause` (a pause would start Hush up only
+     * to silence it). Either way the user's tap does something, which is the whole point.
+     */
+    private fun pauseAfterProbe() {
+        val seenBefore = latestSnapshotSequence
+        sendSyncCommand()
+        serviceScope.launch {
+            val deadline = SystemClock.elapsedRealtime() + WazePlaybackFreshnessPolicy.PAUSE_PROBE_TIMEOUT_MS
+            while (SystemClock.elapsedRealtime() < deadline && latestSnapshotSequence <= seenBefore) {
+                delay(100L)
+            }
+            val answeredWhilePlaying =
+                latestSnapshotSequence > seenBefore && latestSnapshot?.isPlaying == true
+            val command =
+                when (WazePlaybackFreshnessPolicy.commandAfterPauseProbe(answeredWhilePlaying)) {
+                    TransportPause.PAUSE -> "pause"
+                    TransportPause.PLAY -> "play"
+                }
+            Log.i(
+                TAG,
+                "pause probe: player answered=$answeredWhilePlaying -> $command",
+            )
+            if (sendCommandToHush(command)) {
+                publishOptimisticPlaybackState(
+                    if (command == "play") {
+                        PlaybackStateCompat.STATE_PLAYING
+                    } else {
+                        PlaybackStateCompat.STATE_PAUSED
+                    },
+                )
+            }
+        }
+    }
+
     private fun publishOptimisticPlaybackState(state: Int) {
         val snapshot = latestSnapshot
         val now = SystemClock.elapsedRealtime()
         pendingPlaybackState = state
         pendingPlaybackStateAtMs = now
+        advertisedPlaybackState = state
         mediaSession?.setPlaybackState(
             buildPlaybackState(
                 state = state,

@@ -72,8 +72,8 @@ android {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 174
-        versionName = "13.14.4"
+        versionCode = 175
+        versionName = "13.14.5"
 
         ndk {
             // ABI filters are set per product flavor (arm64, universal, etc.).
@@ -768,8 +768,85 @@ val verifyDownloadNaming by tasks.registering {
     doLast(downloadNamingVerifier(sources.files.sorted()))
 }
 
+/**
+ * Reports every raw `Modifier.basicMarquee()` call outside [HushMarquee], as a task action that
+ * carries only its own inputs.
+ *
+ * `basicMarquee` defaults to three passes, so a label that is wider than its row scrolls a few
+ * times and then stops half way through the text - which reads as a broken label rather than a
+ * long one. Hush wraps it in `Modifier.hushMarquee()` (`HushMarquee.kt`), which pins the iteration
+ * count and the delays; this guard keeps call sites from drifting back to the bare default, which
+ * is a one-word edit that no compiler or lint check can see.
+ *
+ * Same shape as the download-naming verifier: the action is built from an already-resolved file
+ * list and holds no reference to the build script, so the configuration cache can serialize it.
+ */
+fun marqueeRoutingVerifier(
+    sources: List<File>,
+    root: File,
+): Action<Task> = object : Action<Task> {
+    /** The one file allowed to reach the upstream default: the wrapper itself. */
+    private val wrapperFileName = "HushMarquee.kt"
+
+    override fun execute(task: Task) {
+        val offenders =
+            sources
+                .asSequence()
+                .filter { it.name != wrapperFileName }
+                .flatMap { file ->
+                    file
+                        .readLines()
+                        .asSequence()
+                        .mapIndexedNotNull { index, line ->
+                            // A trailing comment that names the modifier is documentation, not a call.
+                            val code = line.substringBefore("//")
+                            if (code.contains("basicMarquee(")) {
+                                "${file.relativeToOrSelf(root)}" + ":${index + 1}"
+                            } else {
+                                null
+                            }
+                        }
+                }.toList()
+
+        if (offenders.isNotEmpty()) {
+            throw GradleException(
+                buildString {
+                    appendLine("These marquee call sites bypass Hush's own wrapper:")
+                    offenders.forEach { appendLine("  $it") }
+                    appendLine()
+                    appendLine("Use Modifier.hushMarquee() (app.hush.music.ui.component) instead of Modifier.basicMarquee().")
+                    append("A raw default stops after three passes, leaving a long label frozen part way through. ")
+                    append("If a genuinely different marquee is needed, change HushMarquee.kt so every label shares it.")
+                },
+            )
+        }
+    }
+}
+
+/**
+ * Rejects a raw `Modifier.basicMarquee()` call outside `HushMarquee.kt`.
+ *
+ * Measured on a car screen: the title overlay scrolled once across its own width and stopped, so a
+ * long track name was unreadable from the second screenful onward - and a phone with animation
+ * scales at 0 froze even that single pass. Routing every long label through one wrapper means the
+ * pace, the repeats and the "nothing moves when it fits" rule are decided in one place.
+ */
+val verifyMarqueeRouting by tasks.registering {
+    description = "Fails when a marquee call site bypasses Hush's own hushMarquee wrapper"
+    group = "verification"
+
+    val sources = fileTree("src/main/kotlin") { include("**/*.kt") }
+    inputs
+        .files(sources)
+        .withPropertyName("marqueeSources")
+        .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+
+    doLast(marqueeRoutingVerifier(sources.files.sorted(), projectDir))
+}
+
 // Every assemble, so the guard runs on the debug builds used locally and on the release
 // builds CI signs - the same reach the NewApi lint guard has.
 tasks.matching { it.name.startsWith("assemble") }.configureEach {
     dependsOn(verifyDownloadNaming)
+    dependsOn(verifyMarqueeRouting)
 }

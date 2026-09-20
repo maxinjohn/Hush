@@ -231,9 +231,9 @@ private fun rememberMiniPlayerContentColors(useArtworkBackground: Boolean): Mini
                 progressTrack = Color.White.copy(alpha = 0.24f),
                 artworkContainer = Color.White.copy(alpha = 0.14f),
                 artworkBorder = Color.White.copy(alpha = 0.22f),
-                primaryButtonContainer = Color.White.copy(alpha = 0.16f),
+                secondaryButtonContainer = Color.White.copy(alpha = 0.16f),
                 buttonBorder = Color.White.copy(alpha = 0.24f),
-                buttonIcon = Color.White,
+                secondaryButtonIcon = Color.White,
                 disabledButtonIcon = Color.White.copy(alpha = 0.38f),
                 togetherContainer = Color.White.copy(alpha = 0.16f),
                 togetherContent = Color.White,
@@ -246,9 +246,12 @@ private fun rememberMiniPlayerContentColors(useArtworkBackground: Boolean): Mini
                 progressTrack = colorScheme.outline.copy(alpha = 0.18f),
                 artworkContainer = colorScheme.surfaceVariant,
                 artworkBorder = colorScheme.outline.copy(alpha = 0.2f),
-                primaryButtonContainer = colorScheme.primary,
+                secondaryButtonContainer = colorScheme.primary.copy(alpha = 0.16f),
                 buttonBorder = colorScheme.primary.copy(alpha = 0.35f),
-                buttonIcon = colorScheme.onPrimary,
+                // The previous/next glyph rides on a tinted disc, not on a filled accent one, so
+                // it must not be tinted with onPrimary - on a dark theme that drew a dark glyph
+                // on a dark disc and made a live button read as a disabled one.
+                secondaryButtonIcon = colorScheme.primary,
                 disabledButtonIcon = colorScheme.onSurface.copy(alpha = 0.38f),
                 togetherContainer = colorScheme.primaryContainer,
                 togetherContent = colorScheme.onPrimaryContainer,

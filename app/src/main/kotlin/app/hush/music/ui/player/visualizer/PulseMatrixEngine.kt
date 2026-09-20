@@ -75,7 +75,12 @@ object PulseMatrixEngine {
     var currentSessionId: Int = 0
         private set
     @Volatile private var retrySessionId: Int = 0
-    @Volatile private var consumerCount = 0
+
+    /**
+     * Ownership of the visualiser. Not a counter: see [PulseMatrixConsumers] for why a
+     * screen transition needs each release to name exactly what it ends.
+     */
+    private val consumers = PulseMatrixConsumers { remaining -> onConsumerEnded(remaining) }
     private var processingScope: CoroutineScope? = null
     private var processingJob: Job? = null
 
@@ -94,8 +99,16 @@ object PulseMatrixEngine {
     @Volatile var visualizerUnavailable: Boolean = false
         private set
 
-    @Volatile private var lastAcquireTimeMs: Long = 0L
     private var releaseGraceJob: Job? = null
+
+    /**
+     * How long the capture survives with no consumer.
+     *
+     * Every release is now followed within milliseconds by the arriving screen's acquire
+     * when the user merely moves between the player and the mini player, so the gap exists
+     * to be crossed rather than to be decided on: rebuilding the Visualizer there both
+     * dropped frames and spent a platform audio effect on each transition.
+     */
     private const val RELEASE_GRACE_MS = 10000L
 
     private var rollingAvgs = FloatArray(TARGET_BANDS) { 0f }
@@ -117,18 +130,39 @@ object PulseMatrixEngine {
     private val _debugInfo = MutableStateFlow(EngineDebugInfo())
     val debugInfo: StateFlow<EngineDebugInfo> = _debugInfo.asStateFlow()
 
-    fun acquire(audioSessionId: Int): StateFlow<FloatArray> {
-        lastAcquireTimeMs = System.currentTimeMillis()
+    /**
+     * Registers a consumer and returns the token that ends this registration, or null when
+     * there is no audio session to visualise.
+     *
+     * The returned token must be released exactly once — by the same effect that acquired
+     * it — so the engine never confuses one screen's registration with another's.
+     */
+    fun acquire(audioSessionId: Int): PulseMatrixConsumerToken? {
         releaseGraceJob?.cancel()
         releaseGraceJob = null
-        dlog("acquire() called with sessionId=$audioSessionId, consumerCount=$consumerCount, currentSession=$currentSessionId")
+        dlog("acquire() called with sessionId=$audioSessionId, consumers=${consumers.count}, currentSession=$currentSessionId")
         if (audioSessionId <= 0) {
             dlog("acquire() rejected: sessionId <= 0")
-            return barHeights
+            return null
         }
-        if (!registerConsumer(audioSessionId)) {
-            dlog("acquire() rejected: registerConsumer returned false")
-            return barHeights
+        val token = consumers.register()
+        if (consumers.count == 1) {
+            if (visualizer != null && currentSessionId == audioSessionId) {
+                // The release grace period kept the capture alive for exactly this moment:
+                // minimising the player and reopening it a second later hands the very same
+                // session back, and rebuilding the Visualizer there both drops a few frames
+                // and spends a platform audio effect for nothing.
+                dlog("acquire() reusing the live visualizer on session $audioSessionId")
+                visualizerUnavailable = false
+                visualizerStartTimeMs = System.currentTimeMillis()
+            } else {
+                startVisualizer(audioSessionId)
+            }
+        } else if (currentSessionId != audioSessionId) {
+            if (BuildConfig.DEBUG) Log.w(TAG, "Session changed while consumers active: $currentSessionId -> $audioSessionId")
+            resetState()
+            stopVisualizer()
+            startVisualizer(audioSessionId)
         }
         visualizerRetryCount = 0
         if (processingScope == null) {
@@ -140,53 +174,44 @@ object PulseMatrixEngine {
                 processingLoop()
             }
         }
-        dlog( "acquire() success: consumerCount=$consumerCount, visualizer=${visualizer != null}")
-        return barHeights
+        dlog( "acquire() success: consumers=${consumers.count}, visualizer=${visualizer != null}")
+        return token
     }
 
-    private fun registerConsumer(audioSessionId: Int): Boolean {
-        if (audioSessionId <= 0) return false
-        consumerCount++
-        if (consumerCount == 1) {
-            startVisualizer(audioSessionId)
-        } else if (currentSessionId != audioSessionId) {
-            if (BuildConfig.DEBUG) Log.w(TAG, "Session changed while consumers active: $currentSessionId -> $audioSessionId")
-            resetState()
-            stopVisualizer()
-            startVisualizer(audioSessionId)
-        }
-        return true
-    }
-
-    fun release() {
-        dlog( "release() called: consumerCount=$consumerCount -> ${(consumerCount - 1).coerceAtLeast(0)}")
-        consumerCount = (consumerCount - 1).coerceAtLeast(0)
-        if (consumerCount == 0) {
-            val sinceLastAcquire = System.currentTimeMillis() - lastAcquireTimeMs
-            if (sinceLastAcquire < RELEASE_GRACE_MS) {
-                dlog("release() grace period active (${sinceLastAcquire}ms) — scheduling delayed stop")
-                if (releaseGraceJob == null) {
-                    releaseGraceJob = processingScope?.launch {
-                        delay(RELEASE_GRACE_MS)
-                        if (consumerCount == 0) {
-                            dlog("release() grace expired — stopping visualizer")
-                            stopVisualizer()
-                            resetState()
-                            _barHeights.value = FloatArray(TARGET_BANDS) { 0f }
-                        }
-                    }
-                }
-            } else {
-                dlog( "release() stopping visualizer (no consumers left)")
+    /**
+     * Called by the registry each time a registration ends. Consumers release through
+     * their own token, so this is the single place the engine learns how many are left —
+     * and therefore the only place that decides when to let the capture go.
+     */
+    private fun onConsumerEnded(remaining: Int) {
+        dlog("release() called: consumers=$remaining")
+        if (remaining > 0) return
+        dlog("release() last consumer left — holding the capture for ${RELEASE_GRACE_MS}ms")
+        if (releaseGraceJob == null) {
+            val scope = processingScope
+            if (scope == null) {
                 stopVisualizer()
                 resetState()
                 _barHeights.value = FloatArray(TARGET_BANDS) { 0f }
+                return
+            }
+            releaseGraceJob = scope.launch {
+                delay(RELEASE_GRACE_MS)
+                // Cleared on the way out so a later quiet period schedules its own stop
+                // instead of silently finding a finished job already in this field.
+                releaseGraceJob = null
+                if (consumers.isEmpty) {
+                    dlog("release() grace expired — stopping visualizer")
+                    stopVisualizer()
+                    resetState()
+                    _barHeights.value = FloatArray(TARGET_BANDS) { 0f }
+                }
             }
         }
     }
 
     fun changeSession(audioSessionId: Int) {
-        if (consumerCount > 0 && currentSessionId != audioSessionId && audioSessionId > 0) {
+        if (consumers.isNotEmpty && currentSessionId != audioSessionId && audioSessionId > 0) {
             dlog( "Session change: $currentSessionId -> $audioSessionId")
             resetState()
             stopVisualizer()
@@ -200,7 +225,7 @@ object PulseMatrixEngine {
     fun forceRelease() {
         releaseGraceJob?.cancel()
         releaseGraceJob = null
-        consumerCount = 0
+        consumers.clear()
         resetState()
         stopVisualizer()
         processingJob?.cancel()
@@ -319,6 +344,16 @@ object PulseMatrixEngine {
         }
         visualizer = null
         currentSessionId = 0
+        // Forget the captured frame as well as the capture itself. Keeping the last
+        // magnitudes after a stop made the retry branch below unreachable (`it requires
+        // lastMagnitudes == null`), so a visualiser that died for any reason — a platform
+        // effect budget, a stray stop from a screen transition, a session handover — stayed
+        // dead and the bars sat flat for the rest of the track. Clearing it here lets the
+        // loop notice and rebuild the capture instead.
+        lastMagnitudes = null
+        lastFftTimeMs = 0L
+        // 0 disarms the retry clock; a fresh attempt arms it again in startVisualizer().
+        visualizerStartTimeMs = 0L
     }
 
     private suspend fun processingLoop() {
@@ -344,7 +379,10 @@ object PulseMatrixEngine {
 
                     val timeSinceStart = now - visualizerStartTimeMs
                     val retryDelayMs = VISUALIZER_RETRY_MS * (1L shl visualizerRetryCount.coerceAtMost(4))
-                    if (visualizerStartTimeMs > 0 &&
+                    // Only rebuild while somebody is actually watching: a retry with no
+                    // consumers would hold a platform audio effect open for nobody.
+                    if (consumers.isNotEmpty &&
+                        visualizerStartTimeMs > 0 &&
                         timeSinceStart > retryDelayMs &&
                         lastMagnitudes == null &&
                         visualizerRetryCount < MAX_VISUALIZER_RETRIES

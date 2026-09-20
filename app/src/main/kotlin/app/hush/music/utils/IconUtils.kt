@@ -80,6 +80,17 @@ object IconUtils {
                 PackageManager.DONT_KILL_APP
             }
 
+        // Both aliases are already exactly as requested. This runs on every launch, and
+        // `setComponentEnabledSetting` is a package-manager write, not a cache update - on
+        // the launcher's side it can force a full reload of the app's shortcuts and icon.
+        // Rewriting an unchanged value therefore cost real work on every cold start for no
+        // effect, most noticeably on slow devices. Only an explicit, matching state lets us
+        // skip: DEFAULT (never set) still has to be resolved.
+        val alreadyApplied =
+            packageManager.getComponentEnabledSetting(dynamic) == enabledState &&
+                packageManager.getComponentEnabledSetting(static) == disabledState
+        if (alreadyApplied) return
+
         runCatching {
             packageManager.setComponentEnabledSetting(dynamic, enabledState, flags)
             packageManager.setComponentEnabledSetting(static, disabledState, flags)

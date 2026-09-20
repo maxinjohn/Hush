@@ -14,7 +14,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import app.hush.music.ui.theme.HushDesign
-import app.hush.music.ui.theme.hushPressable
+import app.hush.music.ui.component.hushTappable
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -94,10 +94,9 @@ private fun Material3SettingsItemRow(
                     .then(if (item.onClick != null) Modifier.focusable() else Modifier)
                     .then(
                         if (item.onClick != null) {
-                            Modifier.hushPressable(
-                                onClick = { item.onClick?.invoke() },
-                                pressScale = HushDesign.RowPressScale,
-                            )
+                            // Quiet on purpose: a settings row that squashes under the finger reads
+                            // as the screen moving rather than as the row responding.
+                            Modifier.hushTappable(onClick = { item.onClick?.invoke() })
                         } else {
                             Modifier
                         },

@@ -67,6 +67,29 @@ class SpotiFLAutoVerifierTest {
         assertEquals(listOf("deezer"), SpotiFLAutoVerifier.queued())
     }
 
+    /**
+     * The launch-time dialog: a background sweep that cannot finish unattended must report itself
+     * in the log and in the sources list, and must not raise the "needs verification" prompt.
+     */
+    @Test
+    fun `a background run that fails does not raise the manual notice`() {
+        SpotiFLACVerificationRequest.dismiss()
+        val id = "background-check-source"
+        SpotiFLAutoVerifier.enqueue(listOf(id), SpotiFLAutoVerifier.BACKGROUND_REASON)
+        SpotiFLAutoVerifier.finish(id, verified = false)
+        assertNull(SpotiFLACVerificationRequest.pending.value)
+    }
+
+    /** A run somebody is waiting on still asks, because otherwise playback stays parked silently. */
+    @Test
+    fun `a run started by playback still raises the manual notice when it gives up`() {
+        SpotiFLACVerificationRequest.dismiss()
+        val id = "held-track-source"
+        SpotiFLAutoVerifier.enqueue(listOf(id), "playback")
+        SpotiFLAutoVerifier.finish(id, verified = false)
+        assertEquals(id, SpotiFLACVerificationRequest.pending.value)
+    }
+
     @Test
     fun `a successful source can be enqueued again immediately`() {
         SpotiFLAutoVerifier.enqueue(listOf("deezer"), "test")
@@ -175,5 +198,55 @@ class SpotiFLAutoVerifierTest {
         assertNull(SpotiFLAutoVerifier.active.value)
         assertTrue(SpotiFLAutoVerifier.queued().isEmpty())
         assertNull(SpotiFLACVerificationRequest.pending.value)
+    }
+
+    /**
+     * The browser route may only ever be opened on a user's behalf when the user asked for it.
+     *
+     * A background prewarm that opened browser tabs by itself would be worse than the failure it
+     * was trying to remove, so the permission is granted per run and per source - never inherited
+     * by a later prewarm that happens to queue the same source.
+     */
+    @Test
+    fun `an all-sources run may open the browser, and a later prewarm may not`() {
+        SpotiFLAutoVerifier.enqueue(listOf("deezer"), "settings-verify-all", force = true, browserFallback = true)
+        assertTrue(SpotiFLAutoVerifier.allowsBrowserFallback("deezer"))
+        // A source that was not part of the run is untouched.
+        assertFalse(SpotiFLAutoVerifier.allowsBrowserFallback("qobuz-web"))
+
+        SpotiFLAutoVerifier.finish("deezer", verified = false)
+        assertFalse(SpotiFLAutoVerifier.allowsBrowserFallback("deezer"))
+
+        // The next, ordinary run for the same source carries no such permission.
+        SpotiFLAutoVerifier.enqueue(listOf("deezer"), "prewarm", force = true)
+        assertFalse(SpotiFLAutoVerifier.allowsBrowserFallback("deezer"))
+    }
+
+    /**
+     * A source already being worked on is normally left alone, but an explicit all-sources run has
+     * to reach it: the permission it grants would otherwise never be used, and the user's one tap
+     * would do nothing for the source that happened to be first.
+     */
+    @Test
+    fun `an all-sources run re-queues the source that is currently in flight`() {
+        SpotiFLAutoVerifier.enqueue(listOf("deezer", "qobuz-web"), "prewarm")
+        assertEquals("deezer", SpotiFLAutoVerifier.active.value)
+
+        SpotiFLAutoVerifier.enqueue(
+            listOf("deezer", "qobuz-web"),
+            "settings-verify-all",
+            force = true,
+            browserFallback = true,
+        )
+
+        assertTrue(SpotiFLAutoVerifier.allowsBrowserFallback("deezer"))
+        assertTrue(SpotiFLAutoVerifier.queued().contains("deezer"))
+    }
+
+    @Test
+    fun `cancelling drops a granted browser fallback`() {
+        SpotiFLAutoVerifier.enqueue(listOf("deezer"), "settings-verify-all", force = true, browserFallback = true)
+        SpotiFLAutoVerifier.cancel()
+        assertFalse(SpotiFLAutoVerifier.allowsBrowserFallback("deezer"))
     }
 }

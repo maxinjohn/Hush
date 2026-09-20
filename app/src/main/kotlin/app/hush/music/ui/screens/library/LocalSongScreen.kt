@@ -52,7 +52,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
@@ -95,6 +94,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
@@ -862,7 +862,7 @@ private fun LocalSongScanSheet(
                         horizontalArrangement = Arrangement.Center,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
                     ) {
-                        CircularWavyProgressIndicator(
+                        HushProgressSpinner(
                             modifier = Modifier.size(24.dp),
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -1130,7 +1130,7 @@ private fun LocalSongScanSheet(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         if (isScanning) {
-                            CircularWavyProgressIndicator(
+                            HushProgressSpinner(
                                 modifier = Modifier.size(20.dp),
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                             )

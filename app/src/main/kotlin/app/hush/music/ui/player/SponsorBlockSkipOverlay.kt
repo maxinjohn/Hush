@@ -6,7 +6,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -27,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import app.hush.music.ui.theme.HushDesign
+import app.hush.music.ui.theme.hushPressable
 import app.hush.music.constants.SponsorBlockAutoSkipKey
 import app.hush.music.playback.PlayerConnection
 import app.hush.music.utils.rememberPreference
@@ -97,7 +98,11 @@ private fun SponsorBlockSkipButton(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .background(Color.Black.copy(alpha = 0.75f))
-            .clickable(onClick = onSkip),
+            .hushPressable(
+                onClick = onSkip,
+                pressScale = HushDesign.ChipPressScale,
+                haloColor = Color.White,
+            ),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),

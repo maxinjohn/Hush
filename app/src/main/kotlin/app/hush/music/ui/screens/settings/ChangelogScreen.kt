@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.constants.UpdateChannel
@@ -109,7 +110,7 @@ fun ChangelogScreen(
         ) {
             when {
                 isLoading -> {
-                    CircularWavyProgressIndicator(
+                    HushProgressSpinner(
                         modifier = Modifier.align(Alignment.Center),
                     )
                 }

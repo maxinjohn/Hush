@@ -13,6 +13,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.ui.component.tvFocusBorder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,7 +46,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -78,9 +78,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import app.hush.music.R
 import app.hush.music.ui.theme.HushDesign
-import app.hush.music.ui.theme.hushPressable
-import app.hush.music.ui.theme.graphicsLayerPressScale
-import app.hush.music.ui.theme.rememberArchiveTunePressScale
+import app.hush.music.ui.component.hushTappable
 import app.hush.music.ui.theme.rememberHushAccentGradient
 
 @Composable
@@ -107,7 +105,9 @@ fun SettingsProfileHeader(
             modifier
                 .fillMaxWidth()
                 .padding(horizontal = SettingsDimensions.ScreenHorizontalPadding)
-                .hushPressable(onClick = onClick, pressScale = HushDesign.RowPressScale),
+                // Settings surfaces tap quietly: the give-and-spring belongs on the player's controls
+                // and on the list and playlist actions, not on rows and cards in Settings.
+                .hushTappable(onClick = onClick),
         shape = RoundedCornerShape(SettingsDimensions.BannerCardCornerRadius),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -135,7 +135,7 @@ fun SettingsProfileHeader(
                 contentAlignment = Alignment.Center,
             ) {
                 if (state.isLoading) {
-                    CircularWavyProgressIndicator(
+                    HushProgressSpinner(
                         modifier = Modifier.size(SettingsDimensions.BannerIconInnerSize),
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
@@ -288,7 +288,7 @@ fun SettingsUpdateBanner(
             modifier
                 .fillMaxWidth()
                 .focusable()
-                .hushPressable(onClick = onClick, pressScale = SettingsAnimations.PressScale),
+                .hushTappable(onClick = onClick),
         shape = RoundedCornerShape(SettingsDimensions.BannerCardCornerRadius),
         colors =
             CardDefaults.cardColors(
@@ -415,10 +415,8 @@ fun SettingsRow(
                 Modifier
                     .fillMaxWidth()
                     .focusable()
-                    .hushPressable(
-                        onClick = item.onClick,
-                        pressScale = HushDesign.RowPressScale,
-                    ).padding(
+                    .hushTappable(onClick = item.onClick)
+                    .padding(
                         horizontal = SettingsDimensions.RowHorizontalPadding,
                         vertical = SettingsDimensions.RowVerticalPadding,
                     ),
@@ -567,10 +565,7 @@ fun SettingsSegmentedItem(
                 .clip(shape)
                 .focusable()
                 .tvFocusBorder(shape)
-                .hushPressable(
-                    onClick = item.onClick,
-                    pressScale = SettingsAnimations.PressScale,
-                ),
+                .hushTappable(onClick = item.onClick),
         shape = shape,
         colors =
             CardDefaults.cardColors(
@@ -715,7 +710,7 @@ fun SettingsFlatItem(
         modifier =
             modifier
                 .fillMaxWidth()
-                .hushPressable(onClick = item.onClick, pressScale = HushDesign.RowPressScale),
+                .hushTappable(onClick = item.onClick),
         color = Color.Transparent,
     ) {
         Row(

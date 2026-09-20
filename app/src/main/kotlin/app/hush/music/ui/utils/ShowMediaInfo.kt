@@ -44,7 +44,6 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -53,7 +52,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -80,6 +78,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalDatabase
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
@@ -121,8 +120,8 @@ fun ShowMediaInfo(videoId: String) {
     val database = LocalDatabase.current
     val bottomSheetPageState = LocalBottomSheetPageState.current
     val playerConnection = LocalPlayerConnection.current
-    val song by database.song(videoId).collectAsState(initial = null)
-    val currentFormat by database.format(videoId).collectAsState(initial = null)
+    val song by rememberFlow(videoId) { database.song(videoId) }.collectAsState(initial = null)
+    val currentFormat by rememberFlow(videoId) { database.format(videoId) }.collectAsState(initial = null)
     var info by remember(videoId) { mutableStateOf<MediaInfo?>(null) }
     var selectedTab by rememberSaveable(videoId) { mutableStateOf(MediaInfoTab.Information) }
 
@@ -546,7 +545,7 @@ private fun MediaInfoHeroCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        CircularWavyProgressIndicator(
+                        HushProgressSpinner(
                             modifier = Modifier.size(20.dp),
                         )
                         Text(
@@ -736,7 +735,7 @@ private fun MediaInfoPendingCard(
                     .fillMaxWidth()
                     .padding(20.dp),
         ) {
-            LoadingIndicator(modifier = Modifier.size(40.dp))
+            HushProgressSpinner(modifier = Modifier.size(40.dp))
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,

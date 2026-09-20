@@ -14,7 +14,6 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,11 +30,9 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LocalContentColor
@@ -71,6 +68,9 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import app.hush.music.ui.component.HushIconButton
+import app.hush.music.ui.component.HushProgressSpinner
+import app.hush.music.ui.component.hushMarquee
 import app.hush.music.LocalDatabase
 import app.hush.music.LocalDownloadUtil
 import app.hush.music.LocalPlayerConnection
@@ -99,6 +99,8 @@ import app.hush.music.ui.component.menuActionIconSize
 import app.hush.music.ui.component.NewAction
 import app.hush.music.ui.component.NewActionGrid
 import app.hush.music.ui.utils.ShowMediaInfo
+import app.hush.music.ui.utils.rememberDownload
+import app.hush.music.ui.utils.rememberFlow
 import app.hush.music.utils.SpeedDialPin
 import app.hush.music.utils.SpeedDialPinType
 import app.hush.music.utils.joinByBullet
@@ -119,8 +121,8 @@ fun YouTubeSongMenu(
     val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current ?: return
-    val librarySong by database.song(song.id).collectAsState(initial = null)
-    val download by LocalDownloadUtil.current.getDownload(song.id).collectAsState(initial = null)
+    val librarySong by rememberFlow(song.id) { database.song(song.id) }.collectAsState(initial = null)
+    val download = rememberDownload(song.id)
     val coroutineScope = rememberCoroutineScope()
     val syncUtils = LocalSyncUtils.current
     val artists =
@@ -248,7 +250,7 @@ fun YouTubeSongMenu(
             headlineContent = {
                 Text(
                     text = song.title,
-                    modifier = Modifier.basicMarquee(),
+                    modifier = Modifier.hushMarquee(),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -281,7 +283,7 @@ fun YouTubeSongMenu(
                 }
             },
             trailingContent = {
-                IconButton(
+                HushIconButton(
                     onClick = {
                         database.transaction {
                             librarySong.let { librarySong ->
@@ -606,7 +608,7 @@ fun YouTubeSongMenu(
                             ListItem(
                                 headlineContent = { Text(text = stringResource(R.string.downloading)) },
                                 leadingContent = {
-                                    CircularWavyProgressIndicator(
+                                    HushProgressSpinner(
                                         modifier = Modifier.size(24.dp),
                                     )
                                 },

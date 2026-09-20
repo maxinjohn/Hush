@@ -19,13 +19,11 @@ class SpotiFLACMissMemoPolicyTest {
     private fun context(
         sources: List<String> = listOf("deezer", "tidal-web"),
         quality: String = "lossless",
-        session: Boolean = true,
         runtime: Boolean = true,
         usable: List<String> = sources,
     ) = SpotiFLACMissPolicy.contextFingerprint(
         enabledSourceIds = sources,
         qualityBucket = quality,
-        sessionActive = session,
         runtimeAvailable = runtime,
         usableSourceIds = usable,
     )
@@ -147,10 +145,11 @@ class SpotiFLACMissMemoPolicyTest {
     }
 
     @Test
-    fun `gaining a session or a runtime invalidates a remembered miss`() {
-        // A re-authentication is exactly the event that can make a previously failed
-        // resolve succeed, so an answer recorded without a session must not survive one.
-        assertNotEquals(context(session = false), context(session = true))
+    fun `gaining a runtime invalidates a remembered miss`() {
+        // Gaining the engine is exactly the event that can make a previously failed resolve
+        // succeed, so an answer recorded without it must not survive one. The relay session used to
+        // be an input here too; it is gone, because it can serve no source (see
+        // SpotiFLACInstallIdentity) and a value that can never change cannot distinguish anything.
         assertNotEquals(context(runtime = false), context(runtime = true))
     }
 

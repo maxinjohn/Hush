@@ -23,6 +23,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.ui.theme.hushPressable
 import app.hush.music.ui.theme.hushCombinedPressable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,7 +49,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -1028,7 +1028,7 @@ private fun HistoryStateCard(
                     .padding(horizontal = 20.dp, vertical = 24.dp),
         ) {
             if (loading) {
-                CircularWavyProgressIndicator(
+                HushProgressSpinner(
                     color = MaterialTheme.colorScheme.primary,
                 )
             }

@@ -132,11 +132,17 @@ object SpotiFLACChallengeRoute {
         return Regex("grant=?(gr_[A-Za-z0-9_-]{8,})").find(html)?.groupValues?.get(1)
     }
 
+    /**
+     * The challenge page is served by the same relay as the session, so it follows the same address
+     * and exit: a user who pointed Hush at their own relay must not have the challenge fetched from
+     * the built-in one, where their session does not exist.
+     */
     private val httpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .build()
+        SpotiFLACRelayStore.okHttp(
+            endpoint = SpotiFLACRelayStore.endpoint(),
+            readTimeoutMs = 20_000L,
+            connectTimeoutMs = 15_000L,
+        )
     }
 
     /**
@@ -154,7 +160,7 @@ object SpotiFLACChallengeRoute {
             val request = Request.Builder()
                 .url(url)
                 .header("Accept", "text/html")
-                .header("User-Agent", "SpotiFLAC-Mobile/${SpotiFLACSessionManager.APP_VERSION}")
+                .header("User-Agent", "SpotiFLAC-Mobile/${SpotiFLACInstallIdentity.APP_VERSION}")
                 .build()
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@use null

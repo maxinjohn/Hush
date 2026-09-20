@@ -51,6 +51,20 @@ class SpotifyLibraryRepository
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+        private val _isConnected = MutableStateFlow(false)
+        val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
+
+        /**
+         * Whether the stored session has been read at all.
+         *
+         * Reading it costs a DataStore round trip and possibly a token refresh, which is too much
+         * to pay on every browse of a car screen - Android Auto asks for the same folder repeatedly
+         * while the user scrolls. The answer does not change on its own, so it is read once and then
+         * kept; connecting and logging out update it directly.
+         */
+        @Volatile
+        private var sessionResolved = false
+
         suspend fun restoreCachedPlaylists() {
             withContext(Dispatchers.IO) {
                 if (_playlists.value.isNotEmpty()) return@withContext
@@ -75,7 +89,35 @@ class SpotifyLibraryRepository
             }
         }
 
+        /**
+         * Whether a Spotify account is connected, reading the stored session at most once.
+         *
+         * An unreachable account is not an error here: a car screen asking "is there a Spotify
+         * library to show" only has to be told no.
+         */
+        suspend fun ensureConnected(): Boolean {
+            if (sessionResolved) return _isConnected.value
+            return try {
+                restoreSession().isAuthenticated
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                reportException(error)
+                sessionResolved = true
+                _isConnected.value = false
+                false
+            }
+        }
+
         suspend fun restoreSession(): SpotifyAccountSession =
+            withContext(Dispatchers.IO) {
+                val session = readStoredSession()
+                sessionResolved = true
+                _isConnected.value = session.isAuthenticated
+                session
+            }
+
+        private suspend fun readStoredSession(): SpotifyAccountSession =
             withContext(Dispatchers.IO) {
                 val prefs = context.dataStore.data.first()
                 val token = prefs[SpotifyAccessTokenKey].orEmpty()
@@ -130,6 +172,8 @@ class SpotifyLibraryRepository
                 _playlists.value = emptyList()
                 _errorMessage.value = null
                 refreshAccessToken(spDc = spDc, spKey = spKey).getOrThrow()
+                _isConnected.value = true
+                sessionResolved = true
                 val prefs = context.dataStore.data.first()
                 SpotifyAccountSession(
                     isAuthenticated = true,
@@ -152,6 +196,8 @@ class SpotifyLibraryRepository
                 _playlists.value = emptyList()
                 _errorMessage.value = null
                 Spotify.accessToken = null
+                _isConnected.value = false
+                sessionResolved = true
                 runCatching { clearWebAuthSession(context) }
                     .onFailure(::reportException)
             }
@@ -219,6 +265,58 @@ class SpotifyLibraryRepository
 
                 tracks
             }
+
+        /**
+         * Adds one track to a Spotify playlist, reporting whether the account accepted it.
+         *
+         * The caller supplies the URI because only the caller knows where the track came from - a
+         * track Hush matched through YouTube has no Spotify id of its own and has to be looked up
+         * first, which is a decision about the playing track, not about the account.
+         */
+        suspend fun addTrackToPlaylist(
+            playlistId: String,
+            trackUri: String,
+        ): Boolean =
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    ensureAuthenticated()
+                    spotifyCallWithTokenRetry {
+                        Spotify
+                            .addTracksToPlaylist(playlistId = playlistId, trackUris = listOf(trackUri))
+                            .getOrThrow()
+                    }
+                }.fold(
+                    onSuccess = { true },
+                    onFailure = { error ->
+                        if (error is CancellationException) throw error
+                        reportException(error)
+                        _errorMessage.value = error.message
+                        false
+                    },
+                )
+            }
+
+        /**
+         * The Spotify URI of a track Hush is playing, or `null` when the account has no match.
+         *
+         * Used to save a track that was matched through YouTube into a Spotify playlist: without
+         * the lookup the save button would work only on tracks that arrived through Spotify.
+         */
+        suspend fun findTrackUri(
+            title: String,
+            artist: String,
+        ): String? {
+            val query = listOf(title, artist).filter { it.isNotBlank() }.joinToString(" ")
+            if (query.isBlank()) return null
+            return withContext(Dispatchers.IO) {
+                runCatching {
+                    ensureAuthenticated()
+                    spotifyCallWithTokenRetry {
+                        Spotify.search(query = query, limit = 1).getOrThrow()
+                    }
+                }.getOrNull()?.tracks?.items?.firstOrNull()?.uri?.takeIf { it.isNotBlank() }
+            }
+        }
 
         private suspend fun ensureAuthenticated() {
             val prefs = context.dataStore.data.first()

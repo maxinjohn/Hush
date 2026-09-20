@@ -42,14 +42,12 @@ import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -86,6 +84,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import app.hush.music.ui.component.HushIconButton
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalDatabase
 import app.hush.music.R
 import app.hush.music.constants.InnerTubeCookieKey
@@ -372,7 +372,7 @@ fun AddToPlaylistDialog(
                                     }
                                 }
 
-                                IconButton(
+                                HushIconButton(
                                     onClick = {
                                         if (showSearchField) {
                                             showSearchField = false
@@ -409,7 +409,7 @@ fun AddToPlaylistDialog(
                                     },
                                     trailingIcon = {
                                         if (searchQuery.isNotBlank()) {
-                                            IconButton(onClick = { searchQuery = "" }) {
+                                            HushIconButton(onClick = { searchQuery = "" }) {
                                                 Icon(
                                                     painter = painterResource(R.drawable.close),
                                                     contentDescription = stringResource(R.string.close),
@@ -676,7 +676,7 @@ fun AddToPlaylistDialog(
                                 shapes = ButtonDefaults.shapes(),
                             ) {
                                 if (isAddingToPlaylist) {
-                                    CircularWavyProgressIndicator(
+                                    HushProgressSpinner(
                                         modifier = Modifier.size(16.dp),
                                         color = MaterialTheme.colorScheme.onPrimary,
                                     )

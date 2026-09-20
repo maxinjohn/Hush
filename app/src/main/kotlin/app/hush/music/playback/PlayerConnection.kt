@@ -71,10 +71,23 @@ class PlayerConnection(
         mediaMetadata.flatMapLatest { mediaMetadata ->
             database.lyrics(mediaMetadata?.id)
         }
-    val currentFormat =
-        mediaMetadata.flatMapLatest { mediaMetadata ->
-            database.format(mediaMetadata?.id)
-        }
+    /**
+     * The codec row's format - read from the service, not from the database here.
+     *
+     * The database row is whatever engine resolved this track *last*, including in a previous
+     * session, so reading it directly drew a lossless FLAC label over a queue-restored track that had
+     * no cached file and had not been resolved at all. The service is the only place that knows what
+     * was actually served for the current item; see `MusicService.currentFormat`.
+     */
+    val currentFormat = service.currentFormat
+
+    /**
+     * The codec row with the evidence behind it, for the row that draws it.
+     *
+     * The player needs both facts from one value: a row and a provenance collected separately could
+     * be read at different moments, and then the line would name the wrong source.
+     */
+    val currentFormatRow = service.currentFormatRow
 
     val queueTitle = MutableStateFlow<String?>(null)
     val queueWindows = MutableStateFlow<List<Timeline.Window>>(emptyList())

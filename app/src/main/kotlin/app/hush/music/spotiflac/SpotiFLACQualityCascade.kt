@@ -154,9 +154,17 @@ object SpotiFLACQualityCascade {
      * The per-attempt allowance is the provider stall timeout: budgeting more than that
      * per attempt only buys time for a provider that is already being abandoned.
      */
-    fun sweepBudgetMs(sourceCount: Int, quality: String): Long {
+    fun sweepBudgetMs(
+        sourceCount: Int,
+        quality: String,
+        perAttemptMs: Long = PER_ATTEMPT_BUDGET_MS,
+    ): Long {
         val attempts = sourceCount.coerceAtLeast(1) * attemptsPerSource(quality)
-        return (attempts * PER_ATTEMPT_BUDGET_MS).coerceIn(MIN_SWEEP_BUDGET_MS, MAX_SWEEP_BUDGET_MS)
+        // Sized by the window each attempt will actually be given, because a budget sized for a
+        // shorter one cuts the chain off part-way - and the sources behind the cut were never
+        // asked, which is indistinguishable from a catalogue miss.
+        val allowance = perAttemptMs.coerceAtLeast(1L)
+        return (attempts * allowance).coerceIn(MIN_SWEEP_BUDGET_MS, MAX_SWEEP_BUDGET_MS)
     }
 
     private val QUALITY_KINDS = setOf("lossless", "lossy", "spatial")

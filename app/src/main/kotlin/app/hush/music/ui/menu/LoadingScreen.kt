@@ -9,6 +9,7 @@
 
 package app.hush.music.ui.menu
 
+import app.hush.music.ui.component.HushLinearLoader
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -80,7 +81,7 @@ fun LoadingScreen(
                         }
 
                         if (indeterminate) {
-                            LinearWavyProgressIndicator(
+                            HushLinearLoader(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()

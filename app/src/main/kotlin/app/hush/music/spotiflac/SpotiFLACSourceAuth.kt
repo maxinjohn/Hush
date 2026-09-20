@@ -150,6 +150,78 @@ object SpotiFLACSourceAuth {
         return expiry > nowMillis
     }
 
+    /** The app version a signed-session manifest signs its requests with. */
+    fun manifestAppVersion(manifestJson: String?): String? {
+        if (manifestJson.isNullOrBlank()) return null
+        return runCatching {
+            json.parseToJsonElement(manifestJson).jsonObject["signedSession"]
+                ?.jsonObject
+                ?.get("appVersion")
+                ?.jsonPrimitive
+                ?.contentOrNull
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+        }.getOrNull()
+    }
+
+    /** The app version a session record was minted under. */
+    fun recordAppVersion(recordJson: String?): String? {
+        if (recordJson.isNullOrBlank()) return null
+        return runCatching {
+            json.parseToJsonElement(recordJson).jsonObject["app_version"]
+                ?.jsonPrimitive
+                ?.contentOrNull
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+        }.getOrNull()
+    }
+
+    /**
+     * Whether a record can serve the source as it signs today.
+     *
+     * The gateway binds a session to the exact app version that minted it. Measured against the
+     * live gateway: `POST /v2/tickets` with a session minted as `amzn@2.3.8` returns 400 when signed
+     * as `amzn@2.3.8` (signature accepted) and a bare `403 {"error":"Forbidden"}` when signed as
+     * `amzn@2.3.10`, and `/v2/session/refresh` answers 403 for the same swap - so a session can
+     * never be migrated forward, only replaced by a fresh verification.
+     *
+     * A registry update rewrites `signedSession.appVersion` (amazon moved `2.3.8` -> `2.3.10`), which
+     * strands the session that was already paid for: every request the updated extension signs is
+     * refused, while the record still looks unexpired and the source was reported as verified. So a
+     * mismatch has to be treated as unverified - that is what makes the re-verification the user
+     * actually needs visible instead of a track that mysteriously fails.
+     *
+     * Anything that cannot be compared is left alone: a manifest or record with no version says
+     * nothing about binding, and inventing a failure from a missing field would demand a check for a
+     * source that is working.
+     */
+    fun recordBoundToSource(recordJson: String?, manifestJson: String?): Boolean =
+        versionsBound(recordAppVersion(recordJson), manifestAppVersion(manifestJson))
+
+    /**
+     * The binding rule itself, for a caller that already holds the two versions.
+     *
+     * Kept separate from [recordBoundToSource] so nothing has to reshape a value it has in hand
+     * into the JSON that would carry it - one caller did, and the parse of `amzn@2.3.8` failed
+     * silently into "no version known", which read as "fine" for a session that was not.
+     */
+    fun versionsBound(mintedAppVersion: String?, signsAsAppVersion: String?): Boolean {
+        val minted = mintedAppVersion?.trim().orEmpty()
+        val signsAs = signsAsAppVersion?.trim().orEmpty()
+        if (minted.isEmpty() || signsAs.isEmpty()) return true
+        return minted.equals(signsAs, ignoreCase = true)
+    }
+
+    /**
+     * Whether a record can be used by this source: present, unexpired, and bound to the version the
+     * source signs with.
+     */
+    fun recordUsable(
+        recordJson: String?,
+        manifestJson: String?,
+        nowMillis: Long,
+    ): Boolean = recordUsable(recordJson, nowMillis) && recordBoundToSource(recordJson, manifestJson)
+
     /**
      * The full classification, from the manifest plus its session record.
      *
@@ -162,7 +234,7 @@ object SpotiFLACSourceAuth {
         when (contractOf(manifestJson)) {
             Contract.UNREADABLE -> SpotiFLACSourceAuthState.UNKNOWN
             Contract.NONE -> SpotiFLACSourceAuthState.NOT_REQUIRED
-            Contract.SIGNED -> if (recordUsable(recordJson, nowMillis)) {
+            Contract.SIGNED -> if (recordUsable(recordJson, manifestJson, nowMillis)) {
                 SpotiFLACSourceAuthState.VERIFIED
             } else {
                 SpotiFLACSourceAuthState.NEEDS_VERIFICATION

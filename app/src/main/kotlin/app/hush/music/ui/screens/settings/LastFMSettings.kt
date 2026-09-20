@@ -27,7 +27,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilterChip
@@ -54,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.constants.LastFmProvider
@@ -227,7 +227,7 @@ private fun LastFmSettingsLoading() {
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CircularWavyProgressIndicator(modifier = Modifier.size(28.dp))
+        HushProgressSpinner(modifier = Modifier.size(28.dp))
         Text(
             text = stringResource(R.string.loading),
             style = MaterialTheme.typography.bodyMedium,
@@ -427,7 +427,7 @@ private fun LastFmLoginDialog(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        CircularWavyProgressIndicator(modifier = Modifier.size(24.dp))
+                        HushProgressSpinner(modifier = Modifier.size(24.dp))
                         Text(
                             text = stringResource(R.string.logging_in),
                             style = MaterialTheme.typography.bodyMedium,

@@ -29,12 +29,30 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.carousel.CarouselItemDrawInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.compose.foundation.shape.RoundedCornerShape
+import app.hush.music.LocalAnimationsDisabled
+import app.hush.music.utils.isLowRamDevice
+
+/**
+ * Whether a screen background should be drawn in its cheap form.
+ *
+ * The mesh backgrounds paint six full-screen gradients per frame. That is the most expensive
+ * thing on any of these screens, and its cost is paid on every frame of every scroll - which is
+ * exactly the wrong trade on a device Android itself reports as low-RAM (older phones, car head
+ * units) or wherever the user has already asked Hush to stop spending effort on visuals.
+ */
+@Composable
+private fun rememberLiteBackground(): Boolean {
+    val context = LocalContext.current
+    val lowRam = remember(context) { context.isLowRamDevice() }
+    return lowRam || LocalAnimationsDisabled.current
+}
 
 @Composable
 fun Modifier.hushPlayButtonBackground(
@@ -138,6 +156,7 @@ fun HushExploreBackground(
                 surface = colors.surface,
             )
         }
+    val lite = rememberLiteBackground()
 
     Box(
         modifier =
@@ -148,6 +167,23 @@ fun HushExploreBackground(
                 .drawWithCache {
                     val width = size.width
                     val height = size.height
+
+                    if (lite) {
+                        // One fill instead of six, with the same accent and the same fade out.
+                        val liteGradient =
+                            Brush.verticalGradient(
+                                colors =
+                                    listOf(
+                                        exploreColors.primary.copy(alpha = 0.26f),
+                                        exploreColors.secondary.copy(alpha = 0.14f),
+                                        exploreColors.surface.copy(alpha = 0.70f),
+                                        exploreColors.surface,
+                                    ),
+                                startY = 0f,
+                                endY = height,
+                            )
+                        return@drawWithCache onDrawBehind { drawRect(liteGradient) }
+                    }
 
                     fun blob(
                         color: Color,
@@ -310,6 +346,7 @@ fun HushAmbientBackground(
 
     val colors = rememberHushMeshColors()
     val alphaScale = intensity.coerceIn(0.35f, 1.25f)
+    val lite = rememberLiteBackground()
 
     Box(
         modifier =
@@ -320,6 +357,24 @@ fun HushAmbientBackground(
                 .drawWithCache {
                     val width = size.width
                     val height = size.height
+
+                    if (lite) {
+                        // One fill instead of six: the ambient tint and its fade, without the
+                        // five full-screen blobs that sit behind every list on this screen.
+                        val liteGradient =
+                            Brush.verticalGradient(
+                                colors =
+                                    listOf(
+                                        colors.primary.copy(alpha = 0.22f * alphaScale),
+                                        colors.tertiary.copy(alpha = 0.12f * alphaScale),
+                                        colors.surface.copy(alpha = 0.65f),
+                                        colors.surface,
+                                    ),
+                                startY = 0f,
+                                endY = height,
+                            )
+                        return@drawWithCache onDrawBehind { drawRect(liteGradient) }
+                    }
 
                     fun blob(
                         color: Color,

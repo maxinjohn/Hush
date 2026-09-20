@@ -21,6 +21,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import app.hush.music.models.MediaMetadata
 import app.hush.music.playback.PlayerConnection
+import app.hush.music.ui.utils.rememberMotionCadence
 import kotlin.math.abs
 
 private const val SeekbarSettleToleranceMs = 1_500L
@@ -50,6 +51,9 @@ fun rememberPlayerPlaybackPositionState(
     onSliderSettled: () -> Unit,
 ): PlayerPlaybackPositionState {
     val player = playerConnection.player
+    // The slider only has to look continuous. Polling it faster than the device can draw
+    // simply moves work onto the main thread for frames that are never shown.
+    val cadence = rememberMotionCadence()
     val state =
         remember(mediaMetadata?.id) {
             PlayerPlaybackPositionState(
@@ -62,7 +66,7 @@ fun rememberPlayerPlaybackPositionState(
         val startTime = SystemClock.elapsedRealtime()
         if (playbackState == STATE_READY) {
             while (isActive) {
-                delay(if (aodModeEnabled) 500L else 100L)
+                delay(if (aodModeEnabled) 500L else cadence.playbackPositionTickMs)
                 val isTransitioning = player.currentMediaItem?.mediaId != mediaMetadata?.id
                 val currentPlayerPosition = player.currentPosition
                 val currentPlayerDuration = player.duration

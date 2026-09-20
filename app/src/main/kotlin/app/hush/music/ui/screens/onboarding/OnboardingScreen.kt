@@ -46,7 +46,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.OutlinedButton
@@ -79,6 +78,7 @@ import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.common.collect.ImmutableList
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.R
 import app.hush.music.onboarding.OnboardingCommunityActionUiModel
 import app.hush.music.onboarding.OnboardingEvent
@@ -205,7 +205,7 @@ private fun LoadingContent(contentPadding: PaddingValues) {
                 .padding(contentPadding),
         contentAlignment = Alignment.Center,
     ) {
-        LoadingIndicator()
+        HushProgressSpinner()
     }
 }
 

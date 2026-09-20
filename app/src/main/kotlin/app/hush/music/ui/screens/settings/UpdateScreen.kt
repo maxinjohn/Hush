@@ -55,7 +55,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -96,6 +95,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.BuildConfig
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
@@ -664,7 +664,7 @@ fun UpdateScreen(
         AlertDialog(
             onDismissRequest = {},
             icon = {
-                LoadingIndicator(
+                HushProgressSpinner(
                     modifier = Modifier.size(24.dp),
                 )
             },
@@ -736,7 +736,7 @@ fun UpdateScreen(
                             )
                         }
                     } else {
-                        CircularWavyProgressIndicator(
+                        HushProgressSpinner(
                             modifier = indeterminateIndicatorModifier,
                         )
                     }

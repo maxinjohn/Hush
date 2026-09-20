@@ -26,6 +26,9 @@ import app.hush.music.utils.isLocalMediaId
 
 const val ExtraIsMusicVideo = "app.hush.music.extra.IS_MUSIC_VIDEO"
 
+/** Carries a track's Spotify id on its media item, so a save can name the exact track. */
+const val ExtraSpotifyTrackId = "spotify_track_id"
+
 val MediaItem.metadata: MediaMetadata?
     get() = localConfiguration?.tag as? MediaMetadata
 
@@ -112,7 +115,7 @@ fun MediaMetadata.toMediaItem() =
                 .setExtras(Bundle().apply {
                     putBoolean(ExtraIsMusicVideo, false)
                     if (!spotifyTrackId.isNullOrBlank()) {
-                        putString("spotify_track_id", spotifyTrackId)
+                        putString(ExtraSpotifyTrackId, spotifyTrackId)
                     }
                 })
                 .build(),

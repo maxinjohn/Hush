@@ -88,7 +88,8 @@ fun getAllSearchableSettings(): List<SearchableSettingEntry> =
         SearchableSettingEntry(stringResource(R.string.changelog), stringResource(R.string.about), "settings/about"),
         SearchableSettingEntry(stringResource(R.string.about_contributors), stringResource(R.string.about), "settings/about"),
         SearchableSettingEntry(stringResource(R.string.default_links), stringResource(R.string.settings_section_player_content), "settings"),
-        SearchableSettingEntry(stringResource(R.string.stream_quality), stringResource(R.string.settings_playback_title), "settings/player"),
+        // Quality is set under the YouTube switch on this screen now, not on its own page.
+        SearchableSettingEntry(stringResource(R.string.stream_quality), stringResource(R.string.settings_playback_title), "settings/player/audio_sources"),
         SearchableSettingEntry(stringResource(R.string.import_from_folder), stringResource(R.string.storage), "settings/storage"),
         SearchableSettingEntry(stringResource(R.string.import_playlist), stringResource(R.string.storage), "settings/storage"),
     )

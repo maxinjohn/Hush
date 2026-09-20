@@ -40,6 +40,7 @@ import app.hush.music.innertube.models.response.PlayerResponse
 import app.hush.music.utils.potoken.BotGuardTokenGenerator
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -302,14 +303,24 @@ object YTPlayerUtils {
         return repairedAuthState
     }
 
+    /**
+     * Whether to lead playback with WEB_REMIX instead of the user's chosen direct-URL client.
+     *
+     * [webRemixCanDecipher] is the part that is a fact about this device rather than a preference:
+     * WEB_REMIX answers with ciphered URLs, so preferring it when the decipher is known to be failing
+     * means leading every playback with a client that cannot produce a stream. See
+     * [StreamClientAvailability].
+     */
     internal fun shouldPreferWebRemixForLoggedInPlayback(
         preferredStreamClient: PlayerStreamClient,
         isLoggedIn: Boolean,
         webClientPoTokenEnabled: Boolean,
         hasPlayerPoToken: Boolean,
         hasGvsPoToken: Boolean,
+        webRemixCanDecipher: Boolean = true,
     ): Boolean =
-        preferredStreamClient == PlayerStreamClient.ANDROID_VR &&
+        webRemixCanDecipher &&
+            preferredStreamClient == PlayerStreamClient.ANDROID_VR &&
             isLoggedIn &&
             webClientPoTokenEnabled &&
             hasPlayerPoToken &&
@@ -408,12 +419,23 @@ object YTPlayerUtils {
                 webClientPoTokenEnabled = authState.webClientPoTokenEnabled,
                 hasPlayerPoToken = !authState.resolvePlayerPoToken(WEB_REMIX).isNullOrBlank(),
                 hasGvsPoToken = !authState.resolveGvsPoToken(WEB_REMIX).isNullOrBlank(),
+                webRemixCanDecipher = !StreamClientAvailability.cannotDecipher(WEB_REMIX.clientName),
             )
         ) {
             return WEB_REMIX
         }
 
-        return when (preferredStreamClient) {
+        return resolveDirectPlaybackClient(preferredStreamClient)
+    }
+
+    /**
+     * The client the user's choice maps to, without the WEB_REMIX promotion.
+     *
+     * These are the clients that ask for no Web PoToken, which is what makes them usable *now* on a
+     * cold start. See [resolveMetadataClient].
+     */
+    internal fun resolveDirectPlaybackClient(preferredStreamClient: PlayerStreamClient): YouTubeClient =
+        when (preferredStreamClient) {
             PlayerStreamClient.ANDROID_VR -> {
                 ANDROID_VR_1_65_10
             }
@@ -442,6 +464,34 @@ object YTPlayerUtils {
                 ANDROID_MUSIC
             }
         }
+
+    /**
+     * The client to fetch the metadata response with.
+     *
+     * The metadata response is fetched before anything else can happen in a resolve, and on a cold start
+     * [MAIN_CLIENT] cannot be asked for it without a Web PoToken - which is minted by a WebView bootstrap
+     * that, measured on the reporting device, takes 8.6s from app start (`Page loaded` 19.898, `Minter
+     * ready` 28.460). Waiting for it put the whole of that bootstrap in front of the first track of every
+     * session, for a response the direct-URL clients - the ones that actually serve the stream on this
+     * device - answer without any token at all.
+     *
+     * So when the token is not ready, the metadata comes from the user's own direct client instead. A
+     * track that genuinely needs the web client is not lost by this: the sweep that follows fails, and
+     * the resolve retry (see [StreamSweepPolicy]) runs again once the bootstrap has finished, this time
+     * with the token in hand.
+     */
+    internal fun resolveMetadataClient(
+        preferredStreamClient: PlayerStreamClient,
+        webPoTokenReady: Boolean,
+    ): YouTubeClient {
+        // With the token in hand nothing changes: the metadata client is [MAIN_CLIENT], as it always
+        // was, whatever the user's stream client is.
+        if (webPoTokenReady) return MAIN_CLIENT
+
+        val direct = resolveDirectPlaybackClient(preferredStreamClient)
+        // No token-free client to offer (the user picked a web client): [MAIN_CLIENT] is then the only
+        // one that can answer, so waiting for the token is unavoidable.
+        return direct.takeUnless { it.useWebPoTokens } ?: MAIN_CLIENT
     }
 
     internal fun buildStreamClientOrder(
@@ -461,18 +511,42 @@ object YTPlayerUtils {
                 STREAM_FALLBACK_CLIENTS.toList()
             }
 
-        return buildList {
-            lastSuccessfulClient?.let { add(it) }
-            if (authState.hasPlaybackLoginContext && hasCompleteWebPlaybackPoToken(authState)) {
-                add(WEB_REMIX)
-            }
-            add(preferredYouTubeClient)
-            addAll(orderedFallbackClients)
-            if (preferredYouTubeClient != MAIN_CLIENT) add(MAIN_CLIENT)
-            if (preferredStreamClient == PlayerStreamClient.WEB_REMIX) {
-                addAll(STREAM_FALLBACK_CLIENTS)
-            }
-        }.distinct()
+        val composed =
+            buildList {
+                lastSuccessfulClient?.let { add(it) }
+                if (authState.hasPlaybackLoginContext && hasCompleteWebPlaybackPoToken(authState)) {
+                    add(WEB_REMIX)
+                }
+                add(preferredYouTubeClient)
+                addAll(orderedFallbackClients)
+                if (preferredYouTubeClient != MAIN_CLIENT) add(MAIN_CLIENT)
+                if (preferredStreamClient == PlayerStreamClient.WEB_REMIX) {
+                    addAll(STREAM_FALLBACK_CLIENTS)
+                }
+            }.distinct()
+
+        // A client this device cannot get a stream out of goes to the back of the sweep rather than the
+        // front of it: either its candidates can never be turned into a URL (a cipher this device
+        // cannot undo) or it is refusing the address outright, and every request spent on one is a
+        // request YouTube can hold against the address. Neither mark drops the client from the sweep.
+        val unavailable = StreamClientAvailability.unavailableFamilies()
+        val ordered =
+            StreamClientAvailability.preferAnswering(
+                clients = composed,
+                unavailable = unavailable,
+                key = { StreamClientAvailability.keyOf(it) },
+            )
+        if (unavailable.isNotEmpty()) {
+            // Saying which clients were pushed back, and to where, is what makes the savings measurable
+            // instead of assumed: the sweep stops at the first client that answers, so the tail is the
+            // part that is no longer paid for.
+            Timber.tag(logTag).d(
+                "Client sweep order: %s (deferred to the back: %s)",
+                ordered.joinToString(" > ") { StreamClientAvailability.keyOf(it) },
+                unavailable.joinToString(),
+            )
+        }
+        return ordered
     }
 
     data class PlaybackData(
@@ -555,28 +629,16 @@ suspend fun playerResponseForPlayback(
 
         var lastError: Throwable? = null
         var didRefreshIpRotationAfterBotDetection = false
-        for (attempt in attempts) {
-            val attemptResult =
-                runCatching {
-                    playerResponseForPlaybackOnce(
-                        videoId = videoId,
-                        playlistId = playlistId,
-                        audioQuality = attempt,
-                        connectivityManager = connectivityManager,
-                        preferredStreamClient = preferredStreamClient,
-                        networkMetered = networkMetered,
-                        fastResolution = fastResolution,
-                    )
-                }
-            if (attemptResult.isSuccess) return attemptResult.getOrThrow()
-            lastError = attemptResult.exceptionOrNull()
-            if (
-                !didRefreshIpRotationAfterBotDetection &&
-                lastError is BotDetectionPlaybackException &&
-                refreshIpRotationForBotDetection(videoId, lastError)
-            ) {
-                didRefreshIpRotationAfterBotDetection = true
-                val rotatedAttemptResult =
+        var addressRetries = 0
+
+        while (true) {
+            // A retry after an address refusal asks only for the quality that was wanted. A challenge is
+            // about the address, not the bitrate, so re-walking the quality cascade would just multiply
+            // the requests that keep the challenge alive.
+            val attemptQualities = if (addressRetries == 0) attempts else listOf(attempts.first())
+
+            for (attempt in attemptQualities) {
+                val attemptResult =
                     runCatching {
                         playerResponseForPlaybackOnce(
                             videoId = videoId,
@@ -588,11 +650,48 @@ suspend fun playerResponseForPlayback(
                             fastResolution = fastResolution,
                         )
                     }
-                if (rotatedAttemptResult.isSuccess) return rotatedAttemptResult.getOrThrow()
-                lastError = rotatedAttemptResult.exceptionOrNull()
+                if (attemptResult.isSuccess) return attemptResult.getOrThrow()
+                lastError = attemptResult.exceptionOrNull()
+                if (
+                    !didRefreshIpRotationAfterBotDetection &&
+                    lastError is BotDetectionPlaybackException &&
+                    refreshIpRotationForBotDetection(videoId, lastError)
+                ) {
+                    didRefreshIpRotationAfterBotDetection = true
+                    val rotatedAttemptResult =
+                        runCatching {
+                            playerResponseForPlaybackOnce(
+                                videoId = videoId,
+                                playlistId = playlistId,
+                                audioQuality = attempt,
+                                connectivityManager = connectivityManager,
+                                preferredStreamClient = preferredStreamClient,
+                                networkMetered = networkMetered,
+                                fastResolution = fastResolution,
+                            )
+                        }
+                    if (rotatedAttemptResult.isSuccess) return rotatedAttemptResult.getOrThrow()
+                    lastError = rotatedAttemptResult.exceptionOrNull()
+                }
             }
+
+            val error = lastError ?: IllegalStateException("Failed to resolve stream")
+            val challenged = error as? StreamAddressChallengedException
+            val retryDelayMs =
+                challenged?.let { StreamSweepPolicy.retryDelayMs(addressRetries + 1) }
+            if (retryDelayMs == null) throw error
+
+            addressRetries++
+            Timber.tag(logTag).w(
+                "Resolution for %s was refused by the address itself (%s) - retrying in %d ms (attempt %d/%d)",
+                videoId,
+                challenged.clientFamilies.joinToString(),
+                retryDelayMs,
+                addressRetries,
+                StreamSweepPolicy.MAX_ADDRESS_RETRIES,
+            )
+            delay(retryDelayMs)
         }
-        throw lastError ?: IllegalStateException("Failed to resolve stream")
     }
 
     suspend fun playerResponseForDownload(
@@ -725,7 +824,22 @@ suspend fun playerResponseForPlayback(
             )
         }
 
-        val metadataClient = MAIN_CLIENT
+        val webPoTokenReady = sessionId != null && BotGuardTokenGenerator.isReady(sessionId)
+        val metadataClient =
+            resolveMetadataClient(
+                preferredStreamClient = preferredStreamClient,
+                webPoTokenReady = webPoTokenReady,
+            )
+        if (metadataClient != MAIN_CLIENT) {
+            Timber.tag(logTag).i(
+                "Fetching metadata with %s for %s instead of %s (%s) - the BotGuard bootstrap is not " +
+                    "worth blocking the first track on",
+                metadataClient.clientName,
+                videoId,
+                MAIN_CLIENT.clientName,
+                sessionId?.let { BotGuardTokenGenerator.readinessDetail(it) } ?: "no session",
+            )
+        }
 
         Timber.tag(logTag).i("Fetching metadata response using client: ${metadataClient.clientName}")
 
@@ -849,6 +963,17 @@ suspend fun playerResponseForPlayback(
             }
 
         val botDetectedClients = mutableSetOf<String>()
+
+        /** Clients whose candidates could not be turned into a URL because the decipher failed. */
+        val undecipherableClients = mutableSetOf<String>()
+
+        /**
+         * Families refused by the address itself, not by the track.
+         *
+         * This is the evidence that separates "the track is gone" from "this address is being
+         * challenged", and only the second is worth asking again for.
+         */
+        val gatedFamilies = mutableSetOf<String>()
         var gateFailure: PlaybackGateFailure? = null
 
         fun authMode(): String =
@@ -898,7 +1023,7 @@ suspend fun playerResponseForPlayback(
             var playabilityStatus = streamPlayerResponse.playabilityStatus
             if (playabilityStatus.status != "OK") {
                 var reason = playabilityStatus.reason.orEmpty()
-                var isLoginRecovery = isLoginRecoveryError(reason)
+                var isLoginRecovery = isLoginRecoveryError(playabilityStatus.status, reason)
                 var isBotDetection = isBotDetectionError(reason)
 
                 if (isBotDetection && !didRepairAuthAfterBotDetection) {
@@ -938,7 +1063,7 @@ suspend fun playerResponseForPlayback(
 
                         playabilityStatus = streamPlayerResponse.playabilityStatus
                         reason = playabilityStatus.reason.orEmpty()
-                        isLoginRecovery = isLoginRecoveryError(reason)
+                        isLoginRecovery = isLoginRecoveryError(playabilityStatus.status, reason)
                         isBotDetection = isBotDetectionError(reason)
                     }
                 }
@@ -976,6 +1101,13 @@ suspend fun playerResponseForPlayback(
                     } else if (isBotDetection) {
                         botDetectedClients.add(describeClient(client))
                     }
+                    if (isLoginRecovery || isBotDetection) {
+                        gatedFamilies.add(StreamClientAvailability.keyOf(client.clientName))
+                        // Remembered so the next sweeps stop spending a request on a family that is being
+                        // refused from here. Unlike a decipher failure this is often momentary, so the
+                        // mark is short and a client that answers again is used again immediately.
+                        StreamClientAvailability.markRefused(client.clientName)
+                    }
                     continue
                 }
             }
@@ -992,6 +1124,7 @@ suspend fun playerResponseForPlayback(
 
             var selectedFormat: PlayerResponse.StreamingData.Format? = null
             var selectedUrl: String? = null
+            var reportedCipheredSkip = false
 
             for (candidate in candidates) {
                 // A preview/sample stream is a truncated stub (~30s) that YouTube revokes
@@ -1007,6 +1140,24 @@ suspend fun playerResponseForPlayback(
                     continue
                 }
                 if (shouldSkipCipheredWebCandidate(client, candidate, authState)) continue
+                // A ciphered candidate has to be deciphered before it can be played, and this device has
+                // already shown it cannot: every candidate in a ciphered response goes through the same
+                // extractor, so paying a decipher attempt per format buys nothing but seconds. Measured
+                // on the reporting device, four to five such attempts (~2s each) were most of a cold
+                // start's first track, all of them for a client whose whole response was ciphered.
+                if (isCipheredFormat(candidate) && !StreamClientAvailability.canDecipher()) {
+                    // Only the ciphered candidates are passed over: a response may hold direct-URL formats
+                    // too, and those are exactly the ones that can still be played here.
+                    if (!reportedCipheredSkip) {
+                        reportedCipheredSkip = true
+                        Timber.tag(logTag).w(
+                            "Skipping ciphered formats of %s for %s: this device cannot decipher them right now",
+                            describeClient(client),
+                            videoId,
+                        )
+                    }
+                    continue
+                }
                 val cacheKey = buildStreamCacheKey(videoId, candidate.itag, client, authState.fingerprint)
                 val cached = streamUrlCache[cacheKey]
                 val candidateUrl =
@@ -1021,6 +1172,9 @@ suspend fun playerResponseForPlayback(
             }
 
             if (selectedFormat == null || selectedUrl == null) {
+                if (StreamClientAvailability.cannotDecipher(client.clientName)) {
+                    undecipherableClients.add(describeClient(client))
+                }
                 Timber.tag(logTag).w(
                     "No playable stream candidate resolved for %s at quality %s after checking %d formats",
                     describeClient(client),
@@ -1071,14 +1225,19 @@ suspend fun playerResponseForPlayback(
         }
 
         if (streamPlayerResponse == null) {
+            // "All clients failed" hides the two facts that explain it here: a ciphered answer is not a
+            // refusal, it is an answer this device cannot undo, and an address-level refusal is not a
+            // verdict on the track. Naming both is the difference between an extractor problem, a
+            // challenged address and a track that is genuinely gone.
+            if (undecipherableClients.isNotEmpty()) {
+                Timber.tag(logTag).w(
+                    "No client produced a stream: this device cannot decipher YouTube's player JavaScript, " +
+                        "so the ciphered clients could not answer ($undecipherableClients)",
+                )
+            }
             gateFailure?.let { failure ->
                 Timber.tag(logTag).w(
                     "Playback requires login recovery for $videoId via ${failure.clientName} (${failure.status}): ${failure.reason.orEmpty()}",
-                )
-                throw LoginRequiredForPlaybackException(
-                    videoId = videoId,
-                    targetUrl = "https://music.youtube.com/watch?v=$videoId",
-                    reason = failure.reason,
                 )
             }
             if (botDetectedClients.isNotEmpty()) {
@@ -1088,13 +1247,38 @@ suspend fun playerResponseForPlayback(
                     clients = botDetectedClients.toSet(),
                 )
             }
+
+            val fallbackError: Throwable =
+                when {
+                    gateFailure != null ->
+                        LoginRequiredForPlaybackException(
+                            videoId = videoId,
+                            targetUrl = "https://music.youtube.com/watch?v=$videoId",
+                            reason = gateFailure?.reason,
+                        )
+
+                    else -> BadStreamPlayerResponseException(videoId)
+                }
+
+            if (StreamSweepPolicy.outcome(gatedFamilies = gatedFamilies) == StreamSweepOutcome.ADDRESS_CHALLENGED) {
+                // The refusal was aimed at where the request came from, and those lift: the same probe
+                // that was challenged here answered fully minutes later. Throwing the final exception
+                // now would abandon a track that a retry plays, so the retry is the caller's decision
+                // and the eventual failure is carried along unchanged.
+                throw StreamAddressChallengedException(
+                    videoId = videoId,
+                    clientFamilies = gatedFamilies.toSet(),
+                    underlying = fallbackError,
+                )
+            }
+
             Timber.tag(logTag).e("Bad stream player response - all clients failed")
-            throw BadStreamPlayerResponseException(videoId)
+            throw fallbackError
         }
 
         if (streamPlayerResponse.playabilityStatus.status != "OK") {
             val errorReason = streamPlayerResponse.playabilityStatus.reason
-            if (isLoginRecoveryError(errorReason.orEmpty())) {
+            if (isLoginRecoveryError(streamPlayerResponse.playabilityStatus.status, errorReason.orEmpty())) {
                 Timber.tag(logTag).w("Playback requires login recovery for $videoId: $errorReason")
                 throw LoginRequiredForPlaybackException(
                     videoId = videoId,
@@ -1561,6 +1745,18 @@ suspend fun playerResponseForPlayback(
                 .onSuccess { Timber.tag(logTag).i("Stream URL obtained successfully") }
                 .onFailure {
                     if (it.isJavaScriptPlayerExtractorFailure()) {
+                        // This client's formats are ciphered and this device cannot undo them, so
+                        // asking it first next time only costs a wasted request. Remember the
+                        // family and defer it; it stays in the sweep, later.
+                        StreamClientAvailability.markDecipherUnavailable()
+                        if (client != null) {
+                            StreamClientAvailability.markCannotDecipher(client.clientName)
+                            Timber.tag(logTag).w(
+                                "%s needs signature decipher, which this device cannot do - deferring it for %d min",
+                                describeClient(client),
+                                StreamClientAvailability.CANNOT_DECIPHER_TTL_MS / 60_000L,
+                            )
+                        }
                         Timber.tag(logTag).w(it, "Skipping stream candidate because YouTube JavaScript decipher failed")
                     } else {
                         Timber.tag(logTag).e(it, "Failed to get stream URL")
@@ -1658,7 +1854,29 @@ suspend fun playerResponseForPlayback(
             "verify" in lower && "human" in lower
     }
 
-    private fun isLoginRecoveryError(reason: String): Boolean {
+    /**
+     * Whether this refusal is one that signing in (or confirming in YouTube Music) can clear.
+     *
+     * The *status code* is what decides it, and leaving that out is exactly the bug this fixes:
+     * measured on the reporting device, every client was refused for a track - the music clients with
+     * `LOGIN_REQUIRED` / "Please sign in", the web ones with `UNPLAYABLE` / "Video unavailable" - and
+     * not one of the age-related phrases below matched, so the sweep ended as
+     * [BadStreamPlayerResponseException] and the player told the user "No stream available" about a
+     * track YouTube was asking to have them signed in for. The message hid the one action that could
+     * have fixed it, and the track looked broken rather than gated.
+     *
+     * The phrase list is kept for the refusals that arrive with a status of their own (`UNPLAYABLE`
+     * with "Sign in to confirm your age" is the common one); the status check is what catches the rest.
+     */
+    internal fun isLoginRecoveryError(
+        status: String,
+        reason: String,
+    ): Boolean {
+        // Answered first, so the rule is total: a response that came back OK is playable whatever its
+        // reason field happens to say, and the callers check the status before asking - but a predicate
+        // that depends on being asked in the right order is one refactor away from misreporting.
+        if (status.equals("OK", ignoreCase = true)) return false
+        if (status.equals("LOGIN_REQUIRED", ignoreCase = true)) return true
         val lower = reason.lowercase(Locale.US)
         return "confirm your age" in lower ||
             "age-restricted" in lower ||
@@ -1666,7 +1884,9 @@ suspend fun playerResponseForPlayback(
             "inappropriate for some users" in lower ||
             "mature audiences" in lower ||
             "adult" in lower && "sign in" in lower ||
-            "allow" in lower && "youtube music" in lower
+            "allow" in lower && "youtube music" in lower ||
+            "please sign in" in lower ||
+            "sign in to continue" in lower
     }
 
     fun isBotDetectionException(error: PlaybackException): Boolean {

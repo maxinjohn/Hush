@@ -20,8 +20,11 @@ enum class PlaybackEngine {
  * This is the distinction the player has to make explicit, because three very different
  * situations were all readable as "on the device":
  *
- *  - [DEVICE_CACHE] — a SpotiFLAC file that was already on disk; nothing was fetched for
- *    this play, and it would still play with the network off.
+ *  - [DEVICE_CACHE] — bytes already on disk that this play fetched nothing for: a SpotiFLAC
+ *    file. It would still play with the network off.
+ *  - [DEVICE_DOWNLOAD] — the user's own download, which is a file they asked the app to keep.
+ *    Kept apart from [DEVICE_CACHE] because "the app cached this" and "you downloaded this" are
+ *    different things to be told, and the second is the one a download button promises.
  *  - [FETCHED_FOR_PLAY] — SpotiFLAC just fetched this track's file, so it starts playing
  *    from a downloaded file, but that work happened for *this* play.
  *  - [LIVE_STREAM] — a YouTube URL being streamed over the network; nothing is on disk.
@@ -31,6 +34,7 @@ enum class PlaybackEngine {
  */
 enum class PlaybackDelivery {
     DEVICE_CACHE,
+    DEVICE_DOWNLOAD,
     FETCHED_FOR_PLAY,
     LIVE_STREAM,
 }
@@ -62,6 +66,15 @@ object PlaybackSourceLabels {
 
     private const val CACHED = "cached"
 
+    /**
+     * The label attribute that says these bytes are the user's own download.
+     *
+     * Published by the playback path when it serves a downloaded file, and read back here so a
+     * `YouTube` label that is actually playing off the disk stops announcing a live stream. Public
+     * because the publisher and the reader have to agree on the exact word.
+     */
+    const val DOWNLOADED = "downloaded"
+
     /** Raw YouTube client names that can reach the label without a friendly prefix. */
     private val YOUTUBE_CLIENTS =
         mapOf(
@@ -86,8 +99,17 @@ object PlaybackSourceLabels {
         // The trailing segment can carry several facts ("deezer • cached"), so split it and
         // treat "cached" as an attribute rather than a provider name.
         val segments = tail.split('•', '-').map { it.trim() }.filter { it.isNotEmpty() }
-        val fromCache = segments.any { it.equals(CACHED, ignoreCase = true) }
-        val provider = segments.firstOrNull { !it.equals(CACHED, ignoreCase = true) }
+        // The attributes are looked for in the head as well as the tail: when nothing else is known the
+        // whole label is the attribute ("downloaded"), and a reader that only scanned the tail would
+        // see no attribute at all and fall back to claiming a live stream.
+        val attributes = listOf(head) + segments
+        val fromCache = attributes.any { it.equals(CACHED, ignoreCase = true) }
+        // A download is a fact about delivery, not a provider name, exactly like "cached".
+        val fromDownload = attributes.any { it.equals(DOWNLOADED, ignoreCase = true) }
+        val provider =
+            segments.firstOrNull {
+                !it.equals(CACHED, ignoreCase = true) && !it.equals(DOWNLOADED, ignoreCase = true)
+            }
 
         val engine =
             when {
@@ -107,11 +129,15 @@ object PlaybackSourceLabels {
             }
 
         val delivery =
-            when (engine) {
-                PlaybackEngine.SPOTIFLAC, PlaybackEngine.HIRES ->
-                    if (fromCache) PlaybackDelivery.DEVICE_CACHE else PlaybackDelivery.FETCHED_FOR_PLAY
-                PlaybackEngine.YOUTUBE -> PlaybackDelivery.LIVE_STREAM
-                PlaybackEngine.UNKNOWN -> null
+            when {
+                // Either attribute settles it for any engine, including the bare "downloaded" label
+                // Hush publishes when nothing else is known: those bytes are on this device.
+                fromDownload -> PlaybackDelivery.DEVICE_DOWNLOAD
+                fromCache -> PlaybackDelivery.DEVICE_CACHE
+                engine == PlaybackEngine.SPOTIFLAC || engine == PlaybackEngine.HIRES ->
+                    PlaybackDelivery.FETCHED_FOR_PLAY
+                engine == PlaybackEngine.YOUTUBE -> PlaybackDelivery.LIVE_STREAM
+                else -> null
             }
 
         return PlaybackSourceInfo(engine = engine, provider = resolvedProvider, delivery = delivery)

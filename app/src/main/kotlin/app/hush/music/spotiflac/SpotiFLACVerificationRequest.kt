@@ -24,9 +24,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * The split exists because a single signal used to do both jobs: playback needing a
  * verification also yanked the app to the Audio Sources screen mid-track (and again on
  * every later track that could not resolve), which is indistinguishable from the app
- * changing pages at random. Attempting the renewal in the background is the job of
- * [SpotiFLACSessionManager.bootstrap] / `forceRestoreSession`, which playback runs before
- * it ever raises this signal.
+ * changing pages at random. Renewing in the background is the job of the extension's own session
+ * renewal, which playback runs before it raises this signal.
  */
 object SpotiFLACVerificationRequest {
     private val _pending = MutableStateFlow<String?>(null)

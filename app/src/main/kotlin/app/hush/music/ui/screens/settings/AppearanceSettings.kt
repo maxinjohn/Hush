@@ -72,6 +72,7 @@ import androidx.navigation.NavController
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.constants.AppFontPreference
+import app.hush.music.constants.PulseMatrixEnabledDefault
 import app.hush.music.constants.PulseMatrixEnabledKey
 import app.hush.music.constants.PulseMatrixThemeKey
 import app.hush.music.constants.PulseMatrixMiniPlayerKey
@@ -134,6 +135,7 @@ import app.hush.music.ui.component.SwitchPreference
 import app.hush.music.ui.component.ThumbnailCornerRadiusSelectorButton
 import app.hush.music.ui.player.StyledPlaybackSlider
 import app.hush.music.ui.player.visualizer.PulseMatrixSettings
+import app.hush.music.ui.player.visualizer.PulseMatrixDefaultTheme
 import app.hush.music.ui.player.visualizer.PulseMatrixTheme
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import app.hush.music.ui.theme.CustomFontLoader
@@ -215,12 +217,12 @@ fun AppearanceSettings(
     val (pulseMatrixEnabled, onPulseMatrixEnabledChange) =
         rememberPreference(
             PulseMatrixEnabledKey,
-            defaultValue = false,
+            defaultValue = PulseMatrixEnabledDefault,
         )
     val (pulseMatrixTheme, onPulseMatrixThemeChange) =
         rememberEnumPreference(
             PulseMatrixThemeKey,
-            defaultValue = PulseMatrixTheme.AURORA,
+            defaultValue = PulseMatrixDefaultTheme,
         )
     val (pulseMatrixMiniPlayer, onPulseMatrixMiniPlayerChange) =
         rememberPreference(

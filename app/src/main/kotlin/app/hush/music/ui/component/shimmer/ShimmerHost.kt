@@ -50,6 +50,15 @@ fun ShimmerHost(
     )
 }
 
+/**
+ * Left on the library's animation on purpose.
+ *
+ * The shimmer is decoration over a skeleton: the skeleton blocks are the signal that something is
+ * loading, and with the system's animation scale at 0 they still say exactly that - a still
+ * highlight is what a skeleton looks like in most apps. The indicators and loops whose motion *is*
+ * the message run on [app.hush.music.ui.component.rememberFramePhase], which the setting cannot
+ * silence. Changing this one would mean replacing a maintained library for no information gained.
+ */
 val ShimmerTheme =
     defaultShimmerTheme.copy(
         animationSpec =

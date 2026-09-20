@@ -2,6 +2,12 @@ package app.hush.music.ui.player.visualizer
 
 import androidx.compose.ui.graphics.Color
 
+/**
+ * The theme a fresh install starts on. Shared by the settings screen and both players so
+ * the default cannot drift between the place that writes it and the places that read it.
+ */
+val PulseMatrixDefaultTheme = PulseMatrixTheme.NEON
+
 enum class PulseMatrixThemeId(val storageKey: String, val displayName: String) {
     NEON("neon", "Neon"),
     AMBER("amber", "Amber"),

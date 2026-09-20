@@ -888,6 +888,31 @@ class StorageLocationRepository
                 resolveCacheDirectory(context, StorageFolderKind.SONG_CACHE)
                     .resolve(DOWNLOAD_CACHE_DIRECTORY_NAME)
 
+            /**
+             * Where Media3's streaming cache lives: a *subdirectory* of the song cache.
+             *
+             * It used to be the song-cache folder itself, and that made the player cache the
+             * authority over files that are not its own. `SimpleCache` deletes files it does not
+             * recognise anywhere under its directory, and this root also holds Hush's SpotiFLAC
+             * playback files and the download cache.
+             *
+             * Measured on a force-stop and cold start with a marker file planted beside them:
+             * every file in `spotiflac-playback/` was gone afterwards - the marker included - 
+             * while the directories stayed, and the engine's own index then reported
+             * `ISRCIndex ... 0 files` for that folder. So a track that had just been resolved and
+             * cached was missing on the next launch and was downloaded from the providers all over
+             * again, however recently it had been played. The same sweep can delete the download
+             * cache's own `.exo` spans, which are files it has no entry for.
+             *
+             * A subfolder rather than the root, for the same reason Media3 refuses two caches on
+             * one directory: one cache owns one tree.
+             */
+            fun playerCacheDirectory(context: Context): File =
+                resolveCacheDirectory(context, StorageFolderKind.SONG_CACHE)
+                    .resolve(PLAYER_CACHE_DIRECTORY_NAME)
+
+            private const val PLAYER_CACHE_DIRECTORY_NAME = "player-cache"
+
             private const val DOWNLOAD_CACHE_DIRECTORY_NAME = "download-cache"
 
             fun resolveCacheDirectory(

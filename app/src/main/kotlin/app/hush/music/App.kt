@@ -31,6 +31,7 @@ import coil3.request.allowHardware
 import coil3.request.crossfade
 import app.hush.music.spotiflac.SpotiFLACDiag
 import app.hush.music.spotiflac.SpotiFLAutoVerifier
+import app.hush.music.spotiflac.SpotiFLACRouteWatch
 import app.hush.music.spotiflac.SpotiFLACSessionRenewWorker
 import app.hush.music.spotiflac.SpotiFLACSessionRenewer
 import dagger.hilt.android.HiltAndroidApp
@@ -60,10 +61,14 @@ import app.hush.music.ui.screens.settings.ThemePalettes
 import app.hush.music.ui.theme.ThemeSeedPalette
 import app.hush.music.ui.theme.ThemeSeedPaletteCodec
 import app.hush.music.utils.ArtworkNetworkUtils
+import app.hush.music.utils.DeviceProfile
+import app.hush.music.utils.DeviceTier
 import app.hush.music.utils.AutoBackupHelper
 import app.hush.music.utils.AutoBackupRetention
 import app.hush.music.utils.AutoBackupType
 import app.hush.music.utils.IconUtils
+import app.hush.music.utils.isLowRamDevice
+import app.hush.music.utils.memoryTrimActionFor
 import app.hush.music.utils.PreferenceStore
 import app.hush.music.utils.ProxyUtils
 import app.hush.music.utils.YTPlayerUtils
@@ -154,16 +159,22 @@ class App :
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        when {
-            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> {
-                applicationContext.imageLoader.memoryCache?.clear()
-                applicationScope.launch { BotGuardTokenGenerator.onAppBackgrounded() }
-            }
-
-            level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
-                applicationContext.imageLoader.memoryCache?.clear()
-            }
+        val action = memoryTrimActionFor(level)
+        if (action.dropImageCache) {
+            applicationContext.imageLoader.memoryCache?.clear()
         }
+        // BotGuard owns a WebView, and releasing it means the *next* playback pays a
+        // full bootstrap again, so it is only surrendered once the UI is really gone.
+        if (action.releaseBotGuardEngine) {
+            applicationScope.launch { BotGuardTokenGenerator.onAppBackgrounded() }
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        // Last line of defence before the process is killed: hand back everything the
+        // image loader is holding rather than losing the whole session.
+        applicationContext.imageLoader.memoryCache?.clear()
     }
 
     private fun initializeCriticalSync() {
@@ -257,6 +268,11 @@ class App :
                 SpotiFLAutoVerifier.appContext = this@App
                 SpotiFLACSessionRenewWorker.schedulePeriodic(this@App)
                 SpotiFLACSessionRenewWorker.renewNow(this@App)
+                // Watch for the route changing under a remembered gateway block (a VPN coming up, another
+                // network, a proxy enabled in Internet settings) and ask the gateway once when it does.
+                // Started here rather than in the player because the moment a user changes a proxy is the
+                // moment they are least likely to be listening to anything.
+                SpotiFLACRouteWatch.start(this@App)
                 // Also renew inline: a session that lapsed during doze must be
                 // caught on the first launch rather than whenever the OS decides to
                 // run background work, and this path is a no-op when nothing is due.
@@ -273,10 +289,13 @@ class App :
                 // concurrently with the network refresh below, so the first playback
                 // URL resolution isn't blocked on either step.
                 // BotGuard owns a WebView and can consume tens of megabytes while
-                // bootstrapping. Do not eagerly create it on low-RAM devices: that
-                // competes with Compose/database startup and was a common source of
-                // launch-time OOMs. Playback still creates it lazily when required.
-                if (!isLowRamDevice()) {
+                // bootstrapping. Do not eagerly create it on a device without the heap
+                // for it: that competes with Compose/database startup and was a common
+                // source of launch-time OOMs. Playback still creates it lazily when
+                // required. The gate follows the device's heap limit rather than the
+                // low-RAM flag, because a head unit capped at 128-192 MB never sets that
+                // flag and was pre-warming a WebView on every single launch.
+                if (DeviceProfile.tier(this@App) == DeviceTier.STANDARD) {
                     prefs.toPlaybackAuthState().sessionId
                         ?.takeIf { it.isNotBlank() }
                         ?.let { storedSessionId ->
@@ -587,7 +606,9 @@ class App :
             .components {
                 add(OkHttpNetworkFetcherFactory(callFactory = { imageNetworkClient() }))
             }
-            .crossfade(true)
+            // A crossfade holds two decoded bitmaps at once. Worth it where the heap is
+            // roomy; wasted memory on a device that is already close to its limit.
+            .crossfade(DeviceProfile.artworkCrossfade(this))
             .allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
             .diskCache(diskCache)
             .diskCachePolicy(imageCacheConfig.policy)
@@ -595,7 +616,14 @@ class App :
                 // Keep transformed artwork bounded on constrained devices. Hardware
                 // decoding protects most list thumbnails, but palette extraction and
                 // notification/widget artwork still create software bitmaps.
-                val memoryCachePercent = if (isLowRamDevice()) 0.08 else 0.15
+                // Scaled by the device's own heap limit rather than the low-RAM flag, so a
+                // cheap head unit that never sets that flag still gets a bounded cache.
+                val memoryCachePercent =
+                    when (DeviceProfile.tier(this)) {
+                        DeviceTier.LOW_RAM -> 0.08
+                        DeviceTier.CONSTRAINED -> 0.11
+                        DeviceTier.STANDARD -> 0.15
+                    }
                 MemoryCache.Builder()
                     .maxSizePercent(this, memoryCachePercent)
                     .build()
@@ -627,11 +655,6 @@ class App :
             }
         } catch (_: Exception) {
         }
-    }
-
-    private fun isLowRamDevice(): Boolean {
-        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
-        return activityManager.isLowRamDevice
     }
 
     companion object {

@@ -30,6 +30,7 @@ import app.hush.music.playback.VisualizerStyle
 import app.hush.music.playback.VisualizerColorSource
 import app.hush.music.playback.VisualizerWaveform
 import app.hush.music.ui.component.AudioVisualizer
+import app.hush.music.ui.utils.rememberMotionCadence
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
@@ -84,6 +85,9 @@ fun PlayerVisualizerOverlay(
     // Band and waveform state shared between the capture loop and UI
     var bands by remember { mutableStateOf(VisualizerBands(FloatArray(16), FloatArray(16))) }
     var waveform by remember { mutableStateOf(VisualizerWaveform(FloatArray(64))) }
+
+    // Only refresh the bars as often as this device can actually present them.
+    val cadence = rememberMotionCadence()
 
     // Capture loop — manages Visualizer lifecycle entirely inside the coroutine
     LaunchedEffect(audioSessionId, enabled) {
@@ -146,7 +150,7 @@ fun PlayerVisualizerOverlay(
                 } catch (_: Exception) {
                     break
                 }
-                kotlinx.coroutines.delay(60L)
+                kotlinx.coroutines.delay(cadence.visualizerFrameMs)
             }
         } finally {
             runCatching {

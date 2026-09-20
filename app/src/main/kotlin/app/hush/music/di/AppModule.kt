@@ -166,8 +166,13 @@ object AppModule {
                     -1 -> NoOpCacheEvictor()
                     else -> LeastRecentlyUsedCacheEvictor(cacheSizeMegabytesToBytes(userCacheSize))
                 }
+            // Its own subdirectory, never the song-cache root: SimpleCache deletes files it does
+            // not recognise under its directory, and the root holds Hush's SpotiFLAC playback
+            // files and the download cache. See StorageLocationRepository.playerCacheDirectory.
+            val directory = StorageLocationRepository.playerCacheDirectory(context)
+            app.hush.music.playback.PlayerCacheLayoutMigration.sweepLegacyRoot(context)
             SimpleCache(
-                StorageLocationRepository.cacheDirectory(context, StorageFolderKind.SONG_CACHE),
+                directory,
                 evictor,
                 databaseProvider,
             )

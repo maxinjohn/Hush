@@ -22,10 +22,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -48,6 +46,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.hush.music.ui.component.HushIconButton
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.R
 import app.hush.music.innertube.InnerTube
 import app.hush.music.innertube.YouTube
@@ -410,7 +410,7 @@ fun CommentsScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    HushIconButton(onClick = onBack) {
                         Icon(
                             painter = painterResource(R.drawable.arrow_back),
                             contentDescription = null,
@@ -472,7 +472,7 @@ fun CommentsScreen(
                                     .padding(16.dp),
                             contentAlignment = Alignment.Center,
                         ) {
-                            CircularProgressIndicator(
+                            HushProgressSpinner(
                                 modifier = Modifier.size(24.dp),
                                 strokeWidth = 2.dp,
                             )
