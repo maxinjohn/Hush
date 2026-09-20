@@ -44,7 +44,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -82,6 +81,7 @@ import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalDatabase
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.LocalPlayerConnection
@@ -867,7 +867,7 @@ private fun TopMixesHeader(
                 enabled = !isRefreshing,
             ) {
                 if (isRefreshing) {
-                    CircularProgressIndicator(
+                    HushProgressSpinner(
                         modifier = Modifier.size(20.dp),
                         strokeWidth = 2.dp,
                     )

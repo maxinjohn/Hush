@@ -45,7 +45,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalIconButton
@@ -89,6 +88,7 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.ai.AiModelOption
@@ -348,7 +348,7 @@ fun AiIntegrationSettings(
                             label = "testApiTrailing",
                         ) { isTesting ->
                             if (isTesting) {
-                                CircularWavyProgressIndicator(modifier = Modifier.size(24.dp))
+                                HushProgressSpinner(modifier = Modifier.size(24.dp))
                             }
                         }
                     },
@@ -693,7 +693,7 @@ private fun ModelPickerPreference(
         icon = { Icon(painterResource(R.drawable.auto_awesome), null) },
         trailingContent = {
             if (isFetching) {
-                CircularWavyProgressIndicator(modifier = Modifier.size(24.dp))
+                HushProgressSpinner(modifier = Modifier.size(24.dp))
             } else {
                 FilledTonalIconButton(
                     onClick = onFetch,

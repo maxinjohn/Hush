@@ -16,7 +16,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider
@@ -90,6 +89,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import app.hush.music.ui.component.hushMarquee
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
 import app.hush.music.canvas.models.CanvasArtwork
@@ -97,7 +97,10 @@ import app.hush.music.ui.player.visualizer.AudioSpectrumProvider
 import app.hush.music.ui.player.visualizer.PulseMatrixCanvas
 import app.hush.music.ui.player.visualizer.PulseMatrixEngine
 import app.hush.music.ui.player.visualizer.PulseMatrixSettings
+import app.hush.music.ui.player.visualizer.PulseMatrixConsumerToken
+import app.hush.music.ui.player.visualizer.PulseMatrixDefaultTheme
 import app.hush.music.ui.player.visualizer.PulseMatrixTheme
+import app.hush.music.constants.PulseMatrixEnabledDefault
 import app.hush.music.constants.PulseMatrixEnabledKey
 import app.hush.music.constants.PulseMatrixThemeKey
 import app.hush.music.constants.PulseMatrixIntensityKey
@@ -175,8 +178,8 @@ fun Thumbnail(
             defaultValue = 16f,
         )
     val cropThumbnailToSquare by rememberPreference(CropThumbnailToSquareKey, false)
-    val (pulseMatrixEnabled) = rememberPreference(PulseMatrixEnabledKey, false)
-    val (pulseMatrixThemeStr) = rememberPreference(PulseMatrixThemeKey, PulseMatrixTheme.AURORA.name)
+    val (pulseMatrixEnabled) = rememberPreference(PulseMatrixEnabledKey, PulseMatrixEnabledDefault)
+    val (pulseMatrixThemeStr) = rememberPreference(PulseMatrixThemeKey, PulseMatrixDefaultTheme.name)
     val pulseMatrixTheme = PulseMatrixTheme.valueOf(pulseMatrixThemeStr)
     val (pulseMatrixIntensityStr) = rememberPreference(PulseMatrixIntensityKey, PulseMatrixSettings.IntensityLevel.NORMAL.name)
     val pulseMatrixIntensity = PulseMatrixSettings.IntensityLevel.valueOf(pulseMatrixIntensityStr)
@@ -197,7 +200,11 @@ fun Thumbnail(
     // LaunchedEffect(Unit) survives preference flicker. Check enabled inside the loop.
     LaunchedEffect(Unit) {
         Timber.d("PulseMatrixThumb: Lifecycle LaunchedEffect started")
-        var acquired = false
+        // The engine hands back a token rather than counting us, so this screen's release
+        // can only ever end this screen's registration. Without that, the mini player
+        // appearing before this one was disposed could have its registration cancelled by
+        // this screen's release — the visualiser then stopped seconds after minimising.
+        var token: PulseMatrixConsumerToken? = null
         var lastSid = 0
         try {
             while (true) {
@@ -206,26 +213,26 @@ fun Thumbnail(
                         playerConnection.player.audioSessionId
                     } catch (_: Exception) { 0 }
                     if (sid > 0 && sid != lastSid) {
-                        Timber.d("PulseMatrixThumb: Polling sid=$sid acquired=$acquired lastSid=$lastSid")
-                        if (!acquired) {
-                            PulseMatrixEngine.acquire(sid)
-                            acquired = true
+                        Timber.d("PulseMatrixThumb: Polling sid=$sid holding=${token != null} lastSid=$lastSid")
+                        if (token == null) {
+                            token = PulseMatrixEngine.acquire(sid)
+                            lastSid = if (token != null) sid else 0
                         } else {
                             PulseMatrixEngine.changeSession(sid)
+                            lastSid = sid
                         }
-                        lastSid = sid
                     }
-                } else if (acquired) {
-                    PulseMatrixEngine.release()
-                    acquired = false
+                } else if (token != null) {
+                    token?.release()
+                    token = null
                     lastSid = 0
                 }
                 delay(100)
             }
         } finally {
-            if (acquired) {
+            token?.let {
                 Timber.d("PulseMatrixThumb: Lifecycle LaunchedEffect ended — releasing")
-                PulseMatrixEngine.release()
+                it.release()
             }
         }
     }
@@ -473,7 +480,7 @@ fun Thumbnail(
                                 style = MaterialTheme.typography.titleMedium,
                                 color = textBackgroundColor.copy(alpha = 0.8f),
                                 maxLines = 1,
-                                modifier = Modifier.basicMarquee(),
+                                modifier = Modifier.hushMarquee(),
                             )
                         }
                     }

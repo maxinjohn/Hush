@@ -153,6 +153,7 @@ import app.hush.music.ui.component.shimmer.ShimmerHost
 import app.hush.music.ui.component.shimmer.TextPlaceholder
 import app.hush.music.ui.screens.settings.LyricsPosition
 import app.hush.music.ui.theme.rememberHushLyricsFontFamily
+import app.hush.music.ui.utils.rememberMotionCadence
 import app.hush.music.ui.utils.smoothFadingEdge
 import app.hush.music.utils.ComposeToImage
 import app.hush.music.utils.rememberEnumPreference
@@ -359,6 +360,10 @@ fun LyricsV2(
     }
 
     // ── Playback position tracking ──
+    // Word-synced lyrics are polled far faster than anything else in the app. Asking a
+    // device that cannot present 60fps for a 16ms tick just produces dropped frames on the
+    // thread that also services playback, so the interval follows the device's capability.
+    val cadence = rememberMotionCadence()
     val leadMs = if (isTtmlFormat) TTML_LEAD_MS else LRC_LEAD_MS
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var playbackPositionMs by remember { mutableLongStateOf(0L) }
@@ -366,7 +371,7 @@ fun LyricsV2(
 
     LaunchedEffect(entriesWithWords, isSynced, leadMs, lyricsSyncOffset) {
         if (!isSynced || entriesWithWords.isEmpty()) return@LaunchedEffect
-        val pollIntervalMs = if (isTtmlFormat) 16L else 50L
+        val pollIntervalMs = if (isTtmlFormat) cadence.wordLyricsTickMs else cadence.lineLyricsTickMs
         while (isActive) {
             val sliderPos = sliderPositionProvider()
             val crossfadeState = playerConnection.crossfadeLyricsState.value

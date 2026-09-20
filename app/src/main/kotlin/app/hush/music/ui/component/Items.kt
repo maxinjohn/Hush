@@ -21,7 +21,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.Orientation
@@ -51,7 +50,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -114,8 +112,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import app.hush.music.ui.component.HushProgressSpinner
+import app.hush.music.ui.component.hushMarquee
 import app.hush.music.LocalDatabase
 import app.hush.music.LocalDownloadUtil
 import app.hush.music.LocalPlayerConnection
@@ -149,6 +150,8 @@ import app.hush.music.ui.theme.HushDesign
 import app.hush.music.ui.theme.PlayerColorExtractor
 import app.hush.music.ui.theme.hushPressable
 import app.hush.music.ui.theme.extractThemeColor
+import app.hush.music.ui.utils.rememberDownload
+import app.hush.music.ui.utils.rememberFlow
 import app.hush.music.ui.utils.resize
 import app.hush.music.utils.joinByBullet
 import app.hush.music.utils.makeTimeString
@@ -396,9 +399,7 @@ fun SongListItem(
             Icon.Library()
         }
         if (showDownloadIcon) {
-            val download by LocalDownloadUtil.current
-                .getDownload(song.id)
-                .collectAsState(initial = null)
+            val download = rememberDownload(song.id)
             Icon.Download(download?.state, percent = download?.percentDownloaded ?: -1f)
         }
     },
@@ -468,7 +469,7 @@ fun SongGridItem(
             Icon.Library()
         }
         if (showDownloadIcon) {
-            val download by LocalDownloadUtil.current.getDownload(song.id).collectAsState(initial = null)
+            val download = rememberDownload(song.id)
             Icon.Download(download?.state, percent = download?.percentDownloaded ?: -1f)
         }
     },
@@ -483,7 +484,7 @@ fun SongGridItem(
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.basicMarquee().fillMaxWidth(),
+            modifier = Modifier.hushMarquee().fillMaxWidth(),
         )
     },
     subtitle = {
@@ -716,7 +717,7 @@ fun AlbumGridItem(
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.basicMarquee().fillMaxWidth(),
+            modifier = Modifier.hushMarquee().fillMaxWidth(),
         )
     },
     subtitle = {
@@ -824,7 +825,7 @@ fun PlaylistGridItem(
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.basicMarquee().fillMaxWidth(),
+            modifier = Modifier.hushMarquee().fillMaxWidth(),
         )
     },
     subtitle = {
@@ -1350,6 +1351,46 @@ fun MediaMetadataListItem(
     )
 }
 
+/**
+ * The badges a YouTube item row draws: favourite, explicit, in-library and downloaded.
+ *
+ * Two things here are deliberate. Only the query this item can actually draw is opened -
+ * both the song and the album were collected for every row, and only one of them was ever
+ * read. And the download state is selected per row rather than collecting the whole downloads
+ * map, which is republished on every progress tick of every download.
+ */
+@Composable
+private fun RowScope.YouTubeItemBadges(item: YTItem) {
+    val database = LocalDatabase.current
+
+    when (item) {
+        is SongItem -> {
+            val song by rememberFlow(item.id) { database.song(item.id) }.collectAsState(initial = null)
+            if (song?.song?.liked == true) {
+                Icon.Favorite()
+            }
+            if (item.explicit) Icon.Explicit()
+            if (song?.song?.inLibrary != null) {
+                Icon.Library()
+            }
+            val download = rememberDownload(item.id)
+            Icon.Download(download?.state, percent = download?.percentDownloaded ?: -1f)
+        }
+
+        is AlbumItem -> {
+            val album by rememberFlow(item.id) { database.album(item.id) }.collectAsState(initial = null)
+            if (album?.album?.bookmarkedAt != null) {
+                Icon.Favorite()
+            }
+            if (item.explicit) Icon.Explicit()
+        }
+
+        else -> {
+            if (item.explicit) Icon.Explicit()
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun YouTubeListItem(
@@ -1363,24 +1404,7 @@ fun YouTubeListItem(
     isSwipeable: Boolean = true,
     trailingContent: @Composable RowScope.() -> Unit = {},
     badges: @Composable RowScope.() -> Unit = {
-        val database = LocalDatabase.current
-        val song by database.song(item.id).collectAsState(initial = null)
-        val album by database.album(item.id).collectAsState(initial = null)
-
-        if ((item is SongItem && song?.song?.liked == true) ||
-            (item is AlbumItem && album?.album?.bookmarkedAt != null)
-        ) {
-            Icon.Favorite()
-        }
-        if (item.explicit) Icon.Explicit()
-        if (item is SongItem && song?.song?.inLibrary != null) {
-            Icon.Library()
-        }
-        if (item is SongItem) {
-            val downloads by LocalDownloadUtil.current.downloads.collectAsState()
-            val download = downloads[item.id]
-            Icon.Download(download?.state, percent = download?.percentDownloaded ?: -1f)
-        }
+        YouTubeItemBadges(item)
     },
 ) {
     val swipeEnabled by rememberPreference(SwipeToSongKey, defaultValue = false)
@@ -1454,22 +1478,7 @@ fun YouTubeGridItem(
     modifier: Modifier = Modifier,
     coroutineScope: CoroutineScope? = null,
     badges: @Composable RowScope.() -> Unit = {
-        val database = LocalDatabase.current
-        val song by database.song(item.id).collectAsState(initial = null)
-        val album by database.album(item.id).collectAsState(initial = null)
-
-        if (item is SongItem && song?.song?.liked == true ||
-            item is AlbumItem && album?.album?.bookmarkedAt != null
-        ) {
-            Icon.Favorite()
-        }
-        if (item.explicit) Icon.Explicit()
-        if (item is SongItem && song?.song?.inLibrary != null) Icon.Library()
-        if (item is SongItem) {
-            val downloads by LocalDownloadUtil.current.downloads.collectAsState()
-            val download = downloads[item.id]
-            Icon.Download(download?.state, percent = download?.percentDownloaded ?: -1f)
-        }
+        YouTubeItemBadges(item)
     },
     thumbnailRatio: Float = if (item is SongItem) 16f / 9 else 1f,
     thumbnailWidth: Dp? = null,
@@ -1485,7 +1494,7 @@ fun YouTubeGridItem(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = if (item is ArtistItem) TextAlign.Center else TextAlign.Start,
-            modifier = Modifier.basicMarquee().fillMaxWidth(),
+            modifier = Modifier.hushMarquee().fillMaxWidth(),
         )
     },
     subtitle = {
@@ -2042,9 +2051,11 @@ fun BoxScope.AlbumPlayButton(
             modifier =
                 Modifier
                     .size(36.dp)
+                    // Press motion before the clip: a clip wraps everything after it, so a halo drawn
+                    // inside one is cut off at the button's own edge.
+                    .hushPressable(onClick = onClick, pressScale = HushDesign.ChipPressScale)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = ActiveBoxAlpha))
-                    .hushPressable(onClick = onClick, pressScale = HushDesign.ChipPressScale),
+                    .background(Color.Black.copy(alpha = ActiveBoxAlpha)),
         ) {
             Icon(
                 painter = painterResource(R.drawable.play),
@@ -2235,7 +2246,7 @@ private object Icon {
                         )
                     }
                 } else {
-                    CircularWavyProgressIndicator(
+                    HushProgressSpinner(
                         modifier =
                             Modifier
                                 .size(16.dp)

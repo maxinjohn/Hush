@@ -7,6 +7,7 @@
 package app.hush.music.spotiflac
 
 import android.os.SystemClock
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.min
 
@@ -47,26 +48,37 @@ object SpotiFLACProviderStallPolicy {
      * Idle budget while the attempt is still resolving, before any byte has arrived.
      *
      * A provider is allowed to answer "temporarily unavailable, retry in N seconds", and the
-     * runtime honours that itself: qobuz-web's extension returns `PROVIDER_UNAVAILABLE`,
-     * `retryable`, `retry_after_seconds: 10`, and the runtime then waits 10s before its next of
-     * three attempts. An idle window shorter than the declaration abandons the attempt before the
-     * retry it was just told to make can begin. Measured on device, qobuz-web was recorded as
-     * "stalled for 8222ms (stuck on resolving_stream)" while the runtime's log for that same
-     * attempt read "Provider temporarily unavailable for extension qobuz-web; retrying in 10s
-     * (attempt 2/3)" - so the provider was answering, in the only way it can, and every track was
-     * abandoned for it.
+     * runtime honours that itself: the extension returns `PROVIDER_UNAVAILABLE`, `retryable`,
+     * `retry_after_seconds: 10`, and the runtime then sleeps 10s before its next of three
+     * attempts. Measured on device, that path emits nothing at all while it sleeps - no progress
+     * event, no byte - so a provider that is asking for time and a provider that has wedged look
+     * identical to the meter until the sleep ends.
      *
-     * The tighter window is right once data is moving, where silence means a stopped socket; it is
-     * wrong before that, where it turns a provider asking for time into one that never answers.
+     * This used to be 14s, sized so one declared retry plus the request after it could finish.
+     * Measured end to end, that sizing is what makes a cold playback slow and never actually
+     * rescues the provider:
      *
-     * Sized to cover exactly one declared retry (10s, the value qobuz-web actually sends) plus
-     * room for the work that follows it - not the provider's whole retry budget. Waiting longer
-     * buys nothing when the provider is genuinely unavailable, and it is paid by the listener:
-     * measured on device, a single sweep spent 20s of its 45s budget on qobuz-web alone before
-     * falling back to YouTube, and the player sits at 0:00 for that entire window. The runtime's
-     * own attempts are 10s apart, so one cycle is what a provider that can answer needs.
+     * ```
+     * 21:28:58  attempt source=amazon -> runtime walks amazon (1.5s, not found)
+     * 21:29:03  runtime is on deezer; "temporarily unavailable ... retrying in 10s"
+     * 21:29:14  abandoned, 14s spent - the retry it waited for produced nothing
+     * 21:29:14  attempt source=deezer     -> the same 14s, the same provider, again
+     * 21:29:28  attempt source=qobuz-web  -> downloaded 36MB in 1.8s
+     * ```
+     *
+     * 28s of that 44s was the same unavailable provider paid for twice, to reach a provider that
+     * answers in under two seconds. A declared retry cannot fit inside any window this app would
+     * be willing to hold a listener at 0:00 for (10s of sleep *plus* the request), so the choice
+     * is not "wait long enough" but "who waits". The window is therefore short, and a provider
+     * abandoned here is not skipped: it is demoted behind the providers this sweep has not reached
+     * yet and put the question again (`SpotiFLACProviderStallPolicy.orderRemaining`), which is a
+     * real second chance rather than a timeout nobody ever sees the end of.
+     *
+     * The tighter window is right once data is moving, where silence means a stopped socket, and it
+     * is now used before that too - where silence means either a wedge or a declared wait, and
+     * neither is worth the listener's minute.
      */
-    const val RESOLUTION_STALL_TIMEOUT_MS = 14_000L
+    const val RESOLUTION_STALL_TIMEOUT_MS = 6_000L
 
     /**
      * Hard ceiling for one provider attempt that is not moving bytes.
@@ -84,8 +96,91 @@ object SpotiFLACProviderStallPolicy {
      */
     const val ATTEMPT_CEILING_MS = 25_000L
 
+    /**
+     * Idle budget before the first byte, for a provider this install has never measured.
+     *
+     * A provider that has never been timed here is *unknown*, not fast, and the fixed 6s window
+     * treated unknown as fast. Measured on device, that is what a working provider's own extension
+     * call looked like when it was abandoned:
+     *
+     * ```
+     * ExtensionPerf: extension=deezer op=download totalMs=6036.4 items=0 payloadBytes=0
+     * provider stalled id=soundcloud (walk had reached deezer) reason=STALLED
+     *   stage=resolving_stream silent=6009ms - abandoned, trying next provider
+     * all sources failed: amazon=... deezer=... (stuck on resolving_stream)
+     * ```
+     *
+     * The extension had not wedged - it was killed on the line at 6009ms, and because every
+     * provider in the walk measured about the same, the whole sweep failed and the track fell back
+     * to YouTube. The number of providers is not the variable here; the window is.
+     */
+    const val INITIAL_RESOLUTION_WINDOW_MS = 20_000L
+
+    /**
+     * The idle budget for the resolution phase of a provider, from what it has been seen to need.
+     *
+     * Adaptive in both directions: a provider measured at 6s gets twice that, and one measured at
+     * 1.5s (a catalogue miss) gets the floor rather than the flat window, so a fast provider still
+     * fails fast instead of holding the sweep for a wait nobody needs. [ATTEMPT_CEILING_MS] caps
+     * it, so widening the window can never exceed the ceiling that bounds every attempt anyway.
+     *
+     * @param firstByteMs time this provider has been observed to take before bytes move, or null
+     *   when it has never completed an attempt here.
+     */
+    fun resolutionWindowMs(firstByteMs: Long?): Long =
+        when {
+            firstByteMs == null || firstByteMs <= 0L -> INITIAL_RESOLUTION_WINDOW_MS
+            else -> (firstByteMs * 2).coerceIn(RESOLUTION_STALL_TIMEOUT_MS, ATTEMPT_CEILING_MS)
+        }
+
     /** How often the watchdog re-reads the stall meter. */
     const val POLL_MS = 250L
+
+    /**
+     * The idle budget while the runtime is resolving *metadata*, which is its own work, not a
+     * provider's.
+     *
+     * Before a provider is asked for audio the runtime works out what the track is, and it does that
+     * by calling the extensions itself - so the meter hears nothing for that whole phase while the
+     * runtime is demonstrably busy. Measured on the reporting device:
+     *
+     * ```
+     * progress id=qobuz-web pct=0 bytes=0/0 stage=resolving_metadata   <- the only event, then silence
+     *   rt| DownloadWithExtensionFallback: Metadata incomplete, searching providers for: ...
+     *   rt| ExtensionPerf: extension=qobuz-web op=searchTracks totalMs=9752.8
+     *   rt| ExtensionPerf: extension=qobuz-web op=searchTracks totalMs=13465.3
+     *   rt| DownloadPipeline: item=hush-... service=qobuz-web totalMs=15988.6
+     * provider stalled id=qobuz-web stage=resolving_metadata silent=6027ms
+     * ```
+     *
+     * The runtime searches the metadata providers on every attempt, because Hush sends no ISRC and no
+     * release date for these tracks; that search measured 6.0s, 9.7s, 13.5s and 20.2s in one phase.
+     * The adaptive window answers a different question - how long this provider needed to *start
+     * moving bytes* - and it landed on 6s, so the runtime was killed inside its own metadata search
+     * on every attempt and the sweep reported "all sources failed" for tracks the providers were
+     * answering. This phase is therefore sized from its own measured worst case and not from a
+     * provider timing, and [ATTEMPT_CEILING_MS] still ends it there.
+     */
+    const val METADATA_STAGE_IDLE_MS = 25_000L
+
+    /** The stage the runtime reports while it is working out what the track is. */
+    const val METADATA_STAGE = "resolving_metadata"
+
+    /** True while [stage] means "the runtime is still resolving metadata", not "a provider is quiet". */
+    fun isMetadataStage(stage: String?): Boolean =
+        stage?.trim()?.lowercase(Locale.US) == METADATA_STAGE
+
+    /**
+     * How long a provider attempt may take before a byte arrives.
+     *
+     * The number a sweep's budget is sized from, because it is the most one attempt can now cost - a
+     * budget built from the bare window cuts the chain off, and the providers behind the cut look
+     * exactly like a catalogue miss. Never below [METADATA_STAGE_IDLE_MS], because that phase is
+     * what an attempt now has to be allowed to finish.
+     */
+    fun tryWindowMs(firstByteMs: Long?): Long =
+        maxOf(resolutionWindowMs(firstByteMs), METADATA_STAGE_IDLE_MS)
+            .coerceAtMost(ATTEMPT_CEILING_MS)
 
     /**
      * How long a provider that stalled is tried last.
@@ -132,6 +227,136 @@ object SpotiFLACProviderStallPolicy {
     ): Boolean = stalledAtMs != null && nowMs - stalledAtMs < cooldownMs
 
     /**
+     * How long a provider that *refused* service is left out of the chain.
+     *
+     * Much longer than a stall demotion, because the two are different statements. Going quiet
+     * says nothing about the provider's willingness and is often about one track; a rate limit is
+     * the provider saying no to *this client* for a while, and asking again inside that window only
+     * extends it. Measured next to each other on the reporting device: a stall was paid once per
+     * cooldown, while an answering-but-refusing provider was retried on every single track.
+     */
+    const val RATE_LIMIT_COOLDOWN_MS = 10 * 60_000L
+
+    /** True while a provider that refused service at [limitedAtMs] is still cooling down. */
+    fun isRateLimited(
+        limitedAtMs: Long?,
+        nowMs: Long,
+        cooldownMs: Long = RATE_LIMIT_COOLDOWN_MS,
+    ): Boolean = limitedAtMs != null && nowMs - limitedAtMs < cooldownMs
+
+    /**
+     * How long a provider that reported *itself* unavailable is kept at the back of the chain.
+     *
+     * The longest of the three cooldowns, because it is the strongest statement available: a stall
+     * is silence and a refusal is about this client, while this is the provider's own health check
+     * saying the service behind it cannot be reached at all. Measured while Deezer was down on the
+     * gateway's side, every sweep still paid it in full and reported `Invalid Deezer track ID`.
+     */
+    const val UNAVAILABLE_COOLDOWN_MS = 10 * 60_000L
+
+    /** True while a provider that reported itself unavailable at [atMs] stays at the back. */
+    fun isUnavailable(
+        atMs: Long?,
+        nowMs: Long,
+        cooldownMs: Long = UNAVAILABLE_COOLDOWN_MS,
+    ): Boolean = atMs != null && nowMs - atMs < cooldownMs
+
+    /** Names in [candidates] that are currently reported unavailable, for the log. */
+    fun unavailableNow(
+        candidates: List<String>,
+        unavailableAtMs: Map<String, Long>,
+        nowMs: Long,
+    ): List<String> =
+        if (unavailableAtMs.isEmpty()) {
+            emptyList()
+        } else {
+            candidates.filter { isUnavailable(unavailableAtMs[it], nowMs) }
+        }
+
+    /** Names in [candidates] that are currently cooling down, for the log. */
+    fun coolingDown(
+        candidates: List<String>,
+        rateLimitedAtMs: Map<String, Long>,
+        nowMs: Long,
+    ): List<String> =
+        if (rateLimitedAtMs.isEmpty()) {
+            emptyList()
+        } else {
+            candidates.filter { isRateLimited(rateLimitedAtMs[it], nowMs) }
+        }
+
+    /**
+     * The candidates to actually ask, leaving out the ones that are refusing service.
+     *
+     * This is the one place a provider is *dropped* rather than moved, and the reason is that the
+     * other orderings answer a different question. Demotion decides which of two providers to ask
+     * first; a provider that has refused will not answer at all, so asking it at all is the cost.
+     *
+     * The safety valve is deliberate: when every candidate is cooling down, the full list is
+     * returned unchanged, because a single-source setup whose one provider has rate-limited us is
+     * still better off asking than not playing.
+     */
+    fun orderAvailable(
+        candidates: List<String>,
+        stalledAtMs: Map<String, Long>,
+        rateLimitedAtMs: Map<String, Long>,
+        nowMs: Long,
+        unavailableAtMs: Map<String, Long> = emptyMap(),
+    ): List<String> {
+        val cooling = coolingDown(candidates, rateLimitedAtMs, nowMs)
+        val kept = if (cooling.isEmpty()) {
+            candidates
+        } else {
+            candidates.filterNot { it in cooling }.ifEmpty { candidates }
+        }
+        return orderByRecentStallsAndHealth(kept, stalledAtMs, unavailableAtMs, nowMs)
+    }
+
+    /**
+     * [orderByRecentStalls], with providers that reported themselves unavailable moved to the end.
+     *
+     * Two demotions, in the order that decides what is asked last: a provider that cannot serve at
+     * all is behind one that merely went quiet, and both are behind everything that is answering.
+     * Nothing is dropped - a sweep with only unreachable providers still asks them, because asking a
+     * broken provider is better than not playing - and the user's own priority still decides the
+     * order inside each group.
+     */
+    fun orderByRecentStallsAndHealth(
+        candidates: List<String>,
+        stalledAtMs: Map<String, Long>,
+        unavailableAtMs: Map<String, Long>,
+        nowMs: Long,
+    ): List<String> {
+        if (unavailableAtMs.isEmpty()) return orderByRecentStalls(candidates, stalledAtMs, nowMs)
+        val (reachable, down) = candidates.partition { !isUnavailable(unavailableAtMs[it], nowMs) }
+        if (down.isEmpty()) return orderByRecentStalls(candidates, stalledAtMs, nowMs)
+        return orderByRecentStalls(reachable, stalledAtMs, nowMs) +
+            orderByRecentStalls(down, stalledAtMs, nowMs)
+    }
+
+    /**
+     * [orderAvailable] for the tail of a sweep in progress.
+     *
+     * The already-attempted prefix is untouched for the same reason [orderRemaining] leaves it
+     * alone: it must never be re-asked. Only the providers still ahead are filtered, and if that
+     * would leave none of them, the tail is kept as it was.
+     */
+    fun orderRemainingAvailable(
+        candidates: List<String>,
+        attemptedCount: Int,
+        stalledAtMs: Map<String, Long>,
+        rateLimitedAtMs: Map<String, Long>,
+        nowMs: Long,
+        unavailableAtMs: Map<String, Long> = emptyMap(),
+    ): List<String> {
+        if (attemptedCount <= 0 || attemptedCount >= candidates.size) return candidates
+        val attempted = candidates.take(attemptedCount)
+        val remaining = candidates.drop(attemptedCount)
+        val usable = orderAvailable(remaining, stalledAtMs, rateLimitedAtMs, nowMs, unavailableAtMs)
+        return if (usable == remaining) candidates else attempted + usable
+    }
+
+    /**
      * The candidate order to try, with recently stalled providers moved to the back.
      *
      * A stable partition rather than a sort: the user's configured provider priority is
@@ -146,6 +371,37 @@ object SpotiFLACProviderStallPolicy {
         val (demoted, healthy) =
             candidates.partition { isDemoted(stalledAtMs[it], nowMs) }
         return healthy + demoted
+    }
+
+    /**
+     * The order for the rest of a sweep in progress: [attemptedCount] sources are already
+     * answered, and a provider the sweep has just watched go quiet moves behind the ones it has
+     * not reached yet.
+     *
+     * This exists because the runtime's walk and this sweep are not the same walk. The runtime is
+     * handed the whole candidate list and falls through it by itself, so by the time an attempt is
+     * abandoned the runtime has usually already paid for a provider further down our list - and
+     * then our own loop arrives at that same provider and pays for it a second time. Measured: an
+     * attempt for `amazon` was abandoned while the runtime had reached `deezer`, and the very next
+     * attempt was `deezer`, costing the same stall budget twice.
+     *
+     * The already-attempted prefix is left exactly where it is - it must never be re-asked - and
+     * the remaining tail is stable-partitioned, so the user's priority still decides the order of
+     * everything that is not demoted. Nothing is dropped: a provider moved here is put the question
+     * later in the same sweep, not skipped.
+     */
+    fun orderRemaining(
+        candidates: List<String>,
+        attemptedCount: Int,
+        stalledAtMs: Map<String, Long>,
+        nowMs: Long,
+    ): List<String> {
+        if (stalledAtMs.isEmpty()) return candidates
+        if (attemptedCount <= 0 || attemptedCount >= candidates.size) return candidates
+        val attempted = candidates.take(attemptedCount)
+        val remaining = candidates.drop(attemptedCount)
+        val reordered = attempted + orderByRecentStalls(remaining, stalledAtMs, nowMs)
+        return if (reordered == candidates) candidates else reordered
     }
 
     /** The smaller of the stall budget and what is left of the ceiling. */
@@ -170,6 +426,43 @@ enum class ProviderAbandonReason {
 }
 
 /**
+ * What each provider has been observed to need before it starts moving bytes.
+ *
+ * This is the memory that makes [SpotiFLACProviderStallPolicy.resolutionWindowMs] adaptive across
+ * tracks and across launches: without it every sweep re-learns that this network is slower than
+ * 6s by being killed at 6s, and a track only that provider has is skipped every time.
+ *
+ * A decayed average rather than the last sample, because one slow round trip on a bad connection
+ * must not widen a provider's window for a week - and one fast miss must not narrow it back to a
+ * window that kills the next real download.
+ */
+class ProviderTimings(
+    private val observedMs: MutableMap<String, Long> = mutableMapOf(),
+) {
+    /** The idle budget to give this provider's resolution phase. */
+    fun windowFor(sourceId: String): Long =
+        SpotiFLACProviderStallPolicy.resolutionWindowMs(observedMs[key(sourceId)])
+
+    /** Records how long this provider took to start moving bytes. */
+    fun record(sourceId: String, firstByteMs: Long) {
+        if (firstByteMs <= 0L) return
+        val id = key(sourceId)
+        val previous = observedMs[id]
+        observedMs[id] = if (previous == null) firstByteMs else (previous * 3 + firstByteMs) / 4
+    }
+
+    /** The observed values, for persistence. */
+    fun snapshot(): Map<String, Long> = observedMs.toMap()
+
+    /** Restores previously observed values. */
+    fun restore(values: Map<String, Long>) {
+        values.forEach { (id, ms) -> if (ms > 0L) observedMs[key(id)] = ms }
+    }
+
+    private fun key(sourceId: String): String = sourceId.trim().lowercase(java.util.Locale.US)
+}
+
+/**
  * Live "has this provider said anything lately?" meter for one provider attempt.
  *
  * Fed by the progress reporter that already mirrors the runtime's transfer meter. It
@@ -187,6 +480,12 @@ enum class ProviderAbandonReason {
  */
 class ProviderStallMeter(
     private val startedAtMs: Long = SystemClock.elapsedRealtime(),
+    /**
+     * The idle budget for this provider while it is still resolving, from
+     * [ProviderTimings.windowFor] - adaptive, because a flat window either kills a slow network or
+     * holds a fast one for a wait it does not need.
+     */
+    private val resolutionTimeoutMs: Long = SpotiFLACProviderStallPolicy.RESOLUTION_STALL_TIMEOUT_MS,
 ) {
     private val lastProgressAtMs = AtomicLong(startedAtMs)
     private val lastTransferAtMs = AtomicLong(startedAtMs)
@@ -261,11 +560,26 @@ class ProviderStallMeter(
      * silence means the transfer stopped, and the tight window is the right one.
      */
     private fun idleTimeoutMs(): Long =
-        if (hasTransferred()) {
-            SpotiFLACProviderStallPolicy.STALL_TIMEOUT_MS
-        } else {
-            SpotiFLACProviderStallPolicy.RESOLUTION_STALL_TIMEOUT_MS
+        when {
+            hasTransferred() -> SpotiFLACProviderStallPolicy.STALL_TIMEOUT_MS
+            // The runtime's own metadata phase, which is not a provider hanging on a socket and whose
+            // cost is measured in tens of seconds: see
+            // [SpotiFLACProviderStallPolicy.METADATA_STAGE_IDLE_MS]. Bounded by the same ceiling that
+            // bounds every attempt, so this cannot hold a sweep open indefinitely.
+            SpotiFLACProviderStallPolicy.isMetadataStage(lastStage) ->
+                maxOf(resolutionTimeoutMs, SpotiFLACProviderStallPolicy.METADATA_STAGE_IDLE_MS)
+            else -> resolutionTimeoutMs
         }
+
+    /**
+     * How long this attempt took to start moving bytes, or null if it never did.
+     *
+     * This is the measurement [ProviderTimings] learns from: the *resolution* cost, which is what
+     * the resolution window has to cover. An attempt that reported `already_exists` or replayed a
+     * cached file moved no bytes and is not a measurement of anything.
+     */
+    fun timeToFirstByteMs(): Long? =
+        if (hasTransferred()) lastTransferAtMs.get() - startedAtMs else null
 
     /**
      * Why this attempt should be abandoned, or null while it still deserves waiting.
@@ -277,10 +591,13 @@ class ProviderStallMeter(
      */
     fun abandonReason(nowMs: Long = SystemClock.elapsedRealtime()): ProviderAbandonReason? =
         when {
-            SpotiFLACProviderStallPolicy.isStalled(lastProgressAtMs.get(), nowMs, idleTimeoutMs()) ->
-                ProviderAbandonReason.STALLED
+            // The absolute bound is asked first because it is the one that cannot be widened: the
+            // metadata phase's idle budget is as long as the ceiling, so both can be true at once and
+            // the attempt ended for the reason it cannot outlive.
             SpotiFLACProviderStallPolicy.isOverCeiling(ceilingBaselineMs(), nowMs) ->
                 ProviderAbandonReason.CEILING
+            SpotiFLACProviderStallPolicy.isStalled(lastProgressAtMs.get(), nowMs, idleTimeoutMs()) ->
+                ProviderAbandonReason.STALLED
             else -> null
         }
 

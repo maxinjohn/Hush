@@ -28,7 +28,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -37,6 +36,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import android.os.SystemClock
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -54,6 +55,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.CircularWavyProgressIndicator
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
@@ -71,7 +73,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -79,7 +84,10 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
@@ -109,6 +117,7 @@ import androidx.media3.exoplayer.offline.DownloadService
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import me.saket.squiggles.SquigglySlider
+import app.hush.music.ui.component.hushMarquee
 import app.hush.music.LocalDatabase
 import app.hush.music.LocalDownloadUtil
 import app.hush.music.LocalPlayerConnection
@@ -125,12 +134,12 @@ import app.hush.music.constants.landscapeMetadataReservedHeight
 import app.hush.music.constants.PlayerHorizontalPadding
 import app.hush.music.constants.V6QueueBottomBarHeight
 import app.hush.music.constants.SliderStyle
-import app.hush.music.db.entities.FormatEntity
 import app.hush.music.db.entities.codecLabel
 import app.hush.music.extensions.togglePlayPause
 import app.hush.music.extensions.toggleRepeatMode
 import app.hush.music.models.MediaMetadata
 import app.hush.music.playback.ExoDownloadService
+import app.hush.music.playback.FormatRow
 import app.hush.music.playback.PlaybackDelivery
 import app.hush.music.playback.PlaybackEngine
 import app.hush.music.playback.PlaybackSourceInfo
@@ -146,14 +155,75 @@ import app.hush.music.ui.theme.HushDesign
 import app.hush.music.ui.theme.PlayerBackgroundColorUtils
 import app.hush.music.ui.theme.PlayerSliderColors
 import app.hush.music.ui.theme.hushPressable
+import app.hush.music.ui.component.HushProgressSpinner
+import app.hush.music.ui.component.hushBouncyClickable
+import app.hush.music.ui.component.hushPressMotion
+import app.hush.music.ui.component.rememberPressInteractionSource
 import app.hush.music.ui.theme.hushPlayButtonBackground
 import app.hush.music.ui.utils.ShowMediaInfo
 import app.hush.music.ui.utils.highRes
+import app.hush.music.ui.utils.rememberDownload
+import app.hush.music.ui.utils.rememberFlow
 import app.hush.music.utils.isLocalMediaId
 import app.hush.music.utils.makeTimeString
 import app.hush.music.utils.rememberPreference
 
 private const val PlayerBackgroundMaxBlurRadius = 64f
+
+/**
+ * How far the big play/pause button gives under a finger.
+ *
+ * Shallower than a transport control's press on purpose: it is the largest thing on the screen, so
+ * the same proportional shrink would read as the button lurching away from the thumb that pressed
+ * it. The halo and the spring are what carry the effect here.
+ */
+private const val PlayerPrimaryPressScale = 0.94f
+
+/**
+ * Live fill for the transport's "the audio is coming" ring, or null when there is no number to
+ * draw.
+ *
+ * Supplied by the player that owns the fetch ([app.hush.music.ui.player.BottomSheetPlayer]) and
+ * read by [FetchingIndicator]; surfaces that never provide one - the home-screen widgets, which
+ * render outside the app's composition - keep the indeterminate ring they had.
+ */
+internal val LocalPlayerFetchFraction = compositionLocalOf<Float?> { null }
+
+/**
+ * The transport's "the audio is coming" indicator.
+ *
+ * Determinate when the runtime reports bytes moving, so the arc advances because the download did.
+ * A source sweep has no fraction to report yet, and that window is what [RotatingFetchRing] is for:
+ * the standard indicator's indeterminate state is motion, and motion is exactly what a device with
+ * its animation scale turned off does not have.
+ */
+@Composable
+internal fun FetchingIndicator(
+    modifier: Modifier,
+    color: Color,
+) {
+    val fraction = LocalPlayerFetchFraction.current
+    if (fraction != null) {
+        CircularWavyProgressIndicator(
+            progress = { fraction },
+            modifier = modifier,
+            color = color,
+        )
+    } else {
+        // The shared primitive, so every "working…" ring in the app is the same one thing that is
+        // known to turn on a device whose animations are switched off.
+        HushProgressSpinner(modifier = modifier, color = color)
+    }
+}
+
+/**
+ * The transport's ring, and every other "working…" ring in the app, is
+ * [app.hush.music.ui.component.HushProgressSpinner]. `CircularWavyProgressIndicator`'s indeterminate
+ * state is driven by Compose animations, which the system's animator duration scale can silence
+ * completely - measured on the phone this was reported from: `animator_duration_scale = 0`, all three
+ * scales off, so the play/pause button held one frame for a whole download and read as frozen.
+ * The shared spinner is advanced by frame time instead, which the setting does not touch.
+ */
 
 @Composable
 fun PlayerTitleSection(
@@ -190,13 +260,16 @@ fun PlayerTitleSection(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .then(if (marquee) Modifier.basicMarquee() else Modifier)
-                        .combinedClickable(
-                            enabled = true,
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() },
+                        .hushMarquee(enabled = marquee)
+                        // A tap on the title is a real action (open the artist/song page, and a
+                        // long press copies it) but it had no indication at all, so it looked
+                        // inert. Same give-and-spring as every other surface, at row scale and
+                        // without a halo: this is a label, not a button.
+                        .hushBouncyClickable(
                             onClick = actions.onTitleClick,
                             onLongClick = actions.onCopyTitle,
+                            pressScale = HushDesign.RowPressScale,
+                            haloStrength = 0f,
                         ),
             )
         }
@@ -211,7 +284,7 @@ fun PlayerTitleSection(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .then(if (marquee) Modifier.basicMarquee() else Modifier)
+                    .hushMarquee(enabled = marquee)
                     .padding(end = if (centerAligned) 0.dp else 12.dp),
             textAlign = if (centerAligned) TextAlign.Center else TextAlign.Start,
         )
@@ -238,10 +311,8 @@ fun PlayerTopActions(
     val haptic = LocalHapticFeedback.current
     val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
     val database = LocalDatabase.current
-    val download by LocalDownloadUtil.current
-        .getDownload(mediaMetadata.id)
-        .collectAsStateWithLifecycle(initialValue = null)
-    val librarySong by database.song(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = null)
+    val download = rememberDownload(mediaMetadata.id)
+    val librarySong by rememberFlow(mediaMetadata.id) { database.song(mediaMetadata.id) }.collectAsStateWithLifecycle(initialValue = null)
     val isLocalMedia =
         remember(librarySong?.song?.isLocal, mediaMetadata.id) {
             librarySong?.song?.isLocal == true || mediaMetadata.id.isLocalMediaId()
@@ -586,18 +657,6 @@ fun PlayerTopActions(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Surface(
-                    onClick = {
-                        val intent =
-                            Intent().apply {
-                                action = Intent.ACTION_SEND
-                                type = "text/plain"
-                                putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    "https://music.youtube.com/watch?v=${mediaMetadata.id}",
-                                )
-                            }
-                        context.startActivity(Intent.createChooser(intent, null))
-                    },
                     shape =
                         RoundedCornerShape(
                             topStart = 50.dp,
@@ -606,7 +665,24 @@ fun PlayerTopActions(
                             bottomEnd = 6.dp,
                         ),
                     color = textBackgroundColor.copy(alpha = 0.12f),
-                    modifier = Modifier.size(buttonSize),
+                    modifier =
+                        Modifier
+                            .size(buttonSize)
+                            .hushBouncyClickable(
+                                onClick = {
+                                    val intent =
+                                        Intent().apply {
+                                            action = Intent.ACTION_SEND
+                                            type = "text/plain"
+                                            putExtra(
+                                                Intent.EXTRA_TEXT,
+                                                "https://music.youtube.com/watch?v=${mediaMetadata.id}",
+                                            )
+                                        }
+                                    context.startActivity(Intent.createChooser(intent, null))
+                                },
+                                haloColor = textBackgroundColor,
+                            ),
                 ) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                         Icon(
@@ -619,7 +695,6 @@ fun PlayerTopActions(
                 }
 
                 Surface(
-                    onClick = { playerConnection.toggleLike() },
                     shape = RoundedCornerShape(50),
                     color =
                         if (currentSongLiked) {
@@ -627,7 +702,18 @@ fun PlayerTopActions(
                         } else {
                             textBackgroundColor.copy(alpha = 0.12f)
                         },
-                    modifier = Modifier.size(buttonSize),
+                    modifier =
+                        Modifier
+                            .size(buttonSize)
+                            .hushBouncyClickable(
+                                onClick = { playerConnection.toggleLike() },
+                                haloColor =
+                                    if (currentSongLiked) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        textBackgroundColor
+                                    },
+                            ),
                 ) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                         Icon(
@@ -657,22 +743,30 @@ fun PlayerTopActions(
                             download?.state == Download.STATE_DOWNLOADING
                     val isDownloaded = download?.state == Download.STATE_COMPLETED
                     Surface(
-                        onClick = {
-                            handleV6PlayerDownloadClick(
-                                context = context,
-                                database = database,
-                                mediaMetadata = mediaMetadata,
-                                download = download,
-                            )
-                        },
                         shape = RoundedCornerShape(50),
                         color = textBackgroundColor.copy(alpha = 0.12f),
-                        modifier = Modifier.size(buttonSize),
+                        modifier =
+                            Modifier
+                                .size(buttonSize)
+                                .hushBouncyClickable(
+                                    onClick = {
+                                        handleV6PlayerDownloadClick(
+                                            context = context,
+                                            database = database,
+                                            mediaMetadata = mediaMetadata,
+                                            download = download,
+                                        )
+                                    },
+                                    haloColor = textBackgroundColor,
+                                ),
                     ) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                             when {
                                 isDownloading -> {
-                                    CircularWavyProgressIndicator(
+                                    // A download button is the other place a frozen spinner read as a
+                                    // dead control: the artwork turning next to it was the only thing
+                                    // that looked alive.
+                                    HushProgressSpinner(
                                         modifier = Modifier.size(iconSize),
                                         color = textBackgroundColor,
                                     )
@@ -701,23 +795,6 @@ fun PlayerTopActions(
                 }
 
                 Surface(
-                    onClick = {
-                        menuState.show {
-                            PlayerMenu(
-                                mediaMetadata = mediaMetadata,
-                                navController = navController,
-                                playerBottomSheetState = state,
-                                onShowDetailsDialog = {
-                                    mediaMetadata.id.let {
-                                        bottomSheetPageState.show {
-                                            ShowMediaInfo(it)
-                                        }
-                                    }
-                                },
-                                onDismiss = menuState::dismiss,
-                            )
-                        }
-                    },
                     shape =
                         RoundedCornerShape(
                             topStart = 6.dp,
@@ -726,7 +803,29 @@ fun PlayerTopActions(
                             bottomEnd = 50.dp,
                         ),
                     color = textBackgroundColor.copy(alpha = 0.12f),
-                    modifier = Modifier.size(buttonSize),
+                    modifier =
+                        Modifier
+                            .size(buttonSize)
+                            .hushBouncyClickable(
+                                onClick = {
+                                    menuState.show {
+                                        PlayerMenu(
+                                            mediaMetadata = mediaMetadata,
+                                            navController = navController,
+                                            playerBottomSheetState = state,
+                                            onShowDetailsDialog = {
+                                                mediaMetadata.id.let {
+                                                    bottomSheetPageState.show {
+                                                        ShowMediaInfo(it)
+                                                    }
+                                                }
+                                            },
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
+                                },
+                                haloColor = textBackgroundColor,
+                            ),
                 ) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                         Icon(
@@ -1022,7 +1121,7 @@ fun PlayerPlaybackControls(
                                 .clip(RoundedCornerShape(32.dp)),
                     ) {
                         if (isLoading) {
-                            CircularWavyProgressIndicator(
+                            FetchingIndicator(
                                 modifier = Modifier.size(42.dp),
                                 color = iconButtonColor,
                             )
@@ -1128,7 +1227,7 @@ fun PlayerPlaybackControls(
                         contentAlignment = Alignment.Center,
                     ) {
                         if (isLoading) {
-                            CircularWavyProgressIndicator(
+                            FetchingIndicator(
                                 modifier = Modifier.size(32.dp),
                                 color = icBackgroundColor,
                             )
@@ -1259,7 +1358,7 @@ fun PlayerPlaybackControls(
                             contentAlignment = Alignment.Center,
                         ) {
                             if (isLoading) {
-                                CircularWavyProgressIndicator(
+                                FetchingIndicator(
                                     modifier = Modifier.size(40.dp),
                                     color = MaterialTheme.colorScheme.onPrimary,
                                 )
@@ -1354,7 +1453,7 @@ fun PlayerPlaybackControls(
                             },
                 ) {
                     if (isLoading) {
-                        CircularWavyProgressIndicator(
+                        FetchingIndicator(
                             modifier =
                                 Modifier
                                     .align(Alignment.Center)
@@ -1535,14 +1634,18 @@ fun PlayerPlaybackControls(
                                 }
 
                             Surface(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    playerConnection.seekToPrevious()
-                                },
-                                enabled = canSkipPrevious,
                                 shape = prevShape,
                                 color = MaterialTheme.colorScheme.secondaryContainer,
-                                modifier = sideModifier,
+                                modifier =
+                                    sideModifier.hushBouncyClickable(
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            playerConnection.seekToPrevious()
+                                        },
+                                        enabled = canSkipPrevious,
+                                        pressScale = HushDesign.TransportPressScale,
+                                        haloColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    ),
                             ) {
                                 Box(
                                     modifier = Modifier.fillMaxSize(),
@@ -1563,19 +1666,26 @@ fun PlayerPlaybackControls(
                             Spacer(modifier = Modifier.width(buttonGap))
 
                             Surface(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (playbackState == STATE_ENDED) {
-                                        playerConnection.player.seekTo(0, 0)
-                                        playerConnection.player.playWhenReady = true
-                                    } else {
-                                        playerConnection.player.togglePlayPause()
-                                    }
-                                },
                                 shape = playShape,
                                 color = Color.Transparent,
                                 modifier =
                                     playModifier
+                                        .hushBouncyClickable(
+                                            onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                if (playbackState == STATE_ENDED) {
+                                                    playerConnection.player.seekTo(0, 0)
+                                                    playerConnection.player.playWhenReady = true
+                                                } else {
+                                                    playerConnection.player.togglePlayPause()
+                                                }
+                                            },
+                                            // The one button on the screen a thumb lands on without
+                                            // looking: it gives least of the three, so a press reads
+                                            // as weight rather than as the control disappearing.
+                                            pressScale = PlayerPrimaryPressScale,
+                                            haloColor = MaterialTheme.colorScheme.onPrimary,
+                                        )
                                         .hushPlayButtonBackground(playShape),
                             ) {
                                 Box(
@@ -1583,7 +1693,7 @@ fun PlayerPlaybackControls(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     if (isLoading) {
-                                        CircularWavyProgressIndicator(
+                                        FetchingIndicator(
                                             modifier = Modifier.size(if (landscape) 46.dp else 40.dp),
                                             color = MaterialTheme.colorScheme.onPrimary,
                                         )
@@ -1608,14 +1718,18 @@ fun PlayerPlaybackControls(
                             Spacer(modifier = Modifier.width(buttonGap))
 
                             Surface(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    playerConnection.seekToNext()
-                                },
-                                enabled = canSkipNext,
                                 shape = nextShape,
                                 color = MaterialTheme.colorScheme.secondaryContainer,
-                                modifier = sideModifier,
+                                modifier =
+                                    sideModifier.hushBouncyClickable(
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            playerConnection.seekToNext()
+                                        },
+                                        enabled = canSkipNext,
+                                        pressScale = HushDesign.TransportPressScale,
+                                        haloColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    ),
                             ) {
                                 Box(
                                     modifier = Modifier.fillMaxSize(),
@@ -1676,7 +1790,7 @@ fun PlayerControlsContent(
     context: Context,
     onSliderValueChange: (Long) -> Unit,
     onSliderValueChangeFinished: () -> Unit,
-    currentFormat: FormatEntity? = null,
+    formatRow: FormatRow? = null,
     landscape: Boolean = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE,
     landscapeCompact: Boolean = false,
     onLyricsClick: (() -> Unit)? = null,
@@ -1742,9 +1856,9 @@ fun PlayerControlsContent(
             textBackgroundColor = textBackgroundColor,
             showRemainingTime = playerDesignStyle == PlayerDesignStyle.V7,
             centerContent =
-                if (playerDesignStyle == PlayerDesignStyle.V7 && currentFormat != null) {
+                if (playerDesignStyle == PlayerDesignStyle.V7 && formatRow != null) {
                     {
-                        val codec = currentFormat.mimeType.substringAfter("/").uppercase()
+                        val codec = formatRow.format.mimeType.substringAfter("/").uppercase()
                         val label =
                             when {
                                 codec.contains("FLAC") || codec.contains("ALAC") -> "Lossless"
@@ -1769,11 +1883,23 @@ fun PlayerControlsContent(
                                     tint = textBackgroundColor.copy(alpha = 0.8f),
                                 )
                                 Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = textBackgroundColor.copy(alpha = 0.8f),
-                                )
+                                // The codec name on its own is a claim of unknown origin, and the
+                                // claim that once lied on this very badge - a "Lossless" label over
+                                // a track with no lossless bytes anywhere - is exactly the one the
+                                // provenance line qualifies.
+                                Column {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = textBackgroundColor.copy(alpha = 0.8f),
+                                    )
+                                    Text(
+                                        text = formatRow.source.displayLabel(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = textBackgroundColor.copy(alpha = 0.5f),
+                                        maxLines = 1,
+                                    )
+                                }
                             }
                         }
                     }
@@ -2206,10 +2332,8 @@ internal fun V6PortraitSingleActionRow(
     modifier: Modifier = Modifier,
 ) {
     val database = LocalDatabase.current
-    val download by LocalDownloadUtil.current
-        .getDownload(mediaMetadata.id)
-        .collectAsStateWithLifecycle(initialValue = null)
-    val librarySong by database.song(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = null)
+    val download = rememberDownload(mediaMetadata.id)
+    val librarySong by rememberFlow(mediaMetadata.id) { database.song(mediaMetadata.id) }.collectAsStateWithLifecycle(initialValue = null)
     val isLocalMedia =
         remember(librarySong?.song?.isLocal, mediaMetadata.id) {
             librarySong?.song?.isLocal == true || mediaMetadata.id.isLocalMediaId()
@@ -2410,26 +2534,37 @@ private fun V6PortraitActionIcon(
     showProgress: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = backgroundColor,
-        modifier = modifier.size(buttonSize),
+    Box(
+        modifier =
+            modifier
+                .size(buttonSize)
+                // The press comes *before* the clip, not after it. A clip wraps everything that
+                // follows, so a ring drawn inside one is cut off at the button's own edge and never
+                // seen: these buttons gave a size change and nothing else, which is how the like,
+                // download, shuffle and queue buttons came to look inert next to the transport row.
+                .hushPressable(
+                    onClick = onClick,
+                    pressScale = HushDesign.ChipPressScale,
+                    // The halo takes the icon's own colour, so the ring stays legible on an
+                    // artwork background and on a liked (red) or active (accent) button.
+                    haloColor = tint,
+                )
+                .clip(CircleShape)
+                .background(backgroundColor),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            if (showProgress) {
-                CircularWavyProgressIndicator(
-                    modifier = Modifier.size(iconSize),
-                    color = tint,
-                )
-            } else {
-                Icon(
-                    painter = painterResource(iconRes),
-                    contentDescription = contentDescription,
-                    tint = tint,
-                    modifier = Modifier.size(iconSize),
-                )
-            }
+        if (showProgress) {
+            HushProgressSpinner(
+                modifier = Modifier.size(iconSize),
+                color = tint,
+            )
+        } else {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = contentDescription,
+                tint = tint,
+                modifier = Modifier.size(iconSize),
+            )
         }
     }
 }
@@ -2584,10 +2719,8 @@ private fun V6LandscapeAllActionRows(
     libraryLyricsHeight: Dp = buttonSize,
 ) {
     val database = LocalDatabase.current
-    val download by LocalDownloadUtil.current
-        .getDownload(mediaMetadata.id)
-        .collectAsStateWithLifecycle(initialValue = null)
-    val librarySong by database.song(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = null)
+    val download = rememberDownload(mediaMetadata.id)
+    val librarySong by rememberFlow(mediaMetadata.id) { database.song(mediaMetadata.id) }.collectAsStateWithLifecycle(initialValue = null)
     val isLocalMedia =
         remember(librarySong?.song?.isLocal, mediaMetadata.id) {
             librarySong?.song?.isLocal == true || mediaMetadata.id.isLocalMediaId()
@@ -2812,14 +2945,19 @@ private fun V6LandscapeIconButton(
     loading: Boolean = false,
 ) {
     Surface(
-        onClick = onClick,
         shape = shape,
         color = backgroundColor,
-        modifier = Modifier.size(buttonSize),
+        modifier =
+            Modifier
+                .size(buttonSize)
+                .hushBouncyClickable(
+                    onClick = onClick,
+                    haloColor = tint,
+                ),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
             if (loading) {
-                CircularWavyProgressIndicator(
+                HushProgressSpinner(
                     modifier = Modifier.size(iconSize),
                     color = tint,
                 )
@@ -2845,11 +2983,17 @@ private fun V6LandscapeTextButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(50),
-        color = textColor.copy(alpha = 0.12f),
-        modifier = modifier.height(buttonSize),
+    Box(
+        modifier =
+            modifier
+                .height(buttonSize)
+                .clip(RoundedCornerShape(50))
+                .background(textColor.copy(alpha = 0.12f))
+                .hushPressable(
+                    onClick = onClick,
+                    pressScale = HushDesign.ChipPressScale,
+                    haloColor = textColor,
+                ),
     ) {
         Row(
             modifier =
@@ -2899,11 +3043,6 @@ private fun V6LandscapeTransportRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Surface(
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                playerConnection.seekToPrevious()
-            },
-            enabled = canSkipPrevious,
             shape =
                 RoundedCornerShape(
                     topStart = 22.dp,
@@ -2912,7 +3051,18 @@ private fun V6LandscapeTransportRow(
                     bottomEnd = 8.dp,
                 ),
             color = MaterialTheme.colorScheme.secondaryContainer,
-            modifier = Modifier.size(buttonSize),
+            modifier =
+                Modifier
+                    .size(buttonSize)
+                    .hushBouncyClickable(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            playerConnection.seekToPrevious()
+                        },
+                        enabled = canSkipPrevious,
+                        pressScale = HushDesign.TransportPressScale,
+                        haloColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(
@@ -2928,25 +3078,29 @@ private fun V6LandscapeTransportRow(
         }
 
         Surface(
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                if (playbackState == STATE_ENDED) {
-                    playerConnection.player.seekTo(0, 0)
-                    playerConnection.player.playWhenReady = true
-                } else {
-                    playerConnection.player.togglePlayPause()
-                }
-            },
             shape = RoundedCornerShape(28.dp),
             color = Color.Transparent,
             modifier =
                 Modifier
                     .size(playSize)
+                    .hushBouncyClickable(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            if (playbackState == STATE_ENDED) {
+                                playerConnection.player.seekTo(0, 0)
+                                playerConnection.player.playWhenReady = true
+                            } else {
+                                playerConnection.player.togglePlayPause()
+                            }
+                        },
+                        pressScale = PlayerPrimaryPressScale,
+                        haloColor = MaterialTheme.colorScheme.onPrimary,
+                    )
                     .hushPlayButtonBackground(RoundedCornerShape(28.dp)),
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (isLoading) {
-                    CircularWavyProgressIndicator(
+                    FetchingIndicator(
                         modifier = Modifier.size(playIconSize),
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
@@ -2969,11 +3123,6 @@ private fun V6LandscapeTransportRow(
         }
 
         Surface(
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                playerConnection.seekToNext()
-            },
-            enabled = canSkipNext,
             shape =
                 RoundedCornerShape(
                     topStart = 8.dp,
@@ -2982,7 +3131,18 @@ private fun V6LandscapeTransportRow(
                     bottomEnd = 22.dp,
                 ),
             color = MaterialTheme.colorScheme.secondaryContainer,
-            modifier = Modifier.size(buttonSize),
+            modifier =
+                Modifier
+                    .size(buttonSize)
+                    .hushBouncyClickable(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            playerConnection.seekToNext()
+                        },
+                        enabled = canSkipNext,
+                        pressScale = HushDesign.TransportPressScale,
+                        haloColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(
@@ -3053,7 +3213,7 @@ fun V8PlayerControlsContent(
     position: Long,
     duration: Long,
     volume: Float,
-    currentFormat: FormatEntity?,
+    formatRow: FormatRow?,
     playerConnection: PlayerConnection,
     navController: NavController,
     state: BottomSheetState,
@@ -3153,7 +3313,7 @@ fun V8PlayerControlsContent(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .basicMarquee(),
+                            .hushMarquee(),
                 )
 
                 Spacer(Modifier.height(contentGap))
@@ -3178,7 +3338,7 @@ fun V8PlayerControlsContent(
                     position = position,
                     duration = duration,
                     isPlaying = isPlaying,
-                    currentFormat = currentFormat,
+                    formatRow = formatRow,
                     foreground = foreground,
                     onSliderValueChange = onSliderValueChange,
                     onSliderValueChangeFinished = onSliderValueChangeFinished,
@@ -3196,7 +3356,7 @@ fun V8PlayerControlsContent(
                     position = position,
                     duration = duration,
                     isPlaying = isPlaying,
-                    currentFormat = currentFormat,
+                    formatRow = formatRow,
                     foreground = foreground,
                     onSliderValueChange = onSliderValueChange,
                     onSliderValueChangeFinished = onSliderValueChangeFinished,
@@ -3290,7 +3450,7 @@ fun V8PlayerContent(
     state: BottomSheetState,
     menuState: MenuState,
     bottomSheetPageState: BottomSheetPageState,
-    currentFormat: FormatEntity?,
+    formatRow: FormatRow?,
     canvasPrimaryUrl: String?,
     canvasFallbackUrl: String?,
     onSliderValueChange: (Long) -> Unit,
@@ -3347,7 +3507,7 @@ fun V8PlayerContent(
             position = position,
             duration = duration,
             volume = volume,
-            currentFormat = currentFormat,
+            formatRow = formatRow,
             foreground = foreground,
             secondaryForeground = secondaryForeground,
             onMenuClick = onMenuClick,
@@ -3390,7 +3550,7 @@ fun V8PlayerContent(
             position = position,
             duration = duration,
             volume = volume,
-            currentFormat = currentFormat,
+            formatRow = formatRow,
             foreground = foreground,
             secondaryForeground = secondaryForeground,
             onMenuClick = onMenuClick,
@@ -3438,7 +3598,7 @@ private fun V8PortraitContent(
     position: Long,
     duration: Long,
     volume: Float,
-    currentFormat: FormatEntity?,
+    formatRow: FormatRow?,
     foreground: Color,
     secondaryForeground: Color,
     onMenuClick: () -> Unit,
@@ -3548,7 +3708,7 @@ private fun V8PortraitContent(
                 position = position,
                 duration = duration,
                 isPlaying = isPlaying,
-                currentFormat = currentFormat,
+                formatRow = formatRow,
                 foreground = foreground,
                 onSliderValueChange = onSliderValueChange,
                 onSliderValueChangeFinished = onSliderValueChangeFinished,
@@ -3617,7 +3777,7 @@ private fun V8LandscapeContent(
     position: Long,
     duration: Long,
     volume: Float,
-    currentFormat: FormatEntity?,
+    formatRow: FormatRow?,
     foreground: Color,
     secondaryForeground: Color,
     onMenuClick: () -> Unit,
@@ -3681,7 +3841,7 @@ private fun V8LandscapeContent(
                         position = position,
                         duration = duration,
                         isPlaying = isPlaying,
-                        currentFormat = currentFormat,
+                        formatRow = formatRow,
                         foreground = foreground,
                         onSliderValueChange = onSliderValueChange,
                         onSliderValueChangeFinished = onSliderValueChangeFinished,
@@ -3767,7 +3927,10 @@ private fun V8Header(
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+                Modifier
+                    .hushMarquee()
+                    .fillMaxWidth(),
         )
         Text(
             text = subtitle,
@@ -3778,8 +3941,8 @@ private fun V8Header(
             overflow = TextOverflow.Ellipsis,
             modifier =
                 Modifier
-                    .fillMaxWidth()
-                    .basicMarquee(),
+                    .hushMarquee()
+                    .fillMaxWidth(),
         )
     }
 }
@@ -3855,7 +4018,7 @@ private fun V8MetadataActions(
                 overflow = TextOverflow.Ellipsis,
                 modifier =
                     Modifier
-                        .basicMarquee()
+                        .hushMarquee()
                         .hushPressable(onClick = onTitleClick),
             )
             ClickableArtists(
@@ -3863,7 +4026,7 @@ private fun V8MetadataActions(
                 onArtistClick = onArtistClick,
                 style = MaterialTheme.typography.titleMedium,
                 color = foreground,
-                modifier = Modifier.basicMarquee(),
+                modifier = Modifier.hushMarquee(),
             )
         }
 
@@ -3901,10 +4064,15 @@ private fun V8ActionButton(
     onClick: () -> Unit,
 ) {
     Surface(
-        onClick = onClick,
         shape = CircleShape,
         color = containerColor,
-        modifier = Modifier.size(48.dp),
+        modifier =
+            Modifier
+                .size(48.dp)
+                .hushBouncyClickable(
+                    onClick = onClick,
+                    haloColor = foreground,
+                ),
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -3927,7 +4095,7 @@ private fun V8PlaybackProgress(
     position: Long,
     duration: Long,
     isPlaying: Boolean,
-    currentFormat: FormatEntity?,
+    formatRow: FormatRow?,
     foreground: Color,
     onSliderValueChange: (Long) -> Unit,
     onSliderValueChangeFinished: () -> Unit,
@@ -3962,9 +4130,9 @@ private fun V8PlaybackProgress(
                 modifier = Modifier.align(Alignment.CenterStart),
             )
 
-            if (currentFormat != null) {
+            if (formatRow != null) {
                 V8QualityChip(
-                    currentFormat = currentFormat,
+                    formatRow = formatRow,
                     foreground = foreground,
                     modifier = Modifier.align(Alignment.Center),
                 )
@@ -3984,13 +4152,14 @@ private fun V8PlaybackProgress(
 
 @Composable
 private fun V8QualityChip(
-    currentFormat: FormatEntity,
+    formatRow: FormatRow,
     foreground: Color,
     modifier: Modifier = Modifier,
 ) {
+    val format = formatRow.format
     val label =
-        remember(currentFormat.mimeType, currentFormat.codecs) {
-            currentFormat.codecLabel()
+        remember(format.mimeType, format.codecs) {
+            format.codecLabel()
         }
 
     Surface(
@@ -4014,12 +4183,23 @@ private fun V8QualityChip(
                 tint = foreground.copy(alpha = 0.72f),
                 modifier = Modifier.size(15.dp),
             )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = foreground.copy(alpha = 0.72f),
-                maxLines = 1,
-            )
+            // Two lines rather than a longer one: appending the provenance to a chip that is
+            // centred between two time labels would truncate exactly the part that matters on a
+            // narrow screen, and a chip may wrap but never lie about where its name came from.
+            Column {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = foreground.copy(alpha = 0.72f),
+                    maxLines = 1,
+                )
+                Text(
+                    text = formatRow.source.displayLabel(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = foreground.copy(alpha = 0.45f),
+                    maxLines = 1,
+                )
+            }
         }
     }
 }
@@ -4071,24 +4251,35 @@ private fun V8TransportControls(
                     },
                 )
 
+                // The play button is the one control on this row that was still a bare Surface,
+                // so its press feedback was the ripple alone - which the system's animation scale
+                // can silence. Feeding the Surface's own interaction source into hushPressMotion
+                // gives it the same give, spring and ring as every other transport button.
+                val playPress = rememberPressInteractionSource()
                 Surface(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onPlayPauseClick()
                     },
+                    interactionSource = playPress,
                     shape = CircleShape,
                     color = Color.Transparent,
                     modifier =
                         Modifier
                             .size(scaledPlayButton)
-                            .hushPlayButtonBackground(CircleShape),
+                            .hushPlayButtonBackground(CircleShape)
+                            .hushPressMotion(
+                                interactionSource = playPress,
+                                pressScale = HushDesign.TransportPressScale,
+                                haloColor = MaterialTheme.colorScheme.primary,
+                            ),
                 ) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
                         if (isLoading) {
-                            CircularWavyProgressIndicator(
+                            FetchingIndicator(
                                 modifier = Modifier.size(scaledPlayIcon),
                                 color = MaterialTheme.colorScheme.onPrimary,
                             )
@@ -4167,7 +4358,7 @@ private fun V8TransportControls(
                 contentAlignment = Alignment.Center,
             ) {
                 if (isLoading) {
-                    CircularWavyProgressIndicator(
+                    FetchingIndicator(
                         modifier = Modifier.size(playIconSize),
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
@@ -4233,6 +4424,7 @@ private fun V8TransportButton(
                     },
                     enabled = enabled,
                     pressScale = HushDesign.TransportPressScale,
+                    haloColor = foreground,
                 ),
     ) {
         Box(
@@ -4748,7 +4940,7 @@ private fun V9Header(
             modifier =
                 Modifier
                     .weight(1f)
-                    .basicMarquee(),
+                    .hushMarquee(),
         )
 
         Row(
@@ -4819,10 +5011,15 @@ private fun V9HeaderButton(
     onClick: () -> Unit,
 ) {
     Surface(
-        onClick = onClick,
         shape = shape,
         color = containerColor,
-        modifier = Modifier.size(56.dp),
+        modifier =
+            Modifier
+                .size(56.dp)
+                .hushBouncyClickable(
+                    onClick = onClick,
+                    haloColor = iconColor,
+                ),
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -4898,7 +5095,7 @@ private fun V9Metadata(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .basicMarquee()
+                    .hushMarquee()
                     .hushPressable(onClick = onTitleClick),
         )
         ClickableArtists(
@@ -4910,7 +5107,7 @@ private fun V9Metadata(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .basicMarquee(),
+                    .hushMarquee(),
         )
     }
 }
@@ -5048,21 +5245,31 @@ private fun V9TransportControls(
 
                 Spacer(Modifier.width(buttonGap))
 
+                val playPress = rememberPressInteractionSource()
                 Surface(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onPlayPauseClick()
                     },
+                    interactionSource = playPress,
                     shape = RoundedCornerShape(playPauseCorner),
                     color = primaryContainerColor,
-                    modifier = Modifier.width(centerWidth).height(height),
+                    modifier =
+                        Modifier
+                            .width(centerWidth)
+                            .height(height)
+                            .hushPressMotion(
+                                interactionSource = playPress,
+                                pressScale = HushDesign.TransportPressScale,
+                                haloColor = primaryIconColor,
+                            ),
                 ) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
                         if (isLoading) {
-                            CircularWavyProgressIndicator(
+                            FetchingIndicator(
                                 modifier = Modifier.size(playIconSize),
                                 color = primaryIconColor,
                             )
@@ -5148,7 +5355,7 @@ private fun V9TransportControls(
                         contentAlignment = Alignment.Center,
                     ) {
                         if (isLoading) {
-                            CircularWavyProgressIndicator(
+                            FetchingIndicator(
                                 modifier = Modifier.size(playIconSize),
                                 color = primaryIconColor,
                             )
@@ -5211,11 +5418,14 @@ private fun V9TransportButton(
     onClick: () -> Unit,
 ) {
     Surface(
-        onClick = onClick,
-        enabled = enabled,
         shape = RoundedCornerShape(56.dp),
         color = containerColor,
-        modifier = modifier,
+        modifier =
+            modifier.hushBouncyClickable(
+                onClick = onClick,
+                enabled = enabled,
+                haloColor = iconColor,
+            ),
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -5588,6 +5798,13 @@ fun PlayerBackground(
                     label = "GlowAnimatedContent",
                 ) { colors ->
                     if (colors.isNotEmpty()) {
+                        // Deliberately left as an infinite transition. This is decoration on an
+                        // already-drawn player - a 20-second drift of the artwork's glow - and it
+                        // carries no state: frozen, the screen still says everything it said
+                        // before. Everything in this app whose motion *is* the message (spinners,
+                        // the visualizer's bars, the listening orb) runs on
+                        // [app.hush.music.ui.component.rememberFramePhase] instead, because the
+                        // system's animator duration scale silences Compose animations completely.
                         val infiniteTransition = rememberInfiniteTransition(label = "GlowAnimation")
 
                         val progress by infiniteTransition.animateFloat(
@@ -5746,7 +5963,7 @@ fun WideLandscapePlayerContent(
     sliderPosition: Long?,
     position: Long,
     duration: Long,
-    currentFormat: FormatEntity?,
+    formatRow: FormatRow?,
     playerConnection: PlayerConnection,
     navController: NavController,
     state: BottomSheetState,
@@ -5815,7 +6032,11 @@ fun WideLandscapePlayerContent(
                 ?.let { stringResource(R.string.spotiflac_downloading_percent, it.percent) }
             ?: sourceInfo.delivery.displayName()
     val audioValue =
-        currentFormat?.codecLabel()?.takeIf { it.isNotBlank() }
+        formatRow
+            ?.format
+            ?.codecLabel()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { codec -> "$codec · ${formatRow.source.displayLabel()}" }
             ?: stringResource(R.string.player_audio_stereo)
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -5904,7 +6125,7 @@ fun WideLandscapePlayerContent(
                             position = position,
                             duration = duration,
                             isPlaying = isPlaying,
-                            currentFormat = null,
+                            formatRow = null,
                             foreground = accent,
                             onSliderValueChange = onSliderValueChange,
                             onSliderValueChangeFinished = onSliderValueChangeFinished,
@@ -5951,11 +6172,20 @@ fun WideLandscapePlayerContent(
                             fontWeight = FontWeight.SemiBold,
                             color = accent,
                         )
+                        val collapsePress = rememberPressInteractionSource()
                         Surface(
                             onClick = onCollapseClick,
+                            interactionSource = collapsePress,
                             shape = CircleShape,
                             color = foreground.copy(alpha = 0.12f),
-                            modifier = Modifier.size(36.dp),
+                            modifier =
+                                Modifier
+                                    .size(36.dp)
+                                    .hushPressMotion(
+                                        interactionSource = collapsePress,
+                                        pressScale = HushDesign.ChipPressScale,
+                                        haloColor = foreground,
+                                    ),
                         ) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                                 Icon(
@@ -6040,7 +6270,7 @@ private fun PlayerTrackMetadataBlock(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .basicMarquee()
+                    .hushMarquee()
                     .hushPressable(onClick = onTitleClick),
         )
 
@@ -6054,7 +6284,7 @@ private fun PlayerTrackMetadataBlock(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .basicMarquee(),
+                    .hushMarquee(),
         )
     }
 }
@@ -6094,60 +6324,70 @@ private fun V6ShuffleRepeatRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(
-            onClick = {
-                playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled
-            },
-            shape =
-                RoundedCornerShape(
-                    topStart = 50.dp,
-                    bottomStart = 50.dp,
-                    topEnd = 6.dp,
-                    bottomEnd = 6.dp,
-                ),
-            color =
-                if (shuffleModeEnabled) {
-                    accent.copy(alpha = 0.18f)
-                } else {
-                    foreground.copy(alpha = 0.12f)
-                },
-            modifier = Modifier.size(buttonSize),
+        Box(
+            modifier =
+                Modifier
+                    .size(buttonSize)
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 50.dp,
+                            bottomStart = 50.dp,
+                            topEnd = 6.dp,
+                            bottomEnd = 6.dp,
+                        ),
+                    ).background(
+                        if (shuffleModeEnabled) {
+                            accent.copy(alpha = 0.18f)
+                        } else {
+                            foreground.copy(alpha = 0.12f)
+                        },
+                    ).hushPressable(
+                        onClick = {
+                            playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled
+                        },
+                        pressScale = HushDesign.ChipPressScale,
+                        haloColor = if (shuffleModeEnabled) accent else foreground,
+                    ),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                Icon(
-                    painter = painterResource(R.drawable.shuffle),
-                    contentDescription = stringResource(R.string.shuffle),
-                    tint = if (shuffleModeEnabled) accent else foreground,
-                    modifier = Modifier.size(iconSize),
-                )
-            }
+            Icon(
+                painter = painterResource(R.drawable.shuffle),
+                contentDescription = stringResource(R.string.shuffle),
+                tint = if (shuffleModeEnabled) accent else foreground,
+                modifier = Modifier.size(iconSize),
+            )
         }
 
-        Surface(
-            onClick = { playerConnection.player.toggleRepeatMode() },
-            shape =
-                RoundedCornerShape(
-                    topStart = 6.dp,
-                    bottomStart = 6.dp,
-                    topEnd = 50.dp,
-                    bottomEnd = 50.dp,
-                ),
-            color =
-                if (repeatMode != Player.REPEAT_MODE_OFF) {
-                    accent.copy(alpha = 0.18f)
-                } else {
-                    foreground.copy(alpha = 0.12f)
-                },
-            modifier = Modifier.size(buttonSize),
+        Box(
+            modifier =
+                Modifier
+                    .size(buttonSize)
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 6.dp,
+                            bottomStart = 6.dp,
+                            topEnd = 50.dp,
+                            bottomEnd = 50.dp,
+                        ),
+                    ).background(
+                        if (repeatMode != Player.REPEAT_MODE_OFF) {
+                            accent.copy(alpha = 0.18f)
+                        } else {
+                            foreground.copy(alpha = 0.12f)
+                        },
+                    ).hushPressable(
+                        onClick = { playerConnection.player.toggleRepeatMode() },
+                        pressScale = HushDesign.ChipPressScale,
+                        haloColor = if (repeatMode != Player.REPEAT_MODE_OFF) accent else foreground,
+                    ),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                Icon(
-                    painter = painterResource(repeatIcon),
-                    contentDescription = stringResource(R.string.repeat_mode_all),
-                    tint = if (repeatMode != Player.REPEAT_MODE_OFF) accent else foreground,
-                    modifier = Modifier.size(iconSize),
-                )
-            }
+            Icon(
+                painter = painterResource(repeatIcon),
+                contentDescription = stringResource(R.string.repeat_mode_all),
+                tint = if (repeatMode != Player.REPEAT_MODE_OFF) accent else foreground,
+                modifier = Modifier.size(iconSize),
+            )
         }
     }
 }
@@ -6223,7 +6463,7 @@ private fun V6LibraryLyricsPillButton(
                 .height(buttonSize)
                 .clip(RoundedCornerShape(16.dp))
                 .background(textColor.copy(alpha = 0.1f))
-                .clickable(onClick = onClick),
+                .hushBouncyClickable(onClick = onClick, haloColor = textColor),
         contentAlignment = Alignment.Center,
     ) {
         Row(
@@ -6266,10 +6506,8 @@ private fun PlayerLandscapeSecondaryActions(
 ) {
     val context = LocalContext.current
     val database = LocalDatabase.current
-    val download by LocalDownloadUtil.current
-        .getDownload(mediaMetadata.id)
-        .collectAsStateWithLifecycle(initialValue = null)
-    val librarySong by database.song(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = null)
+    val download = rememberDownload(mediaMetadata.id)
+    val librarySong by rememberFlow(mediaMetadata.id) { database.song(mediaMetadata.id) }.collectAsStateWithLifecycle(initialValue = null)
     val isLocalMedia =
         remember(librarySong?.song?.isLocal, mediaMetadata.id) {
             librarySong?.song?.isLocal == true || mediaMetadata.id.isLocalMediaId()
@@ -6405,10 +6643,15 @@ private fun WideLandscapeActionButton(
     iconSize: Dp = 22.dp,
 ) {
     Surface(
-        onClick = onClick,
         shape = RoundedCornerShape(16.dp),
         color = foreground.copy(alpha = 0.12f),
-        modifier = Modifier.size(buttonSize),
+        modifier =
+            Modifier
+                .size(buttonSize)
+                .hushBouncyClickable(
+                    onClick = onClick,
+                    haloColor = foreground,
+                ),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
             Icon(
@@ -6463,7 +6706,7 @@ private fun WideLandscapeInfoTile(
                 overflow = TextOverflow.Ellipsis,
                 // "SpotiFLAC · qobuz-web" is longer than the tile, and a truncated engine name
                 // is worse than none: it reads as a different source. Scroll it instead.
-                modifier = Modifier.basicMarquee().fillMaxWidth(),
+                modifier = Modifier.hushMarquee().fillMaxWidth(),
             )
             caption?.let { text ->
                 Text(
@@ -6472,6 +6715,10 @@ private fun WideLandscapeInfoTile(
                     color = Color.White.copy(alpha = 0.65f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    // Same reasoning as the value above: a delivery line such as
+                    // "WebM · 251 · 160 kbps" is the part that identifies the stream, so it
+                    // scrolls rather than being cut mid-word.
+                    modifier = Modifier.hushMarquee().fillMaxWidth(),
                 )
             }
         }
@@ -6507,6 +6754,7 @@ internal fun PlaybackSourceInfo.displayName(): String =
 internal fun PlaybackDelivery?.displayName(): String? =
     when (this) {
         PlaybackDelivery.DEVICE_CACHE -> stringResource(R.string.playback_delivery_device_cache)
+        PlaybackDelivery.DEVICE_DOWNLOAD -> stringResource(R.string.playback_delivery_download)
         PlaybackDelivery.FETCHED_FOR_PLAY -> stringResource(R.string.playback_delivery_fetched_now)
         PlaybackDelivery.LIVE_STREAM -> stringResource(R.string.playback_delivery_live_stream)
         null -> null

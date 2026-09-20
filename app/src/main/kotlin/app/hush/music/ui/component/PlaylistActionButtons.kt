@@ -7,14 +7,8 @@
 
 package app.hush.music.ui.component
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -33,10 +27,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -50,7 +42,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 import app.hush.music.R
 import app.hush.music.constants.EnableHapticFeedbackKey
 import app.hush.music.ui.theme.HushDesign
@@ -252,7 +243,10 @@ private fun HeaderPlayAction(
             modifier
                 .height(HeaderActionSize)
                 .widthIn(min = if (showLabel) 124.dp else HeaderActionSize)
-                .clip(HeaderActionShape)
+                // Press motion *before* any clip, so the release ring is drawn outside the button's own
+                // bounds instead of being cut off at its edge - the rule the navigation tiles already
+                // follow and this row did not. The shape is applied by `Surface(shape = ...)` itself, so
+                // the clip that used to sit here was only ever there to hide the animation.
                 .archiveTuneHeaderActionPressable(
                     onClick = {
                         tapPulse.trigger()
@@ -332,7 +326,9 @@ private fun HeaderIconAction(
         modifier =
             modifier
                 .size(buttonSize)
-                .clip(HeaderActionShape)
+                // Same rule as the play action above: the give, the spring and the ring are the
+                // player's motion, and a clip in front of them is what made these five buttons look
+                // static next to the transport row they sit above.
                 .archiveTuneHeaderActionPressable(
                     onClick = {
                         tapPulse.trigger()
@@ -369,40 +365,17 @@ private fun HeaderIconAction(
 }
 
 /**
- * A short springy scale pulse (1f → ~1.15 → 1f) triggered on tap, giving
- * icon buttons a satisfying "pop" even when press-scale animations are
- * disabled (e.g. low-RAM devices).
+ * The playlist header's icon pop, now the app's own frame-driven one.
+ *
+ * This was an `Animatable` plus a spring, and it is worth saying plainly what that did on the device
+ * that reported it: nothing at all. Compose takes its animation duration from the system's animator
+ * duration scale, so with that scale at 0 - which is what a car head unit runs with - the pop finished
+ * before its first frame, and the playlist's like, play, shuffle, download and options buttons were the
+ * static ones sitting next to a player whose transport row visibly moved. The shared helper runs on
+ * frame time instead, so the same curve shows wherever Hush runs.
  */
 @Composable
-private fun rememberTapPulseScale(): TapPulse {
-    val animationsDisabled = app.hush.music.LocalAnimationsDisabled.current
-    val scope = rememberCoroutineScope()
-    val scale = remember { Animatable(1f) }
-
-    fun trigger() {
-        if (animationsDisabled) return
-        scope.launch {
-            scale.snapTo(1.12f)
-            scale.animateTo(
-                targetValue = 1f,
-                animationSpec =
-                    spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-            )
-        }
-    }
-
-    return remember(scale, scope, animationsDisabled) {
-        TapPulse(scale = scale, trigger = ::trigger)
-    }
-}
-
-private class TapPulse(
-    val scale: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
-    val trigger: () -> Unit,
-)
+private fun rememberTapPulseScale(): TapPop = rememberTapPopScale()
 
 @Composable
 fun PlaylistDownloadButtonContent(

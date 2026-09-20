@@ -284,12 +284,15 @@ fun PlayerSettings(
         )
 
         PreferenceGroup(title = stringResource(R.string.audio_source)) {
+            // First in Playback, because it decides what plays at all - the rest of this
+            // screen configures how playback behaves once a source has answered.
+            // (The entry that used to open this screen is gone; this is now the only one.)
             item {
                 PreferenceEntry(
-                    title = { Text(stringResource(R.string.stream_quality)) },
-                    description = stringResource(R.string.stream_quality_desc),
-                    icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
-                    onClick = { navController.navigate("settings/player/stream_quality") },
+                    title = { Text(stringResource(R.string.audio_sources_title)) },
+                    description = stringResource(R.string.audio_sources_subtitle),
+                    icon = { Icon(painterResource(R.drawable.integration), null) },
+                    onClick = { navController.navigate("settings/player/audio_sources") },
                 )
             }
 
@@ -301,14 +304,8 @@ fun PlayerSettings(
                     onClick = { navController.navigate("settings/player/stream_sources") },
                 )
             }
-            item {
-                PreferenceEntry(
-                    title = { Text("Audio Sources") },
-                    description = "YouTube & SpotiFLAC source priority",
-                    icon = { Icon(painterResource(R.drawable.integration), null) },
-                    onClick = { navController.navigate("settings/player/audio_sources") },
-                )
-            }
+            // Stream quality used to sit in this group. It is now under the YouTube switch
+            // inside Audio Sources, which is the engine the value actually applies to.
         }
 
         PreferenceGroup(title = stringResource(R.string.playback_settings)) {

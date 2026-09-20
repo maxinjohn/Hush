@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import app.hush.music.R
 import app.hush.music.search.LoadSearchDiscoveryUseCase
 import app.hush.music.search.SearchDiscoveryUiModel
@@ -54,57 +55,74 @@ class SearchDiscoveryViewModel
         val selectedTab: StateFlow<SearchDiscoveryTab> = _selectedTab.asStateFlow()
 
         private var loadJob: Job? = null
+
+        /** The tab whose result the current load may paint. */
+        private var loadingTab: SearchDiscoveryTab? = null
         private val loadedTabs = mutableMapOf<SearchDiscoveryTab, SearchDiscoveryUiModel>()
 
         init {
-            load(SearchDiscoveryTab.EXPLORE)
+            startLoad(SearchDiscoveryTab.EXPLORE)
         }
 
         fun selectTab(tab: SearchDiscoveryTab) {
             _selectedTab.value = tab
-            load(tab)
+            loadedTabs[tab]?.let { cached ->
+                _state.value = SearchDiscoveryScreenState.Success(cached)
+                return
+            }
+            // Selecting a tab that has nothing cached always starts its own load. It used to
+            // return early whenever any load was in flight, so tapping the other tab while the
+            // first one was still loading showed the *first* tab's content under the second tab's
+            // name - and if that first load failed, the second tab reported its error too.
+            startLoad(tab)
         }
 
         fun retry() {
-            load(_selectedTab.value, force = true)
+            startLoad(_selectedTab.value)
         }
 
-        private fun load(
-            tab: SearchDiscoveryTab,
-            force: Boolean = false,
-        ) {
-            if (!force && loadJob?.isActive == true) return
-            if (!force && loadedTabs[tab] != null) {
-                _state.value = SearchDiscoveryScreenState.Success(loadedTabs.getValue(tab))
-                return
-            }
+        private fun startLoad(tab: SearchDiscoveryTab) {
             loadJob?.cancel()
+            loadingTab = tab
             _state.value = SearchDiscoveryScreenState.Loading
             loadJob =
                 viewModelScope.launch {
-                    _state.value =
-                        try {
+                    // The request layer retries transient failures on its own, so the answer to
+                    // "is this ever going to load?" can be a minute away on a bad connection.
+                    // A tab that is being looked at gets a bounded wait and can then offer its
+                    // retry instead of sitting on skeletons indefinitely.
+                    val loaded =
+                        withTimeoutOrNull(LoadBudgetMillis) {
                             when (tab) {
                                 SearchDiscoveryTab.EXPLORE -> loadSearchDiscovery.loadExplore()
                                 SearchDiscoveryTab.SUGGESTIONS -> loadSearchDiscovery.loadSuggestions()
                             }
-                                .fold(
-                                    onSuccess = { data ->
-                                        loadedTabs[tab] = data
-                                        if (data.isEmpty) {
-                                            SearchDiscoveryScreenState.Empty
-                                        } else {
-                                            SearchDiscoveryScreenState.Success(data)
-                                        }
-                                    },
-                                    onFailure = {
-                                        SearchDiscoveryScreenState.Error(R.string.error_unknown)
-                                    },
-                                )
-                        } catch (throwable: Throwable) {
-                            if (throwable is CancellationException) throw throwable
-                            SearchDiscoveryScreenState.Error(R.string.error_unknown)
                         }
+
+                    val state =
+                        loaded
+                            ?.fold(
+                                onSuccess = { data ->
+                                    loadedTabs[tab] = data
+                                    if (data.isEmpty) {
+                                        SearchDiscoveryScreenState.Empty
+                                    } else {
+                                        SearchDiscoveryScreenState.Success(data)
+                                    }
+                                },
+                                onFailure = { SearchDiscoveryScreenState.Error(R.string.error_unknown) },
+                            )
+                            ?: SearchDiscoveryScreenState.Error(R.string.error_unknown)
+
+                    // A load that finished after the user moved on must not repaint the screen
+                    // with the tab they left.
+                    if (loadingTab == tab) {
+                        _state.value = state
+                    }
                 }
+        }
+
+        private companion object {
+            const val LoadBudgetMillis = 25_000L
         }
     }

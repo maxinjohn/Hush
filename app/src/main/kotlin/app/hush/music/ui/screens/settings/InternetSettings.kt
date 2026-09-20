@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalIconButton
@@ -56,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.constants.*
@@ -458,7 +458,7 @@ fun InternetSettings(
             onDismiss = { },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            CircularWavyProgressIndicator(
+            HushProgressSpinner(
                 modifier = Modifier.size(48.dp),
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -483,7 +483,7 @@ fun InternetSettings(
             onDismiss = { },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            CircularWavyProgressIndicator(
+            HushProgressSpinner(
                 modifier = Modifier.size(48.dp),
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -526,7 +526,7 @@ private fun IpRotationPreference(
             ) {
                 if (checked) {
                     if (isBusy) {
-                        CircularWavyProgressIndicator(modifier = Modifier.size(24.dp))
+                        HushProgressSpinner(modifier = Modifier.size(24.dp))
                     } else {
                         FilledTonalIconButton(onClick = onRefresh) {
                             Icon(

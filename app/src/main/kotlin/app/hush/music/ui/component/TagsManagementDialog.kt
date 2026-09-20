@@ -45,7 +45,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -70,6 +69,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.toColorInt
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.R
 import app.hush.music.viewmodels.PlaylistTagColorPickerState
 import app.hush.music.viewmodels.PlaylistTagEditorState
@@ -529,7 +529,7 @@ private fun PlaylistTagsLoadingContent(modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
     ) {
-        LoadingIndicator(modifier = Modifier.size(40.dp))
+        HushProgressSpinner(modifier = Modifier.size(40.dp))
         Text(
             text = stringResource(R.string.loading),
             style = MaterialTheme.typography.bodyMedium,

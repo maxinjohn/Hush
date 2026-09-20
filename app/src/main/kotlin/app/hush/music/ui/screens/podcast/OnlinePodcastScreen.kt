@@ -31,7 +31,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -75,6 +74,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.ui.utils.resize
 import app.hush.music.models.toMediaMetadata
 import app.hush.music.R
@@ -153,7 +153,7 @@ fun OnlinePodcastScreen(
                             .padding(32.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        ContainedLoadingIndicator()
+                        HushProgressSpinner(containerColor = MaterialTheme.colorScheme.primaryContainer)
                     }
                 }
             } else if (error != null) {

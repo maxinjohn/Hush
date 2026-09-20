@@ -36,7 +36,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Surface
@@ -58,6 +57,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.toColorInt
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.R
 import app.hush.music.viewmodels.PlaylistTagPlaylistUiModel
 import app.hush.music.viewmodels.PlaylistTagUiModel
@@ -546,7 +546,7 @@ private fun AssignTagsLoadingContent() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        LoadingIndicator(modifier = Modifier.size(40.dp))
+        HushProgressSpinner(modifier = Modifier.size(40.dp))
         Text(
             text = stringResource(R.string.loading),
             style = MaterialTheme.typography.bodyMedium,

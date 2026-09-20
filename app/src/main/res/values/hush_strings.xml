@@ -413,11 +413,13 @@
     <string name="android_auto_reorder_hint">Tap a section to enable or disable it.\nLong-press the drag handle to reorder. The first section will be shown by default</string>
     <string name="android_auto_youtube_playlists">Show YouTube suggested playlists</string>
     <string name="android_auto_youtube_playlists_desc">Show YouTube Music recommended playlists in the playlists section while browsing with Android Auto</string>
+    <string name="android_auto_spotify_playlists">Show Spotify playlists</string>
+    <string name="android_auto_spotify_playlists_desc">Show the playlists of your connected Spotify account while browsing with Android Auto</string>
     <string name="android_auto_target_playlist">Quick-add destination</string>
-    <string name="android_auto_target_playlist_desc">Choose the playlist where songs are saved when using the quick-add button in Android Auto</string>
+    <string name="android_auto_target_playlist_desc">Choose the playlist where songs are saved when using the quick-add button in Android Auto. Spotify playlists are saved to your Spotify account</string>
     <string name="android_auto_target_playlist_auto">Not set</string>
     <string name="android_auto_target_playlist_not_set">No playlist selected. Choose one in Android Auto settings</string>
-    <string name="settings_android_auto_subtitle">Sections, quick-add, and YouTube playlists</string>
+    <string name="settings_android_auto_subtitle">Sections, quick-add, Spotify and YouTube playlists</string>
     <string name="mixes">Mixes</string>
     <string name="android_auto_suggested_songs">Suggested songs</string>
     <string name="android_auto_mixes_and_radios">Mixes and radios</string>
@@ -448,7 +450,7 @@
     <string name="crossfade_gapless_title">Skip gapless albums</string>
     <string name="crossfade_gapless_description">Do not crossfade consecutive songs from the same album.</string>
     <string name="prefetch_count">Prefetch upcoming songs</string>
-    <string name="prefetch_count_desc">Resolve and cache stream URLs ahead. 0 = off, up to 4</string>
+    <string name="prefetch_count_desc">Resolve stream URLs ahead, and fetch the same number of songs through SpotiFLAC. 0 = off, up to 4</string>
     <string name="player_stream_client">Playback client</string>
     <string name="player_stream_client_desc">Controls which playback source is used to fetch streams</string>
     <string name="player_stream_client_android_vr">Android VR</string>
@@ -482,6 +484,8 @@
     <string name="source_priority_desc">Higher priority sources are tried first with fallback</string>
     <string name="audio_source">Audio source</string>
     <string name="playback_settings">Playback</string>
+    <string name="audio_sources_title">Audio Sources</string>
+    <string name="audio_sources_subtitle">YouTube &amp; SpotiFLAC source priority</string>
     <string name="stream_quality">Stream quality</string>
 <string name="stream_quality_desc">YouTube audio quality settings</string>
     <string name="stream_sources_and_client">Stream sources and client</string>
@@ -504,6 +508,7 @@
     <string name="playback_source_hires_provider">Hi-Res · %1$s</string>
     <string name="player_info_delivery">Playing from</string>
     <string name="playback_delivery_device_cache">Device cache</string>
+    <string name="playback_delivery_download">Your download</string>
     <string name="playback_delivery_fetched_now">Fetched for this play</string>
     <string name="playback_delivery_live_stream">Live stream</string>
     <string name="playback_saved_offline">Saved offline</string>
@@ -524,14 +529,16 @@
     <string name="spotiflac_fallback_youtube_desc">When every SpotiFLAC source fails, play the track from YouTube instead of showing an error.</string>
     <string name="spotiflac_try_next_source">Try the next source on failure</string>
     <string name="spotiflac_try_next_source_desc">Move on to the next enabled SpotiFLAC source when one cannot play a track.</string>
+    <string name="spotiflac_parallel_fetch">Fetch sources in parallel</string>
+    <string name="spotiflac_parallel_fetch_desc">Asks every enabled source at once and keeps the first one that answers, so the wait is the fastest provider instead of the sum of the ones ahead of it. It downloads from several at once, which uses more data and can hit a provider\'s own rate limits.</string>
     <string name="spotiflac_verified_only">Only use verified sources</string>
     <string name="spotiflac_verified_only_desc">Skip sources that still need a Cloudflare check while a verified source is available.</string>
     <string name="spotiflac_cache_title">Playback cache</string>
     <string name="spotiflac_cache_desc">Tracks fetched through SpotiFLAC stay on device so replays start instantly. Downloaded songs always play from your download first.</string>
     <string name="spotiflac_cache_streams">Cache streamed tracks</string>
     <string name="spotiflac_cache_streams_desc">Keep each streamed track on device so it never has to be fetched twice.</string>
-    <string name="spotiflac_prefetch_next">Prefetch the next track</string>
-    <string name="spotiflac_prefetch_next_desc">Fetch the upcoming queue item in the background so it starts instantly. Skipped in low-data mode.</string>
+    <string name="spotiflac_prefetch_next">Prefetch upcoming tracks</string>
+    <string name="spotiflac_prefetch_next_desc">Fetch the songs ahead through SpotiFLAC so they start instantly. Uses the same count as Prefetch upcoming songs in Player settings. Skipped in low-data mode.</string>
     <string name="spotiflac_cache_limit">Cache size limit</string>
     <string name="spotiflac_cache_used_format">%1$s used of %2$s</string>
     <string name="spotiflac_cache_used_unlimited_format">%1$s used (no limit)</string>
@@ -766,4 +773,10 @@
     <string name="import_matching_progress">Matching: %1$d/%2$d</string>
     <string name="import_saving">Saving import…</string>
     <string name="import_saving_progress">Saving: %1$d/%2$d</string>
+
+    <!-- Where the player's codec row came from, appended after the codec, rate and source. -->
+    <string name="format_row_from_session_resolve">codec from this session\'s resolve</string>
+    <string name="format_row_from_saved_resolve">codec from an earlier resolve</string>
+    <string name="format_row_from_device_file">codec from a file on this device</string>
+    <string name="format_row_from_decoder">codec from the decoder</string>
 </resources>

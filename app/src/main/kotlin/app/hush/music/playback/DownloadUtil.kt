@@ -364,11 +364,11 @@ class DownloadUtil
                             // and the configured source priority was never consulted. Purging
                             // here covers every removal entry point (song menu, playlists,
                             // download manager, "remove all") instead of each call site.
-                            runCatching {
-                                app.hush.music.spotiflac.SpotiFLACPlaybackCache
-                                    .getInstance()
-                                    ?.removeForMediaId(download.request.id)
-                            }
+                            //
+                            // The pinned-or-not discard rather than the eviction removal: a
+                            // removal is the user saying they want these bytes gone, so no
+                            // entry may be spared on the grounds that it was kept deliberately.
+                            discardCachedPlaybackCopy(download.request.id)
                             // The origin record describes the bytes that were stored.
                             // Keeping it after the bytes are gone mislabels whatever the
                             // next download of this song writes, so it is dropped with
@@ -545,8 +545,6 @@ class DownloadUtil
                 Timber.tag(TAG).e(e, "Pre-resolve failed for $mediaId")
             }
         }
-
-        fun getDownload(songId: String): Flow<Download?> = downloads.map { it[songId] }.distinctUntilChanged()
 
         private fun resolveDownloadAudioQuality(lowDataModeActive: Boolean): AudioQuality =
             resolveEffectiveAudioQuality(audioQuality, lowDataModeActive)

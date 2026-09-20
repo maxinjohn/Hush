@@ -32,10 +32,11 @@ import app.hush.music.models.MediaMetadata
  * It carries no style opinions of its own, so every player style can reuse it without this file
  * ever needing changes when a new style is added.
  *
- * Note on marquee: callers typically apply [androidx.compose.foundation.basicMarquee] via
- * [modifier]. Hit-testing uses the static [TextLayoutResult], so a tap landing during the marquee
- * scroll resolves against the un-scrolled layout. This matches the pre-existing behavior of the
- * classic player and is acceptable for the short, rarely-scrolling artist line.
+ * Note on marquee: callers apply [app.hush.music.ui.component.hushMarquee] via [modifier], never
+ * [androidx.compose.foundation.basicMarquee] directly - its three-pass default leaves a long line
+ * frozen half way. Hit-testing uses the static [TextLayoutResult], so a tap landing during the
+ * marquee scroll resolves against the un-scrolled layout. This matches the pre-existing behavior of
+ * the classic player and is acceptable for the artist line.
  */
 @Composable
 fun ClickableArtists(

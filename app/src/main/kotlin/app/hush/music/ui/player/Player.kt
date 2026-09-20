@@ -34,7 +34,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -147,7 +146,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.drawable.toBitmap
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.C
 import androidx.media3.common.Player
@@ -171,6 +169,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import me.saket.squiggles.SquigglySlider
+import app.hush.music.ui.component.hushMarquee
+import app.hush.music.ui.component.hushPressMotion
+import app.hush.music.ui.component.rememberPressInteractionSource
 import app.hush.music.LocalDownloadUtil
 import app.hush.music.LocalMiniPlayerBottomPadding
 import app.hush.music.LocalPlayerConnection
@@ -200,11 +201,12 @@ import app.hush.music.constants.PlayerHorizontalPadding
 import app.hush.music.constants.LandscapePlayerBottomSpacing
 import app.hush.music.constants.landscapeQueuePeekHeight
 import app.hush.music.constants.portraitQueuePeekHeight
+import app.hush.music.constants.ShowCodecOnPlayerDefault
+import app.hush.music.constants.ShowCodecOnPlayerKey
 import app.hush.music.constants.SliderStyle
 import app.hush.music.constants.SliderStyleKey
 import app.hush.music.constants.LandscapePlayerLayoutKey
 import app.hush.music.constants.ThumbnailCornerRadiusKey
-import app.hush.music.db.entities.FormatEntity
 import app.hush.music.extensions.metadata
 import app.hush.music.extensions.togglePlayPause
 import app.hush.music.extensions.toggleRepeatMode
@@ -219,18 +221,21 @@ import app.hush.music.ui.component.LocalMenuState
 import app.hush.music.ui.component.MenuState
 import app.hush.music.ui.component.PlayerSliderTrack
 import app.hush.music.ui.component.ResizableIconButton
+import app.hush.music.ui.theme.HushDesign
 import app.hush.music.ui.component.rememberBottomSheetState
 import app.hush.music.ui.menu.PlayerMenu
 import app.hush.music.ui.screens.Screens
 import app.hush.music.ui.screens.settings.DarkMode
-import app.hush.music.ui.theme.HushDesign
 import app.hush.music.ui.theme.hushPressable
 import app.hush.music.ui.theme.PlayerBackgroundColorUtils
 import app.hush.music.ui.theme.PlayerColorExtractor
 import app.hush.music.ui.theme.PlayerSliderColors
 import app.hush.music.ui.utils.ShowMediaInfo
+import app.hush.music.ui.utils.rememberDownload
 import app.hush.music.ui.utils.resize
 import app.hush.music.utils.ImageBlurUtils
+import app.hush.music.utils.fetchFraction
+import app.hush.music.utils.isFetchingTrack
 import app.hush.music.utils.makeTimeString
 import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberLowDataModeActive
@@ -366,7 +371,7 @@ fun BottomSheetPlayer(
     val (blurRadius) = rememberPreference(BlurRadiusKey, 48f)
     val (backdropEnabled) = rememberPreference(BackdropEnabledKey, defaultValue = true)
     val (backdropBlurAmount) = rememberPreference(BackdropBlurAmountKey, defaultValue = 60)
-    val (showCodecOnPlayer) = rememberPreference(booleanPreferencesKey("show_codec_on_player"), false)
+    val (showCodecOnPlayer) = rememberPreference(ShowCodecOnPlayerKey, ShowCodecOnPlayerDefault)
     val (incrementalSeekSkipEnabled) = rememberPreference(app.hush.music.constants.SeekExtraSeconds, defaultValue = false)
     var keyboardSkipMultiplier by remember { mutableStateOf(1) }
     var lastKeyboardTapTime by remember { mutableLongStateOf(0L) }
@@ -421,7 +426,11 @@ fun BottomSheetPlayer(
     val currentSong by playerConnection.currentSong.collectAsStateWithLifecycle(initialValue = null)
     val currentSongLiked = currentSong?.song?.liked == true
     val queueTitle by playerConnection.queueTitle.collectAsStateWithLifecycle()
-    val currentFormat by playerConnection.currentFormat.collectAsStateWithLifecycle(initialValue = null)
+    // The codec row's format *and* where it came from travel as one value: the full player draws the
+    // codec name in its own badge/chip, and a name with no provenance is what let `Lossless` sit over
+    // a track that had no lossless bytes at all.
+    val currentFormatRow by
+        playerConnection.currentFormatRow.collectAsStateWithLifecycle(initialValue = null)
     val queueWindows by playerConnection.queueWindows.collectAsStateWithLifecycle()
     val currentWindowIndex by playerConnection.currentWindowIndex.collectAsStateWithLifecycle()
     val deviceMusicVolumeController = rememberDeviceMusicVolumeController()
@@ -464,8 +473,21 @@ fun BottomSheetPlayer(
         mutableStateOf(false)
     }
 
-    // Track loading state: when buffering or when user is seeking (debounced to avoid spinner flicker)
-    val rawLoading = playbackState == STATE_BUFFERING || sliderPosition != null
+    // Track loading state: while buffering, while the user is seeking, or while the audio for
+    // this track is still being fetched. The last one is the SpotiFLAC window: the track is
+    // downloaded before media3 is handed anything, so playbackState stays idle throughout and
+    // the transport presented a play button that could not do anything yet - the "stuck, no
+    // animation while it downloads" state. Debounced below so the spinner does not flicker.
+    val downloadProgress by playerConnection.activeDownloadProgress.collectAsStateWithLifecycle()
+    // A fetch that outlives the audio is stale, not live: while this track is audibly playing
+    // there is nothing left to wait for, so the transport keeps its play/pause control rather
+    // than a ring that never leaves.
+    val fetchingCurrentTrack =
+        !isPlaying && downloadProgress.isFetchingTrack(mediaMetadata?.id)
+    // The ring's fill, so it advances with the download on a device where animations are off.
+    val fetchFraction = downloadProgress.fetchFraction(mediaMetadata?.id, isPlaying)
+    val rawLoading =
+        playbackState == STATE_BUFFERING || sliderPosition != null || fetchingCurrentTrack
     var isLoading by remember(mediaMetadata?.id) { mutableStateOf(rawLoading) }
     LaunchedEffect(rawLoading) {
         if (rawLoading) {
@@ -622,9 +644,7 @@ fun BottomSheetPlayer(
             }
         }
 
-    val download by LocalDownloadUtil.current
-        .getDownload(mediaMetadata?.id ?: "")
-        .collectAsStateWithLifecycle(initialValue = null)
+    val download = rememberDownload(mediaMetadata?.id ?: "")
 
     val sleepTimerEnabled =
         remember(
@@ -708,11 +728,18 @@ fun BottomSheetPlayer(
                         steps = (120 - 5) / 5 - 1,
                     )
 
+                    val endOfSongPress = rememberPressInteractionSource()
                     OutlinedIconButton(
                         onClick = {
                             showSleepTimerDialog = false
                             playerConnection.service.sleepTimer?.start(-1)
                         },
+                        interactionSource = endOfSongPress,
+                        modifier =
+                            Modifier.hushPressMotion(
+                                interactionSource = endOfSongPress,
+                                pressScale = HushDesign.ChipPressScale,
+                            ),
                     ) {
                         Text(stringResource(R.string.end_of_song))
                     }
@@ -834,14 +861,31 @@ fun BottomSheetPlayer(
             onSliderSettled = { sliderPosition = null },
         )
 
-    CompositionLocalProvider(LocalPlayerPlaybackPosition provides playbackPositionState) {
+    // The sheet's host is laid out full-screen even while it is only the mini player: the sheet is
+    // translated down instead of being resized. That is invisible to a person but not to a screen
+    // reader, because Compose builds the accessibility tree out of the *uncovered* nodes - every node
+    // important for accessibility claims its bounds, and the tab content underneath a full-screen
+    // claimant is left out of the tree entirely while still rendering. The host only needs to be a
+    // focus target while the player is open (the key handler below ignores keys when collapsed), so
+    // it is one then and not before, which is what keeps the content reachable.
+    val playerSheetOpen = !state.isCollapsed && !state.isDismissed
+    CompositionLocalProvider(
+        LocalPlayerPlaybackPosition provides playbackPositionState,
+        LocalPlayerFetchFraction provides fetchFraction,
+    ) {
     BottomSheet(
         state = state,
         modifier =
             modifier
-                .focusRequester(focusRequester)
-                .focusable()
-                .onKeyEvent { keyEvent ->
+                .then(
+                    if (playerSheetOpen) {
+                        Modifier
+                            .focusRequester(focusRequester)
+                            .focusable()
+                    } else {
+                        Modifier
+                    },
+                ).onKeyEvent { keyEvent ->
                     if (keyEvent.type != KeyEventType.KeyDown || state.isCollapsed) return@onKeyEvent false
 
                     when (keyEvent.key) {
@@ -1176,7 +1220,7 @@ fun BottomSheetPlayer(
                 context = context,
                 onSliderValueChange = onSliderValueChange,
                 onSliderValueChangeFinished = onSliderValueChangeFinished,
-                currentFormat = if (playerDesignStyle == PlayerDesignStyle.V7) currentFormat else null,
+                formatRow = if (playerDesignStyle == PlayerDesignStyle.V7) currentFormatRow else null,
                 landscape = isLandscape,
                 landscapeCompact = playerDesignStyle == PlayerDesignStyle.V6 && isLandscape,
             )
@@ -1482,7 +1526,7 @@ fun BottomSheetPlayer(
                                 sliderPosition = sliderPosition,
                                 position = position,
                                 duration = duration,
-                                currentFormat = currentFormat,
+                                formatRow = currentFormatRow,
                                 playerConnection = playerConnection,
                                 navController = navController,
                                 state = state,
@@ -1661,7 +1705,7 @@ fun BottomSheetPlayer(
                                     position = position,
                                     duration = duration,
                                     volume = deviceMusicVolumeController.volumeFraction,
-                                    currentFormat = currentFormat,
+                                    formatRow = currentFormatRow,
                                     playerConnection = playerConnection,
                                     navController = navController,
                                     state = state,
@@ -1707,7 +1751,7 @@ fun BottomSheetPlayer(
                                 state = state,
                                 menuState = menuState,
                                 bottomSheetPageState = bottomSheetPageState,
-                                currentFormat = currentFormat,
+                                formatRow = currentFormatRow,
                                 canvasPrimaryUrl = artworkCanvas?.animated,
                                 canvasFallbackUrl = artworkCanvas?.videoUrl,
                                 onSliderValueChange = onSliderValueChange,
@@ -2554,7 +2598,7 @@ private fun LittlePlayerContent(
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.basicMarquee(),
+                            modifier = Modifier.hushMarquee(),
                         )
                     }
 
@@ -2572,7 +2616,7 @@ private fun LittlePlayerContent(
                                 style = MaterialTheme.typography.bodyMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.basicMarquee(),
+                                modifier = Modifier.hushMarquee(),
                             )
                         }
                     }
@@ -2589,7 +2633,7 @@ private fun LittlePlayerContent(
                                 style = MaterialTheme.typography.bodyMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.basicMarquee(),
+                                modifier = Modifier.hushMarquee(),
                             )
                         }
                     }
@@ -2623,7 +2667,11 @@ private fun LittlePlayerContent(
                     modifier =
                         Modifier
                             .size(collapseIconSize)
-                            .hushPressable(onClick = onCollapse, pressScale = HushDesign.ChipPressScale),
+                            .hushPressable(
+                                onClick = onCollapse,
+                                pressScale = HushDesign.ChipPressScale,
+                                haloColor = textColor,
+                            ),
                 )
 
                 Spacer(Modifier.weight(1f))
@@ -2640,7 +2688,16 @@ private fun LittlePlayerContent(
                     modifier =
                         Modifier
                             .size(iconSize)
-                            .hushPressable(onClick = onToggleLike, pressScale = HushDesign.ChipPressScale),
+                            .hushPressable(
+                                onClick = onToggleLike,
+                                pressScale = HushDesign.ChipPressScale,
+                                haloColor =
+                                    if (liked) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        textColor
+                                    },
+                            ),
                 )
 
                 Spacer(Modifier.width((18f * scale).dp))
@@ -2652,7 +2709,11 @@ private fun LittlePlayerContent(
                     modifier =
                         Modifier
                             .size(iconSize)
-                            .hushPressable(onClick = onExpandQueue, pressScale = HushDesign.ChipPressScale),
+                            .hushPressable(
+                                onClick = onExpandQueue,
+                                pressScale = HushDesign.ChipPressScale,
+                                haloColor = textColor,
+                            ),
                 )
 
                 Spacer(Modifier.width((18f * scale).dp))
@@ -2664,7 +2725,11 @@ private fun LittlePlayerContent(
                     modifier =
                         Modifier
                             .size(iconSize)
-                            .hushPressable(onClick = onMenuClick, pressScale = HushDesign.ChipPressScale),
+                            .hushPressable(
+                                onClick = onMenuClick,
+                                pressScale = HushDesign.ChipPressScale,
+                                haloColor = textColor,
+                            ),
                 )
             }
         }

@@ -9,6 +9,7 @@
 
 package app.hush.music.ui.screens.settings
 
+import app.hush.music.ui.component.HushLinearLoader
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -16,7 +17,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -69,6 +69,8 @@ import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.media3.common.Player
 import androidx.navigation.NavController
+import app.hush.music.constants.ShowCodecOnPlayerDefault
+import app.hush.music.constants.ShowCodecOnPlayerKey
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import app.hush.music.LocalPlayerAwareWindowInsets
@@ -80,6 +82,7 @@ import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.PreferenceEntry
 import app.hush.music.ui.component.PreferenceGroup
 import app.hush.music.ui.component.SwitchPreference
+import app.hush.music.ui.component.hushMarquee
 import app.hush.music.ui.utils.backToMain
 import app.hush.music.utils.rememberPreference
 import java.util.Locale
@@ -96,8 +99,8 @@ fun DebugSettings(navController: NavController) {
 
     val (showCodecOnPlayer, onShowCodecOnPlayerChange) =
         rememberPreference(
-            key = booleanPreferencesKey("show_codec_on_player"),
-            defaultValue = false,
+            key = ShowCodecOnPlayerKey,
+            defaultValue = ShowCodecOnPlayerDefault,
         )
 
 
@@ -359,7 +362,7 @@ private fun NerdStatsSection(playerConnection: app.hush.music.playback.PlayerCon
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            LinearWavyProgressIndicator(
+                            HushLinearLoader(
                                 modifier = Modifier.size(24.dp),
                             )
                             Text(
@@ -569,7 +572,7 @@ private fun NerdStatCard(
                     overflow = TextOverflow.Ellipsis,
                     // A provider name such as "SpotiFLAC · qobuz-web" is the interesting part
                     // of this stat, so scroll it rather than cutting it off mid-word.
-                    modifier = Modifier.basicMarquee().fillMaxWidth(),
+                    modifier = Modifier.hushMarquee().fillMaxWidth(),
                 )
             }
         }
@@ -617,7 +620,7 @@ private fun NerdStatChip(
                 color = valueColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.basicMarquee().fillMaxWidth(),
+                modifier = Modifier.hushMarquee().fillMaxWidth(),
             )
         }
     }

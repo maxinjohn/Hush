@@ -303,8 +303,13 @@ class SpotiFLACPlaybackCache @Inject constructor(
             runCatching {
                 directory
                     .listFiles { file -> file.isFile && file.length() > 0L }
-                    ?.filter { it.name.substringBeforeLast('.') !in writingKeys }
-                    ?.groupBy { it.name.substringBeforeLast('.') }
+                    // A partial could still be growing, and it is not the finished file this
+                    // lookup is healing towards in any case.
+                    ?.filter { file ->
+                        !SpotiFLACCacheFiles.isPartial(file.name) &&
+                            !SpotiFLACCacheFiles.isBeingWritten(file.name, writingKeys)
+                    }
+                    ?.groupBy { SpotiFLACCacheFiles.trackKeyOf(it.name) }
             }.getOrNull() ?: return
         var repaired = 0
         synchronized(this) {
@@ -477,8 +482,9 @@ class SpotiFLACPlaybackCache @Inject constructor(
             playbackDir()
                 .listFiles { candidate ->
                     candidate.isFile && candidate.length() > 0L &&
-                        candidate.name.substringBeforeLast('.') == trackKey &&
-                        candidate.name.substringBeforeLast('.') !in writingKeys
+                        SpotiFLACCacheFiles.belongsTo(candidate.name, trackKey) &&
+                        !SpotiFLACCacheFiles.isPartial(candidate.name) &&
+                        !SpotiFLACCacheFiles.isBeingWritten(candidate.name, writingKeys)
                 }
                 ?.maxByOrNull { it.length() }
         }.getOrNull()
@@ -504,13 +510,14 @@ class SpotiFLACPlaybackCache @Inject constructor(
     private fun discardEntry(trackKey: String, entry: SpotiFLACCacheEntry) {
         runCatching { File(entry.filePath).takeIf { it.isFile }?.delete() }
         // A partially written file can also sit beside the recorded path when the runtime
-        // swapped the requested extension for the real container.
+        // swapped the requested extension for the real container. A discarded copy is
+        // being thrown away on purpose, so its partial goes with it.
         runCatching {
             playbackDir()
                 .listFiles { candidate ->
                     candidate.isFile &&
-                        candidate.name.substringBeforeLast('.') == trackKey &&
-                        candidate.name.substringBeforeLast('.') !in writingKeys
+                        SpotiFLACCacheFiles.belongsTo(candidate.name, trackKey) &&
+                        !SpotiFLACCacheFiles.isBeingWritten(candidate.name, writingKeys)
                 }
                 ?.forEach { it.delete() }
         }
@@ -596,8 +603,39 @@ class SpotiFLACPlaybackCache @Inject constructor(
             entries[trackKey] = entry
             if (!mediaId.isNullOrBlank()) mediaIdIndex[mediaId] = trackKey
         }
+        // One key owns one finished file. Anything else wearing this key is the runtime's
+        // container-suffixed copy or an interrupted transfer's fragment, and neither is
+        // named by an entry - so nothing else would ever remove it, and the song would sit on
+        // the device twice while only one copy counted against the cache size.
+        pruneLeftovers(trackKey = trackKey, keep = file)
         evictIfNeeded()
         persist()
+    }
+
+    /**
+     * Deletes every file of [trackKey] except [keep], returning how many went.
+     *
+     * Called where a track's finished file is known, which is the only moment at which "this
+     * file is the track, those are not" can be stated without guessing. Deliberately not guarded
+     * by [writingKeys]: the caller *is* the write, and a leftover of an abandoned attempt is
+     * exactly what this exists to remove.
+     */
+    fun pruneLeftovers(trackKey: String, keep: File): Int {
+        if (trackKey.isBlank()) return 0
+        var removed = 0
+        runCatching {
+            playbackDir()
+                .listFiles { candidate ->
+                    candidate.isFile &&
+                        SpotiFLACCacheFiles.belongsTo(candidate.name, trackKey) &&
+                        candidate.absolutePath != keep.absolutePath
+                }
+                ?.forEach { leftover -> if (leftover.delete()) removed++ }
+        }
+        if (removed > 0) {
+            SpotiFLACDiag.log("cache pruned $removed leftover file(s) key=$trackKey")
+        }
+        return removed
     }
 
     /**
@@ -610,12 +648,16 @@ class SpotiFLACPlaybackCache @Inject constructor(
         var removed = 0
         runCatching {
             playbackDir().listFiles { file -> file.isFile }?.forEach { file ->
-                // An in-flight download is not an orphan just because the index does not
-                // name it yet.
-                if (file.absolutePath !in known &&
-                    file.name.substringBeforeLast('.') !in writingKeys
-                ) {
-                    if (file.delete()) removed++
+                // An in-flight transfer is not an orphan just because the index does not
+                // name it yet - and its bytes include the partial it is filling in.
+                if (SpotiFLACCacheFiles.isBeingWritten(file.name, writingKeys)) return@forEach
+                // An unfinished transfer is never a file anything can play, so it goes
+                // whether or not an entry names it. Left alone, an attempt that died
+                // mid-download keeps its bytes beside the real file for the life of the
+                // install, and every later resolve of that track pays for them again.
+                val orphan = file.absolutePath !in known
+                if ((orphan || SpotiFLACCacheFiles.isPartial(file.name)) && file.delete()) {
+                    removed++
                 }
             }
         }
@@ -712,14 +754,16 @@ class SpotiFLACPlaybackCache @Inject constructor(
             freed += file.length()
             runCatching { file.delete() }
         }
-        // A partially written file can also sit beside the recorded path when the runtime
-        // swapped the requested extension for the real container.
+        // Every file of this key goes, not just the recorded one: the runtime's own
+        // extension-suffixed copy and any partial left by an interrupted transfer are the
+        // same song, and leaving them behind answers the next resolve with bytes the user
+        // asked to be rid of.
         runCatching {
             playbackDir()
                 .listFiles { candidate ->
                     candidate.isFile &&
-                        candidate.name.substringBeforeLast('.') == trackKey &&
-                        candidate.name.substringBeforeLast('.') !in writingKeys
+                        SpotiFLACCacheFiles.belongsTo(candidate.name, trackKey) &&
+                        !SpotiFLACCacheFiles.isBeingWritten(candidate.name, writingKeys)
                 }
                 ?.forEach { sibling ->
                     if (sibling.absolutePath != file.absolutePath) {

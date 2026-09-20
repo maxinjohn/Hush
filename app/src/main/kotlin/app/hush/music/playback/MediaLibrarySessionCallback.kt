@@ -13,6 +13,7 @@ import android.net.Uri
 import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.core.net.toUri
@@ -32,9 +33,13 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
@@ -44,6 +49,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.withContext
 import app.hush.music.R
+import app.hush.music.constants.AndroidAutoSectionsOrderKey
+import app.hush.music.constants.AndroidAutoSpotifyPlaylistsKey
+import app.hush.music.constants.AndroidAutoTargetPlaylistKey
+import app.hush.music.constants.AndroidAutoYouTubePlaylistsKey
 import app.hush.music.constants.HideExplicitKey
 import app.hush.music.constants.HideVideoKey
 import app.hush.music.constants.MediaSessionConstants
@@ -54,6 +63,7 @@ import app.hush.music.db.MusicDatabase
 import app.hush.music.db.entities.PlaylistEntity
 import app.hush.music.db.entities.PlaylistSong
 import app.hush.music.db.entities.Song
+import app.hush.music.extensions.ExtraSpotifyTrackId
 import app.hush.music.extensions.metadata
 import app.hush.music.extensions.toMediaItem
 import app.hush.music.extensions.toggleRepeatMode
@@ -64,9 +74,12 @@ import app.hush.music.innertube.models.filterExplicit
 import app.hush.music.innertube.models.filterVideo
 import app.hush.music.models.PersistQueue
 import app.hush.music.playback.MusicService.Companion.PERSISTENT_QUEUE_FILE
+import app.hush.music.spotify.SpotifyLibraryRepository
+import app.hush.music.spotify.SpotifyPlaybackResolver
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 import app.hush.music.utils.isLocalMediaId
+import app.hush.music.utils.reportException
 import java.io.ObjectInputStream
 import java.text.Collator
 import java.time.LocalDateTime
@@ -81,6 +94,7 @@ class MediaLibrarySessionCallback
         @ApplicationContext val context: Context,
         val database: MusicDatabase,
         val downloadUtil: DownloadUtil,
+        val spotifyLibrary: SpotifyLibraryRepository,
     ) : MediaLibrarySession.Callback {
         private val scope = CoroutineScope(Dispatchers.Main) + Job()
         private var pendingSearchJob: Job? = null
@@ -144,6 +158,9 @@ class MediaLibrarySessionCallback
                     .add(MediaSessionConstants.CommandToggleLibrary)
                     .add(MediaSessionConstants.CommandToggleShuffle)
                     .add(MediaSessionConstants.CommandToggleRepeatMode)
+                    // Offered by name to every controller so the car's own quick-add button can
+                    // reach it, not only the phone's notification.
+                    .add(MediaSessionConstants.CommandAddToTargetPlaylist)
                     .build(),
                 connectionResult.availablePlayerCommands,
             )
@@ -277,6 +294,15 @@ class MediaLibrarySessionCallback
 
                 MediaSessionConstants.ACTION_TOGGLE_REPEAT_MODE -> {
                     session.player.toggleRepeatMode()
+                }
+
+                MediaSessionConstants.ACTION_ADD_TO_TARGET_PLAYLIST -> {
+                    return scope.future(Dispatchers.IO) {
+                        val saved = addCurrentSongToTargetPlaylist(session)
+                        SessionResult(
+                            if (saved) SessionResult.RESULT_SUCCESS else SessionError.ERROR_UNKNOWN,
+                        )
+                    }
                 }
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -445,71 +471,89 @@ class MediaLibrarySessionCallback
                 val items =
                     when (parentId) {
                         MusicService.ROOT -> {
-                            listOf(
-                                browsableMediaItem(
-                                    MusicService.HOME,
-                                    context.getString(R.string.home),
-                                    null,
-                                    drawableUri(R.drawable.home_filled),
-                                    MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
-                                ),
-                                queueMediaItem(
-                                    MusicService.QUICK_PICKS,
-                                    context.getString(R.string.quick_picks),
-                                    null,
-                                    drawableUri(R.drawable.playlist_play),
-                                    MediaMetadata.MEDIA_TYPE_PLAYLIST,
-                                ),
-                                queueMediaItem(
-                                    MusicService.RECENT,
-                                    context.getString(R.string.history),
-                                    null,
-                                    drawableUri(R.drawable.history),
-                                    MediaMetadata.MEDIA_TYPE_PLAYLIST,
-                                ),
-                                queueMediaItem(
-                                    MusicService.LIKED,
-                                    context.getString(R.string.liked_songs),
-                                    null,
-                                    drawableUri(R.drawable.favorite),
-                                    MediaMetadata.MEDIA_TYPE_PLAYLIST,
-                                ),
-                                queueMediaItem(
-                                    MusicService.DOWNLOADED,
-                                    context.getString(R.string.downloaded_songs),
-                                    null,
-                                    drawableUri(R.drawable.download),
-                                    MediaMetadata.MEDIA_TYPE_PLAYLIST,
-                                ),
-                                browsableMediaItem(
-                                    MusicService.SONG,
-                                    context.getString(R.string.songs),
-                                    null,
-                                    drawableUri(R.drawable.music_note),
-                                    MediaMetadata.MEDIA_TYPE_PLAYLIST,
-                                ),
-                                browsableMediaItem(
-                                    MusicService.ARTIST,
-                                    context.getString(R.string.artists),
-                                    null,
-                                    drawableUri(R.drawable.artist),
-                                    MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS,
-                                ),
-                                browsableMediaItem(
-                                    MusicService.ALBUM,
-                                    context.getString(R.string.albums),
-                                    null,
-                                    drawableUri(R.drawable.album),
-                                    MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS,
-                                ),
-                                browsableMediaItem(
-                                    MusicService.PLAYLIST,
-                                    context.getString(R.string.playlists),
-                                    null,
-                                    drawableUri(R.drawable.queue_music),
-                                    MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS,
-                                ),
-                            )
+                            // Home, Quick picks, History and Downloaded have no switch on the Android
+                            // Auto screen, so they are always published. The five sections that do
+                            // are published in the order that screen arranged them, minus the ones
+                            // switched off - which is what its own hint promises.
+                            val alwaysOn =
+                                listOf(
+                                    browsableMediaItem(
+                                        MusicService.HOME,
+                                        context.getString(R.string.home),
+                                        null,
+                                        drawableUri(R.drawable.home_filled),
+                                        MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
+                                    ),
+                                    queueMediaItem(
+                                        MusicService.QUICK_PICKS,
+                                        context.getString(R.string.quick_picks),
+                                        null,
+                                        drawableUri(R.drawable.playlist_play),
+                                        MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                                    ),
+                                    queueMediaItem(
+                                        MusicService.RECENT,
+                                        context.getString(R.string.history),
+                                        null,
+                                        drawableUri(R.drawable.history),
+                                        MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                                    ),
+                                    queueMediaItem(
+                                        MusicService.DOWNLOADED,
+                                        context.getString(R.string.downloaded_songs),
+                                        null,
+                                        drawableUri(R.drawable.download),
+                                        MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                                    ),
+                                )
+                            val bySection =
+                                mapOf(
+                                    AndroidAutoPlaylists.Section.LIKED to
+                                        queueMediaItem(
+                                            MusicService.LIKED,
+                                            context.getString(R.string.liked_songs),
+                                            null,
+                                            drawableUri(R.drawable.favorite),
+                                            MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                                        ),
+                                    AndroidAutoPlaylists.Section.SONGS to
+                                        browsableMediaItem(
+                                            MusicService.SONG,
+                                            context.getString(R.string.songs),
+                                            null,
+                                            drawableUri(R.drawable.music_note),
+                                            MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                                        ),
+                                    AndroidAutoPlaylists.Section.ARTISTS to
+                                        browsableMediaItem(
+                                            MusicService.ARTIST,
+                                            context.getString(R.string.artists),
+                                            null,
+                                            drawableUri(R.drawable.artist),
+                                            MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS,
+                                        ),
+                                    AndroidAutoPlaylists.Section.ALBUMS to
+                                        browsableMediaItem(
+                                            MusicService.ALBUM,
+                                            context.getString(R.string.albums),
+                                            null,
+                                            drawableUri(R.drawable.album),
+                                            MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS,
+                                        ),
+                                    AndroidAutoPlaylists.Section.PLAYLISTS to
+                                        browsableMediaItem(
+                                            MusicService.PLAYLIST,
+                                            context.getString(R.string.playlists),
+                                            null,
+                                            drawableUri(R.drawable.queue_music),
+                                            MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS,
+                                        ),
+                                )
+                            val sections =
+                                AndroidAutoPlaylists.enabledSections(
+                                    context.dataStore.get(AndroidAutoSectionsOrderKey, ""),
+                                )
+                            alwaysOn + sections.mapNotNull { section -> bySection[section] }
                         }
 
                         MusicService.HOME -> {
@@ -721,6 +765,10 @@ class MediaLibrarySessionCallback
 
                                 parentId.startsWith("${MusicService.ONLINE_PLAYLIST}/") -> {
                                     onlinePlaylistChildren(parentId)
+                                }
+
+                                parentId.startsWith("${AndroidAutoPlaylists.SPOTIFY_ROOT}/") -> {
+                                    spotifyPlaylistChildren(parentId)
                                 }
 
                                 else -> {
@@ -942,6 +990,12 @@ class MediaLibrarySessionCallback
 
                     mediaId.startsWith("${MusicService.ONLINE_PLAYLIST}/") -> {
                         onlinePlaylistItem(mediaId)?.let {
+                            LibraryResult.ofItem(it, null)
+                        } ?: LibraryResult.ofError(SessionError.ERROR_UNKNOWN)
+                    }
+
+                    AndroidAutoPlaylists.parseSpotify(mediaId) != null -> {
+                        spotifyPlaylistItem(mediaId)?.let {
                             LibraryResult.ofItem(it, null)
                         } ?: LibraryResult.ofError(SessionError.ERROR_UNKNOWN)
                     }
@@ -1194,6 +1248,28 @@ class MediaLibrarySessionCallback
                             mediaItems,
                             selectedSongId?.let { songId ->
                                 mediaItems.indexOfFirst { it.mediaId == songId }.takeIf { it != -1 }
+                            } ?: 0,
+                            startPositionMs,
+                        )
+                    }
+
+                    AndroidAutoPlaylists.SPOTIFY_ROOT -> {
+                        val path =
+                            AndroidAutoPlaylists.parseSpotify(firstItem.mediaId)
+                                ?: return@future defaultResult
+                        val mediaItems =
+                            spotifyPlaylistSongs(path.playlistId).let { items ->
+                                if (path.isShuffle) items.shuffled() else items
+                            }
+                        if (path.isShuffle) {
+                            withContext(Dispatchers.Main.immediate) {
+                                mediaSession.player.shuffleModeEnabled = true
+                            }
+                        }
+                        MediaSession.MediaItemsWithStartPosition(
+                            mediaItems,
+                            path.selectedTrackId?.let { trackId ->
+                                mediaItems.indexOfFirst { it.mediaId == trackId }.takeIf { it != -1 }
                             } ?: 0,
                             startPositionMs,
                         )
@@ -1590,6 +1666,22 @@ class MediaLibrarySessionCallback
                 .onEach { onlineSearchItemCache[it.id] = it.toMediaItem() }
         }
 
+        /**
+         * Which recommended-playlist groups this install should offer in the car.
+         *
+         * Both answers come from the switches on the Android Auto screen, which is the only place
+         * that says what a car should show. The Spotify account is only consulted when its switch is
+         * on: with the switch off there is nothing to find out, and the answer costs a read.
+         */
+        private suspend fun autoPlaylistSources(): AndroidAutoPlaylists.Sources {
+            val spotifyEnabled = context.dataStore.get(AndroidAutoSpotifyPlaylistsKey, true)
+            return AndroidAutoPlaylists.sources(
+                youtubeEnabled = context.dataStore.get(AndroidAutoYouTubePlaylistsKey, true),
+                spotifyEnabled = spotifyEnabled,
+                spotifyConnected = spotifyEnabled && spotifyLibrary.ensureConnected(),
+            )
+        }
+
         private suspend fun homeMixesAndRadios(): List<MediaItem> {
             val localPlaylists =
                 database
@@ -1609,8 +1701,37 @@ class MediaLibrarySessionCallback
                             MediaMetadata.MEDIA_TYPE_PLAYLIST,
                         )
                     }
-            val onlinePlaylists = homeOnlinePlaylists()
-            return localPlaylists + onlinePlaylists
+            val sources = autoPlaylistSources()
+            val spotifyPlaylists = if (sources.spotify) homeSpotifyPlaylists() else emptyList()
+            val onlinePlaylists = if (sources.youtube) homeOnlinePlaylists() else emptyList()
+            return localPlaylists + spotifyPlaylists + onlinePlaylists
+        }
+
+        /**
+         * The user's own Spotify playlists, as the Spotify library screen already caches them.
+         *
+         * A connected account whose library has never been fetched is refreshed once here: otherwise
+         * a freshly connected account shows an empty folder in the car until the phone's Spotify
+         * screen happens to be opened.
+         */
+        private suspend fun homeSpotifyPlaylists(): List<MediaItem> {
+            spotifyLibrary.restoreCachedPlaylists()
+            val cached = spotifyLibrary.playlists.value
+            val playlists = if (cached.isEmpty()) spotifyLibrary.refreshPlaylists() else cached
+            return playlists
+                .take(AUTO_HOME_PLAYLIST_LIMIT)
+                .map { playlist ->
+                    val trackCount = playlist.tracks?.total?.takeIf { it > 0 }
+                    queueMediaItem(
+                        AndroidAutoPlaylists.spotifyMediaId(playlist.id),
+                        playlist.name,
+                        trackCount?.let { count ->
+                            context.resources.getQuantityString(R.plurals.n_song, count, count)
+                        } ?: playlist.owner?.displayName,
+                        playlist.images.firstOrNull()?.url?.toUri(),
+                        MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                    )
+                }
         }
 
         private suspend fun homeOnlinePlaylists(): List<MediaItem> {
@@ -1710,6 +1831,153 @@ class MediaLibrarySessionCallback
             }
         }
 
+        /**
+         * The children of a Spotify playlist: a shuffle entry, then its tracks.
+         *
+         * A Spotify track is not playable until it has been matched to a stream, so the tracks are
+         * resolved here rather than handed over as names - a car screen that lists tracks a tap
+         * cannot play is worse than one that lists fewer.
+         */
+        private suspend fun spotifyPlaylistChildren(parentId: String): List<MediaItem> {
+            val path = AndroidAutoPlaylists.parseSpotify(parentId) ?: return emptyList()
+            return when {
+                path.action == null -> {
+                    listOf(
+                        queueMediaItem(
+                            AndroidAutoPlaylists.spotifyShuffleMediaId(path.playlistId),
+                            context.getString(R.string.shuffle),
+                            null,
+                            drawableUri(R.drawable.shuffle),
+                            MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                        ),
+                    ) + spotifyPlaylistSongs(path.playlistId).map { it.addressedFrom(parentId) }
+                }
+
+                path.isShuffle && path.trackId == null -> {
+                    spotifyPlaylistSongs(path.playlistId).map { it.addressedFrom(parentId) }
+                }
+
+                else -> emptyList()
+            }
+        }
+
+        /**
+         * Re-addresses a resolved Spotify track into the folder it is being browsed from.
+         *
+         * A resolved track carries the media id of the stream it matched, so the folder has to be
+         * prefixed exactly the way the device's own playlists do it - the id a car hands back on a
+         * tap is this same string, and [spotifyPlaylistItem] has to be able to parse it.
+         */
+        private fun MediaItem.addressedFrom(parentId: String) =
+            buildUpon()
+                .setMediaId("$parentId/$mediaId")
+                .build()
+                .asFolderLeaf()
+
+        /**
+         * Marks a track as a playable leaf of the folder it is listed in.
+         *
+         * Media3's library session refuses any child whose metadata does not state explicitly
+         * whether it is browsable ("mediaMetadata must specify isBrowsable"), and the items a
+         * resolved online track is built from only ever state that it is playable. Device
+         * playlists never hit this because their leaves come from [SongItem.toMediaItem], which
+         * sets both flags - so the online ones have to be re-marked to match before a car is
+         * offered them.
+         */
+        private fun MediaItem.asFolderLeaf() =
+            buildUpon()
+                .setMediaMetadata(
+                    mediaMetadata
+                        .buildUpon()
+                        .setIsPlayable(true)
+                        .setIsBrowsable(false)
+                        .build(),
+                )
+                .build()
+
+        private suspend fun spotifyPlaylistItem(mediaId: String): MediaItem? {
+            val path = AndroidAutoPlaylists.parseSpotify(mediaId) ?: return null
+            return when {
+                path.action == null -> {
+                    spotifyLibrary.restoreCachedPlaylists()
+                    val playlist = spotifyLibrary.playlists.value.firstOrNull { it.id == path.playlistId }
+                    val trackCount = playlist?.tracks?.total?.takeIf { it > 0 }
+                    queueMediaItem(
+                        AndroidAutoPlaylists.spotifyMediaId(path.playlistId),
+                        playlist?.name ?: path.playlistId,
+                        trackCount?.let { count ->
+                            context.resources.getQuantityString(R.plurals.n_song, count, count)
+                        } ?: playlist?.owner?.displayName,
+                        playlist?.images?.firstOrNull()?.url?.toUri(),
+                        MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                    )
+                }
+
+                path.isShuffle && path.trackId == null -> {
+                    queueMediaItem(
+                        mediaId,
+                        context.getString(R.string.shuffle),
+                        null,
+                        drawableUri(R.drawable.shuffle),
+                        MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                    )
+                }
+
+                else -> {
+                    path.selectedTrackId?.let { trackId ->
+                        spotifyPlaylistSongItem(
+                            playlistId = path.playlistId,
+                            trackId = trackId,
+                            parentId = mediaId.substringBeforeLast('/'),
+                        )
+                    }
+                }
+            }
+        }
+
+        private suspend fun spotifyPlaylistSongItem(
+            playlistId: String,
+            trackId: String,
+            parentId: String,
+        ): MediaItem? =
+            onlineSearchItemCache[trackId]
+                ?.buildUpon()
+                ?.setMediaId("$parentId/$trackId")
+                ?.build()
+                ?.asFolderLeaf()
+                ?: spotifyPlaylistSongs(playlistId)
+                    .firstOrNull { it.mediaId == trackId }
+
+        /**
+         * A Spotify playlist's tracks as playable items, matched in batches the way the in-app
+         * Spotify queue already matches them - the match is one lookup per track, and doing those
+         * one at a time is what makes an online playlist take seconds to open.
+         */
+        private suspend fun spotifyPlaylistSongs(playlistId: String): List<MediaItem> {
+            if (!spotifyLibrary.ensureConnected()) return emptyList()
+            val tracks =
+                try {
+                    spotifyLibrary.playlistTracks(playlistId).take(AUTO_SPOTIFY_TRACK_LIMIT)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    reportException(error)
+                    return emptyList()
+                }
+            if (tracks.isEmpty()) return emptyList()
+
+            val resolved = ArrayList<MediaItem>(tracks.size)
+            tracks.chunked(AUTO_SPOTIFY_MATCH_BATCH).forEach { batch ->
+                coroutineScope {
+                    batch
+                        .map { track -> async { SpotifyPlaybackResolver.resolveToMediaItem(track) } }
+                        .awaitAll()
+                }.filterNotNull().forEach { item -> resolved += item }
+            }
+            resolved.forEach { item -> onlineSearchItemCache[item.mediaId] = item }
+            return resolved
+        }
+
         private suspend fun onlinePlaylistSongs(playlistId: String): List<SongItem> =
             YouTube
                 .playlist(playlistId)
@@ -1732,6 +2000,71 @@ class MediaLibrarySessionCallback
                 ?: onlinePlaylistSongs(playlistId)
                     .firstOrNull { it.id == songId }
                     ?.toMediaItem(parentId)
+
+        /**
+         * Saves the playing track to the playlist the user picked for the car's quick-add button.
+         *
+         * The destination is the same media id the browse tree publishes, so a Spotify playlist
+         * picked here is spelled exactly the way the tree spells it - one id, so the picker and the
+         * button cannot disagree about where a save goes.
+         */
+        private suspend fun addCurrentSongToTargetPlaylist(mediaSession: MediaSession): Boolean {
+            val target =
+                context.dataStore.get(
+                    AndroidAutoTargetPlaylistKey,
+                    MediaSessionConstants.TARGET_PLAYLIST_AUTO,
+                )
+            AndroidAutoPlaylists.spotifyDestinationId(target)?.let { playlistId ->
+                val currentItem =
+                    withContext(Dispatchers.Main.immediate) {
+                        mediaSession.player.currentMediaItem
+                    } ?: return false
+                return addCurrentSongToSpotifyPlaylist(playlistId, currentItem)
+            }
+            if (target.isBlank() || target == MediaSessionConstants.TARGET_PLAYLIST_AUTO) {
+                // Nothing was chosen, so there is nowhere to put the track. Say so rather than
+                // letting the button look broken.
+                withContext(Dispatchers.Main.immediate) {
+                    runCatching {
+                        Toast
+                            .makeText(
+                                context,
+                                R.string.android_auto_target_playlist_not_set,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                    }
+                }
+                return false
+            }
+            return addCurrentSongToPlaylist(mediaSession, target)
+        }
+
+        /**
+         * Saves the playing track to a Spotify playlist.
+         *
+         * A track Hush plays from a Spotify playlist already carries its Spotify id. One matched
+         * through YouTube does not, so it is looked up by title and artist first: the button asks
+         * about the song being played, not about which route brought it here.
+         */
+        private suspend fun addCurrentSongToSpotifyPlaylist(
+            playlistId: String,
+            item: MediaItem,
+        ): Boolean {
+            if (!spotifyLibrary.ensureConnected()) return false
+            val uri = spotifyTrackUri(item) ?: return false
+            return spotifyLibrary.addTrackToPlaylist(playlistId = playlistId, trackUri = uri)
+        }
+
+        private suspend fun spotifyTrackUri(item: MediaItem): String? {
+            item.mediaMetadata.extras
+                ?.getString(ExtraSpotifyTrackId)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { return "spotify:track:$it" }
+            val title = item.mediaMetadata.title?.toString()?.trim().orEmpty()
+            if (title.isBlank()) return null
+            val artist = item.mediaMetadata.artist?.toString()?.trim().orEmpty()
+            return spotifyLibrary.findTrackUri(title = title, artist = artist)
+        }
 
         private suspend fun addCurrentSongToPlaylist(
             mediaSession: MediaSession,
@@ -2116,6 +2449,12 @@ class MediaLibrarySessionCallback
             private const val CONTENT_STYLE_GRID_ITEM = 2
             private const val AUTO_BROWSE_LIMIT = 100
             private const val AUTO_HOME_PLAYLIST_LIMIT = 20
+
+            /** How many of a Spotify playlist's tracks a car browse resolves. */
+            private const val AUTO_SPOTIFY_TRACK_LIMIT = 50
+
+            /** Matches resolved at once; the same batch the in-app Spotify queue resolves. */
+            private const val AUTO_SPOTIFY_MATCH_BATCH = 20
             private const val HOME_RECENT_WINDOW_MS = 86400000L * 14L
             private const val PLAYLIST_ACTION_SHUFFLE = "_shuffle"
             private const val PLAYLIST_ACTION_SORT = "_sort"

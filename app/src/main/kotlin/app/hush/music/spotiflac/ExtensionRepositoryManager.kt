@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import app.hush.music.utils.PreferenceStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -348,6 +349,30 @@ class ExtensionRepositoryManager @Inject constructor(
         } else {
             firstLine.take(MAX_TEST_ERROR_LENGTH - 1).trimEnd() + "\u2026"
         }
+    }
+
+    /**
+     * The order the user arranged in Audio Sources, readable without suspending.
+     *
+     * [sources] is empty until the first registry sync completes, and a resolve can be
+     * asked for its candidates before that - so the persisted order has to be reachable
+     * synchronously. Without it the caller falls back to enumerating the extension
+     * packages on disk, which is alphabetical, and the sweep starts on whichever source
+     * happens to sort first instead of the one the user put first.
+     */
+    fun savedSourceOrder(): List<String> {
+        val live = _sources.value
+        if (live.isNotEmpty()) return live.filter { it.enabled }.map { it.source.id }
+        val savedOrder = PreferenceStore.get(SourceOrderKey)
+            ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
+            .orEmpty()
+        val savedEnabled = PreferenceStore.get(EnabledSourcesKey)
+            ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
+            ?.toSet()
+        val defaultOrder = BUILTIN_SOURCES.map { it.id }
+        val order = savedOrder.ifEmpty { defaultOrder }
+        val enabled = savedEnabled ?: defaultOrder.toSet()
+        return order.filter { it in enabled }
     }
 
     fun getEnabledSourceIds(): List<String> {

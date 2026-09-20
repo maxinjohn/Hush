@@ -93,7 +93,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
@@ -104,11 +103,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import app.hush.music.ui.component.HushIconButton
 import app.hush.music.LocalDatabase
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
 import app.hush.music.constants.AutoLoadMoreKey
 import app.hush.music.constants.EnableHapticFeedbackKey
+import app.hush.music.constants.ShowCodecOnPlayerDefault
+import app.hush.music.constants.ShowCodecOnPlayerKey
 import app.hush.music.constants.ListItemHeight
 import app.hush.music.constants.PlayerDesignStyle
 import app.hush.music.constants.rememberPlayerDesignStyle
@@ -171,7 +173,9 @@ fun Queue(
     val currentSong by playerConnection.currentSong.collectAsStateWithLifecycle(initialValue = null)
     val currentSongLiked = currentSong?.song?.liked == true
 
-    val currentFormat by playerConnection.currentFormat.collectAsStateWithLifecycle(initialValue = null)
+    // The codec row and the evidence behind it travel as one value, so the line can never credit a
+    // source that belongs to a different row.
+    val currentFormatRow by playerConnection.currentFormatRow.collectAsStateWithLifecycle(initialValue = null)
     val queueTitle by playerConnection.queueTitle.collectAsStateWithLifecycle()
 
     val selectedSongs = remember { mutableStateListOf<MediaMetadata>() }
@@ -387,8 +391,8 @@ fun Queue(
 
     val (showCodecOnPlayer) =
         rememberPreference(
-            key = booleanPreferencesKey("show_codec_on_player"),
-            defaultValue = false,
+            key = ShowCodecOnPlayerKey,
+            defaultValue = ShowCodecOnPlayerDefault,
         )
 
     LaunchedEffect(sleepTimerEnabled) {
@@ -428,7 +432,7 @@ fun Queue(
                 PlayerDesignStyle.V2 -> {
                     QueueCollapsedContentV2(
                         showCodecOnPlayer = queueShowCodecOnPlayer,
-                        currentFormat = currentFormat,
+                        formatRow = currentFormatRow,
                         textBackgroundColor = TextBackgroundColor,
                         textButtonColor = textButtonColor,
                         iconButtonColor = iconButtonColor,
@@ -469,7 +473,7 @@ fun Queue(
                 PlayerDesignStyle.V3 -> {
                     QueueCollapsedContentV3(
                         showCodecOnPlayer = queueShowCodecOnPlayer,
-                        currentFormat = currentFormat,
+                        formatRow = currentFormatRow,
                         textBackgroundColor = TextBackgroundColor,
                         sleepTimerEnabled = sleepTimerEnabled,
                         sleepTimerTimeLeft = sleepTimerTimeLeft,
@@ -505,7 +509,7 @@ fun Queue(
                 PlayerDesignStyle.V5 -> {
                     QueueCollapsedContentV3(
                         showCodecOnPlayer = queueShowCodecOnPlayer,
-                        currentFormat = currentFormat,
+                        formatRow = currentFormatRow,
                         textBackgroundColor = TextBackgroundColor,
                         sleepTimerEnabled = sleepTimerEnabled,
                         sleepTimerTimeLeft = sleepTimerTimeLeft,
@@ -541,7 +545,7 @@ fun Queue(
                 PlayerDesignStyle.V4 -> {
                     QueueCollapsedContentV4(
                         showCodecOnPlayer = queueShowCodecOnPlayer,
-                        currentFormat = currentFormat,
+                        formatRow = currentFormatRow,
                         textBackgroundColor = TextBackgroundColor,
                         iconButtonColor = iconButtonColor,
                         sleepTimerEnabled = sleepTimerEnabled,
@@ -562,7 +566,7 @@ fun Queue(
                 PlayerDesignStyle.V1 -> {
                     QueueCollapsedContentV1(
                         showCodecOnPlayer = queueShowCodecOnPlayer,
-                        currentFormat = currentFormat,
+                        formatRow = currentFormatRow,
                         textBackgroundColor = TextBackgroundColor,
                         sleepTimerEnabled = sleepTimerEnabled,
                         sleepTimerTimeLeft = sleepTimerTimeLeft,
@@ -582,7 +586,7 @@ fun Queue(
                     if (!isLandscape) {
                         V6QueueCollapsedContent(
                             showCodecOnPlayer = queueShowCodecOnPlayer,
-                            currentFormat = currentFormat,
+                            formatRow = currentFormatRow,
                             textBackgroundColor = TextBackgroundColor,
                             sleepTimerEnabled = sleepTimerEnabled,
                             sleepTimerTimeLeft = sleepTimerTimeLeft,
@@ -628,7 +632,7 @@ fun Queue(
                         val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
                         QueueCollapsedContentV9(
                         showCodecOnPlayer = queueShowCodecOnPlayer,
-                        currentFormat = currentFormat,
+                        formatRow = currentFormatRow,
                         textBackgroundColor = TextBackgroundColor,
                         sleepTimerEnabled = sleepTimerEnabled,
                         sleepTimerTimeLeft = sleepTimerTimeLeft,
@@ -710,7 +714,7 @@ fun Queue(
                         }
                         QueueCollapsedContentV7(
                             showCodecOnPlayer = queueShowCodecOnPlayer,
-                            currentFormat = currentFormat,
+                            formatRow = currentFormatRow,
                             textBackgroundColor = TextBackgroundColor,
                             sleepTimerEnabled = sleepTimerEnabled,
                             sleepTimerTimeLeft = sleepTimerTimeLeft,
@@ -1043,7 +1047,7 @@ fun Queue(
                                         isPlaying = isPlaying && isActive,
                                         shouldLoadImage = shouldLoadImages,
                                         trailingContent = {
-                                            IconButton(
+                                            HushIconButton(
                                                 onClick = {
                                                     menuState.show {
                                                         PlayerMenu(
@@ -1328,7 +1332,7 @@ private fun QueueSelectionToolbarAction(
     onClick: () -> Unit,
     tint: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    IconButton(
+    HushIconButton(
         onClick = onClick,
         modifier = Modifier.size(48.dp),
     ) {

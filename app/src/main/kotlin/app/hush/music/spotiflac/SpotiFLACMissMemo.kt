@@ -113,7 +113,6 @@ object SpotiFLACMissPolicy {
     fun contextFingerprint(
         enabledSourceIds: List<String>,
         qualityBucket: String,
-        sessionActive: Boolean,
         runtimeAvailable: Boolean,
         usableSourceIds: List<String> = enabledSourceIds,
     ): String {
@@ -141,7 +140,6 @@ object SpotiFLACMissPolicy {
             append("sources=").append(sources)
             append("|usable=").append(usable)
             append("|quality=").append(qualityBucket.trim().lowercase(Locale.US))
-            append("|session=").append(if (sessionActive) 1 else 0)
             append("|runtime=").append(if (runtimeAvailable) 1 else 0)
         }
     }

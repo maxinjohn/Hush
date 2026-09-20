@@ -37,6 +37,9 @@ object SpotiFLAutoVerifier {
     /** How long one source's challenge may take before the queue moves on. */
     const val CHALLENGE_TIMEOUT_MS = 75_000L
 
+    /** The reason a run carries when nothing is waiting on it, so it never prompts the user. */
+    const val BACKGROUND_REASON = "prewarm"
+
     /**
      * A source that just failed verification is not retried immediately: an
      * interactive challenge would otherwise loop, and each attempt is a network
@@ -112,6 +115,29 @@ object SpotiFLAutoVerifier {
     private val lastAttemptAt = HashMap<String, Long>()
 
     /**
+     * Why each queued source is being verified, keyed by source.
+     *
+     * Read at the point an attempt fails, because that is where the difference matters: a run the
+     * user asked for, or one a held track is waiting on, is worth a prompt; a background sweep
+     * nobody requested must never pop one. Without this the two were indistinguishable in [finish],
+     * so a launch-time run that could not finish unattended raised the "needs verification" notice
+     * on every app open - a dialog asking for a check for a source that was not in use.
+     */
+    private val reasons = HashMap<String, String>()
+
+    /**
+     * Sources whose run is allowed to drive the browser itself.
+     *
+     * A device whose embedded WebView cannot run Cloudflare's check has exactly one route left:
+     * the user's own browser. Automatic runs never took it - they abandoned the source instead,
+     * because opening a browser unprompted is not something a background prewarm may do. When the
+     * user asks for *all* sources in one action, that consent exists, so the challenge is opened
+     * for them and the grant comes back on its own. Per source rather than per queue, so a
+     * prewarm that joins the run never inherits it.
+     */
+    private val browserFallbackSources = HashSet<String>()
+
+    /**
      * Asks for these sources to be verified in the background.
      *
      * @param reason short label for diagnostics ("playback", "prewarm", ...).
@@ -120,15 +146,29 @@ object SpotiFLAutoVerifier {
      *   attempt from spinning, but a parked track is a concrete reason to try again
      *   now, and making the user wait out ten minutes is worse than one extra call.
      */
-    fun enqueue(sourceIds: List<String>, reason: String, force: Boolean = false) {
+    fun enqueue(
+        sourceIds: List<String>,
+        reason: String,
+        force: Boolean = false,
+        browserFallback: Boolean = false,
+    ) {
         val now = System.currentTimeMillis()
         val added = synchronized(lock) {
             var count = 0
             sourceIds.forEach { id ->
-                if (id.isBlank() || id == _active.value) return@forEach
+                if (id.isBlank()) return@forEach
+                if (browserFallback) browserFallbackSources.add(id)
+                // An in-flight source is normally left alone: it is already being worked on, and
+                // queueing it again would run the same challenge twice. An explicit all-sources
+                // pass is the exception - the permission above has to actually be used, so the
+                // source is queued and its attempt re-runs under it.
+                if (id == _active.value && !browserFallback) return@forEach
                 val cooled = !force && lastFailedAt[id]?.let { now - it < RETRY_COOLDOWN_MS } ?: false
                 if (cooled) return@forEach
-                if (queue.add(id)) count++
+                if (queue.add(id)) {
+                    count++
+                    reasons[id] = reason
+                }
             }
             count
         }
@@ -143,6 +183,18 @@ object SpotiFLAutoVerifier {
     fun queued(): List<String> = synchronized(lock) { queue.toList() }
 
     /**
+     * True when [sourceId]'s run may open the browser itself instead of giving up.
+     *
+     * Asked by the challenge host at the moment it discovers this device's WebView cannot run
+     * Cloudflare's check - the one point where the two routes diverge.
+     */
+    fun allowsBrowserFallback(sourceId: String): Boolean =
+        synchronized(lock) { sourceId in browserFallbackSources }
+
+    /** How many sources a run still has to get through, for one progress line. */
+    fun remainingCount(): Int = synchronized(lock) { queue.size }
+
+    /**
      * Marks the active source's attempt finished and moves to the next.
      *
      * Called by the challenge host once a grant has been delivered (or the attempt
@@ -154,8 +206,12 @@ object SpotiFLAutoVerifier {
         // and two surfaces can report the same verification at almost the same moment (a manual run
         // and the browser route it started), which used to be able to lose one of the increments -
         // and with it a parked track's only wake-up.
+        var hadBrowserFallback = false
+        var reason: String? = null
         synchronized(lock) {
             lastAttemptAt[sourceId] = System.currentTimeMillis()
+            hadBrowserFallback = browserFallbackSources.remove(sourceId)
+            reason = reasons.remove(sourceId)
             if (verified) {
                 queue.remove(sourceId)
                 lastFailedAt.remove(sourceId)
@@ -180,7 +236,10 @@ object SpotiFLAutoVerifier {
             // failure is far more likely to be a transient one (no network in a tunnel), so the
             // in-app notice carries the same browser button and no notification is raised.
             appContext?.let { context ->
-                if (!SpotiFLACChallengeEngine.canSolveCloudflare(SpotiFLACChallengeEngine.current())) {
+                if (
+                    !hadBrowserFallback &&
+                    !SpotiFLACChallengeEngine.canSolveCloudflare(SpotiFLACChallengeEngine.current())
+                ) {
                     SpotiFLACVerificationNotifier.notify(context, sourceId)
                 }
             }
@@ -191,7 +250,19 @@ object SpotiFLAutoVerifier {
         // explanation. An automatic run that succeeded never reaches here.
         if (queueEmpty() && _active.value == null && !verified) {
             _status.value = "Verification for $sourceId needs a manual check"
-            SpotiFLACVerificationRequest.request(sourceId)
+            // A background sweep nobody asked for stops here. It already says what happened in the
+            // diagnostic log and the source keeps its row in Audio Sources; what it must not do is
+            // put a dialog in front of a user who was not trying to play anything. A run started by
+            // playback, or by the user's own check, still raises the prompt - in those two cases
+            // somebody is waiting on the answer.
+            if (reason == BACKGROUND_REASON) {
+                SpotiFLACDiag.log(
+                    "auto-verify: $sourceId still needs a manual check - no prompt raised " +
+                        "(nobody asked for this run)",
+                )
+            } else {
+                SpotiFLACVerificationRequest.request(sourceId)
+            }
         }
     }
 
@@ -227,6 +298,7 @@ object SpotiFLAutoVerifier {
         synchronized(lock) {
             queue.remove(sourceId)
             lastFailedAt.remove(sourceId)
+            browserFallbackSources.remove(sourceId)
         }
         SpotiFLACDiag.log("auto-verify skipped: $sourceId needs no verification")
         startNext()
@@ -281,6 +353,7 @@ object SpotiFLAutoVerifier {
         val had = synchronized(lock) {
             val size = queue.size
             queue.clear()
+            browserFallbackSources.clear()
             size
         }
         if (had > 0 || _active.value != null) {

@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,6 +25,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.constants.ThumbnailCornerRadius
 import app.hush.music.ui.theme.HushDesign
 import app.hush.music.ui.theme.hushPressable
@@ -107,7 +107,7 @@ fun RandomizeGridItem(
         )
 
         Box(modifier = Modifier.alpha(loadingAlpha)) {
-            CircularWavyProgressIndicator(
+            HushProgressSpinner(
                 modifier = Modifier.size(48.dp),
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )

@@ -179,6 +179,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.aod.ACTION_AOD_MODE
 import app.hush.music.constants.AppBarHeight
 import app.hush.music.constants.AppFontPreference
@@ -729,7 +730,7 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.size(64.dp),
                                 )
                             } else {
-                                CircularProgressIndicator(modifier = Modifier.size(64.dp))
+                                HushProgressSpinner(modifier = Modifier.size(64.dp))
                             }
                         }
                     },
@@ -909,7 +910,7 @@ class MainActivity : ComponentActivity() {
                                 ),
                         contentAlignment = Alignment.Center,
                     ) {
-                        CircularProgressIndicator()
+                        HushProgressSpinner()
                     }
                     return@HushTheme
                 }
@@ -2585,34 +2586,13 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 timber.log.Timber.tag("SpotiFLACSettings").e(e, "Extension runtime grant delivery failed")
             }
-            try {
-                val sessionManager = app.hush.music.spotiflac.SpotiFLACSessionManager.getInstance()
-                // The relay only has a grant to exchange while its *own* challenge is outstanding:
-                // the extension runtime shares this callback scheme, so without this check every
-                // runtime verification also offered its grant to the relay, which refuses a foreign
-                // grant with HTTP 403 - the error a car user was shown while the verification had in
-                // fact succeeded. A live relay session means there is nothing to redeem either.
-                val relayOutstanding = sessionManager.challengeUrl != null &&
-                    !sessionManager.hasActiveSession()
-                if (!relayOutstanding) {
-                    timber.log.Timber.tag("SpotiFLACSettings").d(
-                        "Grant belongs to the extension runtime; relay exchange not needed " +
-                            "(challengeOutstanding=%b sessionActive=%b)",
-                        sessionManager.challengeUrl != null,
-                        sessionManager.hasActiveSession(),
-                    )
-                } else {
-                    val result = sessionManager.exchangeGrant(grant)
-                    if (result.isSuccess) {
-                        sessionManager.forceRestoreSession()
-                        timber.log.Timber.tag("SpotiFLACSettings").d("Session obtained via deep link")
-                    } else {
-                        timber.log.Timber.tag("SpotiFLACSettings").w("Exchange failed: ${result.exceptionOrNull()?.message}")
-                    }
-                }
-            } catch (e: Exception) {
-                timber.log.Timber.tag("SpotiFLACSettings").e(e, "Failed to handle SpotiFLAC grant")
-            }
+            // There is nothing to exchange for Hush itself. A grant that arrives here belongs to
+            // the extension that raised the challenge, and Hush's own gateway session is gone - it
+            // signed as Hush's client version, so it could serve no extension (see
+            // SpotiFLACInstallIdentity), and the gateway no longer hands one out. This block used to
+            // offer the grant to the relay whenever a stale challenge URL was still in prefs, which
+            // is the unnecessary request the gateway answered HTTP 403 while the verification had in
+            // fact succeeded.
         }
     }
 

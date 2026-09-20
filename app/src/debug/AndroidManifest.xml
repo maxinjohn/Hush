@@ -51,6 +51,46 @@
                 <action android:name="app.hush.music.action.SPOTIFLAC_DEBUG" />
             </intent-filter>
         </receiver>
+
+        <!-- Android Auto's browse tree, read from a shell. A car's library only exists once a head
+             unit connects, so the tree this feature builds cannot otherwise be inspected on a
+             phone. This connects the app's own MediaBrowser to its own MusicService - the same
+             session and the same media ids a head unit receives - and writes what it returns to
+             files/debug/auto-library.txt, next to the switches that produced it. -->
+        <receiver
+            android:name=".auto.AutoLibraryDebugReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="app.hush.music.action.AUTO_LIBRARY_DEBUG" />
+            </intent-filter>
+        </receiver>
+
+        <!-- In-process Compose semantics probe. Broadcast the action
+             app.hush.music.action.SEMANTICS_PROBE (extras: label, content-bottom), then read the
+             report it writes to files/debug/semantics-probe.txt; scripts/semantics-probe.sh does
+             both.
+
+             On a OnePlus running Android 12, uiautomator sees the mini player and the bottom bars of
+             this app and no node at all for the Home, Search or Library tab, while those screens
+             render and respond normally - so nothing outside the app can read or drive them, and
+             Settings cannot be reached by a script. Only the app's own process can say whether the
+             content has semantics or the bridge is dropping them; scripts/semantics-probe.sh wraps
+             this. The provider holds the resumed activity the probe has to read. -->
+        <receiver
+            android:name=".debug.SemanticsProbeReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="app.hush.music.action.SEMANTICS_PROBE" />
+            </intent-filter>
+        </receiver>
+
+        <provider
+            android:name=".debug.SemanticsProbeActivityRegistry"
+            android:authorities="${applicationId}.semantics-probe"
+            android:enabled="true"
+            android:exported="false" />
     </application>
 
 </manifest>

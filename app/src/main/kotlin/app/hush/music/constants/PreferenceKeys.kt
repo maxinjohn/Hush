@@ -287,6 +287,16 @@ val SpotiFLACTryNextSourceKey = booleanPreferencesKey("spotiflacTryNextSource")
 /** Never let an unverified source block a verified one. */
 val SpotiFLACVerifiedOnlyKey = booleanPreferencesKey("spotiflacVerifiedOnly")
 
+/**
+ * A relay address an install was once pointed at, honoured if it is set and otherwise ignored.
+ *
+ * Nothing writes this any more: the IP block that made it worth offering is answered by changing the
+ * *exit* rather than the host, which is Hush's own proxy on the Internet screen. It is still read so
+ * that an install which was pointed at a relay of its own does not silently start calling the
+ * built-in one, where it has no session.
+ */
+val SpotiFLACRelayUrlKey = stringPreferencesKey("spotiflacRelayUrl")
+
 val DevModeKey = booleanPreferencesKey("devMode")
 
 val NetworkMeteredKey = booleanPreferencesKey("networkMetered")
@@ -356,6 +366,20 @@ val PlaylistTagsFilterKey = stringPreferencesKey("playlistTagsFilter")
 val ShowHomeCategoryChipsKey = booleanPreferencesKey("showHomeCategoryChips")
 val ShowTagsInLibraryKey = booleanPreferencesKey("showTagsInLibrary")
 
+/**
+ * The codec / bitrate / size / source row under the player.
+ *
+ * On for every install, including upgrades and fresh ones, unless the user has turned it
+ * off themselves — a stored `false` is a choice and always wins over this default.
+ */
+val ShowCodecOnPlayerKey = booleanPreferencesKey("show_codec_on_player")
+const val ShowCodecOnPlayerDefault = true
+
+/**
+ * The PulseMatrix visualiser ships on for a fresh install, like the codec row above; a
+ * user who switched it off keeps it off, because their stored value wins.
+ */
+const val PulseMatrixEnabledDefault = true
 val PulseMatrixEnabledKey = booleanPreferencesKey("pulseMatrixEnabled")
 val PulseMatrixThemeKey = stringPreferencesKey("pulseMatrixTheme")
 val PulseMatrixMiniPlayerKey = booleanPreferencesKey("pulseMatrixMiniPlayer")
@@ -973,6 +997,7 @@ val TogetherOnlineEndpointCacheKey = stringPreferencesKey("together_online_endpo
 val TogetherOnlineEndpointLastCheckedAtKey = longPreferencesKey("together_online_endpoint_last_checked_at")
 
 val AndroidAutoYouTubePlaylistsKey = booleanPreferencesKey("androidAutoYoutubePlaylists")
+val AndroidAutoSpotifyPlaylistsKey = booleanPreferencesKey("androidAutoSpotifyPlaylists")
 val AndroidAutoSectionsOrderKey = stringPreferencesKey("androidAutoSectionsOrder")
 val AndroidAutoSearchLocalLimitKey = intPreferencesKey("androidAutoSearchLocalLimit")
 val AutoRadioQueueKey = booleanPreferencesKey("autoRadioQueue")

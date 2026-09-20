@@ -232,7 +232,7 @@ object SpotiFLACSessionVault {
         val scope = scopeKey(namespace, baseUrl, platform)
         // The app's own identity is the fallback for a record that never stored
         // one; without it there is nothing to sign a revival with.
-        val fallbackInstallId = SpotiFLACSessionManager.installIdOrNull(context).orEmpty()
+        val fallbackInstallId = SpotiFLACInstallIdentity.installId(context).orEmpty()
         val candidates = siblingCandidates(context, scope, liveRecord, fallbackInstallId, currentAppVersion) +
             vaultCandidates(
                 context = context,

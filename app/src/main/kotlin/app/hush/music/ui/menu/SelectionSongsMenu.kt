@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -56,6 +55,7 @@ import androidx.media3.exoplayer.offline.DownloadService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalDatabase
 import app.hush.music.LocalDownloadUtil
 import app.hush.music.LocalPlayerConnection
@@ -480,7 +480,7 @@ fun SelectionSongMenu(
                         ListItem(
                             headlineContent = { Text(text = stringResource(R.string.downloading)) },
                             leadingContent = {
-                                CircularWavyProgressIndicator(
+                                HushProgressSpinner(
                                     modifier = Modifier.size(24.dp),
                                 )
                             },
@@ -1036,7 +1036,7 @@ fun SelectionMediaMetadataMenu(
                         ListItem(
                             headlineContent = { Text(text = stringResource(R.string.downloading)) },
                             leadingContent = {
-                                CircularWavyProgressIndicator(
+                                HushProgressSpinner(
                                     modifier = Modifier.size(24.dp),
                                 )
                             },

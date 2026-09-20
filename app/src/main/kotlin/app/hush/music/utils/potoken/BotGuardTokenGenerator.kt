@@ -56,6 +56,9 @@ import kotlin.coroutines.resumeWithException
  */
 object BotGuardTokenGenerator {
     private const val TAG = "BotGuardTokenGen"
+
+    /** What [readinessDetail] reports when a token for the session can be minted immediately. */
+    private const val READY = "ready"
     private const val CREATE_URL = "https://www.youtube.com/api/jnn/v1/Create"
     private const val GENERATE_IT_URL = "https://www.youtube.com/api/jnn/v1/GenerateIT"
     private const val REQUEST_KEY = "O43z0dpjhgX20SCx4KAo"
@@ -83,6 +86,8 @@ object BotGuardTokenGenerator {
     private var engine: BotGuardEngine? = null
     private var engineSessionId: String? = null
     private var cachedSessionToken: String? = null
+
+    @Volatile
     private var engineReady = false
 
     /**
@@ -133,6 +138,35 @@ object BotGuardTokenGenerator {
             Timber.tag(TAG).w(e, "Pre-warm failed (non-fatal)")
         }
     }
+
+    /**
+     * Whether a token for [sessionId] can be minted right now, without waiting.
+     *
+     * The engine bootstrap loads BotGuard inside a WebView, and on a cold start that is the single
+     * longest thing the app does - measured at 8.6s from app start to a usable minter on the reporting
+     * device (`Page loaded` 19.898 → `Minter ready` 28.460). [mintToken] waits for it, so a caller that
+     * needs a token *immediately* - the first track of a session - should ask this first and take the
+     * token-free path instead of holding playback behind a WebView. The pre-warm keeps running, so the
+     * token is there for the resolves that follow.
+     */
+    fun isReady(sessionId: String): Boolean = readinessDetail(sessionId) == READY
+
+    /**
+     * Why [isReady] answered what it did.
+     *
+     * A cold start turns on this answer, and "not ready" is not a diagnosis: the engine may still be
+     * bootstrapping, may belong to a session that has since changed, or may have expired. Naming which
+     * one is what makes the next report about a slow first track answerable.
+     */
+    fun readinessDetail(sessionId: String): String =
+        when {
+            appContext == null -> "not initialised"
+            permanentlyBroken -> "WebView is permanently broken"
+            !engineReady -> "engine still bootstrapping"
+            engineSessionId != sessionId -> "engine belongs to a different session"
+            engine?.isExpired != false -> "engine expired"
+            else -> READY
+        }
 
     /**
      * Mint a PoToken pair for the given [videoId] and [sessionId].

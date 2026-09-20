@@ -9,6 +9,8 @@
 
 package app.hush.music.ui.screens.musicrecognition
 
+import app.hush.music.ui.component.HushProgressSpinner
+import app.hush.music.ui.component.rememberFramePhase
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -21,12 +23,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -73,7 +71,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeFlexibleTopAppBar
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -822,7 +819,7 @@ private fun RecognitionListenPane(
                         .padding(top = 18.dp),
                 horizontalArrangement = Arrangement.Center,
             ) {
-                LoadingIndicator(modifier = Modifier.size(36.dp))
+                HushProgressSpinner(modifier = Modifier.size(36.dp))
             }
         }
 
@@ -1338,28 +1335,13 @@ private fun ListeningOrb(
     isProcessing: Boolean,
     onClick: () -> Unit,
 ) {
-    val ringProgress: Float
-    val ringProgress2: Float
-    if (isActive) {
-        val infinite = rememberInfiniteTransition(label = "orbPulse")
-        val animatedRingProgress by infinite.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(animation = tween(1700, easing = LinearEasing)),
-            label = "ring1",
-        )
-        val animatedRingProgress2 by infinite.animateFloat(
-            initialValue = 0.25f,
-            targetValue = 1.25f,
-            animationSpec = infiniteRepeatable(animation = tween(2100, easing = LinearEasing)),
-            label = "ring2",
-        )
-        ringProgress = animatedRingProgress
-        ringProgress2 = animatedRingProgress2
-    } else {
-        ringProgress = 0f
-        ringProgress2 = 0f
-    }
+    // The pulsing rings *are* the message while the microphone is open: they are how a listener
+    // knows the app is hearing something rather than sitting dead. Driven by frame time, so a
+    // device with its animation scale at 0 still shows them moving - the two rings keep their
+    // relative speeds by running on their own periods, and the second one starts a quarter of its
+    // period ahead the way the old animation's initial value did.
+    val ringProgress = if (isActive) rememberFramePhase(1700L) else 0f
+    val ringProgress2 = if (isActive) rememberFramePhase(2100L, offsetMillis = 525L) else 0f
 
     val orbScale by animateFloatAsState(
         targetValue = if (isActive) 1.03f else 1f,

@@ -51,7 +51,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -95,6 +94,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import androidx.window.core.layout.WindowSizeClass
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
@@ -731,7 +731,7 @@ private fun HostControlsCard(
             shapes = ButtonDefaults.shapes(),
         ) {
             if (host.loading) {
-                CircularWavyProgressIndicator(
+                HushProgressSpinner(
                     modifier = Modifier.size(18.dp),
                     color = MaterialTheme.colorScheme.onPrimary,
                 )
@@ -796,7 +796,7 @@ private fun JoinControlsCard(
         ) {
             when {
                 join.joining -> {
-                    CircularWavyProgressIndicator(
+                    HushProgressSpinner(
                         modifier = Modifier.size(18.dp),
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
@@ -805,7 +805,7 @@ private fun JoinControlsCard(
                 }
 
                 join.waitingApproval -> {
-                    CircularWavyProgressIndicator(
+                    HushProgressSpinner(
                         modifier = Modifier.size(18.dp),
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
@@ -1266,7 +1266,7 @@ private fun EmptyPanel(
 @Composable
 private fun LoadingContent() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularWavyProgressIndicator(modifier = Modifier.size(40.dp))
+        HushProgressSpinner(modifier = Modifier.size(40.dp))
     }
 }
 

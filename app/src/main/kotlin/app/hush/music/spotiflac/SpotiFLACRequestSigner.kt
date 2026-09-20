@@ -15,7 +15,7 @@ import javax.crypto.spec.SecretKeySpec
  * This mirrors the Go implementation in the SpotiFLAC runtime
  * (`extension_signed_session.go` → `doSignedSessionRequest`) byte for byte, so a
  * request signed here is accepted by the same gateway the native runtime talks
- * to. It is shared by [SpotiFLACSessionManager] (Hush's own gateway session) and
+ * to. It is shared by [SpotiFLACSessionRenewer] (an extension's own session) and
  * [SpotiFLACSessionRenewer] (per-extension session renewal), which keeps a single
  * implementation of a scheme that is easy to get subtly wrong.
  */

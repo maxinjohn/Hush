@@ -9,11 +9,13 @@
 
 package app.hush.music.ui.player
 
+import app.hush.music.ui.theme.HushDesign
+import app.hush.music.ui.component.HushLinearLoader
+import app.hush.music.ui.component.HushProgressSpinner
 import androidx.compose.animation.AnimatedContent
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.hush.music.LocalPlayerConnection
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,11 +38,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import app.hush.music.ui.component.HushIconButton
+import app.hush.music.ui.component.hushBouncyClickable
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
@@ -82,7 +84,6 @@ import app.hush.music.R
 import app.hush.music.constants.EnableHapticFeedbackKey
 import app.hush.music.constants.PrimaryAudioScraper
 import app.hush.music.constants.PrimaryAudioScraperKey
-import app.hush.music.db.entities.FormatEntity
 import app.hush.music.db.entities.autoRateDisplay
 import app.hush.music.db.entities.containerLabel
 import app.hush.music.db.entities.formattedBitrate
@@ -96,9 +97,14 @@ import app.hush.music.ui.component.BottomSheetState
 import app.hush.music.ui.component.MenuState
 import app.hush.music.ui.component.bottomSheetDraggable
 import app.hush.music.ui.component.hushMarquee
+import app.hush.music.ui.theme.hushPressable
+import app.hush.music.ui.component.hushPressMotion
+import app.hush.music.ui.component.rememberPressInteractionSource
 import app.hush.music.ui.menu.PlayerMenu
 import app.hush.music.ui.utils.ShowMediaInfo
 import app.hush.music.utils.makeTimeString
+import app.hush.music.playback.FormatRow
+import app.hush.music.playback.FormatRowSource
 import app.hush.music.playback.PlaybackEngine
 import app.hush.music.playback.PlaybackSourceLabels
 import app.hush.music.utils.PlaybackDownloadProgress
@@ -213,6 +219,7 @@ fun CurrentSongHeader(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = onBackgroundColor,
+                    modifier = Modifier.hushMarquee(),
                 )
                 Text(
                     text = mediaMetadata?.artists?.joinToString(", ") { it.name } ?: "",
@@ -225,6 +232,7 @@ fun CurrentSongHeader(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = onBackgroundColor.copy(alpha = 0.6f),
+                    modifier = Modifier.hushMarquee(),
                 )
                 if (isLandscape) {
                     Text(
@@ -239,7 +247,7 @@ fun CurrentSongHeader(
                 }
             }
 
-            IconButton(
+            HushIconButton(
                 onClick = onToggleLike,
                 modifier = Modifier.size(likeButtonSize),
                 colors =
@@ -279,7 +287,7 @@ fun CurrentSongHeader(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
-                    IconButton(
+                    HushIconButton(
                         onClick = onLockClick,
                         modifier = Modifier.size(actionIconButtonSize),
                         colors =
@@ -293,7 +301,7 @@ fun CurrentSongHeader(
                             modifier = Modifier.size(actionIconSize),
                         )
                     }
-                    IconButton(
+                    HushIconButton(
                         onClick = onMenuClick,
                         modifier = Modifier.size(actionIconButtonSize),
                         colors =
@@ -307,7 +315,7 @@ fun CurrentSongHeader(
                             modifier = Modifier.size(actionIconSize),
                         )
                     }
-                    IconButton(
+                    HushIconButton(
                         onClick = onClearQueueClick,
                         modifier = Modifier.size(actionIconButtonSize),
                         colors =
@@ -354,7 +362,7 @@ fun CurrentSongHeader(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
-                    IconButton(
+                    HushIconButton(
                         onClick = onLockClick,
                         modifier = Modifier.size(actionIconButtonSize),
                         colors =
@@ -368,7 +376,7 @@ fun CurrentSongHeader(
                             modifier = Modifier.size(actionIconSize),
                         )
                     }
-                    IconButton(
+                    HushIconButton(
                         onClick = onMenuClick,
                         modifier = Modifier.size(actionIconButtonSize),
                         colors =
@@ -382,7 +390,7 @@ fun CurrentSongHeader(
                             modifier = Modifier.size(actionIconSize),
                         )
                     }
-                    IconButton(
+                    HushIconButton(
                         onClick = onClearQueueClick,
                         modifier = Modifier.size(actionIconButtonSize),
                         colors =
@@ -582,7 +590,10 @@ private fun QueuePlaybackToggleRow(
                 label = "InfiniteQueueLoading",
             ) { loading ->
                 if (loading) {
-                    CircularWavyProgressIndicator(
+                    // Turns whether or not the system's animation scale is on; the standard
+                    // indeterminate indicator does not, and this button sits over a queue that is
+                    // being fetched, which is exactly when a listener presses it again.
+                    HushProgressSpinner(
                         modifier = Modifier.size(iconSize),
                         color = LocalContentColor.current,
                     )
@@ -665,7 +676,30 @@ fun SleepTimerDialog(
 }
 
 /**
+ * Names where the codec row's facts came from, for the reader who has to trust them.
+ *
+ * Short and plain on purpose: this line is already the most fact-dense thing on the player, so the
+ * source is a phrase rather than a symbol, and it says whether the row came from a resolve, from a
+ * file, from a saved record, or from the audio being decoded right now.
+ */
+@Composable
+internal fun FormatRowSource.displayLabel(): String =
+    stringResource(
+        when (this) {
+            FormatRowSource.SESSION_RESOLVE -> R.string.format_row_from_session_resolve
+            FormatRowSource.SAVED_RESOLVE -> R.string.format_row_from_saved_resolve
+            FormatRowSource.DEVICE_FILE -> R.string.format_row_from_device_file
+            FormatRowSource.DECODED_AUDIO -> R.string.format_row_from_decoder
+        },
+    )
+
+/**
  * Codec information row displayed when showCodecOnPlayer is enabled.
+ *
+ * [evidence] names where the row's facts came from - this session's resolve, an earlier resolve's saved
+ * row, a file on the device, or the decoder. It is passed in rather than read here because it belongs
+ * to the *same* [FormatRow] as the codec and bitrate above it: two flows would eventually disagree and
+ * the line would credit the wrong source.
  */
 @Composable
 fun CodecInfoRow(
@@ -675,6 +709,10 @@ fun CodecInfoRow(
     textColor: Color,
     modifier: Modifier = Modifier,
     playbackClient: String? = null,
+    // Required, not defaulted: this row draws a codec name and the whole point of [evidence] is that
+    // the name never appears without the origin that makes it trustworthy. A default of null would
+    // let a future caller draw the old provenance-free line by saying nothing.
+    evidence: String?,
 ) {
     val fallbackFlow = remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }
     val fallbackPlayingFlow = remember { kotlinx.coroutines.flow.MutableStateFlow(false) }
@@ -749,6 +787,10 @@ fun CodecInfoRow(
                             if (deliveryText != null) {
                                 append(" (").append(deliveryText.lowercase()).append(")")
                             }
+                        }
+                        if (evidence != null) {
+                            append(" • ")
+                            append(evidence)
                         }
                     },
             style = MaterialTheme.typography.labelSmall,
@@ -913,7 +955,7 @@ fun SpotiFLACDownloadStatus(
         Spacer(Modifier.height(3.dp))
         when {
             fetching != null ->
-                LinearProgressIndicator(
+                HushLinearLoader(
                     modifier =
                         Modifier
                             .fillMaxWidth()
@@ -944,7 +986,7 @@ fun SpotiFLACDownloadStatus(
 @Composable
 fun QueueCollapsedContentV2(
     showCodecOnPlayer: Boolean,
-    currentFormat: FormatEntity?,
+    formatRow: FormatRow?,
     textBackgroundColor: Color,
     textButtonColor: Color,
     iconButtonColor: Color,
@@ -968,7 +1010,8 @@ fun QueueCollapsedContentV2(
 
     Column(modifier = modifier.fillMaxWidth()) {
         PlaybackSourceRow(textColor = textBackgroundColor)
-        if (showCodecOnPlayer && currentFormat != null) {
+        if (showCodecOnPlayer && formatRow != null) {
+            val currentFormat = formatRow.format
             val codec =
                 currentFormat.codecs
                     .takeIf { it.isNotBlank() }
@@ -996,6 +1039,7 @@ fun QueueCollapsedContentV2(
                 bitrate = bitrate,
                 fileSize = extraText,
                 textColor = textBackgroundColor.copy(alpha = 0.7f),
+                evidence = formatRow.source.displayLabel(),
             )
         }
 
@@ -1073,7 +1117,7 @@ fun QueueCollapsedContentV2(
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
-                                    .basicMarquee(),
+                                    .hushMarquee(),
                         )
                     } else {
                         Icon(
@@ -1162,9 +1206,11 @@ fun QueueCollapsedContentV2(
                 modifier =
                     Modifier
                         .size(buttonSize)
+                        // Press motion before the clip: a clip wraps everything after it, so a halo
+                        // drawn inside one is cut off at the button's own edge.
+                        .hushBouncyClickable(onClick = onMenuClick, haloColor = textBackgroundColor)
                         .clip(CircleShape)
-                        .background(textBackgroundColor)
-                        .clickable { onMenuClick() },
+                        .background(textBackgroundColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -1184,7 +1230,7 @@ fun QueueCollapsedContentV2(
 @Composable
 fun QueueCollapsedContentV3(
     showCodecOnPlayer: Boolean,
-    currentFormat: FormatEntity?,
+    formatRow: FormatRow?,
     textBackgroundColor: Color,
     sleepTimerEnabled: Boolean,
     sleepTimerTimeLeft: Long,
@@ -1199,7 +1245,8 @@ fun QueueCollapsedContentV3(
 
     Column(modifier = modifier.fillMaxWidth()) {
         PlaybackSourceRow(textColor = textBackgroundColor)
-        if (showCodecOnPlayer && currentFormat != null) {
+        if (showCodecOnPlayer && formatRow != null) {
+            val currentFormat = formatRow.format
             val container = currentFormat.containerLabel()
             val bitrate = currentFormat.formattedBitrate()
 
@@ -1208,6 +1255,7 @@ fun QueueCollapsedContentV3(
                 bitrate = bitrate,
                 fileSize = "",
                 textColor = textBackgroundColor.copy(alpha = 0.5f),
+                evidence = formatRow.source.displayLabel(),
             )
         }
 
@@ -1337,7 +1385,7 @@ fun QueueCollapsedContentV3(
 @Composable
 fun QueueCollapsedContentV1(
     showCodecOnPlayer: Boolean,
-    currentFormat: FormatEntity?,
+    formatRow: FormatRow?,
     textBackgroundColor: Color,
     sleepTimerEnabled: Boolean,
     sleepTimerTimeLeft: Long,
@@ -1348,7 +1396,8 @@ fun QueueCollapsedContentV1(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         PlaybackSourceRow(textColor = textBackgroundColor)
-        if (showCodecOnPlayer && currentFormat != null) {
+        if (showCodecOnPlayer && formatRow != null) {
+            val currentFormat = formatRow.format
             val container = currentFormat.containerLabel()
             val bitrate = currentFormat.formattedBitrate()
             val fileSize = currentFormat.formattedFileSize()
@@ -1358,6 +1407,7 @@ fun QueueCollapsedContentV1(
                 bitrate = bitrate,
                 fileSize = fileSize,
                 textColor = textBackgroundColor.copy(alpha = 0.7f),
+                evidence = formatRow.source.displayLabel(),
             )
         }
 
@@ -1396,7 +1446,7 @@ fun QueueCollapsedContentV1(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.basicMarquee(),
+                        modifier = Modifier.hushMarquee(),
                     )
                 }
             }
@@ -1429,7 +1479,7 @@ fun QueueCollapsedContentV1(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 textAlign = TextAlign.Center,
-                                modifier = Modifier.basicMarquee(),
+                                modifier = Modifier.hushMarquee(),
                             )
                         } else {
                             Text(
@@ -1438,7 +1488,7 @@ fun QueueCollapsedContentV1(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 textAlign = TextAlign.Center,
-                                modifier = Modifier.basicMarquee(),
+                                modifier = Modifier.hushMarquee(),
                             )
                         }
                     }
@@ -1468,7 +1518,7 @@ fun QueueCollapsedContentV1(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.basicMarquee(),
+                        modifier = Modifier.hushMarquee(),
                     )
                 }
             }
@@ -1482,7 +1532,7 @@ fun QueueCollapsedContentV1(
 @Composable
 fun V6QueueCollapsedContent(
     showCodecOnPlayer: Boolean,
-    currentFormat: FormatEntity?,
+    formatRow: FormatRow?,
     textBackgroundColor: Color,
     sleepTimerEnabled: Boolean,
     sleepTimerTimeLeft: Long,
@@ -1493,7 +1543,8 @@ fun V6QueueCollapsedContent(
     applyBottomInsets: Boolean = true,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        if (showCodecOnPlayer && currentFormat != null) {
+        if (showCodecOnPlayer && formatRow != null) {
+            val currentFormat = formatRow.format
             val container = currentFormat.containerLabel()
             val bitrate = currentFormat.formattedBitrate()
             val fileSize = currentFormat.formattedFileSize()
@@ -1503,6 +1554,7 @@ fun V6QueueCollapsedContent(
                 bitrate = bitrate,
                 fileSize = fileSize,
                 textColor = textBackgroundColor.copy(alpha = 0.6f),
+                evidence = formatRow.source.displayLabel(),
                 modifier =
                     Modifier.padding(
                         start = 20.dp,
@@ -1565,7 +1617,7 @@ fun V6QueueBottomBar(
                     .weight(1f)
                     .clip(RoundedCornerShape(16.dp))
                     .background(textBackgroundColor.copy(alpha = 0.1f))
-                    .clickable(onClick = onExpandQueue),
+                    .hushPressable(onClick = onExpandQueue, pressScale = HushDesign.RowPressScale),
             contentAlignment = Alignment.Center,
         ) {
             Row(
@@ -1620,7 +1672,7 @@ fun V6QueueBottomBar(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .basicMarquee(),
+                                .hushMarquee(),
                     )
                 } else {
                     Icon(
@@ -1674,7 +1726,7 @@ fun V6QueueBottomBar(
 @Composable
 fun QueueCollapsedContentV4(
     showCodecOnPlayer: Boolean,
-    currentFormat: FormatEntity?,
+    formatRow: FormatRow?,
     textBackgroundColor: Color,
     iconButtonColor: Color,
     sleepTimerEnabled: Boolean,
@@ -1687,7 +1739,8 @@ fun QueueCollapsedContentV4(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         PlaybackSourceRow(textColor = textBackgroundColor)
-        if (showCodecOnPlayer && currentFormat != null) {
+        if (showCodecOnPlayer && formatRow != null) {
+            val currentFormat = formatRow.format
             val container = currentFormat.containerLabel()
             val bitrate = currentFormat.formattedBitrate()
             val fileSize = currentFormat.formattedFileSize()
@@ -1697,6 +1750,7 @@ fun QueueCollapsedContentV4(
                 bitrate = bitrate,
                 fileSize = fileSize,
                 textColor = textBackgroundColor.copy(alpha = 0.6f),
+                evidence = formatRow.source.displayLabel(),
             )
         }
 
@@ -1780,7 +1834,7 @@ fun QueueCollapsedContentV4(
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
-                                    .basicMarquee(),
+                                    .hushMarquee(),
                         )
                     } else {
                         Icon(
@@ -1833,7 +1887,7 @@ fun QueueCollapsedContentV4(
 @Composable
 fun QueueCollapsedContentV7(
     showCodecOnPlayer: Boolean,
-    currentFormat: FormatEntity?,
+    formatRow: FormatRow?,
     textBackgroundColor: Color,
     sleepTimerEnabled: Boolean,
     sleepTimerTimeLeft: Long,
@@ -1846,7 +1900,8 @@ fun QueueCollapsedContentV7(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         PlaybackSourceRow(textColor = textBackgroundColor)
-        if (showCodecOnPlayer && currentFormat != null) {
+        if (showCodecOnPlayer && formatRow != null) {
+            val currentFormat = formatRow.format
             val container = currentFormat.containerLabel()
             val bitrate = currentFormat.autoRateDisplay()
             val fileSize = currentFormat.formattedFileSize()
@@ -1856,6 +1911,7 @@ fun QueueCollapsedContentV7(
                 bitrate = bitrate,
                 fileSize = fileSize,
                 textColor = textBackgroundColor.copy(alpha = 0.6f),
+                evidence = formatRow.source.displayLabel(),
             )
         }
 
@@ -1994,7 +2050,7 @@ fun QueueCollapsedContentV7(
 @Composable
 fun QueueCollapsedContentV9(
     showCodecOnPlayer: Boolean,
-    currentFormat: FormatEntity?,
+    formatRow: FormatRow?,
     textBackgroundColor: Color,
     sleepTimerEnabled: Boolean,
     sleepTimerTimeLeft: Long,
@@ -2042,7 +2098,8 @@ fun QueueCollapsedContentV9(
                 ).padding(bottom = bottomPadding),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (showCodecOnPlayer && !compactLandscape && currentFormat != null) {
+        if (showCodecOnPlayer && !compactLandscape && formatRow != null) {
+            val currentFormat = formatRow.format
             val container = currentFormat.containerLabel()
             val bitrate = currentFormat.formattedBitrate()
             val fileSize = currentFormat.formattedFileSize()
@@ -2052,6 +2109,7 @@ fun QueueCollapsedContentV9(
                 bitrate = bitrate,
                 fileSize = fileSize,
                 textColor = textBackgroundColor.copy(alpha = 0.6f),
+                evidence = formatRow.source.displayLabel(),
             )
         }
 
@@ -2236,14 +2294,21 @@ fun LandscapeQueueChromeRow(
         val buttonSize = 44.dp
         val iconSize = 20.dp
 
+        val expandPress = rememberPressInteractionSource()
         Surface(
             onClick = onExpandQueue,
+            interactionSource = expandPress,
             shape = RoundedCornerShape(16.dp),
             color = textBackgroundColor.copy(alpha = 0.1f),
             modifier =
                 Modifier
                     .weight(1f)
-                    .height(buttonSize),
+                    .height(buttonSize)
+                    .hushPressMotion(
+                        interactionSource = expandPress,
+                        pressScale = HushDesign.RowPressScale,
+                        haloColor = textBackgroundColor,
+                    ),
         ) {
             Row(
                 modifier = Modifier.fillMaxSize(),
@@ -2378,14 +2443,21 @@ fun WideLandscapeUpNextBar(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
         )
 
+        val expandPress = rememberPressInteractionSource()
         Surface(
             onClick = onExpandQueue,
+            interactionSource = expandPress,
             shape = RoundedCornerShape(20.dp),
             color = surfaceColor,
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .hushPressMotion(
+                        interactionSource = expandPress,
+                        pressScale = HushDesign.RowPressScale,
+                        haloColor = MaterialTheme.colorScheme.primary,
+                    ),
         ) {
             Row(
                 modifier =
@@ -2416,6 +2488,7 @@ fun WideLandscapeUpNextBar(
                         color = textColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.hushMarquee(),
                     )
                     if (!nextMetadata?.artists.isNullOrEmpty()) {
                         Text(
@@ -2428,6 +2501,7 @@ fun WideLandscapeUpNextBar(
                             color = secondaryText,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.hushMarquee(),
                         )
                     }
                 }

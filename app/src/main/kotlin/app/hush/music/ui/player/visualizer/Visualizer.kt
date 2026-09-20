@@ -5,12 +5,7 @@
 
 package app.hush.music.ui.player.visualizer
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import app.hush.music.ui.component.rememberFramePhase
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -194,16 +189,10 @@ private fun BottomBarsStyle(
     val smoothValues = remember { mutableStateOf(FloatArray(BOTTOM_BAR_COUNT) { 0.05f }) }
     val prevValues = remember { mutableStateOf(FloatArray(BOTTOM_BAR_COUNT) { 0.05f }) }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "bottom_bars")
-    val syntheticPhase = infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 2f * PI.toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "bottom_bars_phase",
-    )
+    // Frame-driven, not an infinite transition: with the system's animation scale at 0 an
+    // infinite transition holds one frame, and a visualizer whose bars never move is
+    // indistinguishable from one that is not working - which is how it was reported.
+    val syntheticPhase = rememberFramePhase(2000L) * (2f * PI.toFloat())
 
     Canvas(modifier = modifier.fillMaxSize()) {
         if (!isPlaying) return@Canvas
@@ -219,7 +208,7 @@ private fun BottomBarsStyle(
             if (spectrumData != null && i < spectrumData.size && spectrumData[i] > 0.02f) {
                 spectrumData[i].coerceIn(0.05f, 1f)
             } else {
-                val raw = abs(sin((syntheticPhase.value + i * 0.4f) * (1f + i * 0.06f)).toDouble()).toFloat()
+                val raw = abs(sin((syntheticPhase + i * 0.4f) * (1f + i * 0.06f)).toDouble()).toFloat()
                 (raw * 0.5f + 0.08f).coerceIn(0.05f, 0.6f)
             }
         }
@@ -308,17 +297,9 @@ private fun ColorWaveStyle(
     val smoothValues = remember { mutableStateOf(FloatArray(COLOR_WAVE_COUNT) { 0.5f }) }
     val prevValues = remember { mutableStateOf(FloatArray(COLOR_WAVE_COUNT) { 0.5f }) }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "color_wave")
-    val phases = Array(COLOR_WAVE_COUNT) { idx ->
-        infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 2f * PI.toFloat(),
-            animationSpec = infiniteRepeatable(
-                animation = tween((2200 + idx * 250).toInt(), easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "cw_phase_$idx",
-        )
+    // Each band keeps its own period, so the colours drift against each other the way they did.
+    val phases = List(COLOR_WAVE_COUNT) { idx ->
+        rememberFramePhase((2200 + idx * 250).toLong()) * (2f * PI.toFloat())
     }
 
     Canvas(modifier = modifier.fillMaxSize()) {
@@ -346,7 +327,7 @@ private fun ColorWaveStyle(
 
         for (w in 0 until COLOR_WAVE_COUNT) {
             val amp = smooth[w].coerceIn(0.05f, 1f)
-            val phaseVal = phases[w].value
+            val phaseVal = phases[w]
             val waveSpeed = 1f + w * 0.2f
             val wavePhase = w * 1.2f
             val freq = 1.8f + w * 0.4f
@@ -415,13 +396,7 @@ private fun GlowBarsStyle(
     val smoothValues = remember { mutableStateOf(FloatArray(GLOW_BAR_COUNT) { 0.05f }) }
     val prevValues = remember { mutableStateOf(FloatArray(GLOW_BAR_COUNT) { 0.05f }) }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "glow_bars")
-    val phase = infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 2f * PI.toFloat(),
-        animationSpec = infiniteRepeatable(tween(2500, easing = LinearEasing), RepeatMode.Restart),
-        label = "glow_phase",
-    )
+    val phase = rememberFramePhase(2500L) * (2f * PI.toFloat())
 
     Canvas(modifier = modifier.fillMaxSize()) {
         if (!isPlaying) return@Canvas
@@ -435,7 +410,7 @@ private fun GlowBarsStyle(
             if (spectrumData != null && i < spectrumData.size && spectrumData[i] > 0.02f) {
                 spectrumData[i].coerceIn(0.05f, 1f)
             } else {
-                val r = abs(sin((phase.value + i * 0.5f) * (1f + i * 0.08f)).toDouble()).toFloat()
+                val r = abs(sin((phase + i * 0.5f) * (1f + i * 0.08f)).toDouble()).toFloat()
                 (r * 0.4f + 0.06f).coerceIn(0.05f, 0.5f)
             }
         }
@@ -491,13 +466,7 @@ private fun DualBarsStyle(
     val smoothValues = remember { mutableStateOf(FloatArray(DUAL_BAR_COUNT) { 0.05f }) }
     val prevValues = remember { mutableStateOf(FloatArray(DUAL_BAR_COUNT) { 0.05f }) }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "dual_bars")
-    val phase = infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 2f * PI.toFloat(),
-        animationSpec = infiniteRepeatable(tween(2200, easing = LinearEasing), RepeatMode.Restart),
-        label = "dual_phase",
-    )
+    val phase = rememberFramePhase(2200L) * (2f * PI.toFloat())
 
     Canvas(modifier = modifier.fillMaxSize()) {
         if (!isPlaying) return@Canvas
@@ -512,7 +481,7 @@ private fun DualBarsStyle(
             if (spectrumData != null && i < spectrumData.size && spectrumData[i] > 0.02f) {
                 spectrumData[i].coerceIn(0.05f, 1f)
             } else {
-                val r = abs(sin((phase.value + i * 0.45f) * (1f + i * 0.07f)).toDouble()).toFloat()
+                val r = abs(sin((phase + i * 0.45f) * (1f + i * 0.07f)).toDouble()).toFloat()
                 (r * 0.35f + 0.05f).coerceIn(0.05f, 0.5f)
             }
         }
@@ -570,13 +539,7 @@ private fun PulseBarsStyle(
     val smoothValues = remember { mutableStateOf(FloatArray(PULSE_BAR_COUNT) { 0.05f }) }
     val prevValues = remember { mutableStateOf(FloatArray(PULSE_BAR_COUNT) { 0.05f }) }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse_bars")
-    val phase = infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 2f * PI.toFloat(),
-        animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart),
-        label = "pulse_phase",
-    )
+    val phase = rememberFramePhase(1800L) * (2f * PI.toFloat())
 
     Canvas(modifier = modifier.fillMaxSize()) {
         if (!isPlaying) return@Canvas
@@ -594,7 +557,7 @@ private fun PulseBarsStyle(
             if (spectrumData != null && i < spectrumData.size && spectrumData[i] > 0.02f) {
                 spectrumData[i].coerceIn(0.05f, 1f)
             } else {
-                val r = abs(sin((phase.value + i * 0.5f) * (1f + i * 0.1f)).toDouble()).toFloat()
+                val r = abs(sin((phase + i * 0.5f) * (1f + i * 0.1f)).toDouble()).toFloat()
                 (r * 0.3f + 0.05f).coerceIn(0.05f, 0.5f)
             }
         }
@@ -647,7 +610,6 @@ private fun JumpingBarsStyle(
     modifier: Modifier,
     spectrumData: List<Float>? = null,
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "jumping_bars")
     val barAnims = remember {
         Array(JUMPING_BAR_COUNT) { index ->
             val phase = index * 0.3f
@@ -655,19 +617,10 @@ private fun JumpingBarsStyle(
             Pair(phase, speedMul)
         }
     }
-    val barValues = Array(JUMPING_BAR_COUNT) { index ->
-        infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 2f * PI.toFloat(),
-            animationSpec = infiniteRepeatable(
-                animation = tween(
-                    durationMillis = (1800 + index * 60),
-                    easing = LinearEasing,
-                ),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "jump_$index",
-        )
+    // One frame-driven phase per bar, each a little slower than the last, the way the per-index
+    // durations ran.
+    val barValues = List(JUMPING_BAR_COUNT) { index ->
+        rememberFramePhase((1800 + index * 60).toLong()) * (2f * PI.toFloat())
     }
 
     Canvas(modifier = modifier.fillMaxSize()) {
@@ -685,7 +638,7 @@ private fun JumpingBarsStyle(
         } else 1f
 
         for (i in 0 until JUMPING_BAR_COUNT) {
-            val animVal = barValues[i].value
+            val animVal = barValues[i]
             val (phase, speedMul) = barAnims[i]
             val raw = abs(sin(animVal * speedMul + phase))
             val barH = (raw * 0.92f + 0.08f) * maxHeight * (0.3f + 0.7f * spectrumEnergy)
@@ -732,17 +685,8 @@ private fun SpectrumStyle(
     modifier: Modifier,
     spectrumData: List<Float>? = null,
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "spectrum")
-    val fallbackAnims = Array(SPECTRUM_BAR_COUNT) { index ->
-        infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 2f * PI.toFloat(),
-            animationSpec = infiniteRepeatable(
-                animation = tween(1500 + index * 100, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "spec_$index",
-        )
+    val fallbackAnims = List(SPECTRUM_BAR_COUNT) { index ->
+        rememberFramePhase((1500 + index * 100).toLong()) * (2f * PI.toFloat())
     }
 
     Canvas(modifier = modifier.fillMaxSize()) {
@@ -759,7 +703,7 @@ private fun SpectrumStyle(
             val normalizedValue = if (spectrumData != null && i < spectrumData.size) {
                 spectrumData[i]
             } else {
-                val animVal = fallbackAnims[i].value
+                val animVal = fallbackAnims[i]
                 val raw = abs(sin(animVal * (1f + i * 0.12f) + i * 0.3f))
                 raw * 0.7f + 0.3f
             }
@@ -834,16 +778,7 @@ private fun LiveMeshStyle(
     modifier: Modifier,
     spectrumData: List<Float>?,
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "livemesh")
-    val time = infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 2f * PI.toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(6000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "mesh_time",
-    )
+    val time = rememberFramePhase(6000L) * (2f * PI.toFloat())
     var meshConfigs by remember { mutableStateOf(emptyArray<MeshNodeConfig>()) }
 
     Canvas(modifier = modifier.fillMaxSize()) {
@@ -853,7 +788,7 @@ private fun LiveMeshStyle(
             meshConfigs = buildMeshConfigs(size.width, size.height)
         }
         val configs = meshConfigs
-        val t = time.value
+        val t = time
         val amp = if (spectrumData != null && spectrumData.isNotEmpty()) {
             spectrumData.take(6).average().toFloat().coerceIn(0.1f, 1f)
         } else {

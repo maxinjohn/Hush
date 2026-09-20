@@ -4,11 +4,15 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.MessageDigest
+import java.util.zip.ZipInputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,8 +27,11 @@ class SpotiFLACExtensionPackageStore @Inject constructor(
 ) {
     companion object {
         private const val MAX_PACKAGE_BYTES = 64L * 1024L * 1024L
+        private const val MAX_MANIFEST_BYTES = 1024L * 1024L
         private const val DIRECTORY = "spotiflac/extensions"
     }
+
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     suspend fun downloadAndVerify(source: ExtensionSource): Result<SpotiFLACExtensionPackageVerifier.VerifiedPackage> =
         withContext(Dispatchers.IO) {
@@ -74,6 +81,51 @@ class SpotiFLACExtensionPackageStore @Inject constructor(
 
     fun packageFile(extensionId: String): File =
         File(context.filesDir, "$DIRECTORY/$extensionId.sflx")
+
+    /**
+     * The version recorded in the package Hush already holds, or null when there is none to read.
+     *
+     * Read from the archive's own `manifest.json` rather than remembered in a sidecar file: the
+     * archive is the thing the runtime will be handed, so a package that was replaced, truncated
+     * or only partly written reports what it actually is - which is what makes a stale package
+     * detectable and a damaged one repairable. Streamed and bounded, so answering this for a
+     * 30 MB package never has to hold it in memory on a low-RAM device.
+     */
+    fun storedPackageVersion(extensionId: String): String? {
+        val file = packageFile(extensionId)
+        if (!file.isFile) return null
+        return runCatching {
+            ZipInputStream(file.inputStream().buffered()).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: return@use null
+                    if (entry.isDirectory) continue
+                    if (entry.name.trimStart('/') != "manifest.json") continue
+                    val manifest = zip.readBounded(MAX_MANIFEST_BYTES)
+                    return@use json.parseToJsonElement(manifest.toString(Charsets.UTF_8))
+                        .jsonObject["version"]
+                        ?.jsonPrimitive
+                        ?.content
+                        ?.takeIf { it.isNotBlank() }
+                }
+                @Suppress("UNREACHABLE_CODE")
+                null
+            }
+        }.getOrNull()
+    }
+
+    private fun ZipInputStream.readBounded(limit: Long): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8 * 1024)
+        var total = 0L
+        while (true) {
+            val count = read(buffer)
+            if (count < 0) break
+            total += count
+            require(total <= limit) { "Extension manifest is too large" }
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
+    }
 
     fun remove(extensionId: String): Boolean = packageFile(extensionId).delete()
 }

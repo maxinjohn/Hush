@@ -47,7 +47,6 @@ import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -85,6 +84,7 @@ import com.google.common.collect.ImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.R
 import app.hush.music.models.MediaMetadata
 import app.hush.music.utils.ComposeToImage
@@ -339,7 +339,7 @@ private fun LyricsShareLoadingDialog() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                LoadingIndicator(modifier = Modifier.size(40.dp))
+                HushProgressSpinner(modifier = Modifier.size(40.dp))
                 Text(
                     text = stringResource(R.string.generating_image),
                     style = MaterialTheme.typography.titleLarge,

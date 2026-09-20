@@ -33,7 +33,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -58,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.R
 import app.hush.music.ui.component.IconButton
 import app.hush.music.utils.potoken.BotGuardTokenGenerator
@@ -407,7 +407,7 @@ class PoTokenExtractionActivity : ComponentActivity() {
                 },
                 icon = {
                     if (isExtracting) {
-                        CircularWavyProgressIndicator(
+                        HushProgressSpinner(
                             modifier = Modifier.size(16.dp),
                         )
                     } else {

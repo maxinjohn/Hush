@@ -97,7 +97,7 @@ import app.hush.music.R
 import app.hush.music.constants.HISTORY_DURATION_DEFAULT
 import app.hush.music.constants.HISTORY_DURATION_RANGE
 import app.hush.music.ui.theme.HushDesign
-import app.hush.music.ui.theme.hushPressable
+import app.hush.music.ui.component.hushTappable
 import app.hush.music.ui.theme.rememberHushAccentGradient
 import kotlin.math.roundToInt
 
@@ -197,10 +197,9 @@ fun PreferenceEntry(
                         if (isEnabled && onClick != null) {
                             Modifier
                                 .focusable()
-                                .hushPressable(
-                                    onClick = onClick,
-                                    pressScale = HushDesign.RowPressScale,
-                                )
+                                // A settings row does not give and spring: the motion is the gesture a
+                                // button makes, and on a full-width row it reads as the page moving.
+                                .hushTappable(onClick = onClick)
                         } else {
                             Modifier
                         },

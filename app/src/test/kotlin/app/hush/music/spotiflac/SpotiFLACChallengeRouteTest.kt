@@ -89,30 +89,9 @@ class SpotiFLACChallengeRouteTest {
         assertFalse(SpotiFLACChallengeRoute.callbackBelongsToScheme("not a url"))
     }
 
-    @Test
-    fun `the app builds the callback the gateway accepts`() {
-        // The relay path used to hand the gateway `hush://spotiflac-grant`, which is rejected; a
-        // rejected callback never reaches the page, so no browser could ever return to Hush.
-        val callback = SpotiFLACSessionManager.callbackUrlFor("spotiflac")
-        assertTrue(
-            "callback the relay hands the gateway must be accepted: $callback",
-            SpotiFLACChallengeRoute.callbackBelongsToScheme(callback),
-        )
-        // The state is what lets Hush route the grant to the right source.
-        assertTrue(callback.contains("state="))
-        assertEquals("spotiflac://session-grant?cb_version=v2grant&state=deezer", SpotiFLACSessionManager.callbackUrlFor("deezer"))
-    }
-
-    @Test
-    fun `the relay echoes the nonce the gateway issued as its callback state`() {
-        // The gateway hands out a nonce with each challenge and matches the solved grant back
-        // through it. Sending the literal placeholder for every challenge gave it nothing to match.
-        assertEquals("nonce-abc123", SpotiFLACSessionManager.relayCallbackState("nonce-abc123"))
-        assertEquals("nonce-abc123", SpotiFLACSessionManager.relayCallbackState("  nonce-abc123  "))
-        // A gateway that sends no nonce still produces a usable callback rather than "state=null".
-        assertEquals("spotiflac", SpotiFLACSessionManager.relayCallbackState(null))
-        assertEquals("spotiflac", SpotiFLACSessionManager.relayCallbackState("   "))
-    }
+    // The relay's own callback builder and its nonce echo are gone with the session they belonged
+    // to: Hush holds no gateway session, and the callback every verification now uses is the
+    // extension's own, which its package carries.
 
     @Test
     fun `a spent challenge is recognised before anything is opened`() {

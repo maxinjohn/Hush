@@ -11,23 +11,21 @@ import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.hush.music.LocalAnimationsDisabled
+import app.hush.music.ui.component.hushBouncyClickable
+import app.hush.music.ui.component.rememberHushPressFeedback
 
 /**
  * When true, search/explore/suggestions pages use a vibrant Gen-Z visual style
@@ -89,21 +87,36 @@ object HushMotion {
         }
 }
 
+/**
+ * A press grows a bouncy give-and-release instead of a tween.
+ *
+ * This used to be `animateFloatAsState` plus a spring, which the system's animator duration scale
+ * silences completely: with the scale at 0 - a developer setting, and what a car head unit runs
+ * with - the button only ever jumped between two sizes and no ripple appeared. [PressMotion] runs
+ * on frame time instead, so the give, the spring and the halo all survive that setting.
+ *
+ * The halo is **on by default**. It used to be an opt-in float that every call site had to pass, and
+ * forty-eight of them never did, so most of the app's buttons gave a size change and nothing else -
+ * which is exactly how the player's like, download and shuffle buttons came to look inert next to
+ * its transport row. What a row or a card does not want is decided by shape, in one place: see
+ * [PressMotion.haloSuits]. A burst belongs on a button, not on a list item, and the size rules say
+ * which is which without any call site having to remember.
+ */
 @Composable
 fun rememberArchiveTunePressScale(
     interactionSource: MutableInteractionSource,
     pressScale: Float = HushDesign.PressScale,
-): Float {
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val animationsDisabled = LocalAnimationsDisabled.current
-    val scale by animateFloatAsState(
-        targetValue = if (!animationsDisabled && isPressed) pressScale else 1f,
-        animationSpec = HushMotion.fastSpring(),
-        label = "archiveTunePressScale",
-    )
-    return scale
-}
+    haloStrength: Float = 0f,
+    haloColor: Color? = null,
+): Float =
+    rememberHushPressFeedback(
+        interactionSource = interactionSource,
+        pressScale = pressScale,
+        enabled = true,
+        haloStrength = haloStrength,
+    ).scale
 
+/** The press scale and the dimming that goes with it, for surfaces that fade rather than burst. */
 @Composable
 fun rememberArchiveTunePressFeedback(
     interactionSource: MutableInteractionSource,
@@ -111,16 +124,8 @@ fun rememberArchiveTunePressFeedback(
 ): Pair<Float, Float> {
     val isPressed by interactionSource.collectIsPressedAsState()
     val animationsDisabled = LocalAnimationsDisabled.current
-    val scale by animateFloatAsState(
-        targetValue = if (!animationsDisabled && isPressed) pressScale else 1f,
-        animationSpec = HushMotion.gentleSpring(),
-        label = "archiveTunePressFeedbackScale",
-    )
-    val alpha by animateFloatAsState(
-        targetValue = if (!animationsDisabled && isPressed) 0.88f else 1f,
-        animationSpec = HushMotion.fastSpring(),
-        label = "archiveTunePressFeedbackAlpha",
-    )
+    val scale = rememberArchiveTunePressScale(interactionSource, pressScale)
+    val alpha = if (!animationsDisabled && isPressed) 0.88f else 1f
     return scale to alpha
 }
 
@@ -135,50 +140,30 @@ fun Modifier.hushPressable(
     enabled: Boolean = true,
     pressScale: Float = HushDesign.PressScale,
     role: Role? = null,
+    haloStrength: Float = 1f,
+    haloColor: Color? = null,
 ): Modifier =
-    composed {
-        val interactionSource = remember { MutableInteractionSource() }
-        val scale = rememberArchiveTunePressScale(interactionSource, pressScale)
-        this
-            .graphicsLayerPressScale(scale)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                enabled = enabled,
-                role = role,
-                onClick = onClick,
-            )
-    }
+    hushBouncyClickable(
+        onClick = onClick,
+        enabled = enabled,
+        role = role,
+        pressScale = pressScale,
+        haloStrength = haloStrength,
+        haloColor = haloColor,
+    )
 
 fun Modifier.archiveTuneHeaderActionPressable(
     onClick: () -> Unit,
     enabled: Boolean = true,
     role: Role? = null,
-    showRipple: Boolean = true,
 ): Modifier =
-    composed {
-        val interactionSource = remember { MutableInteractionSource() }
-        val (scale, alpha) =
-            rememberArchiveTunePressFeedback(
-                interactionSource = interactionSource,
-                pressScale = HushDesign.HeaderActionPressScale,
-            )
-        this
-            .graphicsLayerPressScale(scale)
-            .alpha(alpha)
-            .clickable(
-                interactionSource = interactionSource,
-                indication =
-                    if (showRipple) {
-                        androidx.compose.material3.ripple()
-                    } else {
-                        null
-                    },
-                enabled = enabled,
-                role = role,
-                onClick = onClick,
-            )
-    }
+    hushBouncyClickable(
+        onClick = onClick,
+        enabled = enabled,
+        role = role,
+        pressScale = HushDesign.HeaderActionPressScale,
+        haloStrength = 0.85f,
+    )
 
 fun Modifier.hushCombinedPressable(
     onClick: () -> Unit,
@@ -187,18 +172,10 @@ fun Modifier.hushCombinedPressable(
     pressScale: Float = HushDesign.PressScale,
     role: Role? = null,
 ): Modifier =
-    composed {
-        val interactionSource = remember { MutableInteractionSource() }
-        val scale = rememberArchiveTunePressScale(interactionSource, pressScale)
-        this
-            .graphicsLayerPressScale(scale)
-            .combinedClickable(
-                interactionSource = interactionSource,
-                indication = null,
-                enabled = enabled,
-                role = role,
-                onClick = onClick,
-                onLongClick = onLongClick,
-                onLongClickLabel = null,
-            )
-    }
+    hushBouncyClickable(
+        onClick = onClick,
+        onLongClick = onLongClick,
+        enabled = enabled,
+        role = role,
+        pressScale = pressScale,
+    )

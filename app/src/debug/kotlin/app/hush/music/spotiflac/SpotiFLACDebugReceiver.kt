@@ -47,20 +47,29 @@ import kotlinx.serialization.json.jsonPrimitive
  *
  * Registered in `src/debug/AndroidManifest.xml`, so it exists in nothing that ships.
  *
+ * Every call names the component (`-n`), because the action alone does **not** reach this receiver on
+ * Android 8 or newer: an implicit broadcast to a manifest-registered receiver is not delivered, and
+ * `am broadcast` reports `Broadcast completed: result=0` as if it had been. Measured on the reporting
+ * device: the implicit form produced no log line at all while the explicit one ran the operation - so
+ * a harness written as below reads as "the operation did nothing", which is exactly the wrong
+ * conclusion to draw about a probe whose job is to tell you what happened.
+ *
  * ```
- * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op state
- * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op challenge --es source deezer
- * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op recover   --es source deezer
- * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op browser   --es source deezer
- * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op resolve   \
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver \
+ *     -a app.hush.music.action.SPOTIFLAC_DEBUG --es op state
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op challenge --es source deezer
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op recover   --es source deezer
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op browser   --es source deezer
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op resolve   \
  *     --es source amazon --es title "Africa" --es artist "Toto"
- * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op bytes --es path /data/.../file.flac
- * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op verify  --es source amazon
- * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op toggle  --es source youtube
- * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op download --es source <mediaId>
- * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op remove-download --es source <mediaId>
- * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op play    --es path /data/.../file.flac
- * adb shell am broadcast -a app.hush.music.action.SPOTIFLAC_DEBUG --es op source-row \
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op bytes --es path /data/.../file.flac
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op verify  --es source amazon
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op toggle  --es source youtube
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op gateway-returned
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op download --es source <mediaId>
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op remove-download --es source <mediaId>
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op play    --es path /data/.../file.flac
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op source-row \
  *     --es source deezer --es state failed --es message "403 on test for deezer"
  * ```
  *
@@ -100,7 +109,7 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 when (val operation = intent.getStringExtra(EXTRA_OPERATION) ?: OP_STATE) {
-                    OP_STATE -> logState()
+                    OP_STATE -> logState(context.applicationContext)
                     OP_CHALLENGE -> challenge(source)
                     OP_RECOVER -> recover(source)
                     OP_BROWSER -> browser(context.applicationContext, source)
@@ -133,6 +142,8 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
 
                     OP_RENEW -> renewSessions(context.applicationContext)
 
+                    OP_GATEWAY_RETURNED -> replayAfterGatewayReturns()
+
                     OP_SOURCE_ROW -> setSourceRow(
                         source = source,
                         state = intent.getStringExtra(EXTRA_STATE).orEmpty(),
@@ -149,8 +160,8 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
         }
     }
 
-    /** Every enabled source's auth state, the runtime's pending challenge and the relay session. */
-    private suspend fun logState() {
+    /** Every enabled source's auth state, the runtime's pending challenge and this install's identity. */
+    private suspend fun logState(context: Context) {
         val bridge = SpotiFLACNativeRuntimeBridgeHolder.instance
         if (bridge == null || !bridge.isRuntimeAvailable) {
             log("state verdict=FAIL reason=runtime-unavailable")
@@ -164,10 +175,13 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
         // state a fresh install is in, and the thing this probe has to be able to show.
         runCatching { bridge.prepareForPlayback(sources) }
         val runtimePending = bridge.pendingRuntimeAuth()
+        // No relay-session field: Hush holds no gateway session any more, and a constant `false`
+        // beside the thing being probed would read as a finding rather than as a state that no
+        // longer exists (see SpotiFLACInstallIdentity).
         log(
-            "state sources=%s relaySession=%b pendingRuntimeAuth=%s owner=%s",
+            "state sources=%s installId=%s pendingRuntimeAuth=%s owner=%s",
             sources.joinToString(","),
-            SpotiFLACSessionManager.getInstance().hasActiveSession(),
+            SpotiFLACInstallIdentity.installId(context)?.take(8)?.plus("…") ?: "none",
             runtimePending?.authUrl?.take(120) ?: "none",
             runtimePending?.extensionId ?: "none",
         )
@@ -177,26 +191,33 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
         val rows = runCatching {
             ExtensionRepositoryManager.getInstance().sources.value.associateBy { it.source.id }
         }.getOrDefault(emptyMap())
+        // The same line the Audio Sources row draws for a source whose own service says it cannot
+        // serve. Read here for the same reason the row's test result is: that screen exposes nothing
+        // to the accessibility tree, so a shell probe is the only way to see what it says.
+        val providerNotes = runCatching { bridge.providerHealthNotes() }.getOrDefault(emptyMap())
         for (source in sources) {
             val state = bridge.sourceAuthState(source)
             val pending = bridge.pendingAuthFor(source)
             val row = rows[source]
+            val note = providerNotes[source]
             log(
-                "state source=%s auth=%s verified=%b test=%s reason=%s challengeOwner=%s challenge=%s",
+                "state source=%s auth=%s verified=%b test=%s reason=%s provider=%s challengeOwner=%s challenge=%s",
                 source,
                 state,
                 bridge.isSourceVerified(source),
                 row?.testState ?: "absent",
                 (row?.testError ?: "none").take(60),
+                (note ?: "none").take(80),
                 pending?.extensionId ?: "none",
                 pending?.authUrl?.take(120) ?: "none",
             )
             log(
-                "spotiflac-debug step=state source=%s verdict=ok auth=%s verified=%b test=%s owner=%s",
+                "spotiflac-debug step=state source=%s verdict=ok auth=%s verified=%b test=%s provider=%s owner=%s",
                 source,
                 state,
                 bridge.isSourceVerified(source),
                 row?.testState ?: "absent",
+                (note ?: "none").take(80),
                 pending?.extensionId ?: "none",
             )
         }
@@ -304,10 +325,24 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
             return log("spotiflac-debug step=source-test source=- verdict=FAIL reason=no-source")
         }
         val started = System.currentTimeMillis()
-        val result = runCatching { SpotiFLACClient.getInstance().testSource(source) }
+        // The same entry point the row's button calls: the source's own extension through the engine,
+        // not the relay session the row used to be tested with (and which no longer exists on a
+        // signed-session install, so every verdict was a false failure).
+        val result = runCatching {
+            val bridge = SpotiFLACNativeRuntimeBridgeHolder.instance
+                ?: return@runCatching Result.failure<String>(
+                    IllegalStateException("SpotiFLAC runtime is not available in this build"),
+                )
+            if (!bridge.isRuntimeAvailable) {
+                return@runCatching Result.failure<String>(
+                    IllegalStateException("SpotiFLAC runtime is not available in this build"),
+                )
+            }
+            bridge.testSource(source)
+        }
             .getOrElse { failure -> Result.failure(failure) }
         val elapsed = System.currentTimeMillis() - started
-        val verdict = result.getOrNull()?.firstOrNull()?.title?.take(120)
+        val verdict = result.getOrNull()?.take(120)
         log(
             "spotiflac-debug step=source-test source=%s verdict=%s elapsed=%dms detail=%s",
             source,
@@ -315,6 +350,30 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
             elapsed,
             verdict ?: result.exceptionOrNull()?.message?.take(160) ?: "no detail",
         )
+    }
+
+    /**
+     * Fires the route watch's "the gateway is serving us again" callback, as a route change would.
+     *
+     * The one half of the route watch that cannot be produced from a shell on a blocked device: the
+     * watch only calls this after the gateway has *positively* answered a renewal, and a device whose
+     * address the gateway is refusing cannot get that answer by any means. Everything upstream of the
+     * call - noticing the change, asking once, re-arming on a refusal - is exercised for real by
+     * flipping the proxy or the network; this proves what happens downstream, which is otherwise only
+     * reachable by waiting out a ~21 hour block on another network.
+     *
+     * It invokes the same property the watch invokes, so what runs is the player's real replay path and
+     * not a mock-up of it.
+     */
+    private suspend fun replayAfterGatewayReturns() {
+        val listener = SpotiFLACRouteWatch.onGatewayReachableAgain
+        if (listener == null) {
+            return log(
+                "spotiflac-debug step=gateway-returned verdict=SKIPPED reason=no-listener",
+            )
+        }
+        listener()
+        log("spotiflac-debug step=gateway-returned verdict=OK")
     }
 
     /**
@@ -892,6 +951,7 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
         const val OP_SOURCE_ROW = "source-row"
         const val OP_SOURCE_TEST = "source-test"
         const val OP_RENEW = "renew"
+        const val OP_GATEWAY_RETURNED = "gateway-returned"
         const val EXTRA_STATE = "state"
         const val EXTRA_MESSAGE = "message"
 

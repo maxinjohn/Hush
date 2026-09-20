@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,15 +43,20 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import app.hush.music.LocalDatabase
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.constants.AndroidAutoSectionsOrderKey
+import app.hush.music.constants.AndroidAutoSpotifyPlaylistsKey
 import app.hush.music.constants.AndroidAutoTargetPlaylistKey
 import app.hush.music.constants.AndroidAutoYouTubePlaylistsKey
 import app.hush.music.constants.MediaSessionConstants
+import app.hush.music.playback.AndroidAutoPlaylists
+import app.hush.music.spotify.SpotifyAccountViewModel
+import app.hush.music.spotify.SpotifyLibraryViewModel
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.ListPreference
 import app.hush.music.ui.component.PreferenceEntry
@@ -61,13 +67,7 @@ import app.hush.music.utils.rememberPreference
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
-enum class AndroidAutoSection(val id: String) {
-    LIKED("liked"),
-    SONGS("songs"),
-    ARTISTS("artists"),
-    ALBUMS("albums"),
-    PLAYLISTS("playlists"),
-}
+typealias AndroidAutoSection = AndroidAutoPlaylists.Section
 
 @Composable
 fun AndroidAutoSection.label(): String =
@@ -80,34 +80,54 @@ fun AndroidAutoSection.label(): String =
     }
 
 fun serializeSections(sections: List<Pair<AndroidAutoSection, Boolean>>): String =
-    sections.joinToString(",") { (section, enabled) -> "${section.id}:$enabled" }
+    AndroidAutoPlaylists.serializeSections(
+        sections.map { (section, enabled) -> AndroidAutoPlaylists.SectionState(section, enabled) },
+    )
 
-fun deserializeSections(raw: String): List<Pair<AndroidAutoSection, Boolean>> {
-    if (raw.isBlank()) return AndroidAutoSection.entries.map { it to true }
-    return raw.split(",").mapNotNull { token ->
-        val parts = token.split(":")
-        if (parts.size != 2) return@mapNotNull null
-        val section = AndroidAutoSection.entries.find { it.id == parts[0] } ?: return@mapNotNull null
-        val enabled = parts[1].toBooleanStrictOrNull() ?: true
-        section to enabled
-    }
-}
+fun deserializeSections(raw: String): List<Pair<AndroidAutoSection, Boolean>> =
+    AndroidAutoPlaylists
+        .deserializeSections(raw)
+        .map { (section, enabled) -> section to enabled }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AndroidAutoSettings(
     navController: NavController,
     scrollBehavior: TopAppBarScrollBehavior,
+    spotifyAccountViewModel: SpotifyAccountViewModel = hiltViewModel(),
+    spotifyLibraryViewModel: SpotifyLibraryViewModel = hiltViewModel(),
 ) {
     val haptic = LocalHapticFeedback.current
     val database = LocalDatabase.current
 
     val userPlaylists by database.playlistsByCreateDateAsc().collectAsStateWithLifecycle(initialValue = emptyList())
+    val spotifyState by spotifyAccountViewModel.uiState.collectAsStateWithLifecycle()
+    val spotifyPlaylists by spotifyLibraryViewModel.playlists.collectAsStateWithLifecycle()
+
+    // A connected account is the only reason these two rows mean anything. The account is restored
+    // asynchronously, so until that finishes the answer is "not known yet" rather than "no".
+    val spotifyConnected = !spotifyState.isLoading && spotifyState.isAuthenticated
+
+    LaunchedEffect(spotifyConnected) {
+        // Connected with an empty library: the Spotify screen would have to be opened on the phone
+        // before a car could list it, so ask once here instead.
+        if (spotifyConnected && spotifyPlaylists.isEmpty()) {
+            spotifyLibraryViewModel.refreshPlaylists()
+        }
+    }
 
     val (youtubePlaylistsEnabled, onYoutubePlaylistsChange) =
         rememberPreference(
             key = AndroidAutoYouTubePlaylistsKey,
-            defaultValue = false,
+            // On by default, which is also what a car used to show before this switch was read at
+            // all - turning it into a real setting must not quietly empty the car's folders.
+            defaultValue = true,
+        )
+
+    val (spotifyPlaylistsEnabled, onSpotifyPlaylistsChange) =
+        rememberPreference(
+            key = AndroidAutoSpotifyPlaylistsKey,
+            defaultValue = true,
         )
 
     val (sectionsRaw, onSectionsChange) =
@@ -142,13 +162,29 @@ fun AndroidAutoSettings(
             }
         }
 
-    val playlistOptions = listOf(MediaSessionConstants.TARGET_PLAYLIST_AUTO) + userPlaylists.map { it.id }
+    // Spotify playlists are offered under the same media id the car's browse tree publishes for
+    // them, so a destination picked here is exactly the thing the save button looks up.
+    val spotifyDestinations =
+        if (spotifyConnected) {
+            spotifyPlaylists.map { playlist ->
+                AndroidAutoPlaylists.spotifyMediaId(playlist.id) to playlist.name
+            }
+        } else {
+            emptyList()
+        }
+
+    val playlistOptions =
+        listOf(MediaSessionConstants.TARGET_PLAYLIST_AUTO) +
+            userPlaylists.map { it.id } +
+            spotifyDestinations.map { (id, _) -> id }
 
     val playlistLabel: @Composable (String) -> String = { id ->
         if (id == MediaSessionConstants.TARGET_PLAYLIST_AUTO) {
             stringResource(R.string.android_auto_target_playlist_auto)
         } else {
-            userPlaylists.find { it.id == id }?.playlist?.name ?: id
+            userPlaylists.find { it.id == id }?.playlist?.name
+                ?: spotifyDestinations.find { (destination, _) -> destination == id }?.second
+                ?: id
         }
     }
 
@@ -288,6 +324,18 @@ fun AndroidAutoSettings(
                             checked = youtubePlaylistsEnabled,
                             onCheckedChange = onYoutubePlaylistsChange,
                         )
+                    }
+
+                    if (spotifyConnected) {
+                        item {
+                            SwitchPreference(
+                                title = { Text(stringResource(R.string.android_auto_spotify_playlists)) },
+                                description = stringResource(R.string.android_auto_spotify_playlists_desc),
+                                icon = { Icon(painterResource(R.drawable.queue_music), null) },
+                                checked = spotifyPlaylistsEnabled,
+                                onCheckedChange = onSpotifyPlaylistsChange,
+                            )
+                        }
                     }
                 }
             }

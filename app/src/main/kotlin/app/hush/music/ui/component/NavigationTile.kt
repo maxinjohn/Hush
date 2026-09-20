@@ -50,10 +50,12 @@ fun NavigationTile(
             modifier =
                 Modifier
                     .size(58.dp)
+                    // Press motion before the clip: a clip wraps everything after it, so a halo drawn
+                    // inside one is cut off at the tile's own edge.
+                    .hushPressable(onClick = onClick, pressScale = HushDesign.ChipPressScale)
                     .clip(HushDesign.itemShape)
                     .background(accentGradient, HushDesign.itemShape)
-                    .border(0.5.dp, borderColor, HushDesign.itemShape)
-                    .hushPressable(onClick = onClick, pressScale = HushDesign.ChipPressScale),
+                    .border(0.5.dp, borderColor, HushDesign.itemShape),
         ) {
             Icon(
                 painter = painterResource(icon),

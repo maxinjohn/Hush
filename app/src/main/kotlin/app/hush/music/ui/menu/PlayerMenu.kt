@@ -23,7 +23,6 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -51,7 +50,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -59,7 +57,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -108,6 +105,9 @@ import androidx.media3.exoplayer.offline.DownloadService
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
+import app.hush.music.ui.component.HushIconButton
+import app.hush.music.ui.component.hushMarquee
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalDatabase
 import app.hush.music.LocalDownloadUtil
 import app.hush.music.LocalPlayerConnection
@@ -151,6 +151,8 @@ import app.hush.music.utils.shareLocalAudio
 import app.hush.music.utils.toggleSpeedDialPin
 import app.hush.music.ui.screens.equalizer.axion.AxionEqScreen
 import app.hush.music.ui.screens.equalizer.axion.AxionEqViewModel
+import app.hush.music.ui.utils.rememberDownload
+import app.hush.music.ui.utils.rememberFlow
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
@@ -178,11 +180,9 @@ fun PlayerMenu(
         remember(deviceMusicVolumeController) {
             { volume: Float -> deviceMusicVolumeController.setVolumeFraction(volume) }
         }
-    val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
+    val librarySong by rememberFlow(mediaMetadata.id) { database.song(mediaMetadata.id) }.collectAsState(initial = null)
 
-    val download by LocalDownloadUtil.current
-        .getDownload(mediaMetadata.id)
-        .collectAsState(initial = null)
+    val download = rememberDownload(mediaMetadata.id)
 
     val artists =
         remember(mediaMetadata.artists) {
@@ -422,7 +422,7 @@ fun PlayerMenu(
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.basicMarquee(),
+                    modifier = Modifier.hushMarquee(),
                 )
                 if (nowPlayingSubtitle.isNotBlank()) {
                     Text(
@@ -431,7 +431,7 @@ fun PlayerMenu(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.basicMarquee(),
+                        modifier = Modifier.hushMarquee(),
                     )
                 }
             }
@@ -731,7 +731,7 @@ fun PlayerMenu(
                             ListItem(
                                 headlineContent = { Text(text = stringResource(R.string.downloading)) },
                                 leadingContent = {
-                                    CircularWavyProgressIndicator(
+                                    HushProgressSpinner(
                                         modifier = Modifier.size(24.dp),
                                     )
                                 },
@@ -1156,7 +1156,7 @@ fun TempoPitchDialog(onDismiss: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    IconButton(
+                    HushIconButton(
                         enabled = tempo > TempoMin,
                         onClick = {
                             tempo = (tempo - 0.01f).coerceIn(TempoMin, TempoMax).quantize(0.01f)
@@ -1183,7 +1183,7 @@ fun TempoPitchDialog(onDismiss: () -> Unit) {
                         colors = SliderDefaults.colors(),
                     )
 
-                    IconButton(
+                    HushIconButton(
                         enabled = tempo < TempoMax,
                         onClick = {
                             tempo = (tempo + 0.01f).coerceIn(TempoMin, TempoMax).quantize(0.01f)
@@ -1323,7 +1323,7 @@ fun TempoPitchDialog(onDismiss: () -> Unit) {
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            IconButton(
+                            HushIconButton(
                                 enabled = pitch > PitchMin,
                                 onClick = {
                                     pitch = (pitch - 0.01f).coerceIn(PitchMin, PitchMax).quantize(0.01f)
@@ -1350,7 +1350,7 @@ fun TempoPitchDialog(onDismiss: () -> Unit) {
                                 colors = SliderDefaults.colors(),
                             )
 
-                            IconButton(
+                            HushIconButton(
                                 enabled = pitch < PitchMax,
                                 onClick = {
                                     pitch = (pitch + 0.01f).coerceIn(PitchMin, PitchMax).quantize(0.01f)

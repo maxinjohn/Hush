@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.SnackbarHostState
@@ -37,6 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalDatabase
 import app.hush.music.R
 import app.hush.music.db.entities.PlaylistEntity
@@ -97,7 +97,7 @@ fun ImportPlaylistDialog(
             },
             extraContent = {
                 if (isImporting) {
-                    CircularWavyProgressIndicator()
+                    HushProgressSpinner()
                 }
             },
             onDone = { finalName ->
@@ -185,7 +185,7 @@ fun ImportPlaylistDialog(
                     Text(text = stringResource(R.string.already_in_playlist))
                     if (isProcessingDuplicate) {
                         Spacer(modifier = Modifier.height(16.dp))
-                        CircularWavyProgressIndicator()
+                        HushProgressSpinner()
                     }
                 }
             },

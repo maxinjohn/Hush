@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -51,6 +50,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.spotiflac.SpotiFLACBrowserVerification
 import app.hush.music.spotiflac.SpotiFLACChallengeEngine
 import app.hush.music.spotiflac.SpotiFLACChallengeRoute
@@ -77,6 +77,14 @@ import kotlinx.coroutines.withContext
  * is what used to happen on every track that could not resolve. The full challenge opens
  * only after the user chooses to run it ([SpotiFLACVerificationRequest.challenge]).
  */
+/**
+ * How long an automatic all-sources run waits for one browser verification.
+ *
+ * Longer than the grant watch itself, so the watch's own timeout is what reports the failure -
+ * this only exists so the queue cannot be held forever if the watch returns without a grant.
+ */
+private const val BROWSER_FALLBACK_TIMEOUT_MS = 190_000L
+
 @Composable
 fun SpotiFLACVerificationOverlay() {
     val context = LocalContext.current
@@ -124,6 +132,9 @@ fun SpotiFLACVerificationOverlay() {
     // A grant recovered from a challenge page that was already solved. Held here because the
     // prepare effect runs before `complete` is declared.
     var recoveredGrant by remember(extensionId) { mutableStateOf<String?>(null) }
+    // Bumped when the solved challenge turned out to belong to another extension, so the prepare
+    // effect runs again and raises the check for the source the user actually asked about.
+    var prepareAttempt by remember(extensionId) { mutableStateOf(0) }
 
     fun abandon(reason: String) {
         SpotiFLACDiag.log("verification abandoned for $extensionId: $reason")
@@ -134,7 +145,7 @@ fun SpotiFLACVerificationOverlay() {
         }
     }
 
-    LaunchedEffect(extensionId) {
+    LaunchedEffect(extensionId, prepareAttempt) {
         status = "Preparing verification…"
         val bridge = SpotiFLACNativeRuntimeBridgeHolder.instance
         if (bridge == null || !bridge.isRuntimeAvailable) {
@@ -202,22 +213,42 @@ fun SpotiFLACVerificationOverlay() {
                 "extension=$extensionId automatic=$automatic",
         )
         authUrl = null
-        if (automatic) {
-            // Do not spend the challenge budget on an engine that cannot mint a token: the user
-            // gets the manual notice - which carries the browser route - instead of a
-            // five-minute march through every source that can only end the same way.
-            abandon("${SpotiFLACChallengeEngine.describe(engine)} cannot run Cloudflare's check")
-        } else {
+        if (!automatic) {
             status = SpotiFLACChallengeRoute.unsupportedNotice(engine)
+            return@LaunchedEffect
         }
+        // An automatic run normally stops here: opening a browser unprompted is not something a
+        // background prewarm may do, and marching every source through an engine that can never
+        // mint a token only wastes the budget. A run the user asked for by name is different -
+        // they asked for every source, so the browser is opened for each in turn and the grant
+        // comes back on its own. The queue moves on when it lands, or when the wait above times
+        // out.
+        if (SpotiFLAutoVerifier.allowsBrowserFallback(extensionId)) {
+            SpotiFLACDiag.log(
+                "verification for $extensionId: ${SpotiFLACChallengeEngine.describe(engine)} " +
+                    "cannot run Cloudflare's check, opening the browser route automatically",
+            )
+            SpotiFLACChallengeRoute.openInBrowser(context, pending.authUrl)
+            browserRouteAttempt += 1
+            return@LaunchedEffect
+        }
+        abandon("${SpotiFLACChallengeEngine.describe(engine)} cannot run Cloudflare's check")
     }
 
     // An automatic attempt must not hold the queue forever: a challenge page that
     // never finishes (offline, Cloudflare asking for an interaction) would block
-    // every later source.
+    // every later source. The browser route needs its own ceiling for the same
+    // reason - it waits on the user, and a source they never solve must not leave
+    // the rest of an all-sources run queued behind it.
     LaunchedEffect(extensionId, automatic, engineCapable) {
-        if (!automatic || !engineCapable) return@LaunchedEffect
-        delay(SpotiFLAutoVerifier.CHALLENGE_TIMEOUT_MS)
+        if (!automatic) return@LaunchedEffect
+        val ceilingMs =
+            when {
+                engineCapable -> SpotiFLAutoVerifier.CHALLENGE_TIMEOUT_MS
+                SpotiFLAutoVerifier.allowsBrowserFallback(extensionId) -> BROWSER_FALLBACK_TIMEOUT_MS
+                else -> return@LaunchedEffect
+            }
+        delay(ceilingMs)
         if (!grantCaptured) abandon("timed out waiting for the challenge")
     }
 
@@ -274,12 +305,29 @@ fun SpotiFLACVerificationOverlay() {
                 // become usable and keeps its own attempt.
                 if (ok && owner != extensionId) SpotiFLAutoVerifier.notifyVerified(owner)
                 SpotiFLAutoVerifier.finish(extensionId, verified = ok && owner == extensionId)
-            } else if (ok) {
+            } else if (ok && owner == extensionId) {
                 status = "$owner verified — resuming playback"
                 // Report through the surfaces' shared entry point, not just this one: a source may
                 // also have been parked by playback, holding a track until it became usable.
                 SpotiFLAutoVerifier.notifyVerified(owner)
                 SpotiFLACVerificationRequest.closeChallenge()
+            } else if (ok) {
+                // The check verified a *different* extension than the one asked for. The runtime
+                // holds one pending challenge at a time and only its owner can redeem its grant, so
+                // closing here would report success while leaving the requested source exactly as
+                // unverified as before - the "I verified it and it still says no" loop. It credits
+                // what was verified, then raises this source's own challenge instead of pretending
+                // the job is done.
+                SpotiFLAutoVerifier.notifyVerified(owner)
+                SpotiFLACDiag.log(
+                    "manual verification for $extensionId verified $owner instead - asking for " +
+                        "$extensionId's own challenge",
+                )
+                grantCaptured = false
+                recoveredGrant = null
+                authUrl = null
+                status = "$owner verified. Asking for $extensionId's own check…"
+                prepareAttempt += 1
             } else {
                 status = "Verification for $owner did not complete — try again"
             }
@@ -354,7 +402,7 @@ fun SpotiFLACVerificationOverlay() {
                 if (message != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (busy) {
-                            CircularProgressIndicator(
+                            HushProgressSpinner(
                                 modifier = Modifier.height(16.dp).width(16.dp),
                                 strokeWidth = 2.dp,
                             )
@@ -600,7 +648,7 @@ private fun SpotiFLACVerificationNotice(extensionId: String?) {
                 if (running || message != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (running) {
-                            CircularProgressIndicator(
+                            HushProgressSpinner(
                                 modifier = Modifier.height(16.dp).width(16.dp),
                                 strokeWidth = 2.dp,
                             )

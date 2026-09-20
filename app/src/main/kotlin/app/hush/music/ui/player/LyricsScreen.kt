@@ -41,16 +41,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -97,6 +94,10 @@ import coil3.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import app.hush.music.ui.component.HushIconButton
+import app.hush.music.ui.component.HushProgressSpinner
+import app.hush.music.ui.component.hushMarquee
+import app.hush.music.ui.theme.hushPressable
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
 import app.hush.music.constants.EnableHapticFeedbackKey
@@ -129,6 +130,7 @@ import app.hush.music.constants.PlayerDesignStyle
 import app.hush.music.constants.rememberPlayerDesignStyle
 import app.hush.music.ui.player.PlayerBackground
 import app.hush.music.ui.screens.settings.DarkMode
+import app.hush.music.ui.theme.HushDesign
 import app.hush.music.ui.theme.PlayerColorExtractor
 import app.hush.music.utils.makeTimeString
 import app.hush.music.utils.rememberEnumPreference
@@ -553,6 +555,7 @@ private fun AppleMusicTrackHeader(
                 color = LocalLyricsForeground.current,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.hushMarquee(),
             )
             Text(
                 text = artistText,
@@ -560,6 +563,7 @@ private fun AppleMusicTrackHeader(
                 color = LocalLyricsForeground.current.copy(alpha = 0.72f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.hushMarquee(),
             )
         }
 
@@ -600,11 +604,9 @@ private fun AppleMusicHeaderIconButton(
         modifier =
             Modifier
                 .size(48.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = ripple(bounded = false, radius = 24.dp),
-                    role = Role.Button,
+                .hushPressable(
                     onClick = onClick,
+                    pressScale = HushDesign.ChipPressScale,
                 ),
         contentAlignment = Alignment.Center,
     ) {
@@ -741,7 +743,7 @@ private fun AppleMusicControls(
                 touchSize = 68.dp,
                 onClick = onPreviousClick,
             )
-            IconButton(
+            HushIconButton(
                 onClick = onPlayPauseClick,
                 modifier = Modifier.size(74.dp),
             ) {
@@ -754,7 +756,7 @@ private fun AppleMusicControls(
                 ) { state ->
                     when (state) {
                         "loading" ->
-                            CircularWavyProgressIndicator(
+                            HushProgressSpinner(
                                 modifier = Modifier.size(42.dp),
                                 color = LocalLyricsForeground.current,
                             )
@@ -829,7 +831,7 @@ private fun AppleMusicTransportButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    IconButton(
+    HushIconButton(
         onClick = onClick,
         modifier = modifier.size(touchSize),
     ) {

@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.R
 import app.hush.music.constants.EqualizerBassBoostEnabledKey
 import app.hush.music.constants.EqualizerBassBoostStrengthKey
@@ -1159,7 +1160,7 @@ private fun AutoEqImportDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        HushProgressSpinner(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                         Text(stringResource(R.string.eq_autoeq_search), style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -1185,7 +1186,7 @@ private fun AutoEqImportDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        HushProgressSpinner(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                         Text(stringResource(R.string.eq_autoeq_importing), style = MaterialTheme.typography.bodySmall)
                     }
                 }
