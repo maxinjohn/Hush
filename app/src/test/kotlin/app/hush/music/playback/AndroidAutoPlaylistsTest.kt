@@ -126,6 +126,32 @@ class AndroidAutoPlaylistsTest {
     }
 
     @Test
+    fun `Liked Songs is addressed like a playlist, so every existing path carries it`() {
+        val folder = AndroidAutoPlaylists.spotifyLikedMediaId()
+        val parsed = AndroidAutoPlaylists.parseSpotify(folder)
+        assertEquals(AndroidAutoPlaylists.LIKED_PLAYLIST_ID, parsed?.playlistId)
+        assertTrue(AndroidAutoPlaylists.isLiked(parsed!!.playlistId))
+        // No action: a folder, which is what makes a car list it as browsable and expand it.
+        assertNull(parsed.action)
+
+        val shuffle = AndroidAutoPlaylists.parseSpotify(AndroidAutoPlaylists.spotifyShuffleMediaId(AndroidAutoPlaylists.LIKED_PLAYLIST_ID))
+        assertTrue(shuffle!!.isShuffle)
+        assertNull(shuffle.selectedTrackId)
+
+        // A leaf a car hands back on a tap still resolves to the track, not back to the folder.
+        val leaf = AndroidAutoPlaylists.parseSpotify("$folder/track123")
+        assertEquals("track123", leaf!!.selectedTrackId)
+        assertFalse(leaf.isShuffle)
+    }
+
+    @Test
+    fun `a real playlist id can never be mistaken for Liked Songs`() {
+        // The sentinel starts with an underscore; no base-62 playlist id can.
+        assertFalse(AndroidAutoPlaylists.isLiked("37i9dQZF1DXcBWIGoYBM5M"))
+        assertFalse(AndroidAutoPlaylists.isLiked(""))
+    }
+
+    @Test
     fun `the codec survives a round trip`() {
         val states =
             AndroidAutoPlaylists.Section.entries

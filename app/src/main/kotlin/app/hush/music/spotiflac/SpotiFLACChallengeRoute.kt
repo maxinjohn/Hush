@@ -196,22 +196,37 @@ object SpotiFLACChallengeRoute {
     }
 
     /**
-     * Opens the challenge in the device's real browser.
+     * Opens the challenge in the device's real browser, reporting whether one took it.
      *
      * Custom Tabs first, so the user stays in a tab they can back out of and the work is done by
      * an engine that is actually current (a head unit's frozen WebView never is). Falls back to a
      * plain VIEW intent when no Custom Tabs provider is installed.
+     *
+     * Both attempts are catches rather than `returnvalue` checks, because Android reports a launch
+     * that has no handler as a thrown `ActivityNotFoundException` - the same correction upstream
+     * made for its own verification launcher ("Android reports some launch failures as exceptions
+     * rather than false"), and the one that matters here: a head unit with no browser at all
+     * silently did nothing while the app told the user to solve the check in their browser.
+     *
+     * @return whether an activity accepted the URL. The caller owes the user the truth here, because
+     *   what it asks them to do next - "solve the check" - is impossible when this returns false.
      */
-    fun openInBrowser(context: Context, url: String) {
+    fun openInBrowser(context: Context, url: String): Boolean {
         val uri = Uri.parse(url)
-        runCatching { CustomTabsIntent.Builder().build().launchUrl(context, uri) }
-            .onFailure {
-                runCatching {
+        val opened =
+            runCatching { CustomTabsIntent.Builder().build().launchUrl(context, uri) }
+                .recoverCatching {
                     context.startActivity(
                         Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
                 }
-            }
+        return opened.fold(
+            onSuccess = { true },
+            onFailure = { error ->
+                SpotiFLACDiag.log("challenge browser launch failed: ${error.message}")
+                false
+            },
+        )
     }
 
     /** The clipboard's text, or null when it is empty or the read is refused. */

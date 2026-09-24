@@ -110,31 +110,37 @@ class SpotiFLACSessionVerdictTest {
         assertNull(SpotiFLACSessionVerdictReport.applies(null, "sess_live"))
     }
 
-    /** Every state the row could be in, unchanged where it was already right. */
+    /**
+     * Every state the row could be in, unchanged where it was already right.
+     *
+     * The expectation carries all four answers together on purpose: text, colour, whether a check is
+     * what the source needs, and whether one applies at all. They are read from one place, so a change
+     * to any one of them has to face the others here rather than on a phone.
+     */
     @Test
     fun `the rows that were already correct are untouched`() {
         assertEquals(
-            SpotiFLACSessionVerdictReport.Row("No verification needed", healthy = false, needsCheck = false),
+            SpotiFLACSessionVerdictReport.Row("No verification needed", healthy = false, needsCheck = false, checkable = false),
             row(authState = SpotiFLACSourceAuthState.NOT_REQUIRED, remainingSeconds = null),
         )
         assertEquals(
-            SpotiFLACSessionVerdictReport.Row("Checking session…", healthy = false, needsCheck = false),
+            SpotiFLACSessionVerdictReport.Row("Checking session…", healthy = false, needsCheck = false, checkable = false),
             row(authState = null),
         )
         assertEquals(
-            SpotiFLACSessionVerdictReport.Row("Checking session…", healthy = false, needsCheck = false),
+            SpotiFLACSessionVerdictReport.Row("Checking session…", healthy = false, needsCheck = false, checkable = false),
             row(authState = SpotiFLACSourceAuthState.UNKNOWN),
         )
         assertEquals(
-            SpotiFLACSessionVerdictReport.Row("Verification needed", healthy = false, needsCheck = true),
+            SpotiFLACSessionVerdictReport.Row("Verification needed", healthy = false, needsCheck = true, checkable = true),
             row(authState = SpotiFLACSourceAuthState.NEEDS_VERIFICATION, remainingSeconds = null),
         )
         assertEquals(
-            SpotiFLACSessionVerdictReport.Row("Session expired — verify again", healthy = false, needsCheck = true),
+            SpotiFLACSessionVerdictReport.Row("Session expired — verify again", healthy = false, needsCheck = true, checkable = true),
             row(remainingSeconds = -60L),
         )
         assertEquals(
-            SpotiFLACSessionVerdictReport.Row("Verified", healthy = true, needsCheck = false),
+            SpotiFLACSessionVerdictReport.Row("Verified", healthy = true, needsCheck = false, checkable = true),
             row(remainingSeconds = null),
         )
     }
@@ -210,5 +216,50 @@ class SpotiFLACSessionVerdictTest {
         assertEquals("1 source needs a check", SpotiFLACSessionVerdictReport.summary(healthy = 0, needsCheck = 1))
         assertEquals("All 5 sessions are healthy and renew automatically.", SpotiFLACSessionVerdictReport.summary(healthy = 5, needsCheck = 0))
         assertEquals("No source needs a session right now.", SpotiFLACSessionVerdictReport.summary(healthy = 0, needsCheck = 0))
+    }
+
+    /**
+     * The row's overflow is for re-asking, so a session that looks healthy must offer it too.
+     *
+     * This is the one case where [SpotiFLACSessionVerdictReport.Row.checkable] and `needsCheck`
+     * deliberately disagree, and it is the case the action exists for: a track held at "verification
+     * required" while the row underneath says the session renews automatically.
+     */
+    @Test
+    fun `a healthy session can still be re-checked on its own`() {
+        val healthy = row()
+        assertTrue(healthy.healthy)
+        assertFalse(healthy.needsCheck)
+        assertTrue(healthy.checkable)
+    }
+
+    @Test
+    fun `a session that needs a check is checkable`() {
+        assertTrue(row(authState = SpotiFLACSourceAuthState.NEEDS_VERIFICATION, remainingSeconds = null).checkable)
+        assertTrue((row(verdict = verdict(SpotiFLACSessionVerdict.Outcome.REFUSED))).checkable)
+        assertTrue(row(remainingSeconds = 0L).checkable)
+    }
+
+    /**
+     * A source with no signed-session contract is not offered the action, because the only answer a
+     * check can give it is "needs no verification" - a control whose sole outcome is the message
+     * saying it never applied.
+     */
+    @Test
+    fun `a source needing no session is not offered a check`() {
+        assertFalse(
+            row(authState = SpotiFLACSourceAuthState.NOT_REQUIRED, remainingSeconds = null).checkable,
+        )
+    }
+
+    /**
+     * An unread source and an absent one are left out for the same reason the count above the list
+     * leaves them out: the app has not read what the source needs, so offering its check would be a
+     * guess rather than a control.
+     */
+    @Test
+    fun `an unread or unknown source is not offered a check`() {
+        assertFalse(row(authState = SpotiFLACSourceAuthState.UNKNOWN, remainingSeconds = null).checkable)
+        assertFalse(row(authState = null, remainingSeconds = null).checkable)
     }
 }

@@ -30,11 +30,18 @@
 #
 # Usage:
 #   scripts/semantics-probe.sh [--tabs home,search] [--boundary 2604] [--force-a11y] [--serial <adb-serial>]
-#                               [--verbose]
+#                               [--popup-limit 40] [--verbose]
 #
 # --force-a11y turns Compose's own test hook on first, so the platform tree is built whether or not
 # a screen reader is attached - which removes "the bridge had not been told to work" from the list of
 # explanations for a screen that is visible to a person and absent to a service.
+#
+# Windows beside the activity's are read too, in the same report, because a Compose DropdownMenu, a
+# dialog and a tooltip are windows of their own: they are in no view of the activity, so neither this
+# probe's main tree nor `uiautomator` sees them as part of the screen (a menu open over the tabs used
+# to be readable ONLY through uiautomator with the a11y bridge forced). Each is reported as
+# `window #n:` with what it offers on one `says:` line - the answer a menu is read for - then its
+# nodes. `--popup-limit N` caps that node list (default 40, `--ei popup-limit` to the receiver).
 
 set -euo pipefail
 
@@ -48,6 +55,7 @@ BOUNDARY=""
 SERIAL="${ANDROID_SERIAL:-}"
 VERBOSE=0
 FORCE_A11Y=0
+POPUP_LIMIT=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -55,8 +63,11 @@ while [[ $# -gt 0 ]]; do
         --boundary) BOUNDARY="${2:-}"; shift 2 ;;
         --serial) SERIAL="${2:-}"; shift 2 ;;
         --force-a11y) FORCE_A11Y=1; shift ;;
+        --popup-limit) POPUP_LIMIT="${2:-}"; shift 2 ;;
         --verbose) VERBOSE=1; shift ;;
-        -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
+        # The header is the help, delimited by a marker rather than by line numbers so adding a
+        # paragraph to it cannot silently truncate what --help prints.
+        -h|--help) awk 'NR > 1 { if (/^set -euo/) exit; print }' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -123,8 +134,12 @@ probe() {
     local label="$1"
     local extra=()
     [[ "$FORCE_A11Y" == "1" ]] && extra=(--ez force-a11y true)
+    [[ -n "$POPUP_LIMIT" ]] && extra+=(--ei popup-limit "$POPUP_LIMIT")
+    # `${extra[@]+...}` rather than a plain `"${extra[@]}"`: macOS ships bash 3.2, where `set -u`
+    # reports an empty array as an unbound variable (fixed upstream in 4.4) - so a run with no
+    # option at all used to die on "extra[@]: unbound variable" before it reached the device.
     adb_cmd shell am broadcast -n "$RECEIVER" -a "$ACTION" \
-        --es label "$label" --ei content-bottom "$BOUNDARY" "${extra[@]}" >/dev/null 2>&1 || true
+        --es label "$label" --ei content-bottom "$BOUNDARY" ${extra[@]+"${extra[@]}"} >/dev/null 2>&1 || true
     local waited=0
     while (( waited < 20 )); do
         if read_report | grep -q 'semantics-probe step=content'; then return 0; fi
@@ -162,7 +177,10 @@ for TAB in "${TAB_LIST[@]}"; do
     VERDICT_LINE="$(grep 'semantics-probe step=content' <<<"$REPORT" | tail -1)"
     MEANING="$(sed -n 's/^meaning=//p' <<<"$REPORT" | tail -1)"
 
-    grep -E '^(window|nodes:|content \(|bars \(|.* y bands:|host:|why|  id=|    ancestry=|provider:|  provider )' <<<"$REPORT" | sed 's/^/  /' || true
+    # `windows:` and `window #n:` bring in what the activity's own views cannot hold: an open menu is
+    # a window of its own. Its `says:` line is the one to read (what the menu offers); the indented
+    # `[merged]` lines under it are that window's nodes, not the app's.
+    grep -E '^(window|nodes:|content \(|bars \(|windows:|window #|  says|  nodes:|  sample \(|.* y bands:|host:|why|  id=|    ancestry=|provider:|  provider |    \[merged\]|    none)' <<<"$REPORT" | sed 's/^/  /' || true
     log "  $VERDICT_LINE"
     [[ -n "$MEANING" ]] && log "  meaning: $MEANING"
     # What the content actually says, unless --verbose asks for the bar nodes too: the point of the

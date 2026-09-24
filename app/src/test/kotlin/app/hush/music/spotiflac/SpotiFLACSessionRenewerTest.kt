@@ -1000,6 +1000,77 @@ class SpotiFLACSessionRenewerTest {
     }
 
     @Test
+    fun `a session the gateway called gone is dropped, so a check can be raised`() {
+        // The device log that prompted this: a dead session was revived from the vault on every
+        // start, so the source read "verified" while every provider fetch was answered 401 - and
+        // the verification that would have fixed it was never raised.
+        val dead =
+            SpotiFLACSessionRenewer.RenewResult(
+                extensionId = "amazon",
+                renewed = false,
+                detail = "session no longer valid - verify this source again",
+                needsVerification = true,
+                sessionId = "sess_1",
+                contactedGateway = true,
+            )
+        assertTrue(SpotiFLACSessionRenewer.shouldForgetSessionAfterRenewal(dead))
+
+        // 428 VERIFY_REQUIRED: the gateway accepts the signature but asks for a check, which is the
+        // same treatment - the runtime's local preflight would otherwise report "already verified".
+        assertTrue(
+            SpotiFLACSessionRenewer.shouldForgetSessionAfterRenewal(
+                dead.copy(detail = "the gateway asks for a verification - verify this source"),
+            ),
+        )
+    }
+
+    @Test
+    fun `a session the app itself condemned is left for the vault to revive`() {
+        // A record minted for a version this source no longer signs with: the gateway was never
+        // asked, and the vault is exactly what puts the session back under its current name.
+        val versionBump =
+            SpotiFLACSessionRenewer.RenewResult(
+                extensionId = "deezer",
+                renewed = false,
+                detail = "minted as deezer@1.3.4 but this source now signs as deezer@1.3.5 - verify again",
+                needsVerification = true,
+                sessionId = "sess_2",
+            )
+        assertFalse(SpotiFLACSessionRenewer.shouldForgetSessionAfterRenewal(versionBump))
+
+        val noRecord = versionBump.copy(detail = "no session to renew - verify this source", sessionId = null)
+        assertFalse(SpotiFLACSessionRenewer.shouldForgetSessionAfterRenewal(noRecord))
+    }
+
+    @Test
+    fun `a refusal to rotate keeps the session it refused`() {
+        // HTTP 403/429: the session is intact and the gateway may rotate it later. Dropping it here
+        // would throw away a working session every time the gateway was busy.
+        val refused =
+            SpotiFLACSessionRenewer.RenewResult(
+                extensionId = "qobuz-web",
+                renewed = false,
+                detail = "gateway rejected the session signature (HTTP 401)",
+                refused = true,
+                needsVerification = false,
+                sessionId = "sess_3",
+                contactedGateway = true,
+            )
+        assertFalse(SpotiFLACSessionRenewer.shouldForgetSessionAfterRenewal(refused))
+        assertFalse(
+            SpotiFLACSessionRenewer.shouldForgetSessionAfterRenewal(
+                refused.copy(renewed = true, refused = false, detail = "renewed"),
+            ),
+        )
+        // Nothing was asked this run: the answer says nothing about the session.
+        assertFalse(
+            SpotiFLACSessionRenewer.shouldForgetSessionAfterRenewal(
+                refused.copy(needsVerification = true, contactedGateway = false),
+            ),
+        )
+    }
+
+    @Test
     fun `anything but a 429 from health is not a block`() {
         // The endpoint is unauthenticated, so a 401 or a 404 says nothing about whether this
         // connection is being refused - reading either as a block would pause SpotiFLAC for a wait

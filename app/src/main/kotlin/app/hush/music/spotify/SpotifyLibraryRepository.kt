@@ -267,6 +267,56 @@ class SpotifyLibraryRepository
             }
 
         /**
+         * How many tracks the account has in Liked Songs, or `null` when the account cannot answer.
+         *
+         * One page of one item, because the only thing a browsable folder needs to know is whether
+         * it would be empty - a Liked Songs entry that opens onto nothing is the same broken promise
+         * as a switch that opens onto nothing.
+         */
+        suspend fun likedSongsCount(): Int? =
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    ensureAuthenticated()
+                    spotifyCallWithTokenRetry { Spotify.likedSongs(limit = 1, offset = 0).getOrThrow() }.total
+                }.getOrElse { error ->
+                    if (error is CancellationException) throw error
+                    reportException(error)
+                    null
+                }
+            }
+
+        /**
+         * The account's Liked Songs as playable-track candidates.
+         *
+         * Paged the way [playlistTracks] is, and for the same reason: the caller decides how many it
+         * can match, so this stops as soon as it has handed over enough.
+         */
+        suspend fun likedSongs(limit: Int = 50): List<SpotifyTrack> =
+            withContext(Dispatchers.IO) {
+                ensureAuthenticated()
+                val tracks = ArrayList<SpotifyTrack>()
+                var offset = 0
+                val pageSize = 50
+
+                while (tracks.size < limit) {
+                    val page =
+                        spotifyCallWithTokenRetry {
+                            Spotify
+                                .likedSongs(
+                                    limit = pageSize,
+                                    offset = offset,
+                                ).getOrThrow()
+                        }
+                    if (page.items.isEmpty()) break
+                    tracks += page.items.mapNotNull { saved -> saved.track.takeUnless(SpotifyTrack::isLocal) }
+                    offset += page.items.size
+                    if (offset >= page.total || page.items.size < pageSize) break
+                }
+
+                tracks.take(limit)
+            }
+
+        /**
          * Adds one track to a Spotify playlist, reporting whether the account accepted it.
          *
          * The caller supplies the URI because only the caller knows where the track came from - a

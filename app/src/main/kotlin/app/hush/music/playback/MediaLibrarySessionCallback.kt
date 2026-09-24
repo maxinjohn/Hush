@@ -1718,20 +1718,60 @@ class MediaLibrarySessionCallback
             spotifyLibrary.restoreCachedPlaylists()
             val cached = spotifyLibrary.playlists.value
             val playlists = if (cached.isEmpty()) spotifyLibrary.refreshPlaylists() else cached
-            return playlists
-                .take(AUTO_HOME_PLAYLIST_LIMIT)
-                .map { playlist ->
-                    val trackCount = playlist.tracks?.total?.takeIf { it > 0 }
-                    queueMediaItem(
-                        AndroidAutoPlaylists.spotifyMediaId(playlist.id),
-                        playlist.name,
-                        trackCount?.let { count ->
-                            context.resources.getQuantityString(R.plurals.n_song, count, count)
-                        } ?: playlist.owner?.displayName,
-                        playlist.images.firstOrNull()?.url?.toUri(),
-                        MediaMetadata.MEDIA_TYPE_PLAYLIST,
-                    )
-                }
+            // Liked Songs is part of the Spotify library the user actually browses, so it belongs at
+            // the top of the same folder - ahead of the playlists, the way the phone's own bottom
+            // bar orders them. Dropped entirely when the account has nothing saved in it, so the
+            // folder never advertises a tap that opens onto nothing.
+            return listOfNotNull(likedSongsFolder()) +
+                playlists
+                    .take(AUTO_HOME_PLAYLIST_LIMIT)
+                    .map { playlist ->
+                        val trackCount = playlist.tracks?.total?.takeIf { it > 0 }
+                        queueMediaItem(
+                            AndroidAutoPlaylists.spotifyMediaId(playlist.id),
+                            playlist.name,
+                            trackCount?.let { count ->
+                                context.resources.getQuantityString(R.plurals.n_song, count, count)
+                            } ?: playlist.owner?.displayName,
+                            playlist.images.firstOrNull()?.url?.toUri(),
+                            MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                        )
+                    }
+        }
+
+        /**
+         * The account's Liked Songs folder, or `null` when the account has none.
+         *
+         * The count costs a gateway round trip and a car asks for this folder repeatedly while the
+         * user scrolls, so the answer is probed at most once every [LIKED_PROBE_TTL_MS] - long
+         * enough that scrolling never re-asks, short enough that a song liked on the phone shows up
+         * in the car without restarting anything.
+         */
+        private suspend fun likedSongsFolder(): MediaItem? {
+            val total = likedSongsTotal() ?: return null
+            if (total <= 0) return null
+            return queueMediaItem(
+                AndroidAutoPlaylists.spotifyLikedMediaId(),
+                context.getString(R.string.liked_songs),
+                context.resources.getQuantityString(R.plurals.n_song, total, total),
+                drawableUri(R.drawable.favorite),
+                MediaMetadata.MEDIA_TYPE_PLAYLIST,
+            )
+        }
+
+        private suspend fun likedSongsTotal(): Int? {
+            val now = System.currentTimeMillis()
+            // An answer the account actually gave is good for minutes; a probe that failed is
+            // retried soon. The distinction is the difference between "this account has no Liked
+            // Songs" and "this account could not be asked", and only the second one is worth
+            // asking again - a single gateway blip at connect would otherwise hide the folder for
+            // the whole five minutes, which is indistinguishable from the entry not existing.
+            val ttl = if (likedProbeTotal != null) LIKED_PROBE_TTL_MS else LIKED_PROBE_RETRY_MS
+            if (now - likedProbeAt < ttl) return likedProbeTotal
+            val total = spotifyLibrary.likedSongsCount()
+            likedProbeAt = now
+            likedProbeTotal = total
+            return total
         }
 
         private suspend fun homeOnlinePlaylists(): List<MediaItem> {
@@ -1898,6 +1938,10 @@ class MediaLibrarySessionCallback
         private suspend fun spotifyPlaylistItem(mediaId: String): MediaItem? {
             val path = AndroidAutoPlaylists.parseSpotify(mediaId) ?: return null
             return when {
+                // Only the folder itself: a tap on one of its tracks arrives with an action, and
+                // has to fall through to the leaf branches below.
+                AndroidAutoPlaylists.isLiked(path.playlistId) && path.action == null -> likedSongsFolder()
+
                 path.action == null -> {
                     spotifyLibrary.restoreCachedPlaylists()
                     val playlist = spotifyLibrary.playlists.value.firstOrNull { it.id == path.playlistId }
@@ -1957,7 +2001,11 @@ class MediaLibrarySessionCallback
             if (!spotifyLibrary.ensureConnected()) return emptyList()
             val tracks =
                 try {
-                    spotifyLibrary.playlistTracks(playlistId).take(AUTO_SPOTIFY_TRACK_LIMIT)
+                    if (AndroidAutoPlaylists.isLiked(playlistId)) {
+                        spotifyLibrary.likedSongs(AUTO_SPOTIFY_TRACK_LIMIT)
+                    } else {
+                        spotifyLibrary.playlistTracks(playlistId).take(AUTO_SPOTIFY_TRACK_LIMIT)
+                    }
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
@@ -2455,6 +2503,21 @@ class MediaLibrarySessionCallback
 
             /** Matches resolved at once; the same batch the in-app Spotify queue resolves. */
             private const val AUTO_SPOTIFY_MATCH_BATCH = 20
+
+            /**
+             * The last answer to "how many Liked Songs does this account have", and when it was
+             * taken. Process-wide rather than per-instance on purpose: a car re-browses the same
+             * folder every time the user scrolls back to it, and one gateway round trip per browse
+             * is one round trip per flick of the dial. `null` means "not answered yet".
+             */
+            @Volatile private var likedProbeTotal: Int? = null
+
+            @Volatile private var likedProbeAt: Long = 0L
+
+            private const val LIKED_PROBE_TTL_MS = 5 * 60 * 1000L
+
+            /** How long a probe that *failed* hides the folder before it is worth asking again. */
+            private const val LIKED_PROBE_RETRY_MS = 20 * 1000L
             private const val HOME_RECENT_WINDOW_MS = 86400000L * 14L
             private const val PLAYLIST_ACTION_SHUFFLE = "_shuffle"
             private const val PLAYLIST_ACTION_SORT = "_sort"

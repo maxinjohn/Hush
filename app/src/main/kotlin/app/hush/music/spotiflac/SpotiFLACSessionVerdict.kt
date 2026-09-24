@@ -68,6 +68,22 @@ object SpotiFLACSessionVerdictReport {
          * only answers "already verified", which reads as broken.
          */
         val needsCheck: Boolean,
+
+        /**
+         * True when this source can be checked on its own, if the user asks for that one source.
+         *
+         * This is *not* the same question as [needsCheck], which asks whether a check is what the
+         * source needs. It asks whether one applies at all, so a row can offer the action without
+         * the row itself becoming a control: a session that looks healthy is exactly when someone
+         * wants to re-ask - a track held at "verification required" while this row reads "renews
+         * automatically" is the report this action exists for.
+         *
+         * A source with no signed-session contract is left out, because a check on it answers "needs
+         * no verification": the action would exist only to say it was never applicable. So is one
+         * whose manifest has not been read yet - the app does not know what it needs, and the count
+         * above the list leaves it out for the same reason.
+         */
+        val checkable: Boolean,
     )
 
     /**
@@ -185,6 +201,9 @@ object SpotiFLACSessionVerdictReport {
             text = text,
             healthy = verified && !expired && refused == null,
             needsCheck = needsCheck,
+            checkable = authState != null &&
+                authState != SpotiFLACSourceAuthState.UNKNOWN &&
+                authState != SpotiFLACSourceAuthState.NOT_REQUIRED,
         )
     }
 }

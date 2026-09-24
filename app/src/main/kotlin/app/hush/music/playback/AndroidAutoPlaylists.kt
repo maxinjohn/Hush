@@ -70,6 +70,22 @@ object AndroidAutoPlaylists {
     const val SHUFFLE = "_shuffle"
 
     /**
+     * The playlist id that addresses the account's Liked Songs.
+     *
+     * Liked Songs is not a real playlist, but Spotify addresses it as one everywhere else in the
+     * app, and giving it a playlist id means the existing play, shuffle and child paths carry it
+     * with no special case: `spotify_playlist/_liked` parses, browses and plays like any other.
+     * The leading underscore is why it can never collide with a real base-62 playlist id.
+     */
+    const val LIKED_PLAYLIST_ID = "_liked"
+
+    /** Whether a parsed playlist id addresses the account's Liked Songs. */
+    fun isLiked(playlistId: String): Boolean = playlistId == LIKED_PLAYLIST_ID
+
+    /** The media id of the Liked Songs folder in the car's Spotify group. */
+    fun spotifyLikedMediaId(): String = spotifyMediaId(LIKED_PLAYLIST_ID)
+
+    /**
      * Which recommended-playlist groups this device should offer in the car.
      *
      * YouTube Music needs nothing but its switch. Spotify additionally needs a connected account:
