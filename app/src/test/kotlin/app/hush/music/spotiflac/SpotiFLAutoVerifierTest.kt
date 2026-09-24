@@ -43,6 +43,141 @@ class SpotiFLAutoVerifierTest {
     }
 
     @Test
+    fun `the run is a checklist with the first source being solved and the rest waiting`() {
+        // Forced, like the settings screen's own run, so this asserts the checklist rather than
+        // whatever cooldown another test happened to leave behind.
+        SpotiFLAutoVerifier.enqueue(listOf("deezer", "qobuz-web", "tidal-web"), "settings-verify-all", force = true)
+
+        assertEquals(
+            listOf(
+                SpotiFLAutoVerifier.Step("deezer", SpotiFLAutoVerifier.Step.State.SOLVING),
+                SpotiFLAutoVerifier.Step("qobuz-web", SpotiFLAutoVerifier.Step.State.WAITING),
+                SpotiFLAutoVerifier.Step("tidal-web", SpotiFLAutoVerifier.Step.State.WAITING),
+            ),
+            SpotiFLAutoVerifier.steps.value,
+        )
+    }
+
+    @Test
+    fun `each source keeps its own outcome as the run moves on`() {
+        SpotiFLAutoVerifier.enqueue(listOf("deezer", "qobuz-web", "tidal-web"), "settings-verify-all", force = true)
+        SpotiFLAutoVerifier.finish("deezer", verified = true)
+        SpotiFLAutoVerifier.finish("qobuz-web", verified = false)
+        // The cooldown this records is real and outlives the test; hand it back so later tests queue
+        // the source normally.
+        SpotiFLAutoVerifier.clearFailureForTest("qobuz-web")
+
+        val states = SpotiFLAutoVerifier.steps.value.associate { it.sourceId to it.state }
+        // A source that landed must not read as waiting for its turn, and one that gave up must not
+        // read as done - the two are the whole point of showing this.
+        assertEquals(SpotiFLAutoVerifier.Step.State.VERIFIED, states["deezer"])
+        assertEquals(SpotiFLAutoVerifier.Step.State.NEEDS_CHECK, states["qobuz-web"])
+        assertEquals(SpotiFLAutoVerifier.Step.State.SOLVING, states["tidal-web"])
+    }
+
+    @Test
+    fun `one action's marks survive until the next one starts`() {
+        SpotiFLAutoVerifier.enqueue(listOf("deezer", "qobuz-web"), "settings-verify-all", force = true)
+        SpotiFLAutoVerifier.finish("deezer", verified = true)
+        SpotiFLAutoVerifier.finish("qobuz-web", verified = true)
+
+        // The run is over, and what it did is still on the screen: clearing here would erase the
+        // only report the user gets about a button that may have taken a minute per source.
+        assertEquals(2, SpotiFLAutoVerifier.steps.value.size)
+        assertTrue(SpotiFLAutoVerifier.steps.value.all { it.state == SpotiFLAutoVerifier.Step.State.VERIFIED })
+
+        // A run started later replaces it, so the checklist can never describe the run before it.
+        SpotiFLAutoVerifier.enqueue(listOf("amazon", "deezer"), "settings-verify-all", force = true)
+        assertEquals(listOf("amazon", "deezer"), SpotiFLAutoVerifier.steps.value.map { it.sourceId })
+    }
+
+    @Test
+    fun `a prewarm joining a run adds itself without disturbing it`() {
+        SpotiFLAutoVerifier.enqueue(listOf("deezer", "qobuz-web"), "settings-verify-all", force = true)
+        SpotiFLAutoVerifier.finish("deezer", verified = true)
+
+        SpotiFLAutoVerifier.enqueue(listOf("tidal-web"), SpotiFLAutoVerifier.BACKGROUND_REASON, force = true)
+
+        assertEquals(
+            listOf("deezer", "qobuz-web", "tidal-web"),
+            SpotiFLAutoVerifier.steps.value.map { it.sourceId },
+        )
+        assertEquals(SpotiFLAutoVerifier.Step.State.VERIFIED, SpotiFLAutoVerifier.steps.value.first().state)
+    }
+
+    @Test
+    fun `a source that needs no check never appears in the checklist`() {
+        SpotiFLAutoVerifier.enqueue(listOf("soundcloud", "deezer"), "settings-verify-all", force = true)
+        SpotiFLAutoVerifier.finishNotRequired("soundcloud")
+
+        // It was never asked for a check, so claiming it as verified would be a solved challenge
+        // that never happened.
+        assertTrue(SpotiFLAutoVerifier.steps.value.none { it.sourceId == "soundcloud" })
+        assertEquals(listOf("deezer"), SpotiFLAutoVerifier.steps.value.map { it.sourceId })
+    }
+
+    @Test
+    fun `cancelling drops the checklist with the run`() {
+        SpotiFLAutoVerifier.enqueue(listOf("deezer", "qobuz-web"), "settings-verify-all", force = true)
+        SpotiFLAutoVerifier.cancel()
+        assertTrue(SpotiFLAutoVerifier.steps.value.isEmpty())
+    }
+
+    @Test
+    fun `the progress line counts what the run did, not what is left`() {
+        assertNull(SpotiFLACVerificationChecklist.progressLine(emptyList()))
+        assertEquals(
+            "0 of 3 checked",
+            SpotiFLACVerificationChecklist.progressLine(
+                listOf(
+                    SpotiFLAutoVerifier.Step("a", SpotiFLAutoVerifier.Step.State.SOLVING),
+                    SpotiFLAutoVerifier.Step("b", SpotiFLAutoVerifier.Step.State.WAITING),
+                    SpotiFLAutoVerifier.Step("c", SpotiFLAutoVerifier.Step.State.WAITING),
+                ),
+            ),
+        )
+        // "Checked" counts the ones the run is done with, failures included: a line that stops
+        // moving when a source fails is the run a user is watching most closely.
+        assertEquals(
+            "3 of 3 checked · 1 needs a check",
+            SpotiFLACVerificationChecklist.progressLine(
+                listOf(
+                    SpotiFLAutoVerifier.Step("a", SpotiFLAutoVerifier.Step.State.VERIFIED),
+                    SpotiFLAutoVerifier.Step("b", SpotiFLAutoVerifier.Step.State.VERIFIED),
+                    SpotiFLAutoVerifier.Step("c", SpotiFLAutoVerifier.Step.State.NEEDS_CHECK),
+                ),
+            ),
+        )
+        assertEquals(
+            "3 of 3 checked · 2 need a check",
+            SpotiFLACVerificationChecklist.progressLine(
+                listOf(
+                    SpotiFLAutoVerifier.Step("a", SpotiFLAutoVerifier.Step.State.VERIFIED),
+                    SpotiFLAutoVerifier.Step("b", SpotiFLAutoVerifier.Step.State.NEEDS_CHECK),
+                    SpotiFLAutoVerifier.Step("c", SpotiFLAutoVerifier.Step.State.NEEDS_CHECK),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `the checklist is drawn only while a run is happening`() {
+        // The marks outlive the run, so this is the rule that keeps "Solving…" off a screen whose
+        // run finished ten minutes ago.
+        assertFalse(SpotiFLACVerificationChecklist.isRunning(active = null))
+        assertTrue(SpotiFLACVerificationChecklist.isRunning(active = "deezer"))
+
+        assertEquals("Solving…", SpotiFLACVerificationChecklist.text(SpotiFLAutoVerifier.Step.State.SOLVING))
+        assertEquals("Waiting", SpotiFLACVerificationChecklist.text(SpotiFLAutoVerifier.Step.State.WAITING))
+        assertEquals("Verified", SpotiFLACVerificationChecklist.text(SpotiFLAutoVerifier.Step.State.VERIFIED))
+        assertEquals("Needs a check", SpotiFLACVerificationChecklist.text(SpotiFLAutoVerifier.Step.State.NEEDS_CHECK))
+        assertEquals(
+            SpotiFLACVerificationChecklist.Tone.ATTENTION,
+            SpotiFLACVerificationChecklist.tone(SpotiFLAutoVerifier.Step.State.NEEDS_CHECK),
+        )
+    }
+
+    @Test
     fun `a failed source is not retried immediately but still lets the queue advance`() {
         SpotiFLAutoVerifier.enqueue(listOf("deezer", "qobuz-web"), "test")
         SpotiFLAutoVerifier.finish("deezer", verified = false)

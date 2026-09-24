@@ -786,6 +786,33 @@ object SpotiFLACSessionRenewer {
                 results.joinToString(", ") { "${it.extensionId}:${it.detail}" } + "]",
         )
         rememberVerdicts(context, results)
+        // Then drop the material of every session the gateway itself called gone.
+        //
+        // Recording the answer is not enough on its own, and the gap was not cosmetic. A session
+        // lives in two places - its record file and the vault's copy - and [reconcile] above put
+        // the vault's copy back on *every* run, including the runs after the gateway had answered
+        // `401 SESSION_INVALID`. So the loop was: revive an already-dead session, be told it is
+        // dead, revive it again on the next start. Measured on device: `session reconcile
+        // (background): amazon record expired -> revived from VAULT_FILE`, immediately followed by
+        // `session renew attempt failed id=amazon signed=amzn@2.3.10 HTTP 401`, on every route
+        // change, indefinitely.
+        //
+        // Two user-visible consequences, both reported: the runtime's preflight is *local*, so a
+        // revived record with a future expiry made the source look verified while every provider
+        // fetch was answered 401 - the sweep failed and the track fell back to YouTube - and
+        // pressing Verify replied "already verified" instead of raising the check that was the
+        // only thing that could have fixed it. Deleting the refused session is what makes the
+        // source honestly unverified, which is the state that raises a challenge.
+        val forgotten =
+            results
+                .filter(::shouldForgetSessionAfterRenewal)
+                .count { forgetGatewayRejectedSession(context, it.extensionId) }
+        if (forgotten > 0) {
+            SpotiFLACDiag.log(
+                "session renew ($reason): dropped $forgotten session(s) the gateway refused, " +
+                    "so their sources can be verified again",
+            )
+        }
         // Any answer that was not a refusal is proof the gateway is serving this client again, which
         // is the only evidence that a block has lifted. Recorded here rather than in the failure
         // path so it holds however the block was cleared - by time passing, or by the user changing
@@ -1473,6 +1500,16 @@ object SpotiFLACSessionRenewer {
      */
     internal fun renewalDue(remainingSeconds: Long?, force: Boolean): Boolean =
         force || remainingSeconds == null || remainingSeconds <= RENEW_WINDOW_SECONDS
+
+    /**
+     * Whether a renewal result says the session it names must be dropped so a check can be raised.
+     *
+     * Only an answer the gateway actually gave can condemn a session: a run that asked nothing is a
+     * statement about this app, not about the session, and a source whose record cannot be signed
+     * with (a version bump) is one the vault is supposed to revive, not one to throw away.
+     */
+    internal fun shouldForgetSessionAfterRenewal(result: RenewResult): Boolean =
+        result.contactedGateway && result.needsVerification
 
     /**
      * Whether a remembered refusal stops this attempt.

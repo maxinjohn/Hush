@@ -171,8 +171,17 @@ object SpotiFLACBrowserVerification {
         SpotiFLACDiag.log(
             "manual verification for $id: opening ${pending.authUrl} in the browser",
         )
+        // No browser took the URL: there is nothing to solve, and waiting the full grant window
+        // would hold the user in front of a button that already failed. A head unit with no browser
+        // installed is the case this exists for.
+        if (!SpotiFLACChallengeRoute.openInBrowser(context, pending.authUrl)) {
+            _status.value =
+                "No browser could open the check - install one, or finish the verification on your phone"
+            SpotiFLACDiag.log("manual verification for $id: no browser accepted the challenge URL")
+            releaseRequested()
+            return false
+        }
         _status.value = "Solve the check in your browser - Hush finishes on its own"
-        SpotiFLACChallengeRoute.openInBrowser(context, pending.authUrl)
 
         val grant = SpotiFLACChallengeRoute.awaitBrowserGrant(
             owner = owner,

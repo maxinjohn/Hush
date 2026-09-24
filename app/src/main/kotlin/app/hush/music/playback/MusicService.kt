@@ -214,6 +214,7 @@ import app.hush.music.constants.TogetherClientIdKey
 import app.hush.music.constants.WakelockKey
 import app.hush.music.constants.YoutubeStreamingEnabledKey
 import app.hush.music.constants.WazeTargetApp
+import app.hush.music.waze.WazeBridgeAutoReconnect
 import app.hush.music.constants.YtmSyncKey
 import app.hush.music.db.MusicDatabase
 import app.hush.music.db.entities.AlbumEntity
@@ -1290,6 +1291,23 @@ var originalQueueSize: Int = 0
                 .getLong(WAZE_PREFS_QUEUE_REVISION, 0L)
             if (restored > 0L) {
                 wazeQueueRevision.set(restored + WAZE_REVISION_RESTART_STEP)
+            }
+        }
+
+        // Announce this player to the Bridges installed on the device.
+        //
+        // A Bridge that started *before* Hush - Waze opened first, so the Bridge came up on its own
+        // - has nothing to mirror and shows a dead panel. Opening Hush afterwards used to change
+        // nothing, because the only things that ever told a Bridge to re-attach were Waze's own bind
+        // and the Reconnect button buried in Hush's settings; the Bridge had already given up
+        // waiting by then. This service coming up is exactly the event it was waiting for, and it
+        // is also how the Bridges themselves start Hush, so announcing here closes the loop in both
+        // directions. Asked once per service creation rather than per track, and idempotent on the
+        // Bridge side (it re-binds to Waze, re-starts this service and asks for a snapshot).
+        if (app.hush.music.BuildConfig.WAZE_SUPPORTED) {
+            ioScope.launch {
+                runCatching { WazeBridgeAutoReconnect.reconnect(this@MusicService, "music-service") }
+                    .onFailure { Timber.tag(TAG).w(it, "Unable to announce Hush to the Bridges") }
             }
         }
 
@@ -8868,24 +8886,11 @@ var originalQueueSize: Int = 0
             cachedShimPackages
                 ?.takeIf { now - cachedShimPackagesCheckedAt < SHIM_PACKAGE_CACHE_TTL_MS }
                 ?: run {
-                    val detected = mutableListOf<String>()
-                    for (target in WazeTargetApp.entries) {
-                        try {
-                            val appInfo = packageManager.getApplicationInfo(
-                                target.packageName,
-                                PackageManager.GET_META_DATA,
-                            )
-                            val isCurrentShim = appInfo.metaData?.getBoolean("app.hush.music.waze.SHIM", false) == true
-                            val isLegacyShim = appInfo.loadLabel(packageManager).toString() == when (target) {
-                                WazeTargetApp.SPOTIFY -> "Hush (Spotify)"
-                                WazeTargetApp.YOUTUBE_MUSIC -> "Hush (YouTube Music)"
-                                WazeTargetApp.DEEZER -> "Hush (Deezer)"
-                            }
-                            if (isCurrentShim || isLegacyShim) {
-                                detected.add(target.packageName)
-                            }
-                        } catch (_: PackageManager.NameNotFoundException) {}
-                    }
+                    // One definition of "what is a Bridge", shared with the auto-reconnect that
+                    // announces Hush to them: two copies of this test would eventually disagree,
+                    // and the failure mode of that is a Bridge being told about snapshots while
+                    // never being told Hush had started.
+                    val detected = WazeBridgeAutoReconnect.installedBridgePackages(this)
                     cachedShimPackages = detected
                     cachedShimPackagesCheckedAt = now
                     detected

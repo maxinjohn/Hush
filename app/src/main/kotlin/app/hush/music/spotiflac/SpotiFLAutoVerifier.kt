@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Runs SpotiFLAC source verification on its own, one source at a time.
@@ -56,6 +57,78 @@ object SpotiFLAutoVerifier {
 
     /** Human-readable progress of the automatic run, for the UI and diagnostics. */
     val status: StateFlow<String?> = _status.asStateFlow()
+
+    /**
+     * One source's place in the run the verifier is working through.
+     *
+     * @param state what has happened to this source *in this run*, which is the one thing the
+     *   source's own session record cannot say: a challenge being solved right now and one that has
+     *   not been started look identical on disk, and a source that just failed looks exactly like
+     *   one that was never tried.
+     */
+    data class Step(val sourceId: String, val state: State) {
+        enum class State {
+            /** Its challenge is being solved right now. */
+            SOLVING,
+
+            /** Handed to the verifier and not started yet. */
+            WAITING,
+
+            /** Finished, and the source is usable. */
+            VERIFIED,
+
+            /** Tried and given up on: this one needs the user. */
+            NEEDS_CHECK,
+        }
+    }
+
+    private val _steps = MutableStateFlow<List<Step>>(emptyList())
+
+    /**
+     * The current run as a checklist, in the order the verifier works through it.
+     *
+     * A flow rather than a read of [queued]: the queue deliberately forgets a source the moment it
+     * finishes, so reading it can only ever answer "still to do" - it cannot say which source is
+     * being solved, nor which ones already landed. That is the question this answers, and it is the
+     * one a user watching four dead sources presses Verify to get answered.
+     *
+     * Cleared when a *new* run starts (not when one ends): the last run's marks are what the screen
+     * shows until the next one replaces them, so a source that just became usable does not vanish
+     * from the list the instant it succeeded.
+     */
+    val steps: StateFlow<List<Step>> = _steps.asStateFlow()
+
+    /**
+     * Moves a source to [state], adding it to the checklist if this run has not seen it yet.
+     *
+     * Through [update] rather than a read-modify-write, because this is written from two directions:
+     * the caller that enqueues a run and the verifier thread working through the previous one. A
+     * lost update here is a row that never shows its state, or shows the state a source had two
+     * sources ago.
+     */
+    private fun recordStep(
+        sourceId: String,
+        state: Step.State,
+    ) {
+        _steps.update { current ->
+            val index = current.indexOfFirst { it.sourceId == sourceId }
+            if (index >= 0) {
+                current.toMutableList().apply { set(index, Step(sourceId, state)) }
+            } else {
+                current + Step(sourceId, state)
+            }
+        }
+    }
+
+    /**
+     * Drops a source from the checklist.
+     *
+     * Used for a source that needs no check at all: listing it as verified would claim a check was
+     * solved when nothing was ever asked of it.
+     */
+    private fun forgetStep(sourceId: String) {
+        _steps.update { steps -> steps.filterNot { it.sourceId == sourceId } }
+    }
 
     private val _verifiedTicker = MutableStateFlow(0)
 
@@ -153,8 +226,12 @@ object SpotiFLAutoVerifier {
         browserFallback: Boolean = false,
     ) {
         val now = System.currentTimeMillis()
-        val added = synchronized(lock) {
-            var count = 0
+        var freshRun = false
+        val addedIds = mutableListOf<String>()
+        synchronized(lock) {
+            // Whether this call begins a run or joins one: a run begins when nothing is in flight
+            // and nothing is waiting, and the checklist it replaces is the previous run's.
+            freshRun = _active.value == null && queue.isEmpty()
             sourceIds.forEach { id ->
                 if (id.isBlank()) return@forEach
                 if (browserFallback) browserFallbackSources.add(id)
@@ -166,13 +243,14 @@ object SpotiFLAutoVerifier {
                 val cooled = !force && lastFailedAt[id]?.let { now - it < RETRY_COOLDOWN_MS } ?: false
                 if (cooled) return@forEach
                 if (queue.add(id)) {
-                    count++
+                    addedIds.add(id)
                     reasons[id] = reason
                 }
             }
-            count
         }
-        if (added == 0) return
+        if (addedIds.isEmpty()) return
+        if (freshRun) _steps.value = emptyList()
+        addedIds.forEach { id -> recordStep(id, Step.State.WAITING) }
         SpotiFLACDiag.log(
             "auto-verify enqueue ($reason): ${sourceIds.joinToString(",")} queued=${queue.size}",
         )
@@ -222,12 +300,16 @@ object SpotiFLAutoVerifier {
             }
         }
         if (verified) {
+            // Recorded before the bookkeeping below, which can launch work: the checklist is what
+            // the screen draws from, and a source must read "done" the moment it is.
+            recordStep(sourceId, Step.State.VERIFIED)
             SpotiFLACDiag.log("auto-verify done: $sourceId verified")
             rememberVerifiedMaterial(sourceId)
             appContext?.let { SpotiFLACVerificationNotifier.clear(it, sourceId) }
             runCatching { onSourceVerified?.invoke() }
                 .onFailure { SpotiFLACDiag.log("verified listener failed: ${it.message}") }
         } else {
+            recordStep(sourceId, Step.State.NEEDS_CHECK)
             SpotiFLACDiag.log("auto-verify gave up: $sourceId (cooldown ${RETRY_COOLDOWN_MS / 60_000}m)")
             // Automatic could not do it on this device. On one whose WebView is older than
             // Cloudflare supports, an automatic run can only ever time out, so the manual route
@@ -300,6 +382,9 @@ object SpotiFLAutoVerifier {
             lastFailedAt.remove(sourceId)
             browserFallbackSources.remove(sourceId)
         }
+        // Nothing was ever asked of this source, so it has no place in a checklist of what was
+        // checked - marking it verified would claim a check was solved that never existed.
+        forgetStep(sourceId)
         SpotiFLACDiag.log("auto-verify skipped: $sourceId needs no verification")
         startNext()
     }
@@ -361,6 +446,7 @@ object SpotiFLAutoVerifier {
         }
         _active.value = null
         _status.value = null
+        _steps.value = emptyList()
     }
 
     /** True while a source is being verified right now. */
@@ -385,6 +471,7 @@ object SpotiFLAutoVerifier {
             if (_active.value == null) _status.value = null
             return
         }
+        recordStep(started, Step.State.SOLVING)
         _status.value = "Verifying $started…"
         SpotiFLACDiag.log(
             "auto-verify start: $started (queued=$queuedCount attempted=$attempted)",
@@ -399,5 +486,17 @@ object SpotiFLAutoVerifier {
 
     internal fun recordFailureForTest(sourceId: String, atMillis: Long) {
         synchronized(lock) { lastFailedAt[sourceId] = atMillis }
+    }
+
+    /**
+     * Forgets a source's retry cooldown.
+     *
+     * Exposed because [cancel] deliberately does not clear it - a user cancelling a run must not
+     * make the app retry a source the gateway just turned down - which leaves a test that fails a
+     * source holding a ten-minute cooldown against every later test in the same JVM. That is not
+     * hypothetical: it silently made unrelated queue tests see a source that would not queue.
+     */
+    internal fun clearFailureForTest(sourceId: String) {
+        synchronized(lock) { lastFailedAt.remove(sourceId) }
     }
 }

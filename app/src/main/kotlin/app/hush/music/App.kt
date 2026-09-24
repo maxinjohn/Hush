@@ -279,6 +279,14 @@ class App :
                 SpotiFLACSessionRenewer.renewAll(this@App, reason = "app-start")
             }.onFailure { Timber.w(it, "Unable to schedule SpotiFLAC session renewal") }
 
+            // A Bridge can have been waiting since Waze started, and the user opening Hush is the
+            // signal it never got: tell the installed Bridges to re-attach. Cheap (a package scan
+            // and one broadcast each), idempotent on their side, and the only route that does not
+            // require the user to find a settings screen while driving.
+            runCatching {
+                app.hush.music.waze.WazeBridgeAutoReconnect.reconnect(this@App, "app-start")
+            }.onFailure { Timber.w(it, "Unable to announce Hush to the Waze Bridges") }
+
             try {
                 val prefs = dataStore.data.first()
                 val currentVersionCode = BuildConfig.VERSION_CODE

@@ -129,6 +129,15 @@ fun SpotiFLACVerificationOverlay() {
     // Bumped whenever the challenge is handed to the browser, so the grant watch restarts on a
     // retry instead of being spent by the first attempt.
     var browserRouteAttempt by remember(extensionId) { mutableStateOf(0) }
+
+    /**
+     * Set when no browser accepted the challenge URL.
+     *
+     * The button used to look identical whether the check opened or nothing happened at all, which
+     * on a device with no browser (a head unit) left the user waiting for a page that was never
+     * launched.
+     */
+    var browserLaunchFailed by remember(extensionId) { mutableStateOf(false) }
     // A grant recovered from a challenge page that was already solved. Held here because the
     // prepare effect runs before `complete` is declared.
     var recoveredGrant by remember(extensionId) { mutableStateOf<String?>(null) }
@@ -552,11 +561,24 @@ fun SpotiFLACVerificationOverlay() {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (browserLaunchFailed) {
+                            Text(
+                                text = "No browser could open the check. Install a browser, or solve " +
+                                    "it on another device and paste the code below.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             TextButton(
                                 onClick = {
-                                    browserRouteAttempt++
-                                    SpotiFLACChallengeRoute.openInBrowser(context, browserUrl)
+                                    if (SpotiFLACChallengeRoute.openInBrowser(context, browserUrl)) {
+                                        browserRouteAttempt++
+                                    } else {
+                                        // Nothing opened, so there is nothing to solve: say it rather
+                                        // than leave the user staring at a page that never appeared.
+                                        browserLaunchFailed = true
+                                    }
                                 },
                             ) {
                                 Text("Open in browser")

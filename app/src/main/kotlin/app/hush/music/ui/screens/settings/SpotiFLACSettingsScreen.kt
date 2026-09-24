@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +67,7 @@ import app.hush.music.spotiflac.SpotiFLACEngineStatus
 import app.hush.music.spotiflac.SpotiFLACSessionRenewer
 import app.hush.music.spotiflac.SpotiFLACSessionVerdict
 import app.hush.music.spotiflac.SpotiFLACSessionVerdictReport
+import app.hush.music.spotiflac.SpotiFLACVerificationChecklist
 import app.hush.music.spotiflac.SpotiFLACSourceAuthState
 import app.hush.music.spotiflac.SourceTestState
 import app.hush.music.spotiflac.SpotiFLACPackageUpdateLog
@@ -357,6 +360,10 @@ fun SpotiFLACSettingsScreen(
     val autoVerificationSource by app.hush.music.spotiflac.SpotiFLAutoVerifier.active.collectAsState()
     // Where an all-sources run currently is, so one tap can be followed without guessing.
     val autoVerificationStatus by app.hush.music.spotiflac.SpotiFLAutoVerifier.status.collectAsState()
+    // The run, source by source: which one is being solved, which are still queued and which have
+    // already landed. Watched here because a run works through several sources in sequence and can
+    // take a while over each, so "something is happening" is not an answer a user can act on.
+    val verificationSteps by app.hush.music.spotiflac.SpotiFLAutoVerifier.steps.collectAsState()
 
     // A verification that completes anywhere else has to reach these rows without the user leaving
     // and returning: otherwise the only button on offer is this screen's own "Verify", and the
@@ -453,46 +460,54 @@ fun SpotiFLACSettingsScreen(
     }
 
     /**
-     * One action for the whole sessions card: renew every session that can be renewed, then raise
-     * the checks for the sources the gateway has turned down.
+     * Asks for one source's check, on its own.
      *
-     * "Verify all" beside "Renew now" asked the user to pick between two halves of one job - a
-     * session is either renewed or re-verified, and the app already knows which per source. Split
-     * across two buttons it also read as a contradiction: one said everything was verified while
-     * the other offered to renew it. This does both in a single pass and reports both in one line.
+     * The card's Verify is the batch, and this is the single source in front of the user: a track
+     * being held at "verification required", or a session that reads wrong while playback works.
+     * It joins the same queue with the same permission to open the browser, because asking for a
+     * check *is* the consent that a background prewarm does not have - so a car head unit's
+     * challenge opens for the user here exactly as it does from the batch. It names itself in the
+     * log ("settings-verify-one"), so a report can tell a deliberate single check from a batch run.
      */
-    fun fixAllSessions() {
+    fun verifySource(extensionId: String) {
+        if (extensionId.isBlank()) return
+        verifyMessage = null
+        app.hush.music.spotiflac.SpotiFLAutoVerifier.enqueue(
+            sourceIds = listOf(extensionId),
+            reason = "settings-verify-one",
+            force = true,
+            browserFallback = true,
+        )
+    }
+
+    /**
+     * Renews every session the gateway will still rotate, and names what happened to each.
+     *
+     * This used to be half of a merged "Verify & renew all" that renewed first and then quietly
+     * raised checks for whatever the gateway had turned down. That read as a contradiction - the
+     * line above it counted how many sources already need a check, and the same button offered to
+     * renew them - and it hid which half had actually run. Renewing and verifying are different
+     * jobs with different outcomes: the gateway rotates a live session, but a session it has
+     * thrown away can only be replaced by a check, and no amount of renewing will produce one.
+     * So they are two buttons, and this one reports the renewals it really performed.
+     */
+    fun renewSessions() {
         scope.launch {
             isRenewingSessions = true
             renewMessage = null
-            verifyMessage = null
             val results = withContext(Dispatchers.IO) {
-                SpotiFLACSessionRenewer.renewAll(context, force = true, reason = "settings-fix-all")
+                SpotiFLACSessionRenewer.renewAll(context, force = true, reason = "settings-renew")
             }
             refreshSessionValidity()
-            // A source the gateway says is gone has to stop reading "Verified" in the rows above.
+            // A source the gateway says is gone has to stop reading "Verified" in the rows above,
+            // which is also what puts it in the count the Verify button acts on.
             if (results.any { it.needsVerification }) refreshVerifyStatus()
             // Every source is named with what actually happened to it. A bare "renewed 1 session"
             // left the user unable to tell a dead session (needs a verification) from a refused one
             // (needs time) from one that never needed anything - which is exactly the question the
             // button is pressed to answer.
-            val renewedIds = results.filter { it.renewed }.map { it.extensionId }.toSet()
-            val needing = (
-                sourcesNeedingCheck.map { it.id } +
-                    results.filter { it.needsVerification }.map { it.extensionId }
-                )
-                .distinct()
-                // A session that was just successfully rotated does not need a check as well; asking
-                // anyway would open a challenge for a source that has nothing left to solve.
-                .filterNot { it in renewedIds }
-            renewMessage = if (needing.isEmpty()) {
-                SpotiFLACSessionRenewer.summarise(results)
-            } else {
-                SpotiFLACSessionRenewer.summarise(results) + " · asking for " + needing.size +
-                    if (needing.size == 1) " verification" else " verifications"
-            }
+            renewMessage = SpotiFLACSessionRenewer.summarise(results)
             isRenewingSessions = false
-            verifyAllSources(needing)
         }
     }
 
@@ -750,16 +765,7 @@ fun SpotiFLACSettingsScreen(
                     // says: a SpotiFLAC with no usable source is paused, and playback is running on
                     // YouTube in the meantime. Shown here rather than in a separate card because this
                     // is where the switch that would fix it lives.
-                    EngineStatusLine(
-                        status = spotiflacEngineStatus,
-                        onFix = {
-                            val target =
-                                enabledSourceIds.firstOrNull { id ->
-                                    verifyStatus[id] == SpotiFLACSourceAuthState.NEEDS_VERIFICATION
-                                }
-                            if (target != null) startVerification(target)
-                        },
-                    )
+                    EngineStatusLine(status = spotiflacEngineStatus)
                     Spacer(modifier = Modifier.height(8.dp))
 
                     if (spotiflacEnabled) {
@@ -1128,12 +1134,19 @@ fun SpotiFLACSettingsScreen(
 
                         val healthyCount = sessionRows.count { (_, row) -> row.healthy }
                         val attentionCount = sessionRows.count { (_, row) -> row.needsCheck }
+                        val runStatus = autoVerificationStatus
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
+                            // One line for one job. While a run is in flight this slot carries what the
+                            // run is doing ("Verifying amazon…"); idle, it carries what the sessions are
+                            // worth. Drawing both would state the same state twice over, and the two can
+                            // read as a contradiction - "3 sources need a check" sitting above "1 of 3
+                            // checked" is the same fact told two ways, and a reader has to work out that
+                            // they agree.
                             Text(
-                                text = SpotiFLACSessionVerdictReport.summary(
+                                text = runStatus ?: SpotiFLACSessionVerdictReport.summary(
                                     healthy = healthyCount,
                                     needsCheck = attentionCount,
                                 ),
@@ -1142,30 +1155,46 @@ fun SpotiFLACSettingsScreen(
                                 modifier = Modifier.weight(1f),
                             )
                             if (autoVerificationSource != null) {
+                                // A run in progress offers the one thing that applies to it, so the
+                                // row never shows three controls for one job.
                                 androidx.compose.material3.TextButton(
                                     onClick = { app.hush.music.spotiflac.SpotiFLAutoVerifier.cancel() },
                                 ) {
                                     Text("Cancel")
                                 }
                             } else {
-                                // One button, because there is one job. Disabled only when there is
-                                // genuinely nothing to do, so it never reads as a control that lies.
+                                // Exactly two actions, because there are exactly two jobs: Renew
+                                // rotates a session the gateway still accepts, Verify mints one it
+                                // has turned down. Each is enabled only when it can do something -
+                                // Renew with no session to rotate, or Verify with no check to raise,
+                                // would be a button that lies about the state it sits next to.
                                 androidx.compose.material3.TextButton(
-                                    onClick = { fixAllSessions() },
+                                    onClick = { renewSessions() },
                                     enabled = !isRenewingSessions && !isExchanging &&
                                         healthyCount + attentionCount > 0,
                                 ) {
-                                    Text(if (isRenewingSessions) "Working…" else "Verify & renew all")
+                                    Text(if (isRenewingSessions) "Working…" else "Renew")
+                                }
+                                androidx.compose.material3.TextButton(
+                                    onClick = { verifyAllSources(sourcesNeedingCheck.map { it.id }) },
+                                    enabled = !isRenewingSessions && !isExchanging && attentionCount > 0,
+                                ) {
+                                    Text("Verify")
                                 }
                             }
                         }
-                        val runStatus = autoVerificationStatus
-                        if (runStatus != null) {
-                            Text(
-                                text = runStatus,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
+                        // How far the run has got. A run works through sources one at a time and a
+                        // challenge can take a while, so the count is what tells a user the button
+                        // did something - and it is drawn only while a run is in flight, because the
+                        // verifier keeps its last marks after finishing.
+                        if (SpotiFLACVerificationChecklist.isRunning(autoVerificationSource)) {
+                            SpotiFLACVerificationChecklist.progressLine(verificationSteps)?.let { progress ->
+                                Text(
+                                    text = progress,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         // The gateway's own answer about a session outranks the record: a record
@@ -1173,7 +1202,18 @@ fun SpotiFLACSettingsScreen(
                         // already refused used to read "renews automatically". That judgement lives
                         // in the pure rule above, so this loop cannot contradict the line it shows.
                         sessionRows.forEach { (source, sessionRow) ->
-                            val verified = verifyStatus[source.id] == SpotiFLACSourceAuthState.VERIFIED
+                            // While a run is in flight, this row says where *this run* has got to
+                            // with the source: solving, waiting, landed, or given up on. That is
+                            // the news the user is waiting for, and it is the one thing the session
+                            // record cannot express - a challenge being solved and one not yet
+                            // started look identical on disk. The session's own text takes over
+                            // again the moment the run is over, so nothing here can go stale.
+                            val runStep =
+                                if (SpotiFLACVerificationChecklist.isRunning(autoVerificationSource)) {
+                                    SpotiFLACVerificationChecklist.stepFor(verificationSteps, source.id)
+                                } else {
+                                    null
+                                }
                             Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.fillMaxWidth(),
@@ -1184,39 +1224,74 @@ fun SpotiFLACSettingsScreen(
                                             style = MaterialTheme.typography.bodyMedium,
                                         )
                                         Text(
-                                            text = sessionRow.text,
+                                            text = runStep?.let { SpotiFLACVerificationChecklist.text(it.state) }
+                                                ?: sessionRow.text,
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = if (sessionRow.healthy) {
-                                                MaterialTheme.colorScheme.primary
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = when (runStep?.let { SpotiFLACVerificationChecklist.tone(it.state) }) {
+                                                SpotiFLACVerificationChecklist.Tone.SOLVING,
+                                                SpotiFLACVerificationChecklist.Tone.DONE,
+                                                -> MaterialTheme.colorScheme.primary
+                                                SpotiFLACVerificationChecklist.Tone.ATTENTION ->
+                                                    MaterialTheme.colorScheme.error
+                                                SpotiFLACVerificationChecklist.Tone.WAITING ->
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                null ->
+                                                    if (sessionRow.healthy) {
+                                                        MaterialTheme.colorScheme.primary
+                                                    } else {
+                                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                                    }
                                             },
                                         )
                                     }
-                                    // Only offered when there is a check to raise. A source whose
-                                    // session is healthy has nothing to solve - the runtime keeps the
-                                    // challenge it registered, and that one is already spent - so a
-                                    // "Re-verify" button there could only answer "already verified",
-                                    // which reads as a broken button rather than as "nothing to do".
-                                    // A lapsed session (expired) is exactly when it is needed again; an
-                                    // expired one is shown as "Session expired - verify again" above.
-                                    // A session the gateway has turned down counts too, and that is
-                                    // decided with the line itself so the text can never ask for a
-                                    // check the row does not offer. Routine renewal needs no button
-                                    // here: the rows' own sessions rotate in the background.
-                                    if (sessionRow.needsCheck) {
-                                        androidx.compose.material3.TextButton(
-                                            onClick = { startVerification(source.id) },
-                                            enabled = !isExchanging,
-                                        ) {
-                                            Text(if (verified) "Re-verify" else "Verify")
+                                    // Still no Verify button per row: the row's job is to say where
+                                    // its session stands, and the check a row *needs* is one of the
+                                    // ones the batch above raises, from the same state, in the same
+                                    // order - so a button here was a third control for one job, and
+                                    // as a button it read as "verify" even on a row that was already
+                                    // verified. What is here instead is one overflow, which is what
+                                    // makes re-checking a single source possible without promising
+                                    // anything: it is offered only where a check applies at all, and
+                                    // never while a run is in flight, because the run's own Cancel
+                                    // is the control then and two ways to start checks would each
+                                    // look like the current one.
+                                    if (sessionRow.checkable &&
+                                        !SpotiFLACVerificationChecklist.isRunning(autoVerificationSource)
+                                    ) {
+                                        var rowMenuOpen by remember(source.id) { mutableStateOf(false) }
+                                        // The button and its menu share one `Box` because a
+                                        // `DropdownMenu` is anchored to its parent layout node: as
+                                        // siblings of this full-width row the two put the menu against
+                                        // the *left* edge of the screen (x=64..564 of 1440), nowhere
+                                        // near the button that was tapped (x=1200..1360).
+                                        androidx.compose.foundation.layout.Box {
+                                            androidx.compose.material3.IconButton(onClick = { rowMenuOpen = true }) {
+                                                androidx.compose.material3.Icon(
+                                                    imageVector = Icons.Rounded.MoreVert,
+                                                    contentDescription = "More options for ${source.displayName}",
+                                                )
+                                            }
+                                            androidx.compose.material3.DropdownMenu(
+                                                expanded = rowMenuOpen,
+                                                onDismissRequest = { rowMenuOpen = false },
+                                            ) {
+                                                androidx.compose.material3.DropdownMenuItem(
+                                                    text = { Text("Verify this source") },
+                                                    onClick = {
+                                                        rowMenuOpen = false
+                                                        verifySource(source.id)
+                                                    },
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Sessions renew in the background so a verification is a one-time step.",
+                            text = "Sessions renew in the background, so a check is a one-time step. " +
+                                "Verify turns lossless playback back on; Renew rotates a session that is " +
+                                "still live.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1726,6 +1801,28 @@ private fun SourceRow(
     packageMessage: PackageMessage? = null,
     onUpdate: () -> Unit = {},
 ) {
+    // Which build is actually running, next to the one the registry publishes. Without this the
+    // row can only ever show what the source *is*, so a package left behind by a registry bump is
+    // invisible - the state that kept amazon on 2.3.8 for a whole install. Read here rather than
+    // inside the text column because the overflow offers the update, and it names the version it
+    // would install.
+    val registryVersion = sourceWithState.source.version.trim()
+    val loadedVersion = installedVersion?.trim()
+    val versionLine = when {
+        registryVersion.isEmpty() && loadedVersion.isNullOrEmpty() -> null
+        loadedVersion.isNullOrEmpty() -> "Registry $registryVersion · not installed"
+        registryVersion.isEmpty() -> "Version $loadedVersion"
+        loadedVersion.equals(registryVersion, ignoreCase = true) -> "Version $loadedVersion"
+        else -> "Installed $loadedVersion · Registry $registryVersion"
+    }
+    // Only for a build that is genuinely behind the registry the user can see: a source with nothing
+    // installed has its own first-install path, and an update offered there would be a control that
+    // never does anything.
+    val behindRegistry =
+        !loadedVersion.isNullOrEmpty() &&
+            registryVersion.isNotEmpty() &&
+            !loadedVersion.equals(registryVersion, ignoreCase = true)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1751,9 +1848,9 @@ private fun SourceRow(
             )
             // The reason a test failed belongs *here*, under the row it is about, not in
             // the narrow trailing slot next to the name. A raw gateway sentence rendered
-            // there wrapped to two lines and pushed the switch and arrows out of the row,
-            // so a failure looked like a broken layout instead of a result. One line, with
-            // the rest scrolled off rather than reflowing the row.
+            // there wrapped to two lines and pushed the switch and the row's controls out of
+            // the row, so a failure looked like a broken layout instead of a result. One line,
+            // with the rest scrolled off rather than reflowing the row.
             if (sourceWithState.testState == SourceTestState.FAILED) {
                 Text(
                     text = sourceWithState.testError?.takeIf { it.isNotBlank() } ?: "Source test failed",
@@ -1774,18 +1871,6 @@ private fun SourceRow(
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
-            }
-            // Which build is actually running, next to the one the registry publishes. Without this
-            // the row can only ever show what the source *is*, so a package left behind by a
-            // registry bump is invisible - the state that kept amazon on 2.3.8 for a whole install.
-            val registryVersion = sourceWithState.source.version.trim()
-            val loadedVersion = installedVersion?.trim()
-            val versionLine = when {
-                registryVersion.isEmpty() && loadedVersion.isNullOrEmpty() -> null
-                loadedVersion.isNullOrEmpty() -> "Registry $registryVersion · not installed"
-                registryVersion.isEmpty() -> "Version $loadedVersion"
-                loadedVersion.equals(registryVersion, ignoreCase = true) -> "Version $loadedVersion"
-                else -> "Installed $loadedVersion · Registry $registryVersion"
             }
             if (versionLine != null) {
                 Text(
@@ -1813,29 +1898,6 @@ private fun SourceRow(
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
-            }
-            // Offered only for a build that is genuinely behind the registry the user can see: a
-            // source with nothing installed has its own first-install path, and a button that
-            // merely repeated it would read as an update that never does anything.
-            val behindRegistry =
-                !loadedVersion.isNullOrEmpty() &&
-                    registryVersion.isNotEmpty() &&
-                    !loadedVersion.equals(registryVersion, ignoreCase = true)
-            if (behindRegistry) {
-                androidx.compose.material3.TextButton(
-                    onClick = onUpdate,
-                    enabled = !isUpdating,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        horizontal = 8.dp,
-                        vertical = 0.dp,
-                    ),
-                    modifier = Modifier.height(28.dp),
-                ) {
-                    Text(
-                        text = if (isUpdating) "Updating…" else "Update",
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                }
             }
             packageMessage?.let { message ->
                 Text(
@@ -1880,10 +1942,11 @@ private fun SourceRow(
             SourceTestState.IDLE -> {}
         }
 
-        androidx.compose.material3.TextButton(onClick = onTest) {
-            Text("Test")
-        }
-
+        // The switch is the row's state - is this source used at all - so it stays out in the open,
+        // next to the verdict the test produced. Everything the row can *do* is one overflow: the
+        // same single gesture the session rows use, because a line of loose text buttons and arrows
+        // put five tap targets in one row, and the switch then read as one of them rather than as
+        // the one control that is not about doing something.
         Switch(
             checked = sourceWithState.enabled,
             onCheckedChange = onToggleEnabled,
@@ -1892,16 +1955,56 @@ private fun SourceRow(
             ),
         )
 
-        androidx.compose.foundation.layout.Column {
-            if (canMoveUp) {
-                androidx.compose.material3.IconButton(onClick = onMoveUp) {
-                    Text("▲", style = MaterialTheme.typography.bodySmall)
-                }
+        var rowMenuOpen by remember(sourceWithState.source.id) { mutableStateOf(false) }
+        // One `Box` holds the button and its menu: a `DropdownMenu` is anchored to its parent layout
+        // node, so as siblings of this full-width row they would anchor to the row and open the menu
+        // against the far edge of the screen instead of under the button.
+        androidx.compose.foundation.layout.Box {
+            androidx.compose.material3.IconButton(onClick = { rowMenuOpen = true }) {
+                androidx.compose.material3.Icon(
+                    imageVector = Icons.Rounded.MoreVert,
+                    contentDescription = "More options for ${sourceWithState.source.displayName}",
+                )
             }
-            if (canMoveDown) {
-                androidx.compose.material3.IconButton(onClick = onMoveDown) {
-                    Text("▼", style = MaterialTheme.typography.bodySmall)
+            androidx.compose.material3.DropdownMenu(
+                expanded = rowMenuOpen,
+                onDismissRequest = { rowMenuOpen = false },
+            ) {
+                // Offered first, and only where there is something to install: it is the one action
+                // that answers the registry line above it, and it names the version it would take.
+                if (behindRegistry) {
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text(if (isUpdating) "Updating…" else "Update to $registryVersion") },
+                        enabled = !isUpdating,
+                        onClick = {
+                            rowMenuOpen = false
+                            onUpdate()
+                        },
+                    )
                 }
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text("Test this source") },
+                    onClick = {
+                        rowMenuOpen = false
+                        onTest()
+                    },
+                )
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text("Move up") },
+                    enabled = canMoveUp,
+                    onClick = {
+                        rowMenuOpen = false
+                        onMoveUp()
+                    },
+                )
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text("Move down") },
+                    enabled = canMoveDown,
+                    onClick = {
+                        rowMenuOpen = false
+                        onMoveDown()
+                    },
+                )
             }
         }
     }
@@ -1963,17 +2066,20 @@ private fun EngineSectionTitle(
 }
 
 /**
- * What an engine is doing right now, and the one action that changes it.
+ * What an engine is doing right now - status only, deliberately with no action on it.
  *
- * The action appears only where a check is what is missing. A paused engine is not one problem:
- * offering "Verify" for a gateway rate limit would send the user to solve a Cloudflare check that
- * cannot lift it, which reads as a broken button rather than as the wait it is.
+ * This line used to carry its own "Verify" button, which made the same job reachable from two
+ * places on one screen: the button here fired a single source's check, the sessions card below
+ * offered "Verify & renew all", and every row had a "Verify" of its own. Three controls, one job,
+ * and no way to tell whether they did the same thing. The status is what belongs up here - it sits
+ * under the switch that changes it - and the actions live once, together, in the sessions card.
+ *
+ * A paused engine is not one problem, which is why the line still only *states* the reason: a
+ * gateway rate limit is a wait, and a button offering a Cloudflare check for it would be worse than
+ * no button at all.
  */
 @Composable
-private fun EngineStatusLine(
-    status: SpotiFLACEngineStatus,
-    onFix: () -> Unit,
-) {
+private fun EngineStatusLine(status: SpotiFLACEngineStatus) {
     val accent =
         if (status.usable) {
             MaterialTheme.colorScheme.onSurfaceVariant
@@ -1995,11 +2101,6 @@ private fun EngineStatusLine(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-        if (status.state == SpotiFLACEngineState.NEEDS_VERIFICATION) {
-            androidx.compose.material3.TextButton(onClick = onFix) {
-                Text("Verify")
-            }
         }
     }
 }
@@ -2051,7 +2152,7 @@ private fun swapPriorityOrder(
     return mutable.joinToString(",")
 }
 
-/** One engine row in the playback priority list, with its 1st/2nd badge. */
+/** One engine row in the playback priority list, with its 1st/2nd badge and one overflow. */
 @Composable
 private fun PriorityEngineRow(
     position: Int,
@@ -2090,14 +2191,41 @@ private fun PriorityEngineRow(
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.weight(1f),
         )
-        if (canMoveUp) {
-            androidx.compose.material3.IconButton(onClick = onMoveUp) {
-                Text("▲", style = MaterialTheme.typography.bodySmall)
+        // One overflow rather than a pair of arrows: those were two controls for one job - moving a
+        // row in a list of two - and the one that did not apply simply vanished, so the row's width
+        // changed as the list was reordered. The badge already says which position the engine holds;
+        // this says what can be done about it, the same way every other row on this screen does.
+        var menuOpen by remember(name) { mutableStateOf(false) }
+        // The button and its menu share one `Box`, because a `DropdownMenu` is anchored to its parent
+        // layout node - as siblings of this full-width row they anchor to the row, and the menu then
+        // opens against the screen's edge rather than under the button that was tapped.
+        androidx.compose.foundation.layout.Box {
+            androidx.compose.material3.IconButton(onClick = { menuOpen = true }) {
+                androidx.compose.material3.Icon(
+                    imageVector = Icons.Rounded.MoreVert,
+                    contentDescription = "More options for $name",
+                )
             }
-        }
-        if (canMoveDown) {
-            androidx.compose.material3.IconButton(onClick = onMoveDown) {
-                Text("▼", style = MaterialTheme.typography.bodySmall)
+            androidx.compose.material3.DropdownMenu(
+                expanded = menuOpen,
+                onDismissRequest = { menuOpen = false },
+            ) {
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text("Move up") },
+                    enabled = canMoveUp,
+                    onClick = {
+                        menuOpen = false
+                        onMoveUp()
+                    },
+                )
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text("Move down") },
+                    enabled = canMoveDown,
+                    onClick = {
+                        menuOpen = false
+                        onMoveDown()
+                    },
+                )
             }
         }
     }

@@ -72,6 +72,13 @@ import kotlinx.coroutines.launch
  * adb shell run-as app.hush.music.debug cat files/debug/semantics-probe.txt
  * ```
  *
+ * `--ei sample-limit N` lists more than the default 25 content nodes, for answering a question about
+ * one node part-way down a long screen rather than about the screen as a whole.
+ *
+ * Every window this process owns is read, not just the activity's - a menu, a dialog and a tooltip
+ * are windows of their own, so a probe that only walked the decor view reported an open menu as an
+ * empty screen. `--ei popup-limit N` sets how many nodes of each of those windows are listed.
+ *
  * `scripts/semantics-probe.sh` wraps both, and computes the boundary from the device's own screen.
  *
  * ## Why the boundary is a parameter
@@ -120,6 +127,10 @@ class SemanticsProbeReceiver : BroadcastReceiver() {
             .takeIf { it > 0 }
             ?: defaultContentBottom(screenHeight)
 
+        // Read beside the activity's own window, because a menu or a dialog is not in it: Compose
+        // gives each of those a window of its own. Done here, on the main thread, with the rest.
+        val windowScan = readExtraWindows(decor)
+
         val snapshot = runCatching { read(decor, screen, boundary) }.getOrElse { error ->
             return report(
                 context = context,
@@ -140,9 +151,17 @@ class SemanticsProbeReceiver : BroadcastReceiver() {
                 boundary = boundary,
                 snapshot = snapshot,
                 forceA11y = intent.getBooleanExtra(EXTRA_FORCE_A11Y, false),
+                sampleLimit = intent.getIntExtra(EXTRA_SAMPLE_LIMIT, 0)
+                    .takeIf { it > 0 }
+                    ?: SemanticsProbeReport.SAMPLE_LIMIT,
+                windowScan = windowScan,
+                popupLimit = intent.getIntExtra(EXTRA_POPUP_LIMIT, 0)
+                    .takeIf { it > 0 }
+                    ?: POPUP_SAMPLE_LIMIT,
             ),
             verdict = snapshot.verdict.name,
-            detail = "merged=${snapshot.contentMerged} unmerged=${snapshot.contentUnmerged} boundary=$boundary views=${snapshot.viewCount}",
+            detail = "merged=${snapshot.contentMerged} unmerged=${snapshot.contentUnmerged} " +
+                "boundary=$boundary views=${snapshot.viewCount} windows=${windowScan.windows.size}",
         )
     }
 
@@ -225,6 +244,133 @@ class SemanticsProbeReceiver : BroadcastReceiver() {
             ancestry = ancestry,
             maxNodeId = nodes.maxOfOrNull { it.id } ?: 0,
         )
+    }
+
+    /** One window of this process that is not the activity's: a menu, a dialog, a tooltip. */
+    internal data class WindowSnapshot(
+        val viewClass: String,
+        val title: String,
+        val width: Int,
+        val height: Int,
+        val focus: Boolean,
+        val composeViews: Int,
+        val nodes: List<SemanticsProbeNode>,
+    ) {
+        val merged get() = nodes.filter { it.merged }
+    }
+
+    /** What the scan of the process's other windows found, or why it could not look. */
+    internal data class WindowScan(
+        val roots: Int,
+        val windows: List<WindowSnapshot>,
+        val failure: String?,
+    )
+
+    /**
+     * Reads every window this process owns besides the activity's.
+     *
+     * A `DropdownMenu` is not part of the activity's view tree. Compose hands it to the window manager
+     * as a window of its own, which is why a probe that walked only the decor view reported an open
+     * menu as nothing at all - the one question a menu raises, *which items are in it*, could only be
+     * answered from outside the process. `WindowManagerGlobal.mViews` is the platform's own list of
+     * those roots, so reading it is reading the same set the accessibility bridge publishes from.
+     *
+     * Reflection, not an API: the class is hidden. It is read on the main thread, where `onReceive`
+     * runs and where the framework touches that list. A debug build is exempt from the non-SDK
+     * restrictions, and this receiver only ships in a debug build - and a scan that could not look
+     * says so, because "no windows besides the activity's" and "could not find out" are different
+     * answers and only one of them is evidence.
+     */
+    private fun readExtraWindows(activityDecor: View): WindowScan {
+        val found = runCatching {
+            val global = Class.forName(WINDOW_MANAGER_GLOBAL)
+            val instance = global.getMethod(GLOBAL_INSTANCE).invoke(null)
+            val views = global.getDeclaredField(GLOBAL_VIEWS).apply { isAccessible = true }[instance]
+            (views as? List<*>)?.filterIsInstance<View>().orEmpty()
+        }
+        val failure = found.exceptionOrNull()?.let { "${it::class.java.simpleName}: ${it.message?.take(80)}" }
+        val roots = found.getOrNull().orEmpty()
+        val extra = roots.filter { it !== activityDecor && it.isAttachedToWindow }
+        val windows = extra.map { root ->
+            val composeViews = mutableListOf<View>()
+            collectComposeViews(root, composeViews)
+            val nodes = mutableListOf<SemanticsProbeNode>()
+            val internals = mutableMapOf<Int, String>()
+            val ancestry = mutableMapOf<Int, String>()
+            for (view in composeViews) {
+                val owner = semanticsOwnerOf(view) ?: continue
+                val location = IntArray(2)
+                view.getLocationOnScreen(location)
+                for (tree in listOf(true to owner.rootSemanticsNode, false to owner.unmergedRootSemanticsNode)) {
+                    walk(
+                        node = tree.second,
+                        merged = tree.first,
+                        depth = 0,
+                        offsetX = location[0],
+                        offsetY = location[1],
+                        into = nodes,
+                        internals = internals,
+                        ancestry = ancestry,
+                    )
+                }
+            }
+            WindowSnapshot(
+                viewClass = root.javaClass.name,
+                // The title the window manager was given, which is what identifies a popup in
+                // `dumpsys window` - worth quoting for the same reason it is there.
+                title = ((root.layoutParams as? android.view.WindowManager.LayoutParams)?.title)
+                    ?.toString().orEmpty(),
+                width = root.width,
+                height = root.height,
+                focus = root.hasWindowFocus(),
+                composeViews = composeViews.size,
+                nodes = nodes,
+            )
+        }
+        return WindowScan(roots = roots.size, windows = windows, failure = failure)
+    }
+
+    /**
+     * What the other windows hold, in the words a reader is looking for.
+     *
+     * The list of texts comes first on purpose: a menu is read to find out what it offers, and that
+     * line is the answer, while the node sample below it is the geometry and the state that explain
+     * an answer that surprises.
+     */
+    internal fun renderWindows(
+        scan: WindowScan,
+        limit: Int,
+    ): List<String> {
+        if (scan.failure != null) {
+            return listOf(
+                "windows: scan failed reason=${scan.failure} " +
+                    "(WindowManagerGlobal; a debug build is exempt from the non-SDK list, a release one is not)",
+            )
+        }
+        val out = mutableListOf<String>()
+        out += "windows: roots=${scan.roots} besideTheActivity=${scan.windows.size}"
+        if (scan.windows.isEmpty()) {
+            // Said explicitly: no menu is open, and the absence is a measurement rather than a
+            // section that was never printed.
+            out += "no other window is attached (an open menu, dialog or tooltip would be one)"
+            return out
+        }
+        scan.windows.forEachIndexed { index, window ->
+            out += "window #${index + 1}: view=${window.viewClass} title=\"${window.title}\" " +
+                "size=${window.width}x${window.height} focus=${window.focus} composeViews=${window.composeViews}"
+            out += "  nodes: merged=${window.merged.size} unmerged=${window.nodes.size - window.merged.size}"
+            val texts = window.merged.mapNotNull { it.text.takeIf { text -> text.isNotEmpty() } }
+                .distinct().take(WINDOW_TEXT_SAMPLE)
+            if (texts.isEmpty()) {
+                out += "  says nothing: no merged node carries text or a content description"
+            } else {
+                out += "  says: " + texts.joinToString(" | ") { "\"${it.take(40)}\"" }
+            }
+            out += "  sample (max $limit):"
+            if (window.merged.isEmpty()) out += "    none"
+            window.merged.take(limit).forEach { out += "    " + SemanticsProbeReport.line(it) }
+        }
+        return out
     }
 
     /**
@@ -349,6 +495,9 @@ class SemanticsProbeReceiver : BroadcastReceiver() {
         boundary: Int,
         snapshot: Snapshot,
         forceA11y: Boolean = false,
+        sampleLimit: Int = SemanticsProbeReport.SAMPLE_LIMIT,
+        windowScan: WindowScan = WindowScan(roots = 0, windows = emptyList(), failure = null),
+        popupLimit: Int = POPUP_SAMPLE_LIMIT,
     ): List<String> {
         val contentNodes = snapshot.nodes.filter { SemanticsProbeReport.isContent(it, boundary) }
 
@@ -370,14 +519,19 @@ class SemanticsProbeReceiver : BroadcastReceiver() {
             "unmerged=${snapshot.unmergedTotal - snapshot.contentUnmerged}"
         lines += "merged y bands: ${SemanticsProbeReport.bandLine(snapshot.nodes.filter { it.merged }, screen.first)}"
         lines += "unmerged y bands: ${SemanticsProbeReport.bandLine(snapshot.nodes.filterNot { it.merged }, screen.first)}"
-        lines += "sample content nodes (max ${SemanticsProbeReport.SAMPLE_LIMIT}):"
+        // The cap is the caller's, because which nodes matter depends on the question: a screen whose
+        // content is missing is answered by the first handful, while a *specific* row part-way down a
+        // long screen - a card's own lines, the row states of a list being worked through - sits past
+        // them, and a sample that stops early makes a present node look absent.
+        lines += "sample content nodes (max $sampleLimit):"
         if (contentNodes.isEmpty()) {
             lines += "  none"
         } else {
-            contentNodes.take(SemanticsProbeReport.SAMPLE_LIMIT).forEach { lines += "  " + SemanticsProbeReport.line(it) }
+            contentNodes.take(sampleLimit).forEach { lines += "  " + SemanticsProbeReport.line(it) }
         }
         lines += "sample bar nodes (max ${BAR_SAMPLE_LIMIT}):"
         barNodes.take(BAR_SAMPLE_LIMIT).forEach { lines += "  " + SemanticsProbeReport.line(it) }
+        lines += renderWindows(windowScan, popupLimit)
         lines += hostState(activity.window?.decorView)
         lines += whySection(contentNodes, barNodes, snapshot)
         lines += providerEvidence(activity.window?.decorView, boundary, snapshot, contentNodes, barNodes, forceA11y)
@@ -631,7 +785,24 @@ class SemanticsProbeReceiver : BroadcastReceiver() {
         const val ACTION_PROBE = "app.hush.music.action.SEMANTICS_PROBE"
         const val EXTRA_LABEL = "label"
         const val EXTRA_CONTENT_BOTTOM = "content-bottom"
+
+        /** How many content nodes the sample lists; defaults to the report's own cap. */
+        const val EXTRA_SAMPLE_LIMIT = "sample-limit"
         const val EXTRA_FORCE_A11Y = "force-a11y"
+
+        /** How many nodes of each window besides the activity's are listed. */
+        const val EXTRA_POPUP_LIMIT = "popup-limit"
+
+        /** The platform's own list of the root views this process added to the window manager. */
+        private const val WINDOW_MANAGER_GLOBAL = "android.view.WindowManagerGlobal"
+        private const val GLOBAL_INSTANCE = "getInstance"
+        private const val GLOBAL_VIEWS = "mViews"
+
+        /** How many of a window's own strings are quoted before the node sample. */
+        private const val WINDOW_TEXT_SAMPLE = 12
+
+        /** Default node sample for a window besides the activity's: a menu is short. */
+        private const val POPUP_SAMPLE_LIMIT = 40
 
         private const val BAR_SAMPLE_LIMIT = 10
 

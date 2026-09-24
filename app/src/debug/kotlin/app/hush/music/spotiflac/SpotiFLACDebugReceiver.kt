@@ -64,6 +64,7 @@ import kotlinx.serialization.json.jsonPrimitive
  *     --es source amazon --es title "Africa" --es artist "Toto"
  * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op bytes --es path /data/.../file.flac
  * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op verify  --es source amazon
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op verify-run --es source deezer,qobuz-web,amazon
  * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op toggle  --es source youtube
  * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op gateway-returned
  * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op download --es source <mediaId>
@@ -131,6 +132,8 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
                     OP_PLAY -> playFile(context.applicationContext, intent.getStringExtra(EXTRA_PATH).orEmpty())
 
                     OP_VERIFY -> verifyAutomatically(source)
+
+                    OP_VERIFY_RUN -> startVerificationRun(source)
 
                     OP_TOGGLE -> toggleSource(context.applicationContext, source)
 
@@ -730,6 +733,36 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
      * and the state being misread is precisely the bug this probe was written to find, so the verdict
      * reports the source's auth state before and after rather than only the outcome.
      */
+    /**
+     * Starts a run over several sources and returns at once, so a script can read the card while the
+     * run is still walking it.
+     *
+     * This is the seam for the card's own Verify button: same queue, same order, same reason, and
+     * the same immediate return. The single-source [verifyAutomatically] cannot serve that purpose,
+     * because it waits for its outcome and because it skips a source that is already verified - which
+     * is exactly the state a healthy device is in when someone asks what the list looks like
+     * mid-run. Sources are named by the caller (comma-separated) rather than defaulted here, so what
+     * a run covers is decided by the script gating on it and not by whatever the device happens to
+     * hold.
+     */
+    private fun startVerificationRun(sources: String) {
+        val ids = sources.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        if (ids.isEmpty()) {
+            return log("spotiflac-debug step=verify-run verdict=FAIL reason=no-source")
+        }
+        SpotiFLAutoVerifier.enqueue(
+            sourceIds = ids,
+            reason = "settings-verify-all",
+            force = true,
+            browserFallback = true,
+        )
+        log(
+            "spotiflac-debug step=verify-run verdict=STARTED sources=%s queued=%d",
+            ids.joinToString(","),
+            SpotiFLAutoVerifier.remainingCount(),
+        )
+    }
+
     private suspend fun verifyAutomatically(source: String) {
         val bridge = SpotiFLACNativeRuntimeBridgeHolder.instance
         if (bridge == null || !bridge.isRuntimeAvailable) {
@@ -944,6 +977,9 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
         const val OP_RESOLVE = "resolve"
         const val OP_BYTES = "bytes"
         const val OP_VERIFY = "verify"
+
+        /** A forced run over several sources, returning before it finishes; see [startVerificationRun]. */
+        const val OP_VERIFY_RUN = "verify-run"
         const val OP_PLAY = "play"
         const val OP_TOGGLE = "toggle"
         const val OP_DOWNLOAD = "download"
