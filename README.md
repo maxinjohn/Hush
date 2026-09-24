@@ -2,7 +2,7 @@
 
 ## Music for your mood.
 
-YT Music client for my phone and car — that can also pull lossless from the services that aren't YouTube — with Waze bridge support so you can control playback right from the dashboard. Unofficial. Sideloaded. Built for my daily drive. APKs are up. Issues are open. Use it or don't — I'm good either way, not for a crowd.
+YT Music client for my phone and car — that can also pull lossless from the services that aren't YouTube and read your Spotify library — with Waze bridge and Android Auto support so both screens in the car can drive it. Unofficial. Sideloaded. Built for my daily drive. APKs are up. Issues are open. Use it or don't — I'm good either way, not for a crowd.
 
 Instead of hopping between a pile of forks, I combined the best from the whole open-source stack: **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** as the base, then pulled in the good stuff from **[Metrolist](https://github.com/metrolistgroup/metrolist)**, **[Vivi Music](https://github.com/vivizzz007/vivi-music)**, **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)**, and the shared libs behind **[ViMusic](https://github.com/vfsfitvnm/ViMusic)**, **[OuterTune](https://github.com/OuterTune/OuterTune)**, and **[BetterLyrics](https://github.com/boidu-dev/BetterLyrics)** — plus the **[SpotiFLAC](https://github.com/spotiflacapp/SpotiFLAC-Mobile)** engine behind the lossless sources. One app. Most of the features. No fork roulette.
 
@@ -16,6 +16,7 @@ Instead of hopping between a pile of forks, I combined the best from the whole o
 | [Privacy](PRIVACY.md) | What the app keeps & sends |
 | [Changelog](CHANGELOG.md) | What shipped each version |
 | [SpotiFLAC sources](#spotiflac-sources-lossless) | The lossless side in one screen |
+| [Spotify and the car](#spotify-and-the-car) | Playlists, Liked Songs, Android Auto |
 
 ---
 
@@ -25,7 +26,7 @@ I built this for myself. My car has Waze, and Waze only shows music controls for
 
 Hush ships with tiny bridge APKs that impersonate those official apps just enough for Waze to pick them up. When you connect Hush to Waze through one of these bridges, Waze thinks it's talking to Spotify or Deezer — but it's actually controlling Hush. Song name, artist, album art, play/pause, skip, queue — all of it shows up on the Waze dashboard while you drive.
 
-It started as a quick hack for my Android phone and my car. Then I kept adding things I wanted: better lyrics, faster downloads, backup retention, mood chips that actually work when you're logged in, a Gen‑Z style explore page. The one I wanted most turned out to be the biggest: playing from somewhere other than YouTube, so a lossless copy of a song stops being something I have to go find elsewhere. Everything I missed from the other forks — I pulled it in and made it work together.
+It started as a quick hack for my Android phone and my car. Then I kept adding things I wanted: better lyrics, faster downloads, backup retention, mood chips that actually work when you're logged in, a Gen‑Z style explore page. The one I wanted most turned out to be the biggest: playing from somewhere other than YouTube, so a lossless copy of a song stops being something I have to go find elsewhere. The car side grew the same way — Hush's own Android Auto library, with the Spotify account's playlists and Liked Songs sitting inside it next to YouTube's. Everything I missed from the other forks — I pulled it in and made it work together.
 
 One app. My daily driver. If it works for you too, cool.
 
@@ -44,6 +45,16 @@ Hush ships with **bridge shim APKs** that make Waze think it's talking to Spotif
 This is how I get music controls in my car — Waze only talks to official apps, so Hush pretends to be one. Select which bridge to use in Settings → Waze Integration.
 
 The bridges install themselves from the copy bundled inside Hush (Settings → Waze Integration), and can be repaired the same way — no separate download, and an update survives the install instead of needing an uninstall first.
+
+---
+
+## Spotify and the car
+
+Spotify here is a **library, not a source.** Connect the account once and your playlists and Liked Songs join the YouTube side of the app: the Library gets its own **Spotify Playlist** filter with your playlists in it, a playlist opens with its tracks, and the whole thing can be queued for download from its header. Nothing is ever streamed from Spotify — each track is matched to the closest song Hush can actually play, so it plays from the lossless source you have enabled, or from YouTube. No Developer app and no client ID: it's the ordinary web login, **Settings → Backup and restore → External service → Connect Spotify**, and the session it saves is what every later call uses.
+
+Then there's the car. **Settings → Android Auto** decides what a head unit shows: **Visible sections** is a tap-to-enable, long-press-to-reorder list where the first section is what opens by default. Spotify's playlists sit beside YouTube's in **Playlists** and in **Home → Mixes and radios**, each behind its own switch (*Show Spotify playlists*), and **Liked Songs** is pinned to the top of the Spotify group — an account with nothing saved in it drops that entry entirely instead of opening onto an empty folder. **Quick-add destination** can point at a Spotify playlist, so a song saved from the dashboard lands in your Spotify account, and a track picked in the car goes through the same matcher as on the phone.
+
+One thing worth knowing: the match is a search, so an obscure or region-locked track can land on a different master than the one in your account. It always plays *something* rather than nothing — check it if an album sounds off.
 
 ---
 
@@ -86,10 +97,10 @@ Real talk on what got ported from where. This table only moves when I add someth
 | --- | --- |
 | **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** | Core app, YT login & sync, playback engine, queue & downloads, crossfade, tempo/pitch, Chromecast, Music Together, Last.fm / ListenBrainz, local files, backup & restore, multi-provider lyrics, podcasts, Android Auto, dynamic theme & canvas art, onboarding, stream-source picker, custom extractor, hi-res / lossless |
 | **[Metrolist](https://github.com/metrolistgroup/metrolist)** | Wake-up **music alarms**, **loudness** presets, **playlist export** (CSV / M3U), **sync dedup**, **Android Auto** settings |
-| **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | Playlist **view-count prefetch**, **auto-backup before update**, **backup retention**, **JioSaavn streaming** (320 kbps primary, YT fallback) |
+| **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | Playlist **view-count prefetch**, **auto-backup before update**, **backup retention** |
 | **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)** | **5MB chunked downloads**, **isOfflinePlayback flag**, **Data Saver key**, **DoH diagnostics**, **Settings search**, **IPv4 / IPv6 / Auto** network mode |
 | **[SpotiFLAC](https://github.com/spotiflacapp/SpotiFLAC-Mobile)** | **Lossless source engine** — upstream's Go runtime (gomobile `go_backend`), per-source signed sessions, source registry + extension packages, quality cascade, host-side decryption for the providers that hand back keys instead of audio, and the playback cache/download pipeline behind it. Source extensions come from [spotiflacapp](https://github.com/spotiflacapp/spotiflac-extension) and [zarzet](https://github.com/zarzet/spotiflac-extension)'s registries. |
-| **Hush** | **Waze Bridge** (Spotify + YT Music + Deezer) with bundled install/repair, **Gen‑Z explore theme**, **Saavn beta warning**, **mood chip fix** (logged‑in fallback), **source priority + fallback to YouTube**, **one-time verification with background session renewal**, **browser verification for car head units**, parallel source fetch, app language selector, DOH/proxy, IP rotation UI, lyrics racing, library rewrite, auto-pause debounce, sleep timer pause fix |
+| **Hush** | **Waze Bridge** (Spotify + YT Music + Deezer) with bundled install/repair, **Spotify library** (playlists, Liked Songs, playlist download) on the phone and in the car, **Android Auto** section switches + quick-add destination, **Gen‑Z explore theme**, **mood chip fix** (logged‑in fallback), **source priority + fallback to YouTube**, **one-time verification with background session renewal**, **browser verification for car head units**, **Parametric EQ + per‑output profiles**, **SponsorBlock**, audio visualizer, parallel source fetch, app language selector, DOH/proxy, IP rotation UI, lyrics racing, library rewrite, auto-pause debounce, sleep timer pause fix |
 | **[ViMusic](https://github.com/vfsfitvnm/ViMusic)** | InnerTube foundations, bottom-sheet UI patterns, KuGou lyrics client |
 | **[OuterTune](https://github.com/OuterTune/OuterTune)** | Player carousel snap / parallax, network connectivity observer |
 | **[BetterLyrics](https://github.com/boidu-dev/BetterLyrics)** | Word-synced TTML lyrics module, QRC parser |

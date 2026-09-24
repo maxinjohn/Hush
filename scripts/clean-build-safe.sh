@@ -28,7 +28,7 @@ while IFS= read -r stale; do
 done < <(find . -type d -path '*/kspCaches/backups/kotlin/moe' 2>/dev/null || true)
 
 # Remove all Gradle module build directories (prevents duplicate class D8 errors).
-for module in app core canvas lastfm moriextractor spotifycore shazamkit jiosaavn waze-shim build; do
+for module in app core canvas lastfm moriextractor spotifycore shazamkit waze-shim build; do
   remove_path "./$module/build"
 done
 
