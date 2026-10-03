@@ -4,7 +4,7 @@
 
 YT Music client for my phone and car — that can also pull lossless from the services that aren't YouTube and read your Spotify library — with Waze bridge and Android Auto support so both screens in the car can drive it. Unofficial. Sideloaded. Built for my daily drive. APKs are up. Issues are open. Use it or don't — I'm good either way, not for a crowd.
 
-Instead of hopping between a pile of forks, I combined the best from the whole open-source stack: **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** as the base, then pulled in the good stuff from **[Metrolist](https://github.com/metrolistgroup/metrolist)**, **[Vivi Music](https://github.com/vivizzz007/vivi-music)**, **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)**, and the shared libs behind **[ViMusic](https://github.com/vfsfitvnm/ViMusic)**, **[OuterTune](https://github.com/OuterTune/OuterTune)**, and **[BetterLyrics](https://github.com/boidu-dev/BetterLyrics)** — plus the **[SpotiFLAC](https://github.com/spotiflacapp/SpotiFLAC-Mobile)** engine behind the lossless sources. One app. Most of the features. No fork roulette.
+Instead of hopping between a pile of forks, I combined the best from the whole open-source stack: **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** as the base, then pulled in the good stuff from **[Metrolist](https://github.com/metrolistgroup/metrolist)**, **[Vivi Music](https://github.com/vivizzz007/vivi-music)**, **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)**, and the shared libs behind **[ViMusic](https://github.com/vfsfitvnm/ViMusic)**, **[OuterTune](https://github.com/OuterTune/OuterTune)**, and **[BetterLyrics](https://docs.betterlyrics.org)** — plus the **[SpotiFLAC](https://github.com/spotiflacapp/SpotiFLAC-Mobile)** engine behind the lossless sources. One app. Most of the features. No fork roulette.
 
 **Package:** `app.hush.music` · debug: `app.hush.music.debug`
 
@@ -100,10 +100,10 @@ Real talk on what got ported from where. This table only moves when I add someth
 | **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | Playlist **view-count prefetch**, **auto-backup before update**, **backup retention** |
 | **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)** | **5MB chunked downloads**, **isOfflinePlayback flag**, **Data Saver key**, **DoH diagnostics**, **Settings search**, **IPv4 / IPv6 / Auto** network mode |
 | **[SpotiFLAC](https://github.com/spotiflacapp/SpotiFLAC-Mobile)** | **Lossless source engine** — upstream's Go runtime (gomobile `go_backend`), per-source signed sessions, source registry + extension packages, quality cascade, host-side decryption for the providers that hand back keys instead of audio, and the playback cache/download pipeline behind it. Source extensions come from [spotiflacapp](https://github.com/spotiflacapp/spotiflac-extension) and [zarzet](https://github.com/zarzet/spotiflac-extension)'s registries. |
-| **Hush** | **Waze Bridge** (Spotify + YT Music + Deezer) with bundled install/repair, **Spotify library** (playlists, Liked Songs, playlist download) on the phone and in the car, **Android Auto** section switches + quick-add destination, **Gen‑Z explore theme**, **mood chip fix** (logged‑in fallback), **source priority + fallback to YouTube**, **one-time verification with background session renewal**, **browser verification for car head units**, **Parametric EQ + per‑output profiles**, **SponsorBlock**, audio visualizer, parallel source fetch, app language selector, DOH/proxy, IP rotation UI, lyrics racing, library rewrite, auto-pause debounce, sleep timer pause fix |
+| **Hush** | **Waze Bridge** (Spotify + YT Music + Deezer) with bundled install/repair, **Spotify library** (playlists, Liked Songs, playlist download) on the phone and in the car, **Android Auto** section switches + quick-add destination, **Gen‑Z explore theme**, **mood chip fix** (logged‑in fallback), **source priority + fallback to YouTube**, **one-time verification with background session renewal**, **browser verification for car head units**, **Parametric EQ + per‑output profiles**, audio visualizer, parallel source fetch, app language selector, DOH/proxy, IP rotation UI, lyrics racing, library rewrite, auto-pause debounce, sleep timer pause fix |
 | **[ViMusic](https://github.com/vfsfitvnm/ViMusic)** | InnerTube foundations, bottom-sheet UI patterns, KuGou lyrics client |
 | **[OuterTune](https://github.com/OuterTune/OuterTune)** | Player carousel snap / parallax, network connectivity observer |
-| **[BetterLyrics](https://github.com/boidu-dev/BetterLyrics)** | Word-synced TTML lyrics module, QRC parser |
+| **[BetterLyrics](https://docs.betterlyrics.org)** | Word-synced TTML lyrics module, QRC parser |
 
 Tiny fixes and UI polish are mixed in from everywhere. Full license wall → **About → Licenses** in the app.
 
@@ -119,7 +119,7 @@ Tiny fixes and UI polish are mixed in from everywhere. Full license wall → **A
 | [Echo Music](https://github.com/EchoMusicApp/Echo-Music) | [Issues](https://github.com/EchoMusicApp/Echo-Music/issues) |
 | [ViMusic](https://github.com/vfsfitvnm/ViMusic) | [Issues](https://github.com/vfsfitvnm/ViMusic/issues) |
 | [OuterTune](https://github.com/OuterTune/OuterTune) | [Issues](https://github.com/OuterTune/OuterTune/issues) |
-| [BetterLyrics](https://github.com/boidu-dev/BetterLyrics) | [Issues](https://github.com/boidu-dev/BetterLyrics/issues) |
+| [BetterLyrics](https://docs.betterlyrics.org) | [Docs](https://docs.betterlyrics.org) — the GitHub repo it came from is gone |
 | [SpotiFLAC](https://github.com/spotiflacapp/SpotiFLAC-Mobile) | [Issues](https://github.com/spotiflacapp/SpotiFLAC-Mobile/issues) |
 | [SpotiFLAC extensions](https://github.com/spotiflacapp/spotiflac-extension) | [Issues](https://github.com/spotiflacapp/spotiflac-extension/issues) |
 | [zarzet's extensions](https://github.com/zarzet/spotiflac-extension) | [Issues](https://github.com/zarzet/spotiflac-extension/issues) |
