@@ -20,12 +20,14 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import app.hush.music.constants.HideExplicitKey
 import app.hush.music.constants.HideVideoKey
+import app.hush.music.constants.HideYoutubeShortsKey
 import app.hush.music.db.MusicDatabase
 import app.hush.music.innertube.YouTube
 import app.hush.music.innertube.models.AlbumItem
 import app.hush.music.innertube.models.AlbumReleaseType
 import app.hush.music.innertube.models.filterExplicit
 import app.hush.music.innertube.models.filterVideo
+import app.hush.music.innertube.models.filterYoutubeShorts
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 import app.hush.music.utils.reportException
@@ -102,6 +104,7 @@ class NewReleaseViewModel
                                 firstArtistKey
                             }.filterExplicit(context.dataStore.get(HideExplicitKey, false))
                             .filterVideo(context.dataStore.get(HideVideoKey, false))
+                            .filterYoutubeShorts(context.dataStore.get(HideYoutubeShortsKey, false))
                             .distinctBy { it.id }
                     val content = filtered.toNewReleaseContent()
                     _uiState.value =

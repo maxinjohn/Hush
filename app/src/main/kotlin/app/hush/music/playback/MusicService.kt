@@ -295,6 +295,7 @@ import app.hush.music.utils.StreamClientUtils
 import app.hush.music.utils.SyncUtils
 import app.hush.music.utils.YTPlayerUtils
 import app.hush.music.utils.dataStore
+import app.hush.music.utils.sponsorblock.SponsorBlockManager
 import app.hush.music.utils.enumPreference
 import app.hush.music.utils.get
 import app.hush.music.utils.getAsync
@@ -307,6 +308,7 @@ import app.hush.music.utils.reportException
 import app.hush.music.utils.toPlaybackAuthState
 import app.hush.music.utils.retryWithoutPlaybackLoginContext
 import app.hush.music.utils.potoken.BotGuardTokenGenerator
+import app.hush.music.widget.DownloadQueueWidgetProvider
 import app.hush.music.widget.LoadWidgetInsightsUseCase
 import okhttp3.OkHttpClient
 import timber.log.Timber
@@ -1713,6 +1715,36 @@ var originalQueueSize: Int = 0
                 if (progress.mediaId.isBlank() || progress.mediaId == currentId) {
                     activeDownloadProgress.value = progress
                 }
+            }
+        }
+
+        // Mirror the download queue onto the home-screen widget. DownloadUtil throttles its
+        // own progress publications, and the widget's enabled-gate keeps AppWidget IPC and
+        // preference writes away from users who never added it.
+        scope.launch {
+            downloadUtil.downloads.collect { downloads ->
+                val active =
+                    downloads.filterValues {
+                        it.state == androidx.media3.exoplayer.offline.Download.STATE_QUEUED ||
+                            it.state == androidx.media3.exoplayer.offline.Download.STATE_DOWNLOADING
+                    }
+                if (active.isEmpty()) {
+                    DownloadQueueWidgetProvider.push(this@MusicService, running = false)
+                    return@collect
+                }
+                val lead = active.maxByOrNull { it.value.percentDownloaded } ?: active.entries.first()
+                val mediaId = lead.key
+                val title =
+                    withContext(Dispatchers.IO) {
+                        runCatching { database.song(mediaId).first() }.getOrNull()
+                    }?.title.orEmpty()
+                DownloadQueueWidgetProvider.push(
+                    this@MusicService,
+                    running = true,
+                    title = title.ifBlank { getString(R.string.app_name) },
+                    subtitle = getString(R.string.widget_download_queue_count, active.size),
+                    percent = lead.value.percentDownloaded.toInt().coerceIn(0, 100),
+                )
             }
         }
 
@@ -4206,6 +4238,10 @@ var originalQueueSize: Int = 0
                 app.hush.music.spotiflac.ExtensionRepositoryManager.getInstance()
                     .getEnabledSourceIds()
             }.getOrDefault(emptyList()),
+            // Low data mode pauses the engine for the resolve path exactly as it does for the
+            // switch in Audio Sources: the two must not disagree, or a resolve would still spend
+            // a sweep on SpotiFLAC while the screen says the engine is off.
+            lowDataActive = isLowDataModeActive(),
         )
 
     /**
@@ -8431,6 +8467,10 @@ var originalQueueSize: Int = 0
         }
         android.util.Log.w(TAG, "onMediaItemTransition: id=${mediaItem?.mediaId?.take(30)}, reason=$reasonLabel, pos=${player.currentPosition}ms, dur=${mediaItem?.mediaMetadata?.durationMs}ms")
 
+        // Sponsor segments are keyed by the 11-character YouTube video id; local files and
+        // other media ids can never match one, so don't wake the client for them.
+        mediaItem?.mediaId?.takeIf { it.length == 11 }?.let { SponsorBlockManager.loadSegments(it) }
+
         if (sleepTimer?.pauseWhenSongEnd == true) {
             pauseFromSleepTimer()
             return
@@ -10123,6 +10163,59 @@ var originalQueueSize: Int = 0
             runCatching { playerCache.removeResource(mediaId) }
                 .onFailure { Timber.tag("MusicService").w(it, "Unable to evict player cache for %s", mediaId) }
         }
+    }
+
+    /**
+     * Re-fetches this song from its source, ignoring every cache Hush holds for it.
+     *
+     * The player's "Refetch song" action. Three stores can hold a playable copy of a track: the
+     * streaming cache, the cached stream URL, and SpotiFLAC's own playback file. Clearing only one
+     * of them still leaves the others to answer the next open with the very bytes the refetch was
+     * asked to replace, so all three go and the resolve path runs again from scratch.
+     *
+     * A download is never touched. The file in the downloads folder is the user's copy, it is what
+     * playback serves first, and deleting it to "refetch" would turn a maintenance action into data
+     * loss - so [refetchSongFromSource] returns false for a downloaded song and changes nothing.
+     *
+     * When the song is the one loaded, playback is stopped and prepared again at the same position
+     * so the fresh resolve happens now rather than on the next play; for any other song the eviction
+     * simply takes effect the next time it is opened.
+     */
+    fun refetchSongFromSource(mediaId: String): Boolean {
+        if (mediaId.isBlank()) return false
+        val isDownloaded =
+            runCatching { downloadedFileStore.fileFor(mediaId) != null }.getOrDefault(false) ||
+                hasFullyDownloadedLocalPlayback(mediaId)
+        if (isDownloaded) {
+            Timber.tag(TAG).i("refetch skipped for %s: served from the downloads folder", mediaId)
+            return false
+        }
+        scope.launch(Dispatchers.IO) {
+            playbackUrlCache.remove(mediaId)
+            extractorPlaybackUrlCache.remove(mediaId)
+            YTPlayerUtils.invalidateCachedStreamUrls(mediaId)
+            runCatching { playerCache.removeResource(mediaId) }
+                .onFailure { Timber.tag(TAG).w(it, "Unable to evict player cache for %s", mediaId) }
+            runCatching {
+                app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder.instance
+                    ?.removeCachedPlaybackForMediaId(mediaId)
+            }
+            app.hush.music.spotiflac.SpotiFLACDiag.log("refetch requested for mediaId=$mediaId")
+            withContext(Dispatchers.Main) {
+                if (player.currentMediaItem?.mediaId != mediaId) return@withContext
+                // prepare() alone is a no-op on a player that is not idle, and a seek to the
+                // position it is already at changes nothing - so the item is stopped first and
+                // the position restored by hand. That is what makes the re-open deterministic.
+                val index = player.currentMediaItemIndex
+                val position = player.currentPosition
+                val playWhenReady = player.playWhenReady
+                player.stop()
+                player.prepare()
+                if (index in 0 until player.mediaItemCount) player.seekTo(index, position)
+                player.playWhenReady = playWhenReady
+            }
+        }
+        return true
     }
 
     private suspend fun trimPlayerCacheToBytes(limitBytes: Long) {

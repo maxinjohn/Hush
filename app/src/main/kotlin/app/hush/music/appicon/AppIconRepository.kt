@@ -19,7 +19,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import app.hush.music.R
+import app.hush.music.constants.EnableDynamicIconKey
 import app.hush.music.utils.appNamespace
+import app.hush.music.utils.safeDataStoreEdit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -150,7 +152,7 @@ class AppIconRepository
                 else -> false
             }
 
-        private fun applySelection(
+        private suspend fun applySelection(
             icons: List<AppIcon>,
             selectedIcon: AppIcon,
         ) {
@@ -205,6 +207,16 @@ class AppIconRepository
 
             check(isSelectionApplied(icons, selectedIcon)) {
                 "Unable to apply launcher icon ${selectedIcon.id} exclusively."
+            }
+
+            // The picker and the "Dynamic app icon" toggle own the same alias pair:
+            // MainActivityAlias (dynamic/default icon) vs MainActivityStatic. The
+            // reconcilers in App.kt and AppearanceSettings replay `EnableDynamicIconKey`
+            // onto those components on cold start and whenever Appearance is opened,
+            // which silently reverted picker selections back to Default. Record the
+            // choice so both sources of truth agree (Default icon == dynamic on).
+            context.safeDataStoreEdit { prefs ->
+                prefs[EnableDynamicIconKey] = selectedIcon.isDefault
             }
         }
 

@@ -75,6 +75,8 @@ import app.hush.music.constants.SongSortType
 import app.hush.music.constants.SongSortTypeKey
 import app.hush.music.constants.ThumbnailCornerRadius
 import app.hush.music.db.entities.PodcastEntity
+import app.hush.music.extensions.matchesNormalizedQuery
+import app.hush.music.extensions.normalizeForSearch
 import app.hush.music.extensions.toMediaItem
 import app.hush.music.extensions.togglePlayPause
 import app.hush.music.innertube.models.Artist
@@ -101,6 +103,7 @@ import kotlinx.coroutines.launch
 fun LibraryPodcastsScreen(
     navController: NavController,
     onDeselect: () -> Unit,
+    searchQuery: String = "",
     viewModel: LibraryPodcastsViewModel = hiltViewModel(),
 ) {
     val downloadedEpisodesStr = stringResource(R.string.downloaded_episodes)
@@ -124,6 +127,41 @@ fun LibraryPodcastsScreen(
     val sePlaylist by viewModel.sePlaylist.collectAsStateWithLifecycle()
     val podcastChannels by viewModel.podcastChannels.collectAsStateWithLifecycle()
     val rdpnPlaylist by viewModel.rdpnPlaylist.collectAsStateWithLifecycle()
+
+    val normalizedQuery = remember(searchQuery) { searchQuery.normalizeForSearch() }
+    val isSearching = normalizedQuery.isNotBlank()
+
+    val visibleSubscribedChannels =
+        remember(subscribedChannels, normalizedQuery) {
+            if (!isSearching) {
+                subscribedChannels
+            } else {
+                subscribedChannels.filter { podcast ->
+                    matchesNormalizedQuery(normalizedQuery, podcast.title, podcast.author)
+                }
+            }
+        }
+
+    val visiblePodcastChannels =
+        remember(podcastChannels, normalizedQuery) {
+            if (!isSearching) {
+                podcastChannels
+            } else {
+                podcastChannels.filter { channel -> matchesNormalizedQuery(normalizedQuery, channel.title) }
+            }
+        }
+
+    val visibleDownloadedEpisodes =
+        remember(downloadedEpisodes, normalizedQuery) {
+            if (!isSearching) {
+                downloadedEpisodes
+            } else {
+                downloadedEpisodes.filter { episode ->
+                    val artistNames = episode.artists.map { it.name }.toTypedArray()
+                    matchesNormalizedQuery(normalizedQuery, episode.song.title, *artistNames)
+                }
+            }
+        }
 
     // Refresh channels when screen becomes visible (ON_RESUME)
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -221,6 +259,7 @@ fun LibraryPodcastsScreen(
                         chipsHeader()
                     }
 
+                    if (!isSearching) {
                     // RDPN "New Episodes" auto-playlist card
                     item(key = "rdpn_playlist", contentType = CONTENT_TYPE_HEADER) {
                         AutoPlaylistCard(
@@ -246,9 +285,11 @@ fun LibraryPodcastsScreen(
                         )
                     }
 
+                    }
+
                     // Saved podcast shows (episode playlists) from YT Music library
                     itemsIndexed(
-                        items = subscribedChannels,
+                        items = visibleSubscribedChannels,
                         key = { _, item -> item.id },
                         contentType = { _, _ -> CONTENT_TYPE_SONG },
                     ) { _, podcast ->
@@ -269,6 +310,24 @@ fun LibraryPodcastsScreen(
                                     .fillMaxWidth()
                                     .animateItem(),
                         )
+                    }
+
+                    if (isSearching && visibleSubscribedChannels.isEmpty()) {
+                        item(key = "episodes_search_empty", contentType = CONTENT_TYPE_HEADER) {
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 48.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.no_results_found),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -295,8 +354,8 @@ fun LibraryPodcastsScreen(
                                 text =
                                     pluralStringResource(
                                         R.plurals.n_channel,
-                                        podcastChannels.size,
-                                        podcastChannels.size,
+                                        visiblePodcastChannels.size,
+                                        visiblePodcastChannels.size,
                                     ),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.secondary,
@@ -305,7 +364,7 @@ fun LibraryPodcastsScreen(
                     }
 
                     itemsIndexed(
-                        items = podcastChannels,
+                        items = visiblePodcastChannels,
                         key = { _, item -> item.id },
                         contentType = { _, _ -> CONTENT_TYPE_SONG },
                     ) { _, channel ->
@@ -322,7 +381,7 @@ fun LibraryPodcastsScreen(
                         )
                     }
 
-                    if (podcastChannels.isEmpty()) {
+                    if (visiblePodcastChannels.isEmpty()) {
                         item(key = "empty") {
                             Box(
                                 modifier =
@@ -332,7 +391,7 @@ fun LibraryPodcastsScreen(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    text = stringResource(R.string.no_subscribed_channels),
+                                    text = stringResource(if (isSearching) R.string.no_results_found else R.string.no_subscribed_channels),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -376,8 +435,8 @@ fun LibraryPodcastsScreen(
                                 text =
                                     pluralStringResource(
                                         R.plurals.n_episode,
-                                        downloadedEpisodes.size,
-                                        downloadedEpisodes.size,
+                                        visibleDownloadedEpisodes.size,
+                                        visibleDownloadedEpisodes.size,
                                     ),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.secondary,
@@ -386,7 +445,7 @@ fun LibraryPodcastsScreen(
                     }
 
                     itemsIndexed(
-                        items = downloadedEpisodes,
+                        items = visibleDownloadedEpisodes,
                         key = { index, item -> "${item.song.id}_$index" },
                         contentType = { _, _ -> CONTENT_TYPE_SONG },
                     ) { index, episode ->
@@ -426,7 +485,7 @@ fun LibraryPodcastsScreen(
                                                 playerConnection.playQueue(
                                                     ListQueue(
                                                         title = downloadedEpisodesStr,
-                                                        items = downloadedEpisodes.map { it.toMediaItem() },
+                                                        items = visibleDownloadedEpisodes.map { it.toMediaItem() },
                                                         startIndex = index,
                                                     ),
                                                 )
@@ -437,7 +496,7 @@ fun LibraryPodcastsScreen(
                         )
                     }
 
-                    if (downloadedEpisodes.isEmpty()) {
+                    if (visibleDownloadedEpisodes.isEmpty()) {
                         item(key = "empty") {
                             Box(
                                 modifier =
@@ -447,7 +506,7 @@ fun LibraryPodcastsScreen(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    text = stringResource(R.string.no_downloaded_episodes),
+                                    text = stringResource(if (isSearching) R.string.no_results_found else R.string.no_downloaded_episodes),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -457,7 +516,7 @@ fun LibraryPodcastsScreen(
                 }
 
                 HideOnScrollFAB(
-                    visible = downloadedEpisodes.isNotEmpty(),
+                    visible = visibleDownloadedEpisodes.isNotEmpty(),
                     lazyListState = lazyListState,
                     icon = R.drawable.shuffle,
                     label = stringResource(R.string.shuffle),
@@ -465,7 +524,7 @@ fun LibraryPodcastsScreen(
                         playerConnection.playQueue(
                             ListQueue(
                                 title = downloadedEpisodesStr,
-                                items = downloadedEpisodes.shuffled().map { it.toMediaItem() },
+                                items = visibleDownloadedEpisodes.shuffled().map { it.toMediaItem() },
                             ),
                         )
                     },

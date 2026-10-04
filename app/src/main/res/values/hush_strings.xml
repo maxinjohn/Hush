@@ -218,6 +218,8 @@
     <string name="no_tags_available">No tags available. Create one first.</string>
     <string name="manage_playlist_tags">Playlist Tags</string>
     <string name="manage_playlist_tags_desc">Create and manage tags for organizing playlists</string>
+    <string name="arrange_playlist_tags">Arrange playlist tags</string>
+    <string name="arrange_playlist_tags_desc">Drag tags into the order they should appear in the library</string>
     <string name="like_all">Like all</string>
     <string name="dislike_all">Dislike all</string>
     <string name="sort_by_last_updated">Date updated</string>
@@ -530,6 +532,8 @@
     <string name="spotiflac_try_next_source">Try the next source on failure</string>
     <string name="spotiflac_try_next_source_desc">Move on to the next enabled SpotiFLAC source when one cannot play a track.</string>
     <string name="spotiflac_parallel_fetch">Fetch sources in parallel</string>
+    <string name="spotiflac_embed_replaygain">Embed ReplayGain tags</string>
+    <string name="spotiflac_embed_replaygain_desc">Write loudness metadata into downloaded files so players that honour ReplayGain keep volume steady across tracks</string>
     <string name="spotiflac_parallel_fetch_desc">Asks every enabled source at once and keeps the first one that answers, so the wait is the fastest provider instead of the sum of the ones ahead of it. It downloads from several at once, which uses more data and can hit a provider\'s own rate limits.</string>
     <string name="spotiflac_verified_only">Only use verified sources</string>
     <string name="spotiflac_verified_only_desc">Skip sources that still need a Cloudflare check while a verified source is available.</string>

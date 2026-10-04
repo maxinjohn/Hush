@@ -78,6 +78,7 @@ import app.hush.music.LocalDatabase
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
+import app.hush.music.ui.screens.Screens
 import app.hush.music.constants.ArtistFilter
 import app.hush.music.constants.ArtistFilterKey
 import app.hush.music.constants.ArtistSongSortType
@@ -86,6 +87,8 @@ import app.hush.music.constants.ArtistSortType
 import app.hush.music.constants.ArtistSortTypeKey
 import app.hush.music.constants.YtmSyncKey
 import app.hush.music.db.entities.Artist
+import app.hush.music.extensions.matchesNormalizedQuery
+import app.hush.music.extensions.normalizeForSearch
 import app.hush.music.extensions.toMediaItem
 import app.hush.music.playback.queues.ListQueue
 import app.hush.music.ui.component.ExpressivePullToRefreshBox
@@ -100,6 +103,7 @@ import app.hush.music.viewmodels.LibraryArtistsViewModel
 fun LibraryArtistsScreen(
     navController: NavController,
     onDeselect: () -> Unit,
+    searchQuery: String = "",
     viewModel: LibraryArtistsViewModel = hiltViewModel(),
 ) {
     val menuState = LocalMenuState.current
@@ -129,6 +133,17 @@ fun LibraryArtistsScreen(
     val artists by viewModel.allArtists.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
 
+    val normalizedQuery = remember(searchQuery) { searchQuery.normalizeForSearch() }
+
+    val visibleArtists =
+        remember(artists, normalizedQuery) {
+            if (normalizedQuery.isBlank()) {
+                artists
+            } else {
+                artists.filter { artist -> matchesNormalizedQuery(normalizedQuery, artist.artist.name) }
+            }
+        }
+
     val topArtist = artists.firstOrNull()
 
     // Issue 2: player-aware bottom padding
@@ -150,7 +165,8 @@ fun LibraryArtistsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            // Featured Spotlight Row
+            // Featured Spotlight Row — hidden while a library search is active
+            if (normalizedQuery.isBlank()) {
             item(span = { GridItemSpan(2) }, key = "spotlight_row") {
                 Row(
                     modifier =
@@ -489,9 +505,24 @@ fun LibraryArtistsScreen(
                     }
                 }
             }
+            }
+
+            if (visibleArtists.isEmpty()) {
+                item(
+                    span = { GridItemSpan(2) },
+                    key = "artists_empty",
+                    contentType = "library_empty_state",
+                ) {
+                    LibraryEmptyState(
+                        iconRes = R.drawable.artist,
+                        actionLabelRes = R.string.search_yt_music,
+                        onAction = { navController.navigate(Screens.ROUTE_SEARCH) },
+                    )
+                }
+            }
 
             // Artists Grid: 2-column capsule artist cards
-            items(artists, key = { it.id }) { artistWrapper ->
+            items(visibleArtists, key = { it.id }) { artistWrapper ->
                 val artist = artistWrapper.artist
                 Row(
                     modifier =
@@ -582,8 +613,8 @@ fun LibraryArtistsScreen(
                 }
             }
 
-            // Recently Played Artists Section
-            if (artists.size > 2) {
+            // Recently Played Artists Section — a browsing aid, hidden while a search runs
+            if (artists.size > 2 && normalizedQuery.isBlank()) {
                 item(span = { GridItemSpan(2) }, key = "recent_artists_header") {
                     Text(
                         text = stringResource(R.string.recently_played_artists),

@@ -47,6 +47,10 @@ import app.hush.music.constants.AudioNormalizationKey
 import app.hush.music.constants.AudioOffload
 import app.hush.music.constants.AudioQuality
 import app.hush.music.constants.AudioQualityKey
+import app.hush.music.constants.EnableSponsorBlockKey
+import app.hush.music.constants.SponsorBlockAutoSkipKey
+import app.hush.music.constants.SponsorBlockCategoriesKey
+import app.hush.music.constants.SponsorBlockShowSkipButtonKey
 
 import app.hush.music.constants.AutoDownloadOnLikeKey
 import app.hush.music.constants.AutoSkipNextOnErrorKey
@@ -78,6 +82,7 @@ import app.hush.music.ui.component.EnumListPreference
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.ListPreference
 import app.hush.music.ui.component.NumberPickerPreference
+import app.hush.music.ui.component.MultiSelectListPreference
 import app.hush.music.ui.component.PreferenceEntry
 import app.hush.music.ui.component.PreferenceGroup
 import app.hush.music.ui.component.SliderPreference
@@ -89,6 +94,8 @@ import app.hush.music.ui.theme.HushAmbientBackground
 import app.hush.music.ui.utils.backToMain
 import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberPreference
+import app.hush.music.utils.sponsorblock.SegmentCategory
+import app.hush.music.utils.sponsorblock.SponsorBlockManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -229,6 +236,20 @@ fun PlayerSettings(
     var showArtistSeparatorsDialog by remember { mutableStateOf(false) }
     var showTagsManagementDialog by remember { mutableStateOf(false) }
     var showExternalDownloaderPackageDialog by remember { mutableStateOf(false) }
+
+    val (sponsorBlockEnabled, _) = rememberPreference(EnableSponsorBlockKey, defaultValue = false)
+    val (sponsorBlockAutoSkip, _) = rememberPreference(SponsorBlockAutoSkipKey, defaultValue = true)
+    val (sponsorBlockShowSkipButton, onSponsorBlockShowSkipButtonChange) =
+        rememberPreference(SponsorBlockShowSkipButtonKey, defaultValue = true)
+    val (sponsorBlockCategoriesRaw, _) = rememberPreference(SponsorBlockCategoriesKey, defaultValue = "")
+    var showSponsorBlockCategories by remember { mutableStateOf(false) }
+    var sponsorBlockPendingCategories by remember { mutableStateOf(sponsorBlockSelectedCategories("")) }
+    val sponsorBlockCategoryNoneLabel = stringResource(R.string.sponsor_block_categories_none)
+    val sponsorBlockCategorySelection =
+        sponsorBlockPendingCategories
+            .sortedBy { it.ordinal }
+            .joinToString { SegmentCategory.displayName(it) }
+            .ifEmpty { sponsorBlockCategoryNoneLabel }
 
     if (showArtistSeparatorsDialog) {
         ArtistSeparatorsDialog(
@@ -525,6 +546,68 @@ fun PlayerSettings(
             }
         }
 
+        PreferenceGroup(title = stringResource(R.string.sponsor_block_group)) {
+            item {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.sponsor_block_use)) },
+                    description = stringResource(R.string.sponsor_block_use_desc),
+                    checked = sponsorBlockEnabled,
+                    onCheckedChange = SponsorBlockManager::setEnabled,
+                )
+            }
+
+            item {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.sponsor_block_auto_skip)) },
+                    description = stringResource(R.string.sponsor_block_auto_skip_desc),
+                    checked = sponsorBlockAutoSkip,
+                    onCheckedChange = SponsorBlockManager::setAutoSkip,
+                )
+            }
+
+            item {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.sponsor_block_show_skip_button)) },
+                    description = stringResource(R.string.sponsor_block_show_skip_button_desc),
+                    checked = sponsorBlockShowSkipButton,
+                    onCheckedChange = onSponsorBlockShowSkipButtonChange,
+                )
+            }
+
+            item {
+                MultiSelectListPreference(
+                    title = { Text(stringResource(R.string.sponsor_block_categories)) },
+                    description = stringResource(R.string.sponsor_block_categories_desc),
+                    values = SegmentCategory.entries.filter { it != SegmentCategory.UNKNOWN },
+                    checkedValues = sponsorBlockPendingCategories,
+                    selectionText = sponsorBlockCategorySelection,
+                    valueText = { SegmentCategory.displayName(it) },
+                    isBottomSheetVisible = showSponsorBlockCategories,
+                    onOpen = {
+                        sponsorBlockPendingCategories = sponsorBlockSelectedCategories(sponsorBlockCategoriesRaw)
+                        showSponsorBlockCategories = true
+                    },
+                    onDismiss = { showSponsorBlockCategories = false },
+                    onValueCheckedChange = { category, checked ->
+                        sponsorBlockPendingCategories =
+                            if (checked) {
+                                sponsorBlockPendingCategories + category
+                            } else {
+                                sponsorBlockPendingCategories - category
+                            }
+                    },
+                    onConfirm = {
+                        SponsorBlockManager.setCategories(
+                            sponsorBlockPendingCategories
+                                .sortedBy { it.ordinal }
+                                .joinToString(",") { it.name },
+                        )
+                        showSponsorBlockCategories = false
+                    },
+                )
+            }
+        }
+
         PreferenceGroup(title = stringResource(R.string.misc)) {
             item {
                 SwitchPreference(
@@ -616,4 +699,22 @@ fun PlayerSettings(
                 ),
         )
     }
+}
+
+/** Mirrors [SponsorBlockManager]'s own parse so the picker opens on what the client will fetch. */
+private fun sponsorBlockSelectedCategories(raw: String): Set<SegmentCategory> {
+    val defaults =
+        setOf(
+            SegmentCategory.SPONSOR,
+            SegmentCategory.INTRO,
+            SegmentCategory.OUTRO,
+            SegmentCategory.SELF_PROMO,
+            SegmentCategory.INTERACTION,
+        )
+    if (raw.isBlank()) return defaults
+    return raw.split(",")
+        .mapNotNull { name ->
+            SegmentCategory.entries.find { it.name.equals(name.trim(), ignoreCase = true) }
+        }.toSet()
+        .ifEmpty { defaults }
 }

@@ -88,6 +88,45 @@ fun PrivacySettings(
         mutableStateOf(false)
     }
 
+    var showResetStatsDialog by remember {
+        mutableStateOf(false)
+    }
+
+    if (showResetStatsDialog) {
+        DefaultDialog(
+            onDismiss = { showResetStatsDialog = false },
+            content = {
+                Text(
+                    text = stringResource(R.string.reset_listening_stats_confirm),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                )
+            },
+            buttons = {
+                TextButton(
+                    onClick = { showResetStatsDialog = false },
+                    shapes = ButtonDefaults.shapes(),
+                ) {
+                    Text(text = stringResource(android.R.string.cancel))
+                }
+
+                TextButton(
+                    onClick = {
+                        showResetStatsDialog = false
+                        database.query {
+                            clearListenHistory()
+                            resetTotalPlayTime()
+                            clearPlayCounts()
+                        }
+                    },
+                    shapes = ButtonDefaults.shapes(),
+                ) {
+                    Text(text = stringResource(android.R.string.ok))
+                }
+            },
+        )
+    }
+
     if (showClearListenHistoryDialog) {
         DefaultDialog(
             onDismiss = { showClearListenHistoryDialog = false },
@@ -192,6 +231,15 @@ fun PrivacySettings(
                     title = { Text(stringResource(R.string.clear_listen_history)) },
                     icon = { Icon(painterResource(R.drawable.delete_history), null) },
                     onClick = { showClearListenHistoryDialog = true },
+                )
+            }
+
+            item {
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.reset_listening_stats)) },
+                    description = stringResource(R.string.reset_listening_stats_desc),
+                    icon = { Icon(painterResource(R.drawable.replay), null) },
+                    onClick = { showResetStatsDialog = true },
                 )
             }
         }

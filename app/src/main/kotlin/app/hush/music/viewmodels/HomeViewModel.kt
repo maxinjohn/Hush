@@ -29,6 +29,7 @@ import app.hush.music.constants.AccountNameKey
 import app.hush.music.constants.DataSyncIdKey
 import app.hush.music.constants.HideExplicitKey
 import app.hush.music.constants.HideVideoKey
+import app.hush.music.constants.HideYoutubeShortsKey
 import app.hush.music.constants.InnerTubeCookieKey
 import app.hush.music.constants.QuickPicks
 import app.hush.music.constants.QuickPicksKey
@@ -50,6 +51,7 @@ import app.hush.music.innertube.models.WatchEndpoint
 import app.hush.music.innertube.models.YTItem
 import app.hush.music.innertube.models.filterExplicit
 import app.hush.music.innertube.models.filterVideo
+import app.hush.music.innertube.models.filterYoutubeShorts
 import app.hush.music.innertube.pages.HomePage
 import app.hush.music.innertube.utils.completed
 import app.hush.music.innertube.utils.hasYouTubeLoginCookie
@@ -463,6 +465,7 @@ class HomeViewModel
                 supervisorScope {
                     val hideExplicit = context.dataStore.get(HideExplicitKey, false)
                     val hideVideo = context.dataStore.get(HideVideoKey, false)
+                    val hideShorts = context.dataStore.get(HideYoutubeShortsKey, false)
                     val blockedArtistIds = database.getBlockedArtistIds().toSet()
                     val fromTimeStamp = System.currentTimeMillis() - 86400000 * 7 * 2
 
@@ -518,7 +521,7 @@ class HomeViewModel
                                                     items =
                                                         section.items
                                                             .filterExplicit(hideExplicit)
-                                                            .filterVideo(hideVideo)
+                                                            .filterVideo(hideVideo).filterYoutubeShorts(hideShorts)
                                                             .filterBlockedArtists(blockedArtistIds),
                                                 )
                                             },
@@ -557,6 +560,7 @@ class HomeViewModel
         private suspend fun loadSimilarRecommendations() {
             val hideExplicit = context.dataStore.get(HideExplicitKey, false)
             val hideVideo = context.dataStore.get(HideVideoKey, false)
+            val hideShorts = context.dataStore.get(HideYoutubeShortsKey, false)
             val blockedArtistIds = database.getBlockedArtistIds().toSet()
             val fromTimeStamp = System.currentTimeMillis() - 86400000 * 7 * 2
 
@@ -586,7 +590,7 @@ class HomeViewModel
                             items =
                                 items
                                     .filterExplicit(hideExplicit)
-                                    .filterVideo(hideVideo)
+                                    .filterVideo(hideVideo).filterYoutubeShorts(hideShorts)
                                     .filterBlockedArtists(blockedArtistIds)
                                     .shuffled()
                                     .ifEmpty { return@mapNotNull null },
@@ -614,7 +618,7 @@ class HomeViewModel
                                         page.artists.shuffled().take(4) +
                                         page.playlists.shuffled().take(4)
                                 ).filterExplicit(hideExplicit)
-                                    .filterVideo(hideVideo)
+                                    .filterVideo(hideVideo).filterYoutubeShorts(hideShorts)
                                     .filterBlockedArtists(blockedArtistIds)
                                     .shuffled()
                                     .ifEmpty { return@mapNotNull null },
@@ -720,6 +724,7 @@ class HomeViewModel
             if (continuation == null || isLoadingMore.value) return
             val hideExplicit = context.dataStore.get(HideExplicitKey, false)
             val hideVideo = context.dataStore.get(HideVideoKey, false)
+            val hideShorts = context.dataStore.get(HideYoutubeShortsKey, false)
 
             viewModelScope.launch(Dispatchers.IO) {
                 isLoadingMore.value = true
@@ -736,7 +741,7 @@ class HomeViewModel
                                             section.items
                                                 .filterOutNulls()
                                                 .filterExplicit(hideExplicit)
-                                                .filterVideo(hideVideo)
+                                                .filterVideo(hideVideo).filterYoutubeShorts(hideShorts)
                                                 .filterBlockedArtists(blockedArtistIds),
                                     )
                                 },
@@ -778,6 +783,7 @@ class HomeViewModel
                     try {
                         val hideExplicit = context.dataStore.get(HideExplicitKey, false)
                         val hideVideo = context.dataStore.get(HideVideoKey, false)
+                        val hideShorts = context.dataStore.get(HideYoutubeShortsKey, false)
                         val blockedArtistIds = database.getBlockedArtistIds().toSet()
 
                         val chipBrowseId = chip?.endpoint?.browseId
@@ -825,7 +831,7 @@ class HomeViewModel
                                             items =
                                                 section.items
                                                     .filterExplicit(hideExplicit)
-                                                    .filterVideo(hideVideo)
+                                                    .filterVideo(hideVideo).filterYoutubeShorts(hideShorts)
                                                     .filterBlockedArtists(blockedArtistIds),
                                     )
                                 },

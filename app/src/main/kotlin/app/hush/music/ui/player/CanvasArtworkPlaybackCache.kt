@@ -98,6 +98,7 @@ object CanvasArtworkPlaybackCache {
         readTimeout(45, TimeUnit.SECONDS)
         callTimeout(3, TimeUnit.MINUTES)
         addInterceptor { chain ->
+            CanvasNetworkPolicy.requireAllowed()
             val request = chain.request()
             if (!request.url.isYouTubeMediaHost()) {
                 return@addInterceptor chain.proceed(
@@ -269,6 +270,16 @@ object CanvasArtworkPlaybackCache {
         schedulePersist()
     }
 
+    /**
+     * Stops every in-flight canvas video download. Used when the Wi-Fi-only policy stops
+     * allowing network access so a download cannot finish on a forbidden network.
+     */
+    fun cancelDownloads() {
+        synchronized(this) {
+            cancelCacheJobsLocked()
+        }
+    }
+
     fun clearAndPersist(): Boolean {
         synchronized(this) {
             cancelCacheJobsLocked()
@@ -433,6 +444,11 @@ object CanvasArtworkPlaybackCache {
         var lastError: Throwable? = null
         while (attempt < DOWNLOAD_MAX_ATTEMPTS) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            // The Wi-Fi-only policy may have been turned on (or Wi-Fi lost) since the
+            // artwork was resolved. Stop instead of retrying onto a forbidden network.
+            if (!CanvasNetworkPolicy.allowed) {
+                throw CancellationException("Canvas network access is disabled by the current policy")
+            }
             try {
                 downloadToPartialFile(
                     url = url,

@@ -35,6 +35,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
+import app.hush.music.spotify.SpotifyLikedSongs
 import app.hush.music.spotify.SpotifyPlaybackResolver
 import app.hush.music.spotify.models.SpotifyPlaylist
 import app.hush.music.spotify.models.SpotifyTrack
@@ -117,7 +118,7 @@ fun SpotifyPlaylistMenu(
                     },
                     modifier =
                         Modifier.clickable {
-                            val shareUrl = "https://open.spotify.com/playlist/${playlist.id}"
+                            val shareUrl = SpotifyLikedSongs.shareUrl(playlist.id)
                             val intent =
                                 Intent(Intent.ACTION_SEND).apply {
                                     type = "text/plain"

@@ -82,12 +82,15 @@ import app.hush.music.constants.SongFilterKey
 import app.hush.music.constants.SongSortDescendingKey
 import app.hush.music.constants.SongSortType
 import app.hush.music.constants.SongSortTypeKey
+import app.hush.music.extensions.matchesNormalizedQuery
+import app.hush.music.extensions.normalizeForSearch
 import app.hush.music.extensions.toMediaItem
 import app.hush.music.extensions.togglePlayPause
 import app.hush.music.playback.queues.ListQueue
 import app.hush.music.ui.component.ExpressivePullToRefreshBox
 import app.hush.music.ui.component.LocalMenuState
 import app.hush.music.ui.menu.SongMenu
+import app.hush.music.ui.screens.Screens
 import app.hush.music.ui.screens.library.rememberArtworkGradient
 import app.hush.music.ui.theme.hushCombinedPressable
 import app.hush.music.ui.utils.ItemWrapper
@@ -101,6 +104,7 @@ import app.hush.music.viewmodels.LibrarySongsViewModel
 fun LibrarySongsScreen(
     navController: NavController,
     onDeselect: () -> Unit,
+    searchQuery: String = "",
     viewModel: LibrarySongsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -137,12 +141,24 @@ fun LibrarySongsScreen(
 
     val wrappedSongs = remember(songs) { songs.map { item -> ItemWrapper(item) }.toMutableList() }
 
+    val normalizedQuery = remember(searchQuery) { searchQuery.normalizeForSearch() }
+
     val filteredSongs =
-        remember(wrappedSongs, hideExplicit) {
-            if (hideExplicit) {
-                wrappedSongs.filter { !it.item.song.explicit }
+        remember(wrappedSongs, hideExplicit, normalizedQuery) {
+            val visibleSongs =
+                if (hideExplicit) {
+                    wrappedSongs.filter { !it.item.song.explicit }
+                } else {
+                    wrappedSongs
+                }
+            if (normalizedQuery.isBlank()) {
+                visibleSongs
             } else {
-                wrappedSongs
+                visibleSongs.filter { wrapper ->
+                    val song = wrapper.item
+                    val artistNames = song.artists.map { it.name }.toTypedArray()
+                    matchesNormalizedQuery(normalizedQuery, song.song.title, song.album?.title, *artistNames)
+                }
             }
         }
 
@@ -423,6 +439,16 @@ fun LibrarySongsScreen(
                         }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                if (filteredSongs.isEmpty()) {
+                    item(key = "songs_empty", contentType = "library_empty_state") {
+                        LibraryEmptyState(
+                            iconRes = R.drawable.music_note,
+                            actionLabelRes = R.string.search_yt_music,
+                            onAction = { navController.navigate(Screens.ROUTE_SEARCH) },
+                        )
+                    }
                 }
 
                 itemsIndexed(

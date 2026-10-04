@@ -25,11 +25,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import app.hush.music.constants.HideExplicitKey
 import app.hush.music.constants.HideVideoKey
+import app.hush.music.constants.HideYoutubeShortsKey
 import app.hush.music.innertube.YouTube
 import app.hush.music.innertube.models.SongItem
 import app.hush.music.innertube.models.YTItem
 import app.hush.music.innertube.models.filterExplicit
 import app.hush.music.innertube.models.filterVideo
+import app.hush.music.innertube.models.filterYoutubeShorts
 import app.hush.music.innertube.pages.SearchSummaryPage
 import app.hush.music.models.ItemsPage
 import app.hush.music.ui.screens.search.OnlineSearchResultArgument
@@ -92,7 +94,7 @@ class OnlineSearchViewModel
                             summaryPage =
                                 it
                                     .filterExplicit(context.dataStore.get(HideExplicitKey, false))
-                                    .filterVideo(context.dataStore.get(HideVideoKey, false))
+                                    .filterVideo(context.dataStore.get(HideVideoKey, false)).filterYoutubeShorts(context.dataStore.get(HideYoutubeShortsKey, false))
                         }.onFailure {
                             summaryLoadFailed = true
                             reportException(it)
@@ -117,7 +119,7 @@ class OnlineSearchViewModel
                             result.items
                                 .distinctBy { it.id }
                                 .filterExplicit(context.dataStore.get(HideExplicitKey, false))
-                                .filterVideo(context.dataStore.get(HideVideoKey, false))
+                                .filterVideo(context.dataStore.get(HideVideoKey, false)).filterYoutubeShorts(context.dataStore.get(HideYoutubeShortsKey, false))
                                 .take(MAX_RESULTS_PER_FILTER),
                             result.continuation.takeIf { result.items.size < MAX_RESULTS_PER_FILTER },
                         )

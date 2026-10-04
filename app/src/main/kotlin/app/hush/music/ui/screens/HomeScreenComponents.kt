@@ -160,6 +160,7 @@ import app.hush.music.ui.menu.YouTubeAlbumMenu
 import app.hush.music.ui.menu.YouTubeArtistMenu
 import app.hush.music.ui.menu.YouTubePlaylistMenu
 import app.hush.music.ui.menu.YouTubeSongMenu
+import app.hush.music.spotify.SpotifyLikedSongs
 import app.hush.music.spotify.SpotifyLibraryViewModel
 import app.hush.music.spotify.models.SpotifyPlaylist
 import app.hush.music.ui.component.SpotifyPlaylistCarouselCard
@@ -1777,8 +1778,20 @@ fun LazyListScope.SpotifyPlaylistsContainer(
         val spotifyLibraryViewModel: SpotifyLibraryViewModel = hiltViewModel()
         val (showSpotifyPlaylists) = rememberPreference(ShowSpotifyPlaylistsKey, false)
         val spotifyPlaylists by spotifyLibraryViewModel.playlists.collectAsStateWithLifecycle()
+        val likedSongsTotal by spotifyLibraryViewModel.likedSongsTotal.collectAsStateWithLifecycle()
         val (accountName) = rememberPreference(SpotifyAccountNameKey, "")
         val (accountAvatarUrl) = rememberPreference(SpotifyAccountAvatarUrlKey, "")
+        // Liked Songs rides ahead of the playlists, the way the car's Spotify group orders it, and
+        // only while the account has something saved in it.
+        val likedSongsTitle = stringResource(R.string.liked_songs)
+        val allPlaylists =
+            likedSongsTotal
+                ?.takeIf { total -> total > 0 }
+                ?.let { total ->
+                    listOf(SpotifyLikedSongs.playlist(displayName = likedSongsTitle, total = total)) +
+                        spotifyPlaylists
+                }
+                ?: spotifyPlaylists
 
         LaunchedEffect(showSpotifyPlaylists) {
             if (showSpotifyPlaylists) {
@@ -1792,7 +1805,7 @@ fun LazyListScope.SpotifyPlaylistsContainer(
             }
         }
 
-        if (showSpotifyPlaylists && spotifyPlaylists.isNotEmpty()) {
+        if (showSpotifyPlaylists && allPlaylists.isNotEmpty()) {
             Column {
                 SpotifyPlaylistsTitle(
                     accountName = accountName,
@@ -1807,7 +1820,7 @@ fun LazyListScope.SpotifyPlaylistsContainer(
                     },
                 )
                 SpotifyPlaylistsSection(
-                    playlists = spotifyPlaylists,
+                    playlists = allPlaylists,
                     navController = navController,
                 )
             }

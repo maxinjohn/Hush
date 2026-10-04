@@ -71,6 +71,10 @@ import app.hush.music.constants.EnableBetterLyricsPortatoKey
 import app.hush.music.constants.EnableKugouKey
 import app.hush.music.constants.EnableLrcLibKey
 import app.hush.music.constants.EnableMegalobizLyricsKey
+import app.hush.music.constants.EnableBiniLyricsKey
+import app.hush.music.constants.EnableGeniusLyricsKey
+import app.hush.music.constants.EnableQQLyricsKey
+import app.hush.music.constants.EnableZemerLyricsKey
 import app.hush.music.constants.EnablePaxsenixAppleMusicLyricsKey
 import app.hush.music.constants.EnablePaxsenixLyricsKey
 import app.hush.music.constants.EnablePaxsenixMusixmatchLyricsKey
@@ -204,6 +208,10 @@ fun LyricsSettings(
         )
     val (enableUnisonLyrics, onEnableUnisonLyricsChange) = rememberPreference(key = EnableUnisonLyricsKey, defaultValue = true)
     val (enableMegalobizLyrics, onEnableMegalobizLyricsChange) = rememberPreference(key = EnableMegalobizLyricsKey, defaultValue = false)
+    val (enableZemerLyrics, onEnableZemerLyricsChange) = rememberPreference(key = EnableZemerLyricsKey, defaultValue = true)
+    val (enableBiniLyrics, onEnableBiniLyricsChange) = rememberPreference(key = EnableBiniLyricsKey, defaultValue = true)
+    val (enableQQLyrics, onEnableQQLyricsChange) = rememberPreference(key = EnableQQLyricsKey, defaultValue = false)
+    val (enableGeniusLyrics, onEnableGeniusLyricsChange) = rememberPreference(key = EnableGeniusLyricsKey, defaultValue = false)
     val (providerOrderStr, onProviderOrderStrChange) =
         rememberPreference(
             key = LyricsProviderOrderKey,
@@ -252,6 +260,10 @@ fun LyricsSettings(
                     enableMusixmatch = enableMusixmatchLyrics,
                     enablePaxsenixYouTube = enablePaxsenixYouTubeLyrics,
                     enableMegalobiz = enableMegalobizLyrics,
+                    enableZemer = enableZemerLyrics,
+                    enableBini = enableBiniLyrics,
+                    enableQQMusic = enableQQLyrics,
+                    enableGenius = enableGeniusLyrics,
                 ),
             onDismiss = { showProviderOrderDialog = false },
             onOrderChange = { newOrder ->
@@ -560,6 +572,42 @@ fun LyricsSettings(
 
             item {
                 SwitchPreference(
+                    title = { Text(stringResource(R.string.enable_zemer_lyrics)) },
+                    icon = { Icon(painterResource(R.drawable.lyrics), null) },
+                    checked = enableZemerLyrics,
+                    onCheckedChange = onEnableZemerLyricsChange,
+                )
+            }
+
+            item {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.enable_bini_lyrics)) },
+                    icon = { Icon(painterResource(R.drawable.lyrics), null) },
+                    checked = enableBiniLyrics,
+                    onCheckedChange = onEnableBiniLyricsChange,
+                )
+            }
+
+            item {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.enable_qq_lyrics)) },
+                    icon = { Icon(painterResource(R.drawable.lyrics), null) },
+                    checked = enableQQLyrics,
+                    onCheckedChange = onEnableQQLyricsChange,
+                )
+            }
+
+            item {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.enable_genius_lyrics)) },
+                    icon = { Icon(painterResource(R.drawable.lyrics), null) },
+                    checked = enableGeniusLyrics,
+                    onCheckedChange = onEnableGeniusLyricsChange,
+                )
+            }
+
+            item {
+                SwitchPreference(
                     title = { Text(stringResource(R.string.enable_paxsenix_lyrics)) },
                     icon = { Icon(painterResource(R.drawable.lyrics), null) },
                     checked = enablePaxsenixLyrics,
@@ -649,6 +697,10 @@ LyricsProviderEnableState(
                                 enablePaxsenixMusixmatch = enablePaxsenixMusixmatchLyrics,
                                 enablePaxsenixYouTube = enablePaxsenixYouTubeLyrics,
                                 enableMegalobiz = enableMegalobizLyrics,
+                                enableZemer = enableZemerLyrics,
+                                enableBini = enableBiniLyrics,
+                                enableQQMusic = enableQQLyrics,
+                                enableGenius = enableGeniusLyrics,
                             ).enabledProviders()
                     }.firstOrNull()?.displayName(),
                     icon = { Icon(painterResource(R.drawable.lyrics), null) },

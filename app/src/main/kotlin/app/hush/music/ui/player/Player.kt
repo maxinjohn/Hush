@@ -179,6 +179,7 @@ import app.hush.music.R
 import app.hush.music.canvas.models.CanvasArtwork
 import app.hush.music.constants.CanvasSource
 import app.hush.music.constants.CanvasSourceKey
+import app.hush.music.constants.CanvasWifiOnlyKey
 import app.hush.music.constants.HushCanvasKey
 import app.hush.music.constants.BackdropBlurAmountKey
 import app.hush.music.constants.BackdropEnabledKey
@@ -239,6 +240,7 @@ import app.hush.music.utils.isFetchingTrack
 import app.hush.music.utils.makeTimeString
 import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberLowDataModeActive
+import app.hush.music.utils.rememberNetworkConnectivity
 import app.hush.music.utils.rememberPreference
 import java.util.Locale
 import kotlin.math.abs
@@ -451,6 +453,8 @@ fun BottomSheetPlayer(
     val hushCanvasEnabled by rememberPreference(HushCanvasKey, false)
     val canvasSource by rememberEnumPreference(CanvasSourceKey, CanvasSource.AUTO)
     val lowDataModeActive = rememberLowDataModeActive()
+    val canvasWifiOnly by rememberPreference(CanvasWifiOnlyKey, false)
+    val networkConnectivity = rememberNetworkConnectivity()
     val (maxCanvasCacheSize, _) =
         rememberPreference(
             key = MaxCanvasCacheSizeKey,
@@ -461,6 +465,18 @@ fun BottomSheetPlayer(
 
     LaunchedEffect(maxCanvasCacheSize) {
         CanvasArtworkPlaybackCache.setMaxSize(maxCanvasCacheSize)
+    }
+
+    // Keep the shared policy in sync so canvas video downloads already running in the
+    // background stop as soon as Wi-Fi-only starts refusing the current network.
+    LaunchedEffect(canvasWifiOnly, networkConnectivity) {
+        CanvasNetworkPolicy.update(
+            wifiOnly = canvasWifiOnly,
+            wifiActive = networkConnectivity.wifi,
+        )
+        if (!CanvasNetworkPolicy.allowed) {
+            CanvasArtworkPlaybackCache.cancelDownloads()
+        }
     }
 
     var sliderPosition by remember(mediaMetadata?.id) {
@@ -1107,8 +1123,9 @@ fun BottomSheetPlayer(
             hushCanvasEnabled &&
                 (playerDesignStyle == PlayerDesignStyle.V8 || playerDesignStyle == PlayerDesignStyle.V9) &&
                 !aodModeEnabled
-        val shouldFetchV7Canvas = shouldUseV7Canvas && !lowDataModeActive
-        val shouldFetchArtworkCanvas = shouldUseArtworkCanvas && !lowDataModeActive
+        val canvasNetworkAllowed = !canvasWifiOnly || networkConnectivity.wifi
+        val shouldFetchV7Canvas = shouldUseV7Canvas && !lowDataModeActive && canvasNetworkAllowed
+        val shouldFetchArtworkCanvas = shouldUseArtworkCanvas && !lowDataModeActive && canvasNetworkAllowed
         var v7CanvasArtwork by remember(mediaMetadata?.id) {
             mutableStateOf<CanvasArtwork?>(null)
         }
@@ -1195,6 +1212,7 @@ fun BottomSheetPlayer(
         }
 
         val controlsContent: @Composable ColumnScope.(MediaMetadata) -> Unit = { mediaMetadata ->
+            SponsorBlockSkipOverlay(playerConnection = playerConnection)
             PlayerControlsContent(
                 mediaMetadata = mediaMetadata,
                 playerDesignStyle = playerDesignStyle,

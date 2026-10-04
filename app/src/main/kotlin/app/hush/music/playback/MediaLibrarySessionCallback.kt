@@ -55,6 +55,7 @@ import app.hush.music.constants.AndroidAutoTargetPlaylistKey
 import app.hush.music.constants.AndroidAutoYouTubePlaylistsKey
 import app.hush.music.constants.HideExplicitKey
 import app.hush.music.constants.HideVideoKey
+import app.hush.music.constants.HideYoutubeShortsKey
 import app.hush.music.constants.MediaSessionConstants
 import app.hush.music.constants.PlaylistSongSortType
 import app.hush.music.constants.PlaylistSortType
@@ -72,6 +73,7 @@ import app.hush.music.innertube.models.PlaylistItem
 import app.hush.music.innertube.models.SongItem
 import app.hush.music.innertube.models.filterExplicit
 import app.hush.music.innertube.models.filterVideo
+import app.hush.music.innertube.models.filterYoutubeShorts
 import app.hush.music.models.PersistQueue
 import app.hush.music.playback.MusicService.Companion.PERSISTENT_QUEUE_FILE
 import app.hush.music.spotify.SpotifyLibraryRepository
@@ -1652,6 +1654,7 @@ class MediaLibrarySessionCallback
         private suspend fun homeSuggestedSongs(): List<SongItem> {
             val hideExplicit = context.dataStore.get(HideExplicitKey, false)
             val hideVideo = context.dataStore.get(HideVideoKey, false)
+            val hideShorts = context.dataStore.get(HideYoutubeShortsKey, false)
             return YouTube
                 .home()
                 .getOrNull()
@@ -1660,6 +1663,7 @@ class MediaLibrarySessionCallback
                 .flatMap { it.items }
                 .filterExplicit(hideExplicit)
                 .filterVideo(hideVideo)
+                .filterYoutubeShorts(hideShorts)
                 .filterIsInstance<SongItem>()
                 .distinctBy { it.id }
                 .take(AUTO_BROWSE_LIMIT)
@@ -1777,6 +1781,7 @@ class MediaLibrarySessionCallback
         private suspend fun homeOnlinePlaylists(): List<MediaItem> {
             val hideExplicit = context.dataStore.get(HideExplicitKey, false)
             val hideVideo = context.dataStore.get(HideVideoKey, false)
+            val hideShorts = context.dataStore.get(HideYoutubeShortsKey, false)
             return YouTube
                 .home()
                 .getOrNull()
@@ -1785,6 +1790,7 @@ class MediaLibrarySessionCallback
                 .flatMap { it.items }
                 .filterExplicit(hideExplicit)
                 .filterVideo(hideVideo)
+                .filterYoutubeShorts(hideShorts)
                 .filterIsInstance<PlaylistItem>()
                 .distinctBy { it.id }
                 .take(AUTO_HOME_PLAYLIST_LIMIT)

@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import app.hush.music.ui.theme.HushDesign
 import app.hush.music.ui.theme.hushPressable
 import app.hush.music.constants.SponsorBlockAutoSkipKey
+import app.hush.music.constants.SponsorBlockShowSkipButtonKey
 import app.hush.music.playback.PlayerConnection
 import app.hush.music.utils.rememberPreference
 import app.hush.music.utils.sponsorblock.SegmentCategory
@@ -42,6 +43,7 @@ fun SponsorBlockSkipOverlay(
 ) {
     val segments by SponsorBlockManager.currentSegments.collectAsState()
     val (autoSkip) = rememberPreference(SponsorBlockAutoSkipKey, true)
+    val (showSkipButton) = rememberPreference(SponsorBlockShowSkipButtonKey, true)
 
     if (segments.isEmpty()) return
 
@@ -58,7 +60,7 @@ fun SponsorBlockSkipOverlay(
     }
 
     AnimatedVisibility(
-        visible = !autoSkip && activeSegment != null,
+        visible = !autoSkip && showSkipButton && activeSegment != null,
         enter = slideInVertically { it } + fadeIn(),
         exit = slideOutVertically { it } + fadeOut(),
     ) {

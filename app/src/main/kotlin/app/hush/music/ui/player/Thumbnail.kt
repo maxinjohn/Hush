@@ -110,6 +110,7 @@ import app.hush.music.constants.BackdropBlurAmountKey
 import app.hush.music.constants.BackdropEnabledKey
 import app.hush.music.constants.CanvasSource
 import app.hush.music.constants.CanvasSourceKey
+import app.hush.music.constants.CanvasWifiOnlyKey
 import app.hush.music.constants.CropThumbnailToSquareKey
 import app.hush.music.constants.DisableBlurKey
 import app.hush.music.constants.EnableHapticFeedbackKey
@@ -129,6 +130,7 @@ import app.hush.music.ui.utils.highRes
 import app.hush.music.utils.ImageBlurUtils
 import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberLowDataModeActive
+import app.hush.music.utils.rememberNetworkConnectivity
 import app.hush.music.utils.rememberPreference
 import java.util.Locale
 import kotlin.math.abs
@@ -166,6 +168,8 @@ fun Thumbnail(
     val hushCanvasEnabled by rememberPreference(HushCanvasKey, false)
     val canvasSource by rememberEnumPreference(CanvasSourceKey, CanvasSource.AUTO)
     val lowDataModeActive = rememberLowDataModeActive()
+    val canvasWifiOnly by rememberPreference(CanvasWifiOnlyKey, false)
+    val networkConnectivity = rememberNetworkConnectivity()
     val playerDesignStyle = rememberPlayerDesignStyle()
     val (maxCanvasCacheSize, _) =
         rememberPreference(
@@ -279,6 +283,18 @@ fun Thumbnail(
 
     LaunchedEffect(maxCanvasCacheSize) {
         CanvasArtworkPlaybackCache.setMaxSize(maxCanvasCacheSize)
+    }
+
+    // Keep the shared policy in sync so canvas video downloads already running in the
+    // background stop as soon as Wi-Fi-only starts refusing the current network.
+    LaunchedEffect(canvasWifiOnly, networkConnectivity) {
+        CanvasNetworkPolicy.update(
+            wifiOnly = canvasWifiOnly,
+            wifiActive = networkConnectivity.wifi,
+        )
+        if (!CanvasNetworkPolicy.allowed) {
+            CanvasArtworkPlaybackCache.cancelDownloads()
+        }
     }
 
     // Grid state
@@ -524,7 +540,9 @@ fun Thumbnail(
                                     playerDesignStyle != PlayerDesignStyle.V8 &&
                                     item.mediaId.isNotBlank() &&
                                     item.mediaId == currentMediaItem?.mediaId
-                            val shouldFetchCanvas = shouldUseCanvas && !lowDataModeActive
+                            val shouldFetchCanvas =
+                                shouldUseCanvas && !lowDataModeActive &&
+                                    (!canvasWifiOnly || networkConnectivity.wifi)
                             var canvasArtwork by remember(item.mediaId) { mutableStateOf<CanvasArtwork?>(null) }
                             var canvasFetchInFlight by remember(item.mediaId) { mutableStateOf(false) }
 

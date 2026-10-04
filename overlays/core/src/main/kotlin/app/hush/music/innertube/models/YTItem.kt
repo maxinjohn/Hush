@@ -213,3 +213,14 @@ fun <T : YTItem> List<T>.filterVideo(enabled: Boolean = true) =
     } else {
         this
     }
+
+/**
+ * YouTube Music exposes Shorts shelves as playlists whose browse id starts with "SS".
+ * When the user asks for Shorts to be hidden those shelves never leave the response parser.
+ */
+fun <T : YTItem> List<T>.filterYoutubeShorts(enabled: Boolean = true) =
+    if (enabled) {
+        filterNot { it is PlaylistItem && it.id.startsWith("SS") }
+    } else {
+        this
+    }

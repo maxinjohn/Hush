@@ -19,6 +19,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -36,12 +37,16 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -622,6 +627,211 @@ private fun preferenceOptionKey(
             else -> value.hashCode().toString()
         }
     return "${value?.javaClass?.name.orEmpty()}:$valueKey:$index"
+}
+
+/**
+ * A preference row that opens a bottom sheet of checkable options and commits them on confirm.
+ * Ported from ArchiveTune's [MultiSelectListPreference] for the SponsorBlock category picker.
+ */
+@Composable
+fun <T : Any> MultiSelectListPreference(
+    modifier: Modifier = Modifier,
+    title: @Composable () -> Unit,
+    description: String? = null,
+    icon: (@Composable () -> Unit)? = null,
+    values: List<T>,
+    checkedValues: Set<T>,
+    selectionText: String,
+    valueText: @Composable (T) -> String,
+    isBottomSheetVisible: Boolean,
+    onOpen: () -> Unit,
+    onDismiss: () -> Unit,
+    onValueCheckedChange: (T, Boolean) -> Unit,
+    onConfirm: () -> Unit,
+    isEnabled: Boolean = true,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val coroutineScope = rememberCoroutineScope()
+    val hideSheet: (() -> Unit) -> Unit =
+        remember(coroutineScope, sheetState) {
+            { completion ->
+                coroutineScope
+                    .launch {
+                        sheetState.hide()
+                    }.invokeOnCompletion {
+                        completion()
+                    }
+            }
+        }
+
+    if (isBottomSheetVisible) {
+        MultiSelectPreferenceBottomSheet(
+            title = title,
+            values = values,
+            checkedValues = checkedValues,
+            valueText = valueText,
+            sheetState = sheetState,
+            onDismiss = onDismiss,
+            onValueCheckedChange = onValueCheckedChange,
+            onCancel = { hideSheet(onDismiss) },
+            onConfirm = { hideSheet(onConfirm) },
+        )
+    }
+
+    PreferenceEntry(
+        modifier = modifier,
+        title = title,
+        description = description,
+        icon = icon,
+        content = {
+            Spacer(Modifier.height(10.dp))
+            PreferenceValueChip(selectionText)
+        },
+        trailingContent = {
+            Icon(
+                painter = painterResource(R.drawable.arrow_forward),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(22.dp),
+            )
+        },
+        onClick = onOpen,
+        isEnabled = isEnabled,
+    )
+}
+
+@Composable
+private fun <T : Any> MultiSelectPreferenceBottomSheet(
+    title: @Composable () -> Unit,
+    values: List<T>,
+    checkedValues: Set<T>,
+    valueText: @Composable (T) -> String,
+    sheetState: SheetState,
+    onDismiss: () -> Unit,
+    onValueCheckedChange: (T, Boolean) -> Unit,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        dragHandle = {
+            BottomSheetDefaults.DragHandle(
+                width = 48.dp,
+                height = 5.dp,
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+            )
+        },
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 26.dp)
+                    .padding(bottom = 12.dp),
+        ) {
+            ProvideTextStyle(
+                MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 18.dp, bottom = 22.dp),
+                ) {
+                    title()
+                }
+            }
+
+            LazyColumn(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 520.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 12.dp),
+            ) {
+                itemsIndexed(
+                    items = values,
+                    key = { index, value -> preferenceOptionKey(index, value) },
+                    contentType = { _, _ -> "multi_select_preference_option" },
+                ) { _, value ->
+                    MultiSelectPreferenceOption(
+                        text = valueText(value),
+                        checked = value in checkedValues,
+                        onCheckedChange = { checked -> onValueCheckedChange(value, checked) },
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = onCancel) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+                TextButton(onClick = onConfirm) {
+                    Text(stringResource(android.R.string.ok))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MultiSelectPreferenceOption(
+    text: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val containerColor =
+        if (checked) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        }
+    val contentColor =
+        if (checked) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        }
+
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 64.dp)
+                .clip(MaterialTheme.shapes.extraLarge)
+                .background(containerColor)
+                .toggleable(
+                    value = checked,
+                    onValueChange = onCheckedChange,
+                    role = Role.Checkbox,
+                ).padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = if (checked) FontWeight.Bold else FontWeight.Normal,
+            color = contentColor,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(16.dp))
+        Checkbox(
+            checked = checked,
+            onCheckedChange = null,
+        )
+    }
 }
 
 @Composable

@@ -78,6 +78,9 @@ fun ContentSettings(navController: NavController) {
         )
     val (hideExplicit, onHideExplicitChange) = rememberPreference(key = HideExplicitKey, defaultValue = false)
     val (hideVideo, onHideVideoChange) = rememberPreference(key = HideVideoKey, defaultValue = false)
+    val (hideYoutubeShorts, onHideYoutubeShortsChange) = rememberPreference(key = HideYoutubeShortsKey, defaultValue = false)
+    val (addToPlaylistPosition, onAddToPlaylistPositionChange) =
+        rememberEnumPreference(key = AddToPlaylistPositionKey, defaultValue = AddToPlaylistPosition.END)
     val (lengthTop, onLengthTopChange) = rememberPreference(key = TopSize, defaultValue = "50")
     val (quickPicks, onQuickPicksChange) = rememberEnumPreference(key = QuickPicksKey, defaultValue = QuickPicks.QUICK_PICKS)
 
@@ -95,6 +98,10 @@ fun ContentSettings(navController: NavController) {
     val (enablePaxsenixMusixmatch, _) = rememberPreference(key = EnablePaxsenixMusixmatchLyricsKey, defaultValue = true)
     val (enablePaxsenixYouTube, _) = rememberPreference(key = EnablePaxsenixYouTubeLyricsKey, defaultValue = true)
     val (enableMegalobiz, _) = rememberPreference(key = EnableMegalobizLyricsKey, defaultValue = false)
+    val (enableZemer, _) = rememberPreference(key = EnableZemerLyricsKey, defaultValue = true)
+    val (enableBini, _) = rememberPreference(key = EnableBiniLyricsKey, defaultValue = true)
+    val (enableQQLyrics, _) = rememberPreference(key = EnableQQLyricsKey, defaultValue = false)
+    val (enableGenius, _) = rememberPreference(key = EnableGeniusLyricsKey, defaultValue = false)
     val (providerOrderStr, onProviderOrderStrChange) =
         rememberPreference(key = LyricsProviderOrderKey, defaultValue = "")
 
@@ -119,6 +126,10 @@ fun ContentSettings(navController: NavController) {
                     enablePaxsenixMusixmatch = enablePaxsenixMusixmatch,
                     enablePaxsenixYouTube = enablePaxsenixYouTube,
                     enableMegalobiz = enableMegalobiz,
+                    enableZemer = enableZemer,
+                    enableBini = enableBini,
+                    enableQQMusic = enableQQLyrics,
+                    enableGenius = enableGenius,
                 ),
             onDismiss = { showProviderPriorityDialog = false },
             onOrderChange = onProviderOrderStrChange,
@@ -244,6 +255,36 @@ fun ContentSettings(navController: NavController) {
                     icon = { Icon(painterResource(R.drawable.slow_motion_video), null) },
                     checked = hideVideo,
                     onCheckedChange = onHideVideoChange,
+                )
+            }
+
+            item {
+                SwitchPreference(
+                    title = { Text(stringResource(R.string.hide_youtube_shorts)) },
+                    description = stringResource(R.string.hide_youtube_shorts_desc),
+                    icon = { Icon(painterResource(R.drawable.motion_photos_on), null) },
+                    checked = hideYoutubeShorts,
+                    onCheckedChange = onHideYoutubeShortsChange,
+                )
+            }
+
+            item {
+                ListPreference(
+                    title = { Text(stringResource(R.string.add_to_playlist_position)) },
+                    icon = { Icon(painterResource(R.drawable.queue_music), null) },
+                    selectedValue = addToPlaylistPosition,
+                    values =
+                        listOf(
+                            AddToPlaylistPosition.BEGINNING,
+                            AddToPlaylistPosition.END,
+                        ),
+                    valueText = {
+                        when (it) {
+                            AddToPlaylistPosition.BEGINNING -> stringResource(R.string.add_to_playlist_position_beginning)
+                            AddToPlaylistPosition.END -> stringResource(R.string.add_to_playlist_position_end)
+                        }
+                    },
+                    onValueSelected = onAddToPlaylistPositionChange,
                 )
             }
         }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -99,7 +101,9 @@ import app.hush.music.constants.PlaylistSortType
 import app.hush.music.constants.PlaylistSortTypeKey
 import app.hush.music.constants.PureBlackKey
 import app.hush.music.db.entities.Playlist
+import app.hush.music.extensions.matchesNormalizedQuery
 import app.hush.music.extensions.move
+import app.hush.music.extensions.normalizeForSearch
 import app.hush.music.extensions.toMediaItem
 import app.hush.music.innertube.YouTube
 import app.hush.music.innertube.models.PlaylistItem
@@ -123,6 +127,7 @@ fun LibraryPlaylistsScreen(
     navController: NavController,
     filterContent: (@Composable () -> Unit)?,
     selectedTagIds: Set<String>,
+    searchQuery: String = "",
     viewModel: LibraryPlaylistsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -149,15 +154,17 @@ fun LibraryPlaylistsScreen(
         ).collectAsStateWithLifecycle(initialValue = emptyList())
 
     var showHidden by rememberSaveable { mutableStateOf(false) }
+    val normalizedQuery = remember(searchQuery) { searchQuery.normalizeForSearch() }
 
     val visiblePlaylists =
-        remember(playlists, selectedTagIds, filteredPlaylistIds, showHidden) {
+        remember(playlists, selectedTagIds, filteredPlaylistIds, showHidden, normalizedQuery) {
             playlists.filter { playlist ->
                 val name = playlist.playlist.name
                 val matchesName = !name.contains("episode", ignoreCase = true)
                 val matchesTags = selectedTagIds.isEmpty() || playlist.id in filteredPlaylistIds
                 val matchesVisibility = showHidden || !playlist.playlist.isHidden
-                matchesName && matchesTags && matchesVisibility
+                val matchesQuery = matchesNormalizedQuery(normalizedQuery, name)
+                matchesName && matchesTags && matchesVisibility && matchesQuery
             }
         }
     val mutablePlaylists = remember { mutableStateListOf<Playlist>() }
@@ -447,6 +454,20 @@ fun LibraryPlaylistsScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
+                    if (visiblePlaylists.isEmpty()) {
+                        item(
+                            span = { GridItemSpan(2) },
+                            key = "playlists_empty",
+                            contentType = "library_empty_state",
+                        ) {
+                            LibraryEmptyState(
+                                iconRes = R.drawable.playlist_add,
+                                actionLabelRes = R.string.create_playlist,
+                                onAction = { showCreatePlaylistDialog = true },
+                            )
+                        }
+                    }
+
                     items(
                         items = visiblePlaylists,
                         key = { playlist -> playlist.id },
@@ -487,6 +508,16 @@ fun LibraryPlaylistsScreen(
                     verticalArrangement = Arrangement.spacedBy(spaceBetween),
                     modifier = Modifier.fillMaxSize(),
                 ) {
+                    if (listPlaylists.isEmpty()) {
+                        item(key = "playlists_empty", contentType = "library_empty_state") {
+                            LibraryEmptyState(
+                                iconRes = R.drawable.playlist_add,
+                                actionLabelRes = R.string.create_playlist,
+                                onAction = { showCreatePlaylistDialog = true },
+                            )
+                        }
+                    }
+
                     itemsIndexed(
                         items = listPlaylists,
                         key = { _, playlist -> playlist.id },
@@ -768,9 +799,13 @@ fun PlaylistListCard(
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            // FlowRow instead of Row: on narrow screens (e.g. 360dp) the fixed
+            // thumbnail + action buttons leave the text column too little width,
+            // and a plain Row crushes the tag pill until its text wraps one
+            // letter per line. Flowing the pill to the next line keeps both legible.
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
                     text = "${playlist.songCount} ${stringResource(R.string.tracks_label)}",
@@ -799,11 +834,12 @@ fun PlaylistListCard(
                         text = tagText,
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                         color = tagColor,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
                 if (playlist.playlist.isHidden) {
-                    Spacer(modifier = Modifier.width(8.dp))
                     Icon(
                         painter = painterResource(id = R.drawable.visibility_off),
                         contentDescription = stringResource(R.string.hide_playlist),

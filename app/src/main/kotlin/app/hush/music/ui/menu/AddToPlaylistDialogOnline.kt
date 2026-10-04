@@ -63,6 +63,9 @@ import app.hush.music.ui.component.DefaultDialog
 import app.hush.music.ui.component.ListDialog
 import app.hush.music.ui.component.ListItem
 import app.hush.music.ui.component.PlaylistListItem
+import app.hush.music.constants.AddToPlaylistPosition
+import app.hush.music.constants.AddToPlaylistPositionKey
+import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberPreference
 import timber.log.Timber
 
@@ -82,6 +85,8 @@ fun AddToPlaylistDialogOnline(
     val coroutineScope = rememberCoroutineScope()
     val importResolver = remember { ImportSongResolver() }
     val (importLocalFirst) = rememberPreference(ImportSourcePriorityKey, false)
+    val (addToPlaylistPosition) =
+        rememberEnumPreference(AddToPlaylistPositionKey, defaultValue = AddToPlaylistPosition.END)
     var allPlaylists by remember { mutableStateOf(emptyList<Playlist>()) }
     val playlists = remember(allPlaylists) { playlistsForAddToPlaylist(allPlaylists).asReversed() }
 
@@ -211,7 +216,11 @@ fun AddToPlaylistDialogOnline(
                 val savedResults =
                     if (targetPlaylist != null) {
                         try {
-                            database.addSongToPlaylist(targetPlaylist, preparedResults.mapNotNull { it.resolvedId })
+                            database.addSongToPlaylist(
+                                targetPlaylist,
+                                preparedResults.mapNotNull { it.resolvedId },
+                                prepend = addToPlaylistPosition.prepend,
+                            )
                             preparedResults
                         } catch (error: Exception) {
                             Timber.e(error, "Failed to add imported songs to playlist")

@@ -36,6 +36,7 @@ import kotlinx.coroutines.withContext
 import app.hush.music.R
 import app.hush.music.constants.HideExplicitKey
 import app.hush.music.constants.HideVideoKey
+import app.hush.music.constants.HideYoutubeShortsKey
 import app.hush.music.constants.PlaylistSongSortType
 import app.hush.music.constants.PlaylistSuggestionSource
 import app.hush.music.constants.PlaylistSuggestionSourceKey
@@ -48,6 +49,7 @@ import app.hush.music.innertube.models.SongItem
 import app.hush.music.innertube.models.YTItem
 import app.hush.music.innertube.models.filterExplicit
 import app.hush.music.innertube.models.filterVideo
+import app.hush.music.innertube.models.filterYoutubeShorts
 import app.hush.music.innertube.pages.SearchResult
 import app.hush.music.models.PlaylistSuggestion
 import app.hush.music.models.PlaylistSuggestionPage
@@ -613,6 +615,7 @@ class LocalPlaylistViewModel
         private suspend fun filterSuggestionItems(items: List<YTItem>): List<YTItem> {
             val hideExplicit = context.dataStore.data.first()[HideExplicitKey] ?: false
             val hideVideos = context.dataStore.data.first()[HideVideoKey] ?: false
+            val hideShorts = context.dataStore.data.first()[HideYoutubeShortsKey] ?: false
 
             var filteredItems =
                 items.filter { item ->
@@ -625,6 +628,10 @@ class LocalPlaylistViewModel
 
             if (hideVideos) {
                 filteredItems = filteredItems.filterVideo()
+            }
+
+            if (hideShorts) {
+                filteredItems = filteredItems.filterYoutubeShorts()
             }
             return filteredItems
         }

@@ -779,6 +779,60 @@ fun PlayerMenu(
                             )
                         }
                     }
+                    HorizontalDivider(
+                        modifier = Modifier.padding(start = 56.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+                    // Refetching a download would mean deleting the user's file to download it
+                    // again, so the row is present but not throwable while the song has one: the
+                    // greyed row is the answer to "where did the button go".
+                    val songIsDownloaded = download?.state == Download.STATE_COMPLETED
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                text = stringResource(R.string.refetch_song),
+                                color =
+                                    if (songIsDownloaded) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
+                            )
+                        },
+                        supportingContent = {
+                            Text(
+                                text =
+                                    stringResource(
+                                        if (songIsDownloaded) {
+                                            R.string.refetch_song_downloaded
+                                        } else {
+                                            R.string.refetch_song_desc
+                                        },
+                                    ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        leadingContent = {
+                            Icon(
+                                painter = painterResource(R.drawable.sync),
+                                contentDescription = null,
+                                tint =
+                                    if (songIsDownloaded) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
+                            )
+                        },
+                        modifier =
+                            Modifier.clickable(enabled = !songIsDownloaded) {
+                                onDismiss()
+                                playerConnection.refetchSongFromSource(mediaMetadata.id)
+                            },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+
                     if (externalDownloaderEnabled) {
                         HorizontalDivider(
                             modifier = Modifier.padding(start = 56.dp),

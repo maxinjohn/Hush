@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import app.hush.music.constants.HideExplicitKey
 import app.hush.music.constants.HideVideoKey
+import app.hush.music.constants.HideYoutubeShortsKey
 import app.hush.music.innertube.YouTube
 import app.hush.music.innertube.pages.BrowseResult
 import app.hush.music.utils.dataStore
@@ -42,7 +43,12 @@ class YouTubeBrowseViewModel
                     .browse(browseId, params)
                     .onSuccess {
                         val hideVideo = context.dataStore.get(HideVideoKey, false)
-                        result.value = it.filterExplicit(context.dataStore.get(HideExplicitKey, false)).filterVideo(hideVideo)
+                        val hideShorts = context.dataStore.get(HideYoutubeShortsKey, false)
+                        result.value =
+                            it
+                                .filterExplicit(context.dataStore.get(HideExplicitKey, false))
+                                .filterVideo(hideVideo)
+                                .filterYoutubeShorts(hideShorts)
                     }.onFailure {
                         reportException(it)
                     }

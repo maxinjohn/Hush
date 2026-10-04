@@ -158,6 +158,12 @@ class PlayerConnection(
     }
 
     /**
+     * Re-fetches a song from its source, bypassing the streaming cache, the cached stream URL and
+     * SpotiFLAC's playback copy. False when the song is a download, which is never refetched.
+     */
+    fun refetchSongFromSource(mediaId: String): Boolean = service.refetchSongFromSource(mediaId)
+
+    /**
      * Plays the current track from YouTube for this one play, even though YouTube or its
      * fallback is switched off. Offered by the player's error screen when no enabled source
      * can serve the track; the saved source settings are not changed.

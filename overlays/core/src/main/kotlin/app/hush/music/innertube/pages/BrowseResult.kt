@@ -10,6 +10,7 @@ package app.hush.music.innertube.pages
 import app.hush.music.innertube.models.YTItem
 import app.hush.music.innertube.models.filterExplicit
 import app.hush.music.innertube.models.filterVideo
+import app.hush.music.innertube.models.filterYoutubeShorts
 
 data class BrowseResult(
     val title: String?,
@@ -47,6 +48,23 @@ data class BrowseResult(
                             items =
                                 it.items
                                     .filterVideo()
+                                    .ifEmpty { return@mapNotNull null },
+                        )
+                    },
+            )
+        } else {
+            this
+        }
+
+    fun filterYoutubeShorts(enabled: Boolean = true) =
+        if (enabled) {
+            copy(
+                items =
+                    items.mapNotNull {
+                        it.copy(
+                            items =
+                                it.items
+                                    .filterYoutubeShorts()
                                     .ifEmpty { return@mapNotNull null },
                         )
                     },

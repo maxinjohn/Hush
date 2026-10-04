@@ -25,12 +25,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import app.hush.music.constants.HideExplicitKey
 import app.hush.music.constants.HideVideoKey
+import app.hush.music.constants.HideYoutubeShortsKey
 import app.hush.music.db.MusicDatabase
 import app.hush.music.db.entities.SearchHistory
 import app.hush.music.innertube.YouTube
 import app.hush.music.innertube.models.YTItem
 import app.hush.music.innertube.models.filterExplicit
 import app.hush.music.innertube.models.filterVideo
+import app.hush.music.innertube.models.filterYoutubeShorts
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 import javax.inject.Inject
@@ -92,6 +94,7 @@ class OnlineSearchSuggestionViewModel
                                                     ),
                                                 )
                                                 ?.filterVideo(context.dataStore.get(HideVideoKey, false))
+                                                ?.filterYoutubeShorts(context.dataStore.get(HideYoutubeShortsKey, false))
                                                 ?.distinctBy { it.id }
                                                 ?.take(MAX_RECOMMENDED_ITEMS)
                                                 .orEmpty(),

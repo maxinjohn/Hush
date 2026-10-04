@@ -88,6 +88,8 @@ import app.hush.music.ui.component.HushIconButton
 import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.LocalDatabase
 import app.hush.music.R
+import app.hush.music.constants.AddToPlaylistPosition
+import app.hush.music.constants.AddToPlaylistPositionKey
 import app.hush.music.constants.InnerTubeCookieKey
 import app.hush.music.db.entities.Playlist
 import app.hush.music.innertube.YouTube
@@ -95,6 +97,7 @@ import app.hush.music.innertube.utils.hasYouTubeLoginCookie
 import app.hush.music.ui.component.CreatePlaylistDialog
 import app.hush.music.ui.component.DefaultDialog
 import app.hush.music.ui.component.PlaylistListItem
+import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberPreference
 import java.time.LocalDateTime
 import java.util.Locale
@@ -210,6 +213,8 @@ fun AddToPlaylistDialog(
     val allPlaylists by database.playlistsByCreateDateAsc().collectAsStateWithLifecycle(initialValue = emptyList())
     val playlistPlayCounts by database.playlistPlayCounts().collectAsStateWithLifecycle(initialValue = emptyList())
     val (innerTubeCookie) = rememberPreference(InnerTubeCookieKey, "")
+    val (addToPlaylistPosition) =
+        rememberEnumPreference(AddToPlaylistPositionKey, defaultValue = AddToPlaylistPosition.END)
     val isLoggedIn = remember(innerTubeCookie) { hasYouTubeLoginCookie(innerTubeCookie) }
     var sortOption by rememberSaveable { mutableStateOf(AddToPlaylistSortOption.RECENTLY_CREATED) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -261,12 +266,16 @@ fun AddToPlaylistDialog(
                 }
             }
             if (acceptedSongEntries.isNotEmpty()) {
-                database.addSongEntriesToPlaylist(playlist, acceptedSongEntries)
+                database.addSongEntriesToPlaylist(
+                    playlist,
+                    acceptedSongEntries,
+                    prepend = addToPlaylistPosition.prepend,
+                )
             }
             return acceptedSongEntries.size
         }
 
-        database.addSongToPlaylist(playlist, requestedSongIds)
+        database.addSongToPlaylist(playlist, requestedSongIds, prepend = addToPlaylistPosition.prepend)
         return requestedSongIds.size
     }
 

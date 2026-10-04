@@ -30,6 +30,9 @@ enum class SpotiFLACEngineState {
     /** The user switched the engine off; nothing to say about sessions. */
     DISABLED,
 
+    /** Low data mode is on: the engine is paused so no lossless download is pulled over a metered link. */
+    LOW_DATA,
+
     /** Every source that needs a session is without one, so a verification is what fixes this. */
     NEEDS_VERIFICATION,
 
@@ -72,8 +75,9 @@ object SpotiFLACAvailability {
     /**
      * The engine's state from what is known about it.
      *
-     * Order is the order of authority: a switch the user threw beats everything; a gateway that has
-     * refused the client is not something verifying a source can fix, and saying "verify" for it
+     * Order is the order of authority: a switch the user threw beats everything; low data mode next,
+     * because it is the one state where pulling a lossless file at all is the wrong answer; a gateway
+     * that has refused the client is not something verifying a source can fix, and saying "verify" for it
      * would send the user to solve a check that changes nothing; and only then does a missing session
      * pause the engine.
      *
@@ -87,6 +91,7 @@ object SpotiFLACAvailability {
         sourcesNeedingCheck: Int,
         blockedRemainingMs: Long? = null,
         blockedReason: String? = null,
+        lowDataActive: Boolean = false,
     ): SpotiFLACEngineStatus {
         val verified = verifiedSources.coerceAtLeast(0)
         val needing = sourcesNeedingCheck.coerceAtLeast(0)
@@ -98,6 +103,20 @@ object SpotiFLACAvailability {
                 sourcesNeedingCheck = needing,
                 headline = "Off",
                 detail = "SpotiFLAC is switched off, so playback uses the other source.",
+            )
+
+            // Low data mode outranks everything the engine could say about itself: while it
+            // holds, no lossless byte may be pulled over a metered link, so the engine is not
+            // consulted at all and playback runs on the other source. It sits above the gateway
+            // block on purpose - a block is something verifying a source could lift, and low
+            // data mode is not, so the line has to name the switch the user can actually flip.
+            lowDataActive -> SpotiFLACEngineStatus(
+                state = SpotiFLACEngineState.LOW_DATA,
+                verifiedSources = verified,
+                sourcesNeedingCheck = needing,
+                headline = "Off — low data mode",
+                detail = "Low data mode is on, so SpotiFLAC is paused and playback uses the other source. " +
+                    "Turn low data mode off to use SpotiFLAC.",
             )
 
             blocked -> SpotiFLACEngineStatus(
@@ -168,6 +187,7 @@ object SpotiFLACAvailability {
         context: Context,
         enabled: Boolean,
         sources: List<String>,
+        lowDataActive: Boolean = false,
     ): SpotiFLACEngineStatus {
         if (!enabled) return of(enabled = false, verifiedSources = 0, sourcesNeedingCheck = 0)
         val bridge = SpotiFLACNativeRuntimeBridgeHolder.instance
@@ -182,6 +202,7 @@ object SpotiFLACAvailability {
             sourcesNeedingCheck = states.count { it == SpotiFLACSourceAuthState.NEEDS_VERIFICATION },
             blockedRemainingMs = block?.remainingMs,
             blockedReason = block?.reason,
+            lowDataActive = lowDataActive,
         )
     }
 

@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "id": "static",
+    "name": "Static",
+    "author": "Hush",
+    "githubAuthorUrl": "",
+    "source": "builtin",
+    "drawableResourceName": "static_icon_preview",
+    "aliasClassName": "app.hush.music.MainActivityStatic"
+  }
+]

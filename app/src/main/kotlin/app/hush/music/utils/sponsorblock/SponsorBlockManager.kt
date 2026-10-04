@@ -72,8 +72,21 @@ object SponsorBlockManager {
 
     fun isAutoSkip(): Boolean = _autoSkip
 
+    /** Persists the comma-separated category list and makes it live for the next fetch. */
+    fun setCategories(raw: String?) {
+        activeCategories = parseCategories(raw)
+        scope.launch {
+            App.instance.safeDataStoreEdit { prefs ->
+                prefs[SponsorBlockCategoriesKey] = raw.orEmpty()
+            }
+        }
+    }
+
     fun loadSegments(videoId: String) {
         if (!_isEnabled) return
+        // A transition back to the track we already fetched (repeat, a seek within the
+        // playlist) would otherwise re-pay the request for data we still hold.
+        if (_currentVideoId.value == videoId && _currentSegments.value.isNotEmpty()) return
         _currentVideoId.value = videoId
 
         trackingJob?.cancel()

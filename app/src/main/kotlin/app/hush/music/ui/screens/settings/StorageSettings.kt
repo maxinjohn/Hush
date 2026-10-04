@@ -76,7 +76,6 @@ import kotlinx.coroutines.withContext
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
-import app.hush.music.constants.MaxCanvasCacheSizeKey
 import app.hush.music.spotiflac.SpotiFLACPlaybackCache
 import app.hush.music.constants.MaxImageCacheSizeKey
 import app.hush.music.constants.MaxSongCacheSizeKey
@@ -94,7 +93,6 @@ import app.hush.music.ui.component.NumberPickerPreference
 import app.hush.music.ui.component.PreferenceEntry
 import app.hush.music.ui.component.PreferenceGroup
 import app.hush.music.ui.component.SwitchPreference
-import app.hush.music.ui.player.CanvasArtworkPlaybackCache
 import app.hush.music.ui.utils.backToMain
 import app.hush.music.ui.utils.formatFileSize
 import app.hush.music.utils.rememberPreference
@@ -153,10 +151,6 @@ fun StorageSettings(
         remember {
             cacheSizeValues + (-1)
         }
-    val canvasCacheSizeValues =
-        remember {
-            listOf(0, 64, 128, 256, 512, 1024, 2048, 4096, 8192, -1)
-        }
 
     val (smartTrimmer, onSmartTrimmerChange) =
         rememberPreference(
@@ -173,11 +167,6 @@ fun StorageSettings(
             key = MaxSongCacheSizeKey,
             defaultValue = 1024,
         )
-    val (maxCanvasCacheSize, onMaxCanvasCacheSizeChange) =
-        rememberPreference(
-            key = MaxCanvasCacheSizeKey,
-            defaultValue = 256,
-        )
     val (urlCacheRefreshInterval, onUrlCacheRefreshIntervalChange) =
         rememberPreference(
             key = UrlCacheRefreshIntervalKey,
@@ -186,11 +175,9 @@ fun StorageSettings(
     var clearCacheDialog by remember { mutableStateOf(false) }
     var clearDownloads by remember { mutableStateOf(false) }
     var clearImageCacheDialog by remember { mutableStateOf(false) }
-    var clearCanvasCacheDialog by remember { mutableStateOf(false) }
     var imageCacheSize by remember { mutableStateOf(0L) }
     var playerCacheSize by remember { mutableStateOf(0L) }
     var downloadCacheSize by remember { mutableStateOf(0L) }
-    var canvasCacheBytes by remember { mutableStateOf(0L) }
     // SpotiFLAC playback files are cached songs and share this cap, so they are
     // counted alongside the player cache rather than reported separately.
     var spotiflacCacheBytes by remember { mutableStateOf(0L) }
@@ -226,16 +213,6 @@ fun StorageSettings(
             },
         label = "playerCacheProgress",
     )
-    val canvasCacheProgress by animateFloatAsState(
-        targetValue =
-            if (maxCanvasCacheSize > 0) {
-                val maxCanvasCacheSizeBytes = cacheSizeMegabytesToBytes(maxCanvasCacheSize)
-                (canvasCacheBytes.toFloat() / maxCanvasCacheSizeBytes).coerceIn(0f, 1f)
-            } else {
-                0f
-            },
-        label = "canvasCacheProgress",
-    )
     val isSmartTrimmerAvailable = maxImageCacheSize != 0 || maxSongCacheSize != 0
 
     LaunchedEffect(isSmartTrimmerAvailable) {
@@ -256,12 +233,6 @@ fun StorageSettings(
         withContext(Dispatchers.IO) {
             val spotiCache = SpotiFLACPlaybackCache.getInstance()
             if (maxSongCacheSize == 0) spotiCache?.clear() else spotiCache?.evictIfNeeded()
-        }
-    }
-    LaunchedEffect(maxCanvasCacheSize) {
-        CanvasArtworkPlaybackCache.setMaxSize(maxCanvasCacheSize)
-        if (maxCanvasCacheSize == 0) {
-            viewModel.clearCanvasCache(showFeedback = false)
         }
     }
     LaunchedEffect(imageDiskCache) {
@@ -305,15 +276,6 @@ fun StorageSettings(
                     val cacheSpace = tryOrNull { downloadCache.cacheSpace } ?: 0L
                     if (cacheSpace == 0L) downloadCacheDir.directorySizeBytes() else cacheSpace
                 }
-        }
-    }
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            canvasCacheBytes =
-                withContext(Dispatchers.IO) {
-                    CanvasArtworkPlaybackCache.byteSize()
-                }
-            delay(StorageRefreshIntervalMillis)
         }
     }
 
@@ -551,72 +513,6 @@ fun StorageSettings(
                     onCancel = { clearImageCacheDialog = false },
                     content = {
                         Text(text = stringResource(R.string.clear_image_cache_dialog))
-                    },
-                )
-            }
-
-            PreferenceGroup(title = stringResource(R.string.canvas_cache)) {
-                item {
-                    ListPreference(
-                        title = { Text(stringResource(R.string.max_cache_size)) },
-                        description =
-                            when {
-                                maxCanvasCacheSize < 0 -> {
-                                    stringResource(R.string.size_used, formatFileSize(canvasCacheBytes))
-                                }
-
-                                maxCanvasCacheSize > 0 -> {
-                                    stringResource(
-                                        R.string.storage_size_ratio,
-                                        formatFileSize(canvasCacheBytes),
-                                        formatFileSize(cacheSizeMegabytesToBytes(maxCanvasCacheSize)),
-                                    )
-                                }
-
-                                else -> {
-                                    stringResource(R.string.disable)
-                                }
-                            },
-                        icon = {
-                            Icon(
-                                painter = painterResource(R.drawable.motion_photos_on),
-                                contentDescription = null,
-                            )
-                        },
-                        selectedValue = maxCanvasCacheSize,
-                        values = canvasCacheSizeValues,
-                        valueText = {
-                            when (it) {
-                                0 -> stringResource(R.string.disable)
-                                -1 -> stringResource(R.string.unlimited)
-                                else -> formatFileSize(cacheSizeMegabytesToBytes(it))
-                            }
-                        },
-                        onValueSelected = onMaxCanvasCacheSizeChange,
-                    )
-                }
-                item(visible = maxCanvasCacheSize > 0) {
-                    CacheUsagePreference(progress = canvasCacheProgress)
-                }
-                item {
-                    PreferenceEntry(
-                        title = { Text(stringResource(R.string.clear_canvas_cache)) },
-                        onClick = { clearCanvasCacheDialog = true },
-                    )
-                }
-            }
-
-            if (clearCanvasCacheDialog) {
-                ActionPromptDialog(
-                    title = stringResource(R.string.clear_canvas_cache),
-                    onDismiss = { clearCanvasCacheDialog = false },
-                    onConfirm = {
-                        viewModel.clearCanvasCache()
-                        clearCanvasCacheDialog = false
-                    },
-                    onCancel = { clearCanvasCacheDialog = false },
-                    content = {
-                        Text(text = stringResource(R.string.clear_canvas_cache_dialog))
                     },
                 )
             }

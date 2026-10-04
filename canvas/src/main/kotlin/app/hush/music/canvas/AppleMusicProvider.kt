@@ -14,9 +14,11 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.cache.HttpCache
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.KotlinxSerializationConverter
@@ -50,13 +52,6 @@ object AppleMusicProvider {
     }
 
     // ── Constants ────────────────────────────────────────────────────────────────────
-
-    // Public read-only JWT used by the Apple Music web player for unauthenticated catalog reads.
-    private const val APPLE_MUSIC_TOKEN =
-        "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IldlYlBsYXlLaWQifQ" +
-            ".eyJpc3MiOiJBTVBXZWJQbGF5IiwiaWF0IjoxNzc0NDU2MzgyLCJleHAiOjE3ODE3" +
-            "MTM5ODIsInJvb3RfaHR0cHNfb3JpZ2luIjpbImFwcGxlLmNvbSJdfQ" +
-            ".4n8qYF4qa18sL1E0G9A3qX35cD8wQ-IJcS9Bh8ZT8JV_yLBtVq46B-9-2ZS3EvWHuw3yK9BYFYAhAdTaDm38vQ"
 
     private const val AMP_BASE_URL = "https://amp-api.music.apple.com"
     private const val CACHE_TTL_MS = 1000L * 60 * 60 * 24 // 24 hours
@@ -148,7 +143,56 @@ object AppleMusicProvider {
         return result
     }
 
+    /**
+     * Lightweight liveness probe for the settings health panel: a charts request that must
+     * succeed and carry a results section. Does not touch the artwork cache.
+     */
+    suspend fun isHealthy(): Boolean {
+        return try {
+            val response =
+                catalogGet("$AMP_BASE_URL/v1/catalog/us/charts") {
+                    header("Origin", "https://music.apple.com")
+                    header("Referer", "https://music.apple.com/")
+                    header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    header("Cache-Control", "no-cache")
+                    parameter("types", "albums")
+                    parameter("limit", "1")
+                }
+            response.status == HttpStatusCode.OK && response.body<JsonObject>().containsKey("results")
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.e(error, "Apple Music health check failed")
+            false
+        }
+    }
+
     // ── Core Logic ───────────────────────────────────────────────────────────────────
+
+    private val webToken by lazy { AppleMusicWebToken(client) }
+
+    /**
+     * Catalog request carrying a live web-player token. The token expires, so a rejected
+     * request is retried once with a freshly scraped one before giving up.
+     */
+    private suspend fun catalogGet(
+        url: String,
+        block: HttpRequestBuilder.() -> Unit,
+    ): HttpResponse {
+        suspend fun request(token: String): HttpResponse =
+            client.get(url) {
+                header("Authorization", "Bearer $token")
+                block()
+            }
+
+        val token = webToken.get()
+        val response = request(token)
+        return if (response.status == HttpStatusCode.Unauthorized || response.status == HttpStatusCode.Forbidden) {
+            request(webToken.get(rejectedToken = token))
+        } else {
+            response
+        }
+    }
 
     /**
      * Searches via AMP API and tries to fetch motion artwork.
@@ -169,8 +213,7 @@ object AppleMusicProvider {
 
             val searchUrl = "$AMP_BASE_URL/v1/catalog/$storefront/search"
             val response =
-                client.get(searchUrl) {
-                    header("Authorization", "Bearer $APPLE_MUSIC_TOKEN")
+                catalogGet(searchUrl) {
                     header("Origin", "https://music.apple.com")
                     header("Referer", "https://music.apple.com/")
                     header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
@@ -276,8 +319,7 @@ object AppleMusicProvider {
             Log.d("fetching album $albumId")
             val albumUrl = "$AMP_BASE_URL/v1/catalog/$storefront/albums/$albumId"
             val response =
-                client.get(albumUrl) {
-                    header("Authorization", "Bearer $APPLE_MUSIC_TOKEN")
+                catalogGet(albumUrl) {
                     header("Origin", "https://music.apple.com")
                     header("Referer", "https://music.apple.com/")
                     header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")

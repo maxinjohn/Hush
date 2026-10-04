@@ -76,10 +76,13 @@ import app.hush.music.R
 import app.hush.music.constants.AppBarHeight
 import app.hush.music.constants.ChipSortTypeKey
 import app.hush.music.constants.LibraryFilter
+import app.hush.music.constants.PlaylistTagOrderKey
 import app.hush.music.constants.ShowSpotifyPlaylistsKey
 import app.hush.music.constants.ShowTagsInLibraryKey
+import app.hush.music.constants.toPlaylistTagOrder
 import app.hush.music.db.entities.TagEntity
 import app.hush.music.ui.component.ExpressiveTabChip
+import app.hush.music.ui.component.LibrarySearchBar
 import app.hush.music.ui.component.TagsManagementDialog
 import app.hush.music.ui.theme.HushDesign
 import app.hush.music.ui.theme.HushMotion
@@ -93,9 +96,17 @@ fun LibraryScreen(navController: NavController) {
     val database = LocalDatabase.current
     val (selectedTagIds, onSelectedTagIdsChange) = rememberPlaylistTagFilterState(database)
     val allTags by database.allTags().collectAsState(initial = emptyList())
+    val (playlistTagOrder) = rememberPreference(PlaylistTagOrderKey, defaultValue = "")
+    val orderedTags =
+        remember(allTags, playlistTagOrder) {
+            val orderedIds = playlistTagOrder.toPlaylistTagOrder(allTags.map(TagEntity::id))
+            val rank = orderedIds.withIndex().associate { (index, id) -> id to index }
+            allTags.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
+        }
     val (showTagsInLibrary) = rememberPreference(ShowTagsInLibraryKey, defaultValue = true)
     val (showSpotifyPlaylists) = rememberPreference(ShowSpotifyPlaylistsKey, defaultValue = false)
     var showTagsManagementDialog by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     val activeSelectedTagIds = if (showTagsInLibrary) selectedTagIds else emptySet()
     val libraryFilters =
         remember(showSpotifyPlaylists) {
@@ -357,6 +368,17 @@ fun LibraryScreen(navController: NavController) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            LibrarySearchBar(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
             HorizontalPager(
                 state = pagerState,
                 modifier =
@@ -372,7 +394,7 @@ fun LibraryScreen(navController: NavController) {
                                 if (showTagsInLibrary) {
                                     {
                                         PlaylistTagFilterRow(
-                                            tags = allTags,
+                                            tags = orderedTags,
                                             selectedTagIds = selectedTagIds,
                                             onSelectedTagIdsChange = onSelectedTagIdsChange,
                                             onManageTagsClick = { showTagsManagementDialog = true },
@@ -388,6 +410,7 @@ fun LibraryScreen(navController: NavController) {
                                     pagerState.animateScrollToPage(targetPage.takeIf { it >= 0 } ?: 0)
                                 }
                             },
+                            searchQuery = searchQuery,
                         )
                     }
 
@@ -398,7 +421,7 @@ fun LibraryScreen(navController: NavController) {
                                 if (showTagsInLibrary) {
                                     {
                                         PlaylistTagFilterRow(
-                                            tags = allTags,
+                                            tags = orderedTags,
                                             selectedTagIds = selectedTagIds,
                                             onSelectedTagIdsChange = onSelectedTagIdsChange,
                                             onManageTagsClick = { showTagsManagementDialog = true },
@@ -408,16 +431,21 @@ fun LibraryScreen(navController: NavController) {
                                     null
                                 },
                             selectedTagIds = activeSelectedTagIds,
+                            searchQuery = searchQuery,
                         )
                     }
 
                     LibraryFilter.SPOTIFY -> {
-                        LibrarySpotifyPlaylistsScreen(navController = navController)
+                        LibrarySpotifyPlaylistsScreen(
+                            navController = navController,
+                            searchQuery = searchQuery,
+                        )
                     }
 
                     LibraryFilter.SONGS -> {
                         LibrarySongsScreen(
                             navController = navController,
+                            searchQuery = searchQuery,
                             onDeselect = {
                                 coroutineScope.launch {
                                     pagerState.animateScrollToPage(0)
@@ -429,6 +457,7 @@ fun LibraryScreen(navController: NavController) {
                     LibraryFilter.ARTISTS -> {
                         LibraryArtistsScreen(
                             navController = navController,
+                            searchQuery = searchQuery,
                             onDeselect = {
                                 coroutineScope.launch {
                                     pagerState.animateScrollToPage(0)
@@ -440,6 +469,7 @@ fun LibraryScreen(navController: NavController) {
                     LibraryFilter.ALBUMS -> {
                         LibraryAlbumsScreen(
                             navController = navController,
+                            searchQuery = searchQuery,
                             onDeselect = {
                                 coroutineScope.launch {
                                     pagerState.animateScrollToPage(0)
@@ -451,6 +481,7 @@ fun LibraryScreen(navController: NavController) {
                     LibraryFilter.PODCASTS -> {
                         LibraryPodcastsScreen(
                             navController = navController,
+                            searchQuery = searchQuery,
                             onDeselect = {
                                 coroutineScope.launch {
                                     pagerState.animateScrollToPage(0)

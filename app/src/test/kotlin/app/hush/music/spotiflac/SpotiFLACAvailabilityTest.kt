@@ -80,6 +80,62 @@ class SpotiFLACAvailabilityTest {
     }
 
     @Test
+    fun `low data mode pauses the engine even with verified sources and the switch on`() {
+        // Every SpotiFLAC play is a whole lossless file, so low data mode outranks sessions:
+        // the engine is not consulted and the other source plays instead.
+        val status = SpotiFLACAvailability.of(
+            enabled = true,
+            verifiedSources = 4,
+            sourcesNeedingCheck = 0,
+            lowDataActive = true,
+        )
+        assertEquals(SpotiFLACEngineState.LOW_DATA, status.state)
+        assertFalse(status.usable)
+        assertEquals("Off — low data mode", status.headline)
+        assertTrue(status.detail.contains("Turn low data mode off"))
+    }
+
+    @Test
+    fun `low data mode is named rather than a gateway block or a missing session`() {
+        // Both of those are reasons verifying could fix; low data mode is not, so it has to be
+        // the one on screen or the user is sent to solve a check that changes nothing.
+        val status = SpotiFLACAvailability.of(
+            enabled = true,
+            verifiedSources = 0,
+            sourcesNeedingCheck = 4,
+            blockedRemainingMs = 60_000,
+            blockedReason = "gateway is refusing this connection (HTTP 429)",
+            lowDataActive = true,
+        )
+        assertEquals(SpotiFLACEngineState.LOW_DATA, status.state)
+        assertFalse(status.usable)
+    }
+
+    @Test
+    fun `a switched-off engine is still off under low data mode, for its own reason`() {
+        val status = SpotiFLACAvailability.of(
+            enabled = false,
+            verifiedSources = 2,
+            sourcesNeedingCheck = 0,
+            lowDataActive = true,
+        )
+        assertEquals(SpotiFLACEngineState.DISABLED, status.state)
+        assertEquals("Off", status.headline)
+    }
+
+    @Test
+    fun `low data mode lapses and the engine is ready again without touching the switch`() {
+        val status = SpotiFLACAvailability.of(
+            enabled = true,
+            verifiedSources = 2,
+            sourcesNeedingCheck = 0,
+            lowDataActive = false,
+        )
+        assertEquals(SpotiFLACEngineState.READY, status.state)
+        assertTrue(status.usable)
+    }
+
+    @Test
     fun `a gateway block pauses the engine and is not reported as a missing session`() {
         // Verifying a source cannot lift a client-wide block, so sending the user to a Cloudflare
         // check for it would be a dead end dressed up as a fix.

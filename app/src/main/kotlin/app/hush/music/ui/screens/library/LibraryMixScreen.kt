@@ -88,12 +88,16 @@ import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
 import app.hush.music.constants.LibraryFilter
 import app.hush.music.constants.ShowSpotifyPlaylistsKey
+import app.hush.music.extensions.matchesNormalizedQuery
+import app.hush.music.extensions.normalizeForSearch
 import app.hush.music.extensions.toMediaItem
 import app.hush.music.playback.queues.ListQueue
+import app.hush.music.spotify.SpotifyLikedSongs
 import app.hush.music.spotify.SpotifyLibraryViewModel
 import app.hush.music.ui.component.SpotifyPlaylistCarouselCard
 import app.hush.music.spotify.models.SpotifyPlaylist
 import app.hush.music.ui.component.ExpressivePullToRefreshBox
+import app.hush.music.ui.screens.Screens
 import app.hush.music.ui.theme.HushDesign
 import app.hush.music.ui.theme.hushPressable
 import app.hush.music.utils.rememberPreference
@@ -103,6 +107,7 @@ import app.hush.music.viewmodels.LibraryTopMixUiModel
 import app.hush.music.viewmodels.LibraryTopMixesUiState
 import app.hush.music.viewmodels.MostPlayedAlbumUiModel
 import app.hush.music.viewmodels.MostPlayedAlbumUiState
+import com.google.common.collect.ImmutableList
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -111,6 +116,7 @@ fun LibraryMixScreen(
     filterContent: (@Composable () -> Unit)?,
     selectedTagIds: Set<String>,
     onTabSelected: (LibraryFilter) -> Unit,
+    searchQuery: String = "",
     viewModel: LibraryMixViewModel = hiltViewModel(),
     spotifyLibraryViewModel: SpotifyLibraryViewModel = hiltViewModel(),
 ) {
@@ -130,30 +136,98 @@ fun LibraryMixScreen(
     val mostPlayedAlbumUiState by viewModel.mostPlayedAlbumUiState.collectAsStateWithLifecycle()
     val topMixesUiState by viewModel.topMixesUiState.collectAsStateWithLifecycle()
     val spotifyPlaylists by spotifyLibraryViewModel.playlists.collectAsStateWithLifecycle()
+    val likedSongsTotal by spotifyLibraryViewModel.likedSongsTotal.collectAsStateWithLifecycle()
     val (showSpotifyPlaylists) = rememberPreference(ShowSpotifyPlaylistsKey, false)
+    // Same entry the Library's Spotify filter and Home show, so all three agree on what the
+    // account offers, and none of them invents one for an account with nothing saved.
+    val likedSongsTitle = stringResource(R.string.liked_songs)
+    val likedSongs =
+        likedSongsTotal
+            ?.takeIf { total -> total > 0 }
+            ?.let { total -> SpotifyLikedSongs.playlist(displayName = likedSongsTitle, total = total) }
 
     val filteredPlaylistIds by database
         .playlistIdsByTags(
             if (selectedTagIds.isEmpty()) emptyList() else selectedTagIds.toList(),
         ).collectAsState(initial = emptyList())
 
+    val normalizedQuery = remember(searchQuery) { searchQuery.normalizeForSearch() }
+
+    val visibleRecentSongs =
+        remember(recentSongs, normalizedQuery) {
+            if (normalizedQuery.isBlank()) {
+                recentSongs
+            } else {
+                recentSongs.filter { song ->
+                    val artistNames = song.artists.map { it.name }.toTypedArray()
+                    matchesNormalizedQuery(normalizedQuery, song.song.title, *artistNames)
+                }
+            }
+        }
+
+    val visibleArtists =
+        remember(artists, normalizedQuery) {
+            if (normalizedQuery.isBlank()) {
+                artists
+            } else {
+                artists.filter { artist -> matchesNormalizedQuery(normalizedQuery, artist.artist.name) }
+            }
+        }
+
     val visiblePlaylists =
-        remember(playlists, selectedTagIds, filteredPlaylistIds) {
+        remember(playlists, selectedTagIds, filteredPlaylistIds, normalizedQuery) {
             playlists.filter { playlist ->
                 val name = playlist.playlist.name
                 val matchesName = !name.contains("episode", ignoreCase = true)
                 val matchesTags = selectedTagIds.isEmpty() || playlist.id in filteredPlaylistIds
-                matchesName && matchesTags
+                val matchesQuery = matchesNormalizedQuery(normalizedQuery, name)
+                matchesName && matchesTags && matchesQuery
             }
         }
     val visibleSpotifyPlaylists =
-        remember(showSpotifyPlaylists, spotifyPlaylists) {
-            if (showSpotifyPlaylists) {
-                spotifyPlaylists
+        remember(showSpotifyPlaylists, spotifyPlaylists, likedSongs, normalizedQuery) {
+            val allPlaylists =
+                if (showSpotifyPlaylists) {
+                    listOfNotNull(likedSongs) + spotifyPlaylists
+                } else {
+                    emptyList()
+                }
+            if (normalizedQuery.isBlank()) {
+                allPlaylists
             } else {
-                emptyList()
+                allPlaylists.filter { playlist -> matchesNormalizedQuery(normalizedQuery, playlist.name) }
             }
         }
+
+    val topMixesState = topMixesUiState
+    val searchedTopMixesState =
+        if (normalizedQuery.isBlank()) {
+            topMixesState
+        } else {
+            when (topMixesState) {
+                is LibraryTopMixesUiState.Success ->
+                    topMixesState.copy(
+                        mixes =
+                            ImmutableList.copyOf(
+                                topMixesState.mixes.filter { mix -> matchesNormalizedQuery(normalizedQuery, mix.title) },
+                            ),
+                    )
+
+                else -> topMixesState
+            }
+        }
+    val topMixHasMatches =
+        (searchedTopMixesState as? LibraryTopMixesUiState.Success)?.mixes?.isNotEmpty() == true
+
+    // True while a search matches nothing anywhere on this dashboard: every content
+    // section below is hidden, so the list would otherwise render completely empty.
+    val searchMatchedNothing =
+        normalizedQuery.isNotBlank() &&
+            !topMixHasMatches &&
+            visibleRecentSongs.isEmpty() &&
+            visibleArtists.isEmpty() &&
+            visiblePlaylists.isEmpty() &&
+            visibleSpotifyPlaylists.isEmpty()
 
     LaunchedEffect(viewModel) {
         viewModel.topMixEvents.collect { message ->
@@ -178,6 +252,7 @@ fun LibraryMixScreen(
             contentPadding = PaddingValues(bottom = playerAwareBottomPadding),
             modifier = Modifier.fillMaxSize(),
         ) {
+            if (normalizedQuery.isBlank()) {
             item(key = "most_played_album_spotlight", contentType = "spotlight") {
                 val state = mostPlayedAlbumUiState
                 if (state is MostPlayedAlbumUiState.Success) {
@@ -209,6 +284,9 @@ fun LibraryMixScreen(
             }
 
             // 2. Shortcuts 2x2 Grid
+            }
+
+            if (normalizedQuery.isBlank()) {
             item(key = "shortcuts_grid") {
                 Column(
                     modifier =
@@ -273,8 +351,10 @@ fun LibraryMixScreen(
                 }
             }
 
+            }
+
             // 3. Recently Played Horizontal Row
-            if (recentSongs.isNotEmpty()) {
+            if (visibleRecentSongs.isNotEmpty()) {
                 item(key = "recently_played") {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
@@ -288,7 +368,7 @@ fun LibraryMixScreen(
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            items(recentSongs) { song ->
+                            items(visibleRecentSongs) { song ->
                                 Column(
                                     modifier =
                                         Modifier
@@ -350,9 +430,10 @@ fun LibraryMixScreen(
                 }
             }
 
+            if (normalizedQuery.isBlank() || topMixHasMatches) {
             item(key = "top_mixes") {
                 TopMixesForYouSection(
-                    state = topMixesUiState,
+                    state = searchedTopMixesState,
                     onRefresh = viewModel::refreshTopMixes,
                     onConfigureAi = { navController.navigate("settings/ai_integration") },
                     onPlayMix = { mix ->
@@ -363,6 +444,7 @@ fun LibraryMixScreen(
                         )
                     },
                 )
+            }
             }
 
             val playlistTagFilterContent = filterContent
@@ -559,7 +641,7 @@ fun LibraryMixScreen(
             }
 
             // 5. Your Artists Row
-            if (artists.isNotEmpty()) {
+            if (visibleArtists.isNotEmpty()) {
                 item(key = "your_artists") {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Row(
@@ -595,7 +677,7 @@ fun LibraryMixScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            items(artists.take(10)) { item ->
+                            items(visibleArtists.take(10)) { item ->
                                 val artist = item.artist
                                 Column(
                                     modifier =
@@ -663,6 +745,15 @@ fun LibraryMixScreen(
                             }
                         }
                     }
+                }
+            }
+            if (searchMatchedNothing) {
+                item(key = "mix_search_empty", contentType = "library_empty_state") {
+                    LibraryEmptyState(
+                        iconRes = R.drawable.search,
+                        actionLabelRes = R.string.search_yt_music,
+                        onAction = { navController.navigate(Screens.ROUTE_SEARCH) },
+                    )
                 }
             }
         }

@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 import app.hush.music.canvas.AppleMusicProvider
 import app.hush.music.canvas.HushCanvas
 import app.hush.music.canvas.HushMusicCanvasProvider
+import app.hush.music.canvas.SpotifyCanvasProvider
 import app.hush.music.canvas.TidalCanvasProvider
 import app.hush.music.canvas.models.CanvasArtwork
 import app.hush.music.constants.CanvasSource
@@ -144,6 +145,10 @@ private suspend fun fetchFromSource(
                     song = song,
                     artist = artist,
                     storefront = storefront,
+                ).validated() ?: SpotifyCanvasProvider
+                .getBySongArtist(
+                    song = song,
+                    artist = artist,
                 ).validated()
         }
 
@@ -176,6 +181,13 @@ private suspend fun fetchFromSource(
                     artist = artist,
                     album = albumName.takeIf { it.isNotBlank() },
                 ).validated()
+
+        CanvasSource.SPOTIFY ->
+            SpotifyCanvasProvider
+                .getBySongArtist(
+                    song = song,
+                    artist = artist,
+                ).validated()
     }
 }
 
@@ -187,7 +199,11 @@ private suspend fun fetchCanvasArtworkByAlbumFallback(
     requireVertical: Boolean,
     canvasSource: CanvasSource,
 ): CanvasArtwork? {
-    if (canvasSource == CanvasSource.TIDAL || canvasSource == CanvasSource.HUSH_CANVAS) {
+    if (
+        canvasSource == CanvasSource.TIDAL ||
+            canvasSource == CanvasSource.HUSH_CANVAS ||
+            canvasSource == CanvasSource.SPOTIFY
+    ) {
         return null
     }
 

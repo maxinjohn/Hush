@@ -41,6 +41,10 @@ data class LyricsProviderEnableState(
     val enableMusixmatch: Boolean = true,
     val enablePaxsenixYouTube: Boolean,
     val enableMegalobiz: Boolean = false,
+    val enableZemer: Boolean = true,
+    val enableBini: Boolean = true,
+    val enableQQMusic: Boolean = false,
+    val enableGenius: Boolean = false,
 ) {
     fun enabledProviders(): Set<PreferredLyricsProvider> =
         buildSet {
@@ -60,6 +64,10 @@ data class LyricsProviderEnableState(
                 if (enablePaxsenixYouTube) add(PreferredLyricsProvider.PAXSENIX_YOUTUBE)
             }
             if (enableMegalobiz) add(PreferredLyricsProvider.MEGALOBIZ)
+            if (enableZemer) add(PreferredLyricsProvider.ZEMER)
+            if (enableBini) add(PreferredLyricsProvider.BINI)
+            if (enableQQMusic) add(PreferredLyricsProvider.QQ_MUSIC)
+            if (enableGenius) add(PreferredLyricsProvider.GENIUS)
         }
 }
 
@@ -79,6 +87,10 @@ fun PreferredLyricsProvider.displayName(): String =
         PreferredLyricsProvider.PAXSENIX_YOUTUBE -> "Paxsenix: YouTube"
         PreferredLyricsProvider.UNISON -> "Unison"
         PreferredLyricsProvider.MEGALOBIZ -> "Megalobiz"
+        PreferredLyricsProvider.ZEMER -> "Zemer"
+        PreferredLyricsProvider.BINI -> "Bini Lyrics"
+        PreferredLyricsProvider.QQ_MUSIC -> "QQ Music"
+        PreferredLyricsProvider.GENIUS -> "Genius"
     }
 
 @Composable

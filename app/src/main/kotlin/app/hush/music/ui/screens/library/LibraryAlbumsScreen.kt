@@ -78,6 +78,9 @@ import app.hush.music.LocalDatabase
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
+import app.hush.music.ui.screens.Screens
+import app.hush.music.extensions.matchesNormalizedQuery
+import app.hush.music.extensions.normalizeForSearch
 import app.hush.music.constants.AlbumFilter
 import app.hush.music.constants.AlbumFilterKey
 import app.hush.music.constants.AlbumSortDescendingKey
@@ -99,6 +102,7 @@ import app.hush.music.viewmodels.LibraryAlbumsViewModel
 fun LibraryAlbumsScreen(
     navController: NavController,
     onDeselect: () -> Unit,
+    searchQuery: String = "",
     viewModel: LibraryAlbumsViewModel = hiltViewModel(),
 ) {
     val menuState = LocalMenuState.current
@@ -132,14 +136,27 @@ fun LibraryAlbumsScreen(
     val albums by viewModel.allAlbums.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
 
-    val featuredAlbum = albums.firstOrNull()
+    val normalizedQuery = remember(searchQuery) { searchQuery.normalizeForSearch() }
 
     val filteredAlbums =
-        if (hideExplicit) {
-            albums.filter { !it.album.explicit }
-        } else {
-            albums
+        remember(albums, hideExplicit, normalizedQuery) {
+            val visibleAlbums =
+                if (hideExplicit) {
+                    albums.filter { !it.album.explicit }
+                } else {
+                    albums
+                }
+            if (normalizedQuery.isBlank()) {
+                visibleAlbums
+            } else {
+                visibleAlbums.filter { album ->
+                    val artistNames = album.artists.map { it.name }.toTypedArray()
+                    matchesNormalizedQuery(normalizedQuery, album.album.title, *artistNames)
+                }
+            }
         }
+
+    val featuredAlbum = filteredAlbums.firstOrNull()
 
     // Issue 2: player-aware bottom padding
     val playerAwareBottomPadding =
@@ -469,6 +486,20 @@ fun LibraryAlbumsScreen(
                         }
                     }
 
+                    if (filteredAlbums.isEmpty()) {
+                        item(
+                            span = { GridItemSpan(4) },
+                            key = "albums_empty",
+                            contentType = "library_empty_state",
+                        ) {
+                            LibraryEmptyState(
+                                iconRes = R.drawable.album,
+                                actionLabelRes = R.string.search_yt_music,
+                                onAction = { navController.navigate(Screens.ROUTE_SEARCH) },
+                            )
+                        }
+                    }
+
                     // 4-column albums list
                     items(filteredAlbums, key = { it.id }) { album ->
                         Column(
@@ -553,6 +584,16 @@ fun LibraryAlbumsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
+                    if (filteredAlbums.isEmpty()) {
+                        item(key = "albums_empty", contentType = "library_empty_state") {
+                            LibraryEmptyState(
+                                iconRes = R.drawable.album,
+                                actionLabelRes = R.string.search_yt_music,
+                                onAction = { navController.navigate(Screens.ROUTE_SEARCH) },
+                            )
+                        }
+                    }
+
                     items(filteredAlbums, key = { it.id }) { album ->
                         Row(
                             modifier =

@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import app.hush.music.canvas.HushCanvas
+import app.hush.music.canvas.SpotifyCanvasSession
 import app.hush.music.constants.*
 import app.hush.music.extensions.toEnum
 import app.hush.music.innertube.VersionedOkHttpClient
@@ -68,6 +69,8 @@ import app.hush.music.utils.AutoBackupRetention
 import app.hush.music.utils.AutoBackupType
 import app.hush.music.utils.IconUtils
 import app.hush.music.utils.isLowRamDevice
+import app.hush.music.utils.PlaylistCoverInterceptor
+import app.hush.music.utils.sponsorblock.SponsorBlockManager
 import app.hush.music.utils.memoryTrimActionFor
 import app.hush.music.utils.PreferenceStore
 import app.hush.music.utils.ProxyUtils
@@ -83,6 +86,7 @@ import app.hush.music.utils.safeDataStoreEdit
 import app.hush.music.utils.refreshPlaybackLoginContext
 import app.hush.music.utils.toPlaybackAuthState
 import app.hush.music.waze.WazeBridgeManager
+import javax.inject.Inject
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import timber.log.Timber
@@ -104,6 +108,9 @@ class App :
     private val didRunImageCacheTrim = AtomicBoolean(false)
     private var canvasUnlockReceiver: BroadcastReceiver? = null
     private val canvasCacheInitStarted = AtomicBoolean(false)
+
+    @Inject
+    lateinit var playlistCoverInterceptor: PlaylistCoverInterceptor
     private val imageNetworkClientHolder =
         VersionedOkHttpClient(
             versionProvider = YouTube::okHttpNetworkVersion,
@@ -180,6 +187,7 @@ class App :
     private fun initializeCriticalSync() {
         initializeCanvasCacheSafely()
         HushCanvas.initialize(BuildConfig.CANVAS_BEARER_TOKEN)
+        SpotifyCanvasSession.initialize(this)
         PaxsenixLyrics.setUserAgent("Hush", BuildConfig.VERSION_NAME)
 
         val locale = Locale.getDefault()
@@ -278,6 +286,12 @@ class App :
                 // run background work, and this path is a no-op when nothing is due.
                 SpotiFLACSessionRenewer.renewAll(this@App, reason = "app-start")
             }.onFailure { Timber.w(it, "Unable to schedule SpotiFLAC session renewal") }
+
+            // SponsorBlock decides whether it is enabled, which categories to fetch, and the
+            // default skip behaviour when it starts - none of which survives a process death
+            // without this read, so a previously enabled user would silently lose segments.
+            runCatching { SponsorBlockManager.initialize() }
+                .onFailure { Timber.w(it, "Unable to initialize SponsorBlock") }
 
             // A Bridge can have been waiting since Waze started, and the user opening Hush is the
             // signal it never got: tell the installed Bridges to re-attach. Cheap (a package scan
@@ -613,6 +627,7 @@ class App :
             .Builder(this)
             .components {
                 add(OkHttpNetworkFetcherFactory(callFactory = { imageNetworkClient() }))
+                add(playlistCoverInterceptor)
             }
             // A crossfade holds two decoded bitmaps at once. Worth it where the heap is
             // roomy; wasted memory on a device that is already close to its limit.

@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
 import app.hush.music.constants.ParallelSourceFetchKey
+import app.hush.music.constants.SpotiFLACEmbedReplayGainKey
 import app.hush.music.constants.SpotiFLACTryNextSourceKey
 import app.hush.music.constants.SpotiFLACVerifiedOnlyKey
 import app.hush.music.utils.PlaybackDownloadProgress
@@ -2937,7 +2938,7 @@ class SpotiFLACNativeRuntimeBridge @Inject constructor(
         put("quality", quality.uppercase())
         put("embed_metadata", false)
         put("embed_lyrics", false)
-        put("embed_replaygain", false)
+        put("embed_replaygain", PreferenceStore.get(SpotiFLACEmbedReplayGainKey) ?: false)
         put("post_processing_enabled", false)
         put("track_number", 0)
         put("disc_number", 0)

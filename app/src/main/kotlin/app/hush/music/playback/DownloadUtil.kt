@@ -336,9 +336,16 @@ class DownloadUtil
                                 // download, or removal resets the retry budget so the song
                                 // gets a full retry window again instead of being permanently
                                 // blocked after the first 3 failures.
-                                Download.STATE_QUEUED, Download.STATE_COMPLETED -> {
-                                    downloadFailureCounts.remove(download.request.id)
-                                }
+                            Download.STATE_COMPLETED -> {
+                                downloadFailureCounts.remove(download.request.id)
+                                // A completed download is the copy playback serves first, so the
+                                // streaming cache entry for the same song is redundant from here
+                                // on - drop it while the download is known to be whole.
+                                runCatching { playerCache.removeResource(download.request.id) }
+                            }
+                            Download.STATE_QUEUED -> {
+                                downloadFailureCounts.remove(download.request.id)
+                            }
                                 Download.STATE_FAILED -> {
                                     if (isRetryableDownloadFailure(finalException)) {
                                         handleRetryableDownloadFailure(download)
@@ -376,6 +383,10 @@ class DownloadUtil
                             runCatching {
                                 downloadOriginStore.forget(download.request.id)
                             }
+                            // The bytes are gone, including the copy streaming kept of them:
+                            // leaving it made the next play answer from a cache the removal was
+                            // supposed to clear instead of re-resolving from a source.
+                            runCatching { playerCache.removeResource(download.request.id) }
                         }
                     },
                 )
@@ -833,6 +844,10 @@ class DownloadUtil
             fileDownloads.update { it - id }
             runCatching { downloadManager.removeDownload(id) }
             runCatching { downloadCache.removeResource(id) }
+            // With the download gone the song streams again, so the copy streaming cached under
+            // the same key goes too: a refetch that found those bytes first would serve the file
+            // the user just asked to be rid of instead of going back to the source.
+            runCatching { playerCache.removeResource(id) }
             // The song's stamp is dropped once nothing is left on disk for it, which is
             // after the caches above have been purged - not before, or the check would
             // still see the very bytes it is about to delete.
@@ -846,6 +861,7 @@ class DownloadUtil
                 downloadedFileStore.forget(recorded.mediaId)
                 discardCachedPlaybackCopy(recorded.mediaId)
                 downloadOriginStore.forget(recorded.mediaId)
+                runCatching { playerCache.removeResource(recorded.mediaId) }
                 // Same as removeDownload: this id's download-cache bytes go too, so the
                 // stamp check that follows sees the truth rather than the bytes being
                 // deleted underneath it.
@@ -936,6 +952,14 @@ class DownloadUtil
                     ?.let { previous -> runCatching { previous.delete() } }
                 downloadedFileStore.record(entry)
                 downloadOriginStore.record(mediaId, result.origin)
+                // The same audio now lives in the downloads folder as a file playback serves
+                // first, so the copy streaming wrote into the player cache is pure duplication:
+                // it costs the song-cache budget twice and outlives the download it duplicates.
+                // Dropped here rather than at play time, when the download is known to be whole.
+                runCatching { playerCache.removeResource(mediaId) }
+                    .onFailure {
+                        Timber.tag(TAG).w(it, "Unable to drop cached copy for downloaded %s", mediaId)
+                    }
                 markSongDownloaded(mediaId, title)
                 publishFileDownload(
                     mediaId = mediaId,

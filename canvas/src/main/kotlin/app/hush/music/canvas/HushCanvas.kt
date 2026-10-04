@@ -254,8 +254,18 @@ object HushCanvas {
     }
 
     suspend fun isHealthy(): Boolean {
-        val response = runCatching { client.get("health") }.getOrNull() ?: return false
-        return response.status == HttpStatusCode.OK
+        // The fetch path treats the primary host as best-effort and falls back to the mirror,
+        // so health has to as well: the primary can refuse (403) while canvases still serve.
+        val primary =
+            runCatching {
+                client.get("${BASE_URL}health") { header(HttpHeaders.CacheControl, "no-cache") }
+            }.getOrNull()
+        if (primary?.status == HttpStatusCode.OK) return true
+        val fallback =
+            runCatching {
+                fallbackClient.get("${FALLBACK_URL}health") { header(HttpHeaders.CacheControl, "no-cache") }
+            }.getOrNull()
+        return fallback?.status == HttpStatusCode.OK
     }
 
     private fun parseAppleMusicAlbumUrl(url: String): Pair<String, String>? {

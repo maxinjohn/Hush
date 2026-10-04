@@ -60,6 +60,10 @@ class LyricsHelper
                 YouTubeSubtitleLyricsProvider,
                 YouTubeLyricsProvider,
                 MegalobizLyricsProvider,
+                ZemerLyricsProvider,
+                BiniLyricsProvider,
+                QQMusicLyricsProvider,
+                GeniusLyricsProvider,
             )
 
         private val cache = LruCache<String, List<LyricsResult>>(MAX_CACHE_SIZE)
@@ -340,6 +344,10 @@ class LyricsHelper
                     PreferredLyricsProvider.PAXSENIX_YOUTUBE to PaxsenixYouTubeLyricsProvider,
                     PreferredLyricsProvider.UNISON to UnisonLyricsProvider,
                     PreferredLyricsProvider.MEGALOBIZ to MegalobizLyricsProvider,
+                    PreferredLyricsProvider.ZEMER to ZemerLyricsProvider,
+                    PreferredLyricsProvider.BINI to BiniLyricsProvider,
+                    PreferredLyricsProvider.QQ_MUSIC to QQMusicLyricsProvider,
+                    PreferredLyricsProvider.GENIUS to GeniusLyricsProvider,
                 )
             val userOrdered = orderedEnums.mapNotNull { providerMap[it] }
             val rest = baseProviders.filterNot { it in userOrdered }

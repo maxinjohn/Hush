@@ -1319,14 +1319,22 @@ interface DatabaseDao {
         songIds: List<String>,
     ): List<String>
 
+    @Query("UPDATE playlist_song_map SET position = position + :offset WHERE playlistId = :playlistId")
+    fun shiftPlaylistSongPositions(
+        playlistId: String,
+        offset: Int,
+    )
+
     @Transaction
     fun addSongToPlaylist(
         playlist: Playlist,
         songIds: List<String>,
+        prepend: Boolean = false,
     ) {
         addSongEntriesToPlaylist(
             playlist = playlist,
             songEntries = songIds.map { songId -> songId to null },
+            prepend = prepend,
         )
     }
 
@@ -1334,8 +1342,15 @@ interface DatabaseDao {
     fun addSongEntriesToPlaylist(
         playlist: Playlist,
         songEntries: List<Pair<String, String?>>,
+        prepend: Boolean = false,
     ) {
-        var position = playlist.songCount
+        if (songEntries.isEmpty()) return
+        if (prepend) {
+            // Push every existing track down by the number of songs landing in front of it,
+            // then insert from position 0 so the new songs stay in the requested order.
+            shiftPlaylistSongPositions(playlist.id, songEntries.size)
+        }
+        var position = if (prepend) 0 else playlist.songCount
         songEntries.forEach { (songId, setVideoId) ->
             insert(
                 PlaylistSongMap(
@@ -1346,9 +1361,7 @@ interface DatabaseDao {
                 ),
             )
         }
-        if (songEntries.isNotEmpty()) {
-            update(playlist.playlist.copy(lastUpdateTime = LocalDateTime.now()))
-        }
+        update(playlist.playlist.copy(lastUpdateTime = LocalDateTime.now()))
     }
 
     @Transaction
@@ -1525,6 +1538,16 @@ interface DatabaseDao {
     @Transaction
     @Query("DELETE FROM event")
     fun clearListenHistory()
+
+    /** Wipes accumulated listening time so per-song/per-artist stats start over. */
+    @Transaction
+    @Query("UPDATE song SET totalPlayTime = 0 WHERE totalPlayTime != 0")
+    fun resetTotalPlayTime()
+
+    /** Wipes the per-period play counters backing the stats screen. */
+    @Transaction
+    @Query("DELETE FROM playCount")
+    fun clearPlayCounts()
 
     @Transaction
     @Query("DELETE FROM event WHERE id IN (:eventIds)")
@@ -1819,6 +1842,18 @@ interface DatabaseDao {
 
     @Update
     fun update(playlist: PlaylistEntity)
+
+    @Query(
+        """
+        UPDATE playlist SET thumbnailUrl = :thumbnailUrl
+        WHERE browseId = :browseId AND thumbnailUrl = :previousThumbnailUrl
+        """,
+    )
+    fun refreshPlaylistThumbnail(
+        browseId: String,
+        previousThumbnailUrl: String,
+        thumbnailUrl: String,
+    )
 
     @Update
     fun update(map: PlaylistSongMap)

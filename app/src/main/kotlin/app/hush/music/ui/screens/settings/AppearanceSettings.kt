@@ -68,6 +68,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
@@ -119,6 +121,9 @@ import app.hush.music.constants.QuickPicksDisplayModeKey
 import app.hush.music.constants.RandomThemeOnStartupKey
 import app.hush.music.constants.ShowHomeCategoryChipsKey
 import app.hush.music.constants.ShowTagsInLibraryKey
+import app.hush.music.constants.PlaylistTagOrderKey
+import app.hush.music.constants.toPlaylistTagOrder
+import app.hush.music.constants.toPlaylistTagPreference
 import app.hush.music.constants.SliderStyle
 import app.hush.music.constants.SliderStyleKey
 import app.hush.music.constants.SwipeSensitivityKey
@@ -129,6 +134,7 @@ import app.hush.music.ui.component.DefaultDialog
 import app.hush.music.ui.component.EnumListPreference
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.ListPreference
+import app.hush.music.ui.component.PlaylistTagOrderDialog
 import app.hush.music.ui.component.PreferenceEntry
 import app.hush.music.ui.component.PreferenceGroup
 import app.hush.music.ui.component.SwitchPreference
@@ -145,6 +151,8 @@ import app.hush.music.utils.isLowRamDevice
 import app.hush.music.utils.IconUtils
 import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberPreference
+import app.hush.music.viewmodels.PlaylistTagsScreenState
+import app.hush.music.viewmodels.PlaylistTagsViewModel
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -341,6 +349,33 @@ fun AppearanceSettings(
             ShowTagsInLibraryKey,
             defaultValue = true,
         )
+    val playlistTagsViewModel: PlaylistTagsViewModel = hiltViewModel()
+    val playlistTagsState by playlistTagsViewModel.screenState.collectAsStateWithLifecycle()
+    val (playlistTagOrder, onPlaylistTagOrderChange) =
+        rememberPreference(
+            PlaylistTagOrderKey,
+            defaultValue = "",
+        )
+    var showPlaylistTagOrderDialog by remember { mutableStateOf(false) }
+
+    if (showPlaylistTagOrderDialog) {
+        val initialOrder =
+            remember(playlistTagsState, playlistTagOrder) {
+                val tags = (playlistTagsState as? PlaylistTagsScreenState.Success)?.tags.orEmpty()
+                val orderedIds = playlistTagOrder.toPlaylistTagOrder(tags.map { it.id })
+                val rank = orderedIds.withIndex().associate { (index, id) -> id to index }
+                tags.sortedBy { rank[it.id] ?: Int.MAX_VALUE }
+            }
+        PlaylistTagOrderDialog(
+            state = playlistTagsState,
+            initialOrder = initialOrder,
+            onDismiss = { showPlaylistTagOrderDialog = false },
+            onConfirm = { tags ->
+                onPlaylistTagOrderChange(tags.map { it.id }.toPlaylistTagPreference())
+                showPlaylistTagOrderDialog = false
+            },
+        )
+    }
     val (showHomeCategoryChips, onShowHomeCategoryChipsChange) =
         rememberPreference(
             ShowHomeCategoryChipsKey,
@@ -867,6 +902,7 @@ fun AppearanceSettings(
                         CanvasSource.APPLE_MUSIC -> stringResource(R.string.canvas_source_apple_music)
                         CanvasSource.HUSH_CANVAS -> stringResource(R.string.canvas_source_hush_canvas)
                         CanvasSource.TIDAL -> stringResource(R.string.canvas_source_tidal)
+                        CanvasSource.SPOTIFY -> stringResource(R.string.canvas_source_spotify)
                     }
                 PreferenceEntry(
                     title = { Text(stringResource(R.string.canvas_source)) },
@@ -1094,6 +1130,15 @@ fun AppearanceSettings(
                     icon = { Icon(painterResource(R.drawable.filter_alt), null) },
                     checked = showTagsInLibrary,
                     onCheckedChange = onShowTagsInLibraryChange,
+                )
+            }
+
+            item {
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.arrange_playlist_tags)) },
+                    description = stringResource(R.string.arrange_playlist_tags_desc),
+                    icon = { Icon(painterResource(R.drawable.style), null) },
+                    onClick = { showPlaylistTagOrderDialog = true },
                 )
             }
 

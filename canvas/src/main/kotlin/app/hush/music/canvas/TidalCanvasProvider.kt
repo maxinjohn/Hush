@@ -15,6 +15,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.CancellationException
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -68,6 +69,31 @@ object TidalCanvasProvider {
     private val countryCode by lazy {
         val country = Locale.getDefault().country
         if (country.length == 2) country.uppercase(Locale.ROOT) else "US"
+    }
+
+    /**
+     * Lightweight liveness probe for the settings health panel: a track search that must
+     * return at least one item. Does not touch the artwork cache.
+     */
+    suspend fun isHealthy(): Boolean {
+        return try {
+            val response =
+                client.get("${BASE_URL}search") {
+                    header("X-Tidal-Token", TIDAL_TOKEN)
+                    parameter("query", "music")
+                    parameter("limit", "1")
+                    parameter("types", "TRACKS")
+                    parameter("countryCode", countryCode)
+                }
+            if (response.status != HttpStatusCode.OK) return false
+            val section = findSearchSection(response.body<JsonObject>(), "tracks") ?: return false
+            val items = section.jsonObject["items"]?.jsonArray ?: return false
+            items.isNotEmpty()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            false
+        }
     }
 
     suspend fun getBySongArtist(

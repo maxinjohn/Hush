@@ -49,6 +49,7 @@ import app.hush.music.constants.AudioQualityKey
 import app.hush.music.constants.PrefetchCountKey
 import app.hush.music.constants.SourcePriorityKey
 import app.hush.music.constants.SpotiFLACCacheStreamsKey
+import app.hush.music.constants.SpotiFLACEmbedReplayGainKey
 import app.hush.music.constants.SpotiFLACEnabledKey
 import app.hush.music.constants.SpotiFLACFallbackToYouTubeKey
 import app.hush.music.constants.SpotiFLACPrefetchNextKey
@@ -74,6 +75,7 @@ import app.hush.music.spotiflac.SpotiFLACPackageUpdateLog
 import app.hush.music.spotiflac.SpotiFLACPackageUpdateReport
 import app.hush.music.spotiflac.SourceWithState
 import app.hush.music.utils.rememberEnumPreference
+import app.hush.music.utils.rememberLowDataModeActive
 import app.hush.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -90,6 +92,9 @@ fun SpotiFLACSettingsScreen(
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     val (spotiflacEnabled, setSpotiflacEnabled) = rememberPreference(SpotiFLACEnabledKey, defaultValue = false)
+    // Low data mode owns this switch: while it is on, SpotiFLAC is off and cannot be turned on,
+    // because every SpotiFLAC play is a whole lossless file pulled over a metered link.
+    val lowDataActive = rememberLowDataModeActive()
     val (spotiflacQuality, setSpotiflacQuality) = rememberPreference(SpotiFLACQualityKey, defaultValue = "BEST")
     val (youtubeEnabled, setYoutubeEnabled) = rememberPreference(YoutubeStreamingEnabledKey, defaultValue = true)
     val (youtubeQuality, setYoutubeQuality) =
@@ -108,6 +113,8 @@ fun SpotiFLACSettingsScreen(
         rememberPreference(SpotiFLACTryNextSourceKey, defaultValue = true)
     val (parallelFetch, setParallelFetch) =
         rememberPreference(ParallelSourceFetchKey, defaultValue = false)
+    val (embedReplayGain, setEmbedReplayGain) =
+        rememberPreference(SpotiFLACEmbedReplayGainKey, defaultValue = false)
     val (verifiedOnly, setVerifiedOnly) =
         rememberPreference(SpotiFLACVerifiedOnlyKey, defaultValue = true)
     val (cacheStreams, setCacheStreams) =
@@ -330,11 +337,12 @@ fun SpotiFLACSettingsScreen(
      * the thing it describes.
      */
     val spotiflacEngineStatus =
-        remember(spotiflacEnabled, enabledSourceIds, verifyStatus, relayBlock) {
+        remember(spotiflacEnabled, enabledSourceIds, verifyStatus, relayBlock, lowDataActive) {
             SpotiFLACAvailability.current(
                 context = context,
                 enabled = spotiflacEnabled,
                 sources = enabledSourceIds,
+                lowDataActive = lowDataActive,
             )
         }
 
@@ -750,14 +758,17 @@ fun SpotiFLACSettingsScreen(
                     // YouTube switch above follows from the other side.
                     SettingsSwitchRow(
                         title = stringResource(R.string.spotiflac_enabled),
-                        checked = spotiflacEnabled,
+                        // The switch reads off while low data mode holds, and cannot be thrown:
+                        // the stored preference is left alone, so the engine returns the moment
+                        // low data mode does instead of having to be switched back on by hand.
+                        checked = spotiflacEnabled && !lowDataActive,
                         onCheckedChange =
-                            if (youtubeEnabled) {
+                            if (youtubeEnabled && !lowDataActive) {
                                 { enabled -> setSpotiflacEnabled(enabled) }
                             } else {
                                 null
                             },
-                        enabled = youtubeEnabled,
+                        enabled = youtubeEnabled && !lowDataActive,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
@@ -877,6 +888,18 @@ fun SpotiFLACSettingsScreen(
                         )
                         Text(
                             text = stringResource(R.string.spotiflac_parallel_fetch_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        // Off by default: the loudness tags only matter to players that honour
+                        // them, and they change what a downloaded file carries.
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.spotiflac_embed_replaygain),
+                            checked = embedReplayGain,
+                            onCheckedChange = setEmbedReplayGain,
+                        )
+                        Text(
+                            text = stringResource(R.string.spotiflac_embed_replaygain_desc),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

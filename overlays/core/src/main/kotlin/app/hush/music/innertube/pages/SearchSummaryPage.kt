@@ -18,6 +18,7 @@ import app.hush.music.innertube.models.SongItem
 import app.hush.music.innertube.models.YTItem
 import app.hush.music.innertube.models.filterExplicit
 import app.hush.music.innertube.models.filterVideo
+import app.hush.music.innertube.models.filterYoutubeShorts
 import app.hush.music.innertube.models.oddElements
 import app.hush.music.innertube.models.splitBySeparator
 import app.hush.music.innertube.utils.parseTime
@@ -54,6 +55,20 @@ data class SearchSummaryPage(
                     SearchSummary(
                         title = s.title,
                         items = s.items.filterVideo().ifEmpty { return@mapNotNull null },
+                    )
+                },
+            )
+        } else {
+            this
+        }
+
+    fun filterYoutubeShorts(enabled: Boolean) =
+        if (enabled) {
+            SearchSummaryPage(
+                summaries.mapNotNull { s ->
+                    SearchSummary(
+                        title = s.title,
+                        items = s.items.filterYoutubeShorts().ifEmpty { return@mapNotNull null },
                     )
                 },
             )

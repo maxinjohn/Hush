@@ -171,8 +171,32 @@ val EnablePaxsenixYouTubeLyricsKey = booleanPreferencesKey("enablePaxsenixYouTub
 val EnableUnisonLyricsKey = booleanPreferencesKey("enableUnisonLyrics")
 
 val EnableMegalobizLyricsKey = booleanPreferencesKey("enableMegalobizLyrics")
+val EnableZemerLyricsKey = booleanPreferencesKey("enableZemerLyrics")
+val EnableBiniLyricsKey = booleanPreferencesKey("enableBiniLyrics")
+val EnableQQLyricsKey = booleanPreferencesKey("enableQQLyrics")
+val EnableGeniusLyricsKey = booleanPreferencesKey("enableGeniusLyrics")
 val HideExplicitKey = booleanPreferencesKey("hideExplicit")
 val HideVideoKey = booleanPreferencesKey("hideVideo")
+val HideYoutubeShortsKey = booleanPreferencesKey("hideYoutubeShorts")
+
+/** Where newly added songs land in a playlist. [AddToPlaylistPosition.BEGINNING] prepends. */
+val AddToPlaylistPositionKey = stringPreferencesKey("addToPlaylistPosition")
+
+enum class AddToPlaylistPosition {
+    BEGINNING,
+    END,
+    ;
+
+    /** Whether songs are inserted before the playlist's existing tracks. */
+    val prepend: Boolean
+        get() = this == BEGINNING
+}
+
+/** Order the playlist tag chips are shown in, a comma-separated list of tag names. */
+val PlaylistTagOrderKey = stringPreferencesKey("playlistTagOrder")
+
+/** Opt in to embedding ReplayGain loudness tags on SpotiFLAC downloads. */
+val SpotiFLACEmbedReplayGainKey = booleanPreferencesKey("spotiflacEmbedReplayGain")
 val ProxyEnabledKey = booleanPreferencesKey("proxyEnabled")
 val ProxyHostKey = stringPreferencesKey("proxyHost")
 val ProxyPortKey = intPreferencesKey("proxyPort")
@@ -634,6 +658,10 @@ enum class PreferredLyricsProvider {
     MUSIXMATCH,
     PAXSENIX_YOUTUBE,
     MEGALOBIZ,
+    ZEMER,
+    BINI,
+    QQ_MUSIC,
+    GENIUS,
 }
 
 val DefaultLyricsProviderOrder =
@@ -652,6 +680,10 @@ val DefaultLyricsProviderOrder =
         PreferredLyricsProvider.PAXSENIX_MUSIXMATCH,
         PreferredLyricsProvider.PAXSENIX_YOUTUBE,
         PreferredLyricsProvider.MEGALOBIZ,
+        PreferredLyricsProvider.ZEMER,
+        PreferredLyricsProvider.BINI,
+        PreferredLyricsProvider.QQ_MUSIC,
+        PreferredLyricsProvider.GENIUS,
     )
 
 fun deserializeLyricsProviderOrder(orderStr: String?): List<PreferredLyricsProvider> {
@@ -762,7 +794,20 @@ enum class CanvasSource {
     APPLE_MUSIC,
     HUSH_CANVAS,
     TIDAL,
+    SPOTIFY;
+
+    /**
+     * Whether a provider picked in AUTO mode may serve this source selection.
+     */
+    fun accepts(provider: CanvasSource): Boolean = this == AUTO || this == provider
 }
+
+/**
+ * Canvas fetches may be restricted to Wi-Fi. The flag is enforced where canvas artwork is
+ * resolved (Player/Thumbnail) and by [app.hush.music.ui.player.CanvasNetworkPolicy], which
+ * aborts in-flight canvas video downloads when the policy no longer allows them.
+ */
+val CanvasWifiOnlyKey = booleanPreferencesKey("canvasWifiOnly")
 
 val LyricsTextSizeKey = floatPreferencesKey("lyricsTextSize")
 val LyricsLineSpacingKey = floatPreferencesKey("lyricsLineSpacing")

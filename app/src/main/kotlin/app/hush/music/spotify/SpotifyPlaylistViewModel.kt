@@ -7,12 +7,14 @@
 
 package app.hush.music.spotify
 
+import android.content.Context
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.common.collect.ImmutableList
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import app.hush.music.R
 import app.hush.music.spotify.models.SpotifyPlaylist
 import app.hush.music.spotify.models.SpotifyTrack
 import app.hush.music.utils.reportException
@@ -33,6 +36,7 @@ class SpotifyPlaylistViewModel
     @Inject
     constructor(
         savedStateHandle: SavedStateHandle,
+        @ApplicationContext private val context: Context,
         private val repository: SpotifyLibraryRepository,
         private val resolveSpotifyPlaylistDownloads: ResolveSpotifyPlaylistDownloadsUseCase,
     ) : ViewModel() {
@@ -69,8 +73,20 @@ class SpotifyPlaylistViewModel
             }
             reloadJob = viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    val playlist = repository.playlist(playlistId)
-                    val tracks = repository.playlistTracks(playlistId)
+                    // Liked Songs answers neither of the two calls below - it has its own endpoint -
+                    // so its header is built here rather than fetched, and built from the very
+                    // tracks that open onto it so the count in the header can never disagree with
+                    // the rows underneath it.
+                    val (playlist, tracks) =
+                        if (SpotifyLikedSongs.isLiked(playlistId)) {
+                            val liked = repository.likedSongs(limit = Int.MAX_VALUE)
+                            SpotifyLikedSongs.playlist(
+                                displayName = context.getString(R.string.liked_songs),
+                                total = liked.size,
+                            ) to liked
+                        } else {
+                            repository.playlist(playlistId) to repository.playlistTracks(playlistId)
+                        }
                     _uiState.value =
                         SpotifyPlaylistUiState(
                             playlist = playlist,
