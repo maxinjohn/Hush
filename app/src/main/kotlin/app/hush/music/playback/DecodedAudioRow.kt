@@ -91,4 +91,29 @@ object DecodedAudioRow {
 
     /** Whether [row] describes the audio being decoded rather than a resolution's result. */
     fun isDecodedRow(row: FormatEntity?): Boolean = row?.itag == DECODED_ITAG
+
+    /**
+     * [row] with the rate of the audio being decoded, when that rate is known.
+     *
+     * A row that describes a file this device holds can name the file's container, codec and size -
+     * but not its rate, because nothing that wrote that row measured the bytes: the SpotiFLAC cache's
+     * own figures were wrong twice over (see [SpotiFLACFileFormat]). The decoder measured exactly
+     * those bytes, so its rate is the one fact that can fill the gap, and the row keeps everything
+     * else it said - its provenance, its container, its size - by borrowing only the two rate fields.
+     *
+     * A rate the decoder did not report (Media3 samples some streams without one) leaves the row's
+     * own value alone, and a row with neither still says nothing about the rate.
+     */
+    fun withDecodedRate(
+        row: FormatEntity,
+        decoded: FormatEntity?,
+    ): FormatEntity {
+        val bitrate = decoded?.bitrate?.takeIf { it > 0 } ?: row.bitrate
+        val sampleRate = decoded?.sampleRate?.takeIf { it > 0 } ?: row.sampleRate
+        return if (bitrate == row.bitrate && sampleRate == row.sampleRate) {
+            row
+        } else {
+            row.copy(bitrate = bitrate, sampleRate = sampleRate)
+        }
+    }
 }

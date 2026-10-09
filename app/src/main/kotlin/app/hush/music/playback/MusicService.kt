@@ -660,7 +660,8 @@ var originalQueueSize: Int = 0
                     // `serving downloaded file for mediaId=W-KuIsdWexk` read `codec from this
                     // session's resolve` over `(live stream)`, which is the one thing this line is
                     // supposed to make impossible to say.
-                    flowOf(FormatRow(fresh, servedRowSource(storedBytes(mediaId.orEmpty()))))
+                    val source = servedRowSource(storedBytes(mediaId.orEmpty()))
+                    flowOf(FormatRow(deviceFileFormat(fresh, source, decoded), source))
                 } else {
                     storedFormatForUi(mediaId, decoded)
                 }
@@ -700,8 +701,12 @@ var originalQueueSize: Int = 0
             return database
                 .format(id)
                 .map { row ->
-                    row?.let { FormatRow(it, FormatRowSource.DEVICE_FILE) }
-                        ?: decodedRowFor(id, null, decoded)?.let { FormatRow(it, FormatRowSource.DECODED_AUDIO) }
+                    row?.let {
+                        FormatRow(
+                            deviceFileFormat(it, FormatRowSource.DEVICE_FILE, decoded),
+                            FormatRowSource.DEVICE_FILE,
+                        )
+                    } ?: decodedRowFor(id, null, decoded)?.let { FormatRow(it, FormatRowSource.DECODED_AUDIO) }
                 }
         }
         return database
@@ -709,13 +714,33 @@ var originalQueueSize: Int = 0
             .map { row ->
                 val source = row?.let { storedRowSource(id, it) }
                 if (row != null && source != null) {
-                    FormatRow(row, source)
+                    FormatRow(deviceFileFormat(row, source, decoded), source)
                 } else {
                     decodedRowFor(id, row, decoded)?.let { FormatRow(it, FormatRowSource.DECODED_AUDIO) }
                 }
             }
             .flowOn(Dispatchers.IO)
     }
+
+    /**
+     * A row about a file this device serves, with the rate the decoder measured.
+     *
+     * A file-backed row can honestly name the file's container, codec and size, but not its rate: the
+     * SpotiFLAC cache's own figures are not the file's ([SpotiFLACFileFormat]), and a resolve's are
+     * the stream's. The decoder is the only thing that measured the bytes being played, so it fills
+     * the gap - and only for a device file, because a streamed or stored-resolve row is not the
+     * decoder's row to correct.
+     */
+    private fun deviceFileFormat(
+        row: FormatEntity,
+        source: FormatRowSource,
+        decoded: FormatEntity?,
+    ): FormatEntity =
+        if (source == FormatRowSource.DEVICE_FILE) {
+            DecodedAudioRow.withDecodedRate(row, decoded)
+        } else {
+            row
+        }
 
     /**
      * The decoded audio's row for [mediaId], or null when Media3 has not described it yet.
@@ -4035,15 +4060,16 @@ var originalQueueSize: Int = 0
             }
         }
         val file = native.file
-        val mime = when {
-            native.codec.equals("flac", true) || file.extension.equals("flac", true) -> "audio/flac"
-            native.codec.equals("opus", true) || file.extension.equals("opus", true) -> "audio/ogg"
-            native.codec.equals("mp3", true) || file.extension.equals("mp3", true) -> "audio/mpeg"
-            else -> "audio/mp4"
-        }
+        // The same mapping the row for a file already on disk uses, so a track cannot be named one
+        // container while it resolves and another while it plays back.
+        val mime = SpotiFLACFileFormat.containerMime(native.codec, file.extension)
+        // Both branches are bps, which is what `Format.bitrate` means for every other engine's
+        // format - and what every reader of the field divides by 1000. The fallback is CD audio's
+        // nominal 1411 kbps *expressed in bps*; as a bare `1411` it was a kbps figure in a bps field,
+        // which the codec row rendered as `1 kbps`.
         val bitrate = if (native.bitDepth != null && native.sampleRate != null) {
             native.sampleRate * native.bitDepth * 2
-        } else 1411
+        } else 1_411_000
         val format = PlayerResponse.StreamingData.Format(
             itag = app.hush.music.spotiflac.SpotiFLACServedRow.ITAG,
             url = Uri.fromFile(file).toString(),
@@ -4170,32 +4196,30 @@ var originalQueueSize: Int = 0
      * resolution entirely, so the row kept describing whatever engine last resolved the
      * track - typically a ~5 MB YouTube WebM - while a 30 MB FLAC was decoding. That
      * mismatch is what made a correctly-served SpotiFLAC track look like it was still
-     * playing from YouTube. Publishing the file's own codec, sample rate and size keeps
-     * the row and the source label describing the same audio.
+     * playing from YouTube. Publishing the file's container, codec and size keeps the row
+     * and the source label describing the same audio.
+     *
+     * What such a row may *not* say is a rate. The cache entry's figures do not describe
+     * the file: the playback cache names every file `<key>.media`, so the extension named
+     * nothing and the row was stored as `audio/media`, and the rate it carried was a
+     * nominal PCM figure divided by 1000 on its way into a field every reader divides by
+     * 1000 - which is how a cached file came to read `MEDIA - 0 kbps`. Measured on device,
+     * the same entry's `sampleRate` is not the file's rate either: an HE-AAC file whose
+     * entry said `22050` decodes at `44100`. The rate therefore comes from
+     * [DecodedAudioRow], once Media3 has decoded these very bytes. See
+     * [SpotiFLACFileFormat] for what the row states instead.
      */
     private fun publishSpotiFLACFileFormat(mediaId: String) {
         if (!::spotiflacNativeRuntime.isInitialized) return
         val entry =
             runCatching { spotiflacNativeRuntime.cachedPlaybackEntryForMediaId(mediaId) }
                 .getOrNull() ?: return
-        val sampleRate = entry.sampleRate?.takeIf { it > 0 } ?: 44100
-        val bitDepth = entry.bitDepth?.takeIf { it > 0 } ?: 16
-        val extension = entry.extension?.lowercase()?.takeIf { it.isNotBlank() } ?: "flac"
         val formatEntity =
-            FormatEntity(
-                id = mediaId,
-                itag = app.hush.music.spotiflac.SpotiFLACServedRow.ITAG,
-                mimeType = "audio/$extension",
-                codecs = entry.codec?.takeIf { it.isNotBlank() } ?: extension,
-                // Lossless is variable-rate; this is the nominal rate implied by the
-                // stream's own sample format (stereo), the same figure the SpotiFLAC
-                // resolution path reports.
-                bitrate = sampleRate * bitDepth * 2 / 1000,
-                sampleRate = sampleRate,
-                contentLength = entry.sizeBytes.takeIf { it > 0L } ?: 0L,
-                loudnessDb = null,
-                perceptualLoudnessDb = null,
-                playbackUrl = null,
+            SpotiFLACFileFormat.row(
+                mediaId = mediaId,
+                codec = entry.codec,
+                extension = entry.extension,
+                sizeBytes = entry.sizeBytes,
             )
         formatEntityCache[mediaId] = formatEntity
         publishedFormatEntity.value = mediaId to formatEntity
