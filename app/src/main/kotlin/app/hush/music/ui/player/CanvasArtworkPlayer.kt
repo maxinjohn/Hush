@@ -9,11 +9,10 @@
 
 package app.hush.music.ui.player
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,7 +55,26 @@ internal fun CanvasArtworkPlayer(
     fallbackUrl: String?,
     isPlaying: Boolean,
     modifier: Modifier = Modifier,
-    resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT,
+    /**
+     * How the clip fills the layer's own frame. This layer is the whole of the artwork area on every
+     * surface that draws a canvas, and the cover it sits over is drawn to fill that same frame - so
+     * a canvas that does not fill it shows the cover beside itself: two panels where a track change
+     * put one picture.
+     *
+     * A surface laid out at the clip's own aspect ([AspectRatioFrameLayout.RESIZE_MODE_FIT]) is
+     * measured to the video and placed inside the frame instead of over it. Read off the device on a
+     * 1267px square artwork frame playing a 1080x1920 canvas, that surface came out 713px wide and
+     * centred, leaving ~275px of cover down each side of a canvas the player says covers the whole
+     * area. Covering the frame is what a canvas is for, so it is what the layer does unless a caller
+     * asks for something else.
+     */
+    resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+    /**
+     * Where a debug build reads this layer from; see [PlayerDiagnosticsOverlay]. This canvas is the
+     * whole of the artwork area when a track has one, so it is the layer a turn is read against -
+     * and the one that leaves two of them side by side when it stays opaque over a turning page.
+     */
+    diagnostics: PlayerTrackChangeDiagnostics? = null,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -110,8 +128,16 @@ internal fun CanvasArtworkPlayer(
                 ),
             )
         }
+    // One player for as long as this layer is on screen - not one per canvas video.
+    //
+    // Keyed on the url, this built an ExoPlayer per track *and* released the previous one inside
+    // the frame the track change is drawn on, and `release()` blocks until that player's own thread
+    // has let go of its decoders and its surface. Measured on the device, a skip spent part of the
+    // very frame the artwork changes on doing exactly that - the artwork this layer sits over. The
+    // player below is re-pointed at the new video by `LaunchedEffect(currentUrl, exoPlayer)`, which
+    // is the same work minus the player's threads, renderers and surface being rebuilt.
     val exoPlayer =
-        remember(initial, mediaSourceFactory) {
+        remember(mediaSourceFactory) {
             ExoPlayer
                 .Builder(context)
                 .setMediaSourceFactory(mediaSourceFactory)
@@ -128,6 +154,12 @@ internal fun CanvasArtworkPlayer(
                     playWhenReady = isPlaying
                 }
         }
+
+    // The panel's copy of this layer, which has to include the moment it leaves: a canvas that has
+    // gone would otherwise stay reported as ready and opaque over artwork that has none.
+    DisposableEffect(diagnostics) {
+        onDispose { diagnostics?.canvasDetached() }
+    }
 
     LaunchedEffect(isPlaying) {
         exoPlayer.setCanvasPlayback(isPlaying)
@@ -259,11 +291,16 @@ internal fun CanvasArtworkPlayer(
         }
     }
 
-    val alpha by animateFloatAsState(
-        targetValue = if (isVideoReady) 1f else 0f,
-        animationSpec = tween(durationMillis = 300),
-        label = "canvasAlpha",
-    )
+    // The canvas arrives on the frame clock, so it fades in on a device whose system animations are
+    // switched off as well as on one where they are not - see [rememberFrameDrivenFade]. It matters
+    // more here than anywhere: with the canvas on, this layer is the whole of the artwork area, so
+    // a cut here is the track change looking like a cut.
+    val alpha = rememberFrameDrivenFade(isVideoReady)
+
+    // The panel's copy of the fade, read where the frame that draws it read it: a canvas that is
+    // ready but not yet showing, and one that is showing, look the same on a screenshot taken a
+    // moment later.
+    SideEffect { diagnostics?.canvas(ready = isVideoReady, alpha = alpha) }
 
     ContentFrame(
         player = exoPlayer,

@@ -121,6 +121,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -256,6 +257,8 @@ import app.hush.music.ui.component.LocalBottomSheetPageState
 import app.hush.music.ui.component.LocalMenuState
 import app.hush.music.ui.component.MarkdownText
 import app.hush.music.ui.component.NetworkStatusBanner
+import app.hush.music.ui.component.SpotiFLACLosslessNudgeHost
+import app.hush.music.ui.component.SpotiFLACVerifiedBannerHost
 import app.hush.music.ui.component.TopSearch
 import app.hush.music.ui.component.TvNavigationRail
 import app.hush.music.ui.component.rememberBottomSheetState
@@ -2021,31 +2024,30 @@ class MainActivity : ComponentActivity() {
                                                 Modifier
                                                     .align(Alignment.BottomCenter)
                                                     .height(navSlideDistance)
-                                                    .offset {
-                                                        if (bottomNavigationBarHeight == 0.dp) {
-                                                            IntOffset(
-                                                                x = 0,
-                                                                y = navSlideDistance.roundToPx(),
-                                                            )
-                                                        } else {
-                                                            val slideOffset =
-                                                                navSlideDistance *
-                                                                    playerBottomSheetState.progress.coerceIn(
-                                                                        0f,
-                                                                        1f,
-                                                                    )
-                                                            val hideOffset =
-                                                                navSlideDistance *
-                                                                    (
-                                                                        1 -
-                                                                            bottomNavigationBarHeight.coerceAtMost(navVisibleHeight) /
-                                                                            navVisibleHeight
-                                                                    )
-                                                            IntOffset(
-                                                                x = 0,
-                                                                y = (slideOffset + hideOffset).roundToPx(),
-                                                            )
-                                                        }
+                                                    // The bar rides the sheet's progress, which changes on every
+                                                    // pointer sample of a drag: read in a layer block, that costs a
+                                                    // redraw of this bar, where the placement modifier it used to be
+                                                    // cost a layout pass of it on the same frames.
+                                                    .graphicsLayer {
+                                                        translationY =
+                                                            if (bottomNavigationBarHeight == 0.dp) {
+                                                                navSlideDistance.toPx()
+                                                            } else {
+                                                                val slideOffset =
+                                                                    navSlideDistance *
+                                                                        playerBottomSheetState.progress.coerceIn(
+                                                                            0f,
+                                                                            1f,
+                                                                        )
+                                                                val hideOffset =
+                                                                    navSlideDistance *
+                                                                        (
+                                                                            1 -
+                                                                                bottomNavigationBarHeight.coerceAtMost(navVisibleHeight) /
+                                                                                navVisibleHeight
+                                                                        )
+                                                                (slideOffset + hideOffset).toPx()
+                                                            }
                                                     },
                                         ) {
                                             FloatingNavigationToolbar(
@@ -2394,8 +2396,13 @@ class MainActivity : ComponentActivity() {
                         }
 
                         if (!aodModeEnabled) {
-                            NetworkStatusBanner(
-                                state = networkBannerState,
+                            // One slot for both banners, stacked rather than overlapped. The network
+                            // state keeps the top line - being offline is the reason a source cannot
+                            // be used, so it must not be replaced by news about a source - and a
+                            // source landing sits under it. Each is one line of news about something
+                            // that just changed, and neither is ever on screen for long.
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier =
                                     Modifier
                                         .align(Alignment.TopCenter)
@@ -2404,7 +2411,20 @@ class MainActivity : ComponentActivity() {
                                             start = 16.dp,
                                             end = 16.dp,
                                         ).zIndex(10f),
-                            )
+                            ) {
+                                NetworkStatusBanner(state = networkBannerState)
+                                SpotiFLACVerifiedBannerHost(modifier = Modifier.padding(top = 8.dp))
+                                // The one banner here that is *not* news: an offer to turn on
+                                // lossless playback, made at most twice per install and answerable
+                                // in place. It sits below the two status pills so an offline launch
+                                // still leads with the reason nothing can play.
+                                SpotiFLACLosslessNudgeHost(
+                                    onOpenAudioSources = {
+                                        navController.navigate("settings/player/audio_sources")
+                                    },
+                                    modifier = Modifier.padding(top = 8.dp),
+                                )
+                            }
                         }
                     }
 

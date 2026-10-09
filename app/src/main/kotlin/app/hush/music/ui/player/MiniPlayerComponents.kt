@@ -9,6 +9,8 @@
 
 package app.hush.music.ui.player
 
+import app.hush.music.LocalPlayerConnection
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
@@ -55,6 +57,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -64,7 +67,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -82,9 +90,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import app.hush.music.ui.component.hushMarquee
+import app.hush.music.ui.component.rememberFramePhase
 import app.hush.music.R
 import app.hush.music.ui.theme.HushDesign
 import app.hush.music.ui.theme.rememberHushAccentGradient
+import androidx.compose.ui.graphics.Brush
 import app.hush.music.ui.theme.hushPressable
 import app.hush.music.ui.utils.resolvePlaybackArtworkUrl
 import app.hush.music.constants.EnableHapticFeedbackKey
@@ -153,7 +163,13 @@ fun SwipeableMiniPlayerBox(
     coroutineScope: CoroutineScope,
     pureBlack: Boolean = false,
     useLegacyBackground: Boolean = false,
-    content: @Composable (Float) -> Unit,
+    // The swipe's offset arrives as a *provider*, not as a value. Handing over the value meant
+    // reading the drag's animated offset during composition, which re-ran this box - and the whole
+    // mini player it wraps, a pill with a gradient, artwork and a live visualizer - on every frame
+    // of a swipe. A provider leaves the read to whoever draws with it, where it costs a layer
+    // update. This is also why the lambda is remembered: a stable instance is what lets the content
+    // be *skipped* when this box recomposes for its own reasons (the skip affordance, below).
+    content: @Composable (offsetX: () -> Float) -> Unit,
 ) {
     val offsetXAnimatable = remember { Animatable(0f) }
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
@@ -275,25 +291,35 @@ fun SwipeableMiniPlayerBox(
                     }
                 },
     ) {
-        content(offsetXAnimatable.value + dragOffsetX)
+        val swipeOffset: () -> Float = remember { { offsetXAnimatable.value + dragOffsetX } }
+        content(swipeOffset)
 
-        val swipeOffset = offsetXAnimatable.value + dragOffsetX
-        if (swipeOffset.absoluteValue > 50f) {
+        // The affordance is the one thing here that genuinely depends on how far the swipe has got:
+        // it appears past a threshold and leans towards the side being swiped to. Both are derived
+        // states, so they flip when the swipe crosses the line instead of being recomputed - and
+        // re-read - on every frame of it.
+        val showSwipeAffordance by remember {
+            derivedStateOf { swipeOffset().absoluteValue > 50f }
+        }
+        val swipeIsRightward by remember { derivedStateOf { swipeOffset() > 0 } }
+        if (showSwipeAffordance) {
             Box(
                 modifier =
                     Modifier
-                        .align(if (swipeOffset > 0) Alignment.CenterStart else Alignment.CenterEnd)
+                        .align(if (swipeIsRightward) Alignment.CenterStart else Alignment.CenterEnd)
                         .padding(horizontal = 16.dp),
             ) {
                 Icon(
                     painter =
                         painterResource(
-                            if (swipeOffset > 0) R.drawable.skip_previous else R.drawable.skip_next,
+                            if (swipeIsRightward) R.drawable.skip_previous else R.drawable.skip_next,
                         ),
                     contentDescription = null,
                     tint =
                         MaterialTheme.colorScheme.primary.copy(
-                            alpha = (offsetXAnimatable.value.absoluteValue / autoSwipeThreshold).coerceIn(0f, 1f),
+                            alpha =
+                                (swipeOffset().absoluteValue / autoSwipeThreshold)
+                                    .coerceIn(0f, 1f),
                         ),
                     modifier = Modifier.size(24.dp),
                 )
@@ -314,10 +340,16 @@ fun RowScope.MiniPlayerInfo(
                 .padding(horizontal = 12.dp),
         verticalArrangement = Arrangement.Center,
     ) {
+        // The mini player is the same panel in a smaller room: a track change moves it the same
+        // way the full player's does, direction included, so the two never disagree about which
+        // way the queue went.
+        val playerConnection = LocalPlayerConnection.current
+        val trackChangeDirection = LocalTrackChangeDirection.current
+        val queueIndex: () -> Int = { playerConnection?.player?.currentMediaItemIndex ?: 0 }
         AnimatedContent(
             targetState = mediaMetadata.title,
             transitionSpec = {
-                fadeIn(tween(180)) togetherWith fadeOut(tween(120))
+                trackChangeSlide(trackChangeDirection.directionOf(mediaMetadata.id, queueIndex()))
             },
             label = "title",
         ) { title ->
@@ -334,7 +366,7 @@ fun RowScope.MiniPlayerInfo(
         AnimatedContent(
             targetState = mediaMetadata.artists,
             transitionSpec = {
-                fadeIn(tween(180)) togetherWith fadeOut(tween(120))
+                trackChangeSlide(trackChangeDirection.directionOf(mediaMetadata.id, queueIndex()))
             },
             label = "artist",
         ) { artists ->
@@ -359,6 +391,7 @@ private fun MiniPlayerArtwork(
     isLoading: Boolean,
     colors: MiniPlayerContentColors,
     playerConnection: PlayerConnection,
+    auraAccents: List<Color> = emptyList(),
     modifier: Modifier = Modifier,
     downloadProgress: Float? = null,
 ) {
@@ -389,6 +422,13 @@ private fun MiniPlayerArtwork(
                 trackColor = colors.progressTrack,
             )
         }
+
+        // Aura's orbiting comet: it circles the cover only while the music plays, so "playing"
+        // reads from across the room even when the progress ring's crawl is too slow to see.
+        AuraArtworkRing(
+            accents = auraAccents,
+            isPlaying = isPlaying,
+        )
 
         Box(
             contentAlignment = Alignment.Center,
@@ -480,6 +520,76 @@ private fun MiniPlayerArtwork(
     }
 }
 
+/**
+ * Aura's animated artwork ring: a sweep-gradient comet that orbits the cover while the music
+ * plays and is simply not drawn once it pauses, so "playing" reads from across the room even
+ * when the progress ring's crawl is too slow to see. Centered just outside the 48dp artwork box,
+ * so it orbits the wavy progress ring instead of cutting through its band, and drawn as plain
+ * strokes - no blur - so it renders identically on every API level, like the rest of Aura's glow.
+ */
+@Composable
+private fun AuraArtworkRing(
+    accents: List<Color>,
+    isPlaying: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    if (accents.isEmpty()) return
+    // Frame time, not animation time: `rememberInfiniteTransition` paints one frame and holds it
+    // on a device with `animator_duration_scale = 0` (the state this was measured in), which
+    // would strand the comet in place - [rememberFramePhase] no system setting can silence.
+    val spin = rememberFramePhase(AuraArtRingPeriodMillis)
+    val head = accents[0]
+    val tail = accents.getOrElse(1) { head }
+
+    Box(
+        modifier =
+            modifier
+                .size(MiniPlayerArtworkOuterSize)
+                .drawWithCache {
+                    val stroke = 2.dp.toPx()
+                    // Centered 4dp out from the 48dp box: the wavy progress ring's crests reach
+                    // ~25dp, so the comet orbits in the clear instead of cutting through it.
+                    val radius = size.minDimension / 2f + 4.dp.toPx()
+                    val pivot = Offset(size.width / 2f, size.height / 2f)
+                    val ringSize = Size(radius * 2f, radius * 2f)
+                    val ringTopLeft = Offset(pivot.x - radius, pivot.y - radius)
+                    // Bright head, short tail, then nothing: rotating this circle is what makes
+                    // it read as one comet circling the cover rather than a gradient frozen in
+                    // place. The hard transparent-to-head step at the wrap is the comet's nose.
+                    val brush =
+                        Brush.sweepGradient(
+                            colors =
+                                listOf(
+                                    head,
+                                    tail.copy(alpha = tail.alpha * 0.85f),
+                                    head.copy(alpha = 0f),
+                                    head.copy(alpha = 0f),
+                                ),
+                        )
+                    onDrawBehind {
+                        // `isPlaying` is read in draw, so pausing skips the ring outright and the
+                        // pill stops redrawing for a comet nobody can see.
+                        if (isPlaying) {
+                            rotate(spin * 360f, pivot = pivot) {
+                                drawArc(
+                                    brush = brush,
+                                    startAngle = 0f,
+                                    sweepAngle = 360f,
+                                    useCenter = false,
+                                    topLeft = ringTopLeft,
+                                    size = ringSize,
+                                    style = Stroke(width = stroke),
+                                )
+                            }
+                        }
+                    }
+                },
+    )
+}
+
+/** One turn of the comet: slow enough to read as an orbit, quick enough to notice. */
+private const val AuraArtRingPeriodMillis = 4600L
+
 @Composable
 private fun MiniPlayerTransportButton(
     iconResId: Int,
@@ -498,10 +608,12 @@ private fun MiniPlayerTransportButton(
      */
     isLoading: Boolean = false,
     colors: MiniPlayerContentColors,
+    primaryGradient: Brush? = null,
 ) {
     val view = LocalView.current
     val (enableHapticFeedback) = rememberPreference(EnableHapticFeedbackKey, true)
-    val accentGradient = rememberHushAccentGradient()
+    val defaultGradient = rememberHushAccentGradient()
+    val accentGradient = primaryGradient ?: defaultGradient
 
     LaunchedEffect(enableHapticFeedback) {
         view.isHapticFeedbackEnabled = enableHapticFeedback
@@ -591,6 +703,7 @@ private fun MiniPlayerTransportControls(
     isLoading: Boolean,
     playerConnection: PlayerConnection,
     colors: MiniPlayerContentColors,
+    primaryGradient: Brush? = null,
 ) {
     val haptic = LocalHapticFeedback.current
 
@@ -607,6 +720,7 @@ private fun MiniPlayerTransportControls(
             },
             enabled = canSkipPrevious,
             colors = colors,
+            primaryGradient = primaryGradient,
         )
 
         Box(
@@ -634,9 +748,10 @@ private fun MiniPlayerTransportControls(
                     }
                 },
                 isPrimary = true,
-                isLoading = isLoading,
-                colors = colors,
-            )
+            isLoading = isLoading,
+            colors = colors,
+            primaryGradient = primaryGradient,
+        )
         }
 
         MiniPlayerTransportButton(
@@ -648,6 +763,7 @@ private fun MiniPlayerTransportControls(
             },
             enabled = canSkipNext,
             colors = colors,
+            primaryGradient = primaryGradient,
         )
     }
 }
@@ -658,6 +774,8 @@ fun NewMiniPlayerContent(
     duration: Long,
     playerConnection: PlayerConnection,
     colors: MiniPlayerContentColors,
+    primaryGradient: Brush? = null,
+    auraAccents: List<Color> = emptyList(),
 ) {
     val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
     val playbackState by playerConnection.playbackState.collectAsStateWithLifecycle()
@@ -702,6 +820,7 @@ fun NewMiniPlayerContent(
             isLoading = isLoading,
             colors = colors,
             playerConnection = playerConnection,
+            auraAccents = auraAccents,
             downloadProgress = activeDownloadFraction,
         )
 
@@ -750,6 +869,7 @@ fun NewMiniPlayerContent(
                 isLoading = isLoading,
                 playerConnection = playerConnection,
                 colors = colors,
+                primaryGradient = primaryGradient,
             )
         }
     }

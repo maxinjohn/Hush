@@ -93,6 +93,8 @@ In **Settings → Audio Sources** you choose which sources are enabled, order th
 
 Real talk on what got ported from where. This table only moves when I add something new. Patch notes for each version → [Changelog](CHANGELOG.md).
 
+Who wrote it: the italic tag at the end of a patch-note entry names where that entry's code came from — `*(Hush)*` for work written here, and a parent project's name where it is theirs, alone when the code is a straight port and beside Hush when their code was adapted.
+
 | Source | What landed in Hush |
 | --- | --- |
 | **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** | Core app, YT login & sync, playback engine, queue & downloads, crossfade, tempo/pitch, Chromecast, Music Together, Last.fm / ListenBrainz, local files, backup & restore, multi-provider lyrics, podcasts, Android Auto, dynamic theme & canvas art, onboarding, stream-source picker, custom extractor, hi-res / lossless |

@@ -304,8 +304,19 @@ object SpotiFLAutoVerifier {
             // the screen draws from, and a source must read "done" the moment it is.
             recordStep(sourceId, Step.State.VERIFIED)
             SpotiFLACDiag.log("auto-verify done: $sourceId verified")
+            // Said out loud, at the one point every surface reports through: a verification is the
+            // only step in the lossless side that costs the user a Cloudflare check, and it is the
+            // moment the source becomes usable again. Reporting it only where a screen happens to be
+            // looking meant a user who was just listening saw nothing happen at all.
+            SpotiFLACVerifiedBanner.showVerified(sourceId)
             rememberVerifiedMaterial(sourceId)
-            appContext?.let { SpotiFLACVerificationNotifier.clear(it, sourceId) }
+            appContext?.let { context ->
+                SpotiFLACVerificationNotifier.clear(context, sourceId)
+                // The launch notice exists to report exactly this state, so it has to be re-read
+                // when the state moves - otherwise verifying a source leaves the card telling the
+                // user nothing can be fetched while looking at the source that just became usable.
+                vaultScope.launch { SpotiFLACSessionNotice.refresh(context) }
+            }
             runCatching { onSourceVerified?.invoke() }
                 .onFailure { SpotiFLACDiag.log("verified listener failed: ${it.message}") }
         } else {
@@ -428,6 +439,9 @@ object SpotiFLAutoVerifier {
         } + listOfNotNull(SpotiFLACVerificationRequest.pending.value)
         cancel()
         SpotiFLACVerificationRequest.dismiss()
+        // Including the banner: it is a claim that a source is usable, and SpotiFLAC being switched
+        // off is the one state where nothing is.
+        SpotiFLACVerifiedBanner.clear()
         val context = appContext ?: return
         affected.forEach { id -> SpotiFLACVerificationNotifier.clear(context, id) }
         SpotiFLACDiag.log("auto-verify cleared for disable (${affected.size} source(s))")

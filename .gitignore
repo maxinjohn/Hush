@@ -133,5 +133,14 @@ core.*
 /SpotiFLAC-Next/
 /SpotiFLAC-Module-Version/
 
+# Pinned SpotiFLAC Rust backend (worktree materialized by scripts/build-spotiflac-rust.sh)
+/SpotiFLAC-Rust/
+# Rust backend artifacts staged for Gradle by that script (binaries, not committed)
+/app/libs/spotiflac-rust/
+
 # SpotiFLAC runtime state written relative to the source tree (per-install id)
 /app/spotiflac/
+
+# Baseline profile the plugin collects during a device generation run. It is a copy of the rules
+# already committed at app/src/main/baseline-prof.txt, and merging both would double the profile.
+/app/src/*/generated/

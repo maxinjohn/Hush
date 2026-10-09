@@ -23,6 +23,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import app.hush.music.constants.MaxSongCacheSizeKey
+import app.hush.music.db.DatabaseOpener
 import app.hush.music.db.InternalDatabase
 import app.hush.music.db.MusicDatabase
 import app.hush.music.storage.StorageFolderKind
@@ -140,11 +141,16 @@ private class LazyCache(
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
+    /**
+     * The database as [DatabaseOpener] opened it. The open itself is started from `App.onCreate` so
+     * it happens off the main thread; this waits only for whatever is left of it, which on a normal
+     * launch is nothing.
+     */
     @Singleton
     @Provides
     fun provideDatabase(
         @ApplicationContext context: Context,
-    ): MusicDatabase = InternalDatabase.newInstance(context)
+    ): MusicDatabase = DatabaseOpener.await(context)
 
     @Singleton
     @Provides

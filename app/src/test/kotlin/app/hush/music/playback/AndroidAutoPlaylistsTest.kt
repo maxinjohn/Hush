@@ -152,6 +152,47 @@ class AndroidAutoPlaylistsTest {
     }
 
     @Test
+    fun `the lossless offer needs all four of its conditions`() {
+        // A car with no lossless runtime would show an entry that leads to a switch which cannot
+        // do anything; one that already has SpotiFLAC on would ask an answered question; one whose
+        // user dismissed the phone's banner would ask again from a screen with no way to say no;
+        // and one in low data mode would turn on what its own settings screen refuses to turn on.
+        assertTrue(
+            AndroidAutoPlaylists.offersLossless(
+                runtimeAvailable = true,
+                spotiflacEnabled = false,
+                dismissed = false,
+                lowDataModeActive = false,
+            ),
+        )
+        for (
+            blocked in listOf(
+                AndroidAutoPlaylists.offersLossless(true, true, false, false),
+                AndroidAutoPlaylists.offersLossless(true, false, true, false),
+                AndroidAutoPlaylists.offersLossless(true, false, false, true),
+                AndroidAutoPlaylists.offersLossless(false, false, false, false),
+            )
+        ) {
+            assertFalse(blocked)
+        }
+    }
+
+    @Test
+    fun `the offer id addresses the offer and nothing the library holds`() {
+        assertTrue(AndroidAutoPlaylists.isLosslessOffer(AndroidAutoPlaylists.LOSSLESS_OFFER))
+        // A path is split on "/" and dispatched on its first segment, so an id that ever gained a
+        // separator would be read as some other kind of request entirely.
+        assertFalse(AndroidAutoPlaylists.LOSSLESS_OFFER.contains("/"))
+        assertNull(AndroidAutoPlaylists.parseSpotify(AndroidAutoPlaylists.LOSSLESS_OFFER))
+        assertFalse(AndroidAutoPlaylists.isLosslessOffer(AndroidAutoPlaylists.LIKED_PLAYLIST_ID))
+        assertFalse(AndroidAutoPlaylists.isLosslessOffer(AndroidAutoPlaylists.SHUFFLE))
+        assertFalse(AndroidAutoPlaylists.isLosslessOffer("liked"))
+        assertFalse(AndroidAutoPlaylists.isLosslessOffer(""))
+        // No section can be addressed by it either, or the offer would appear as a library group.
+        assertTrue(AndroidAutoPlaylists.Section.entries.none { it.id == AndroidAutoPlaylists.LOSSLESS_OFFER })
+    }
+
+    @Test
     fun `the codec survives a round trip`() {
         val states =
             AndroidAutoPlaylists.Section.entries

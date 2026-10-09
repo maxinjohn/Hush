@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.security.MessageDigest
 import java.util.Base64
 import java.util.Properties
 
@@ -9,6 +10,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.aboutlibraries.android)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 val localProperties = Properties()
@@ -72,8 +74,8 @@ android {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 176
-        versionName = "13.14.6"
+        versionCode = 177
+        versionName = "13.14.7"
 
         ndk {
             // ABI filters are set per product flavor (arm64, universal, etc.).
@@ -232,6 +234,19 @@ android {
             applicationIdSuffix = ".debug"
             isDebuggable = true
         }
+        // What the baseline profile is generated from and measured on: release-shaped, but not
+        // obfuscated, so the generated rules name the real classes and methods (R8 rewrites them for
+        // the release build) and a device install is possible without the release keystore.
+        create("benchmark") {
+            initWith(getByName("release"))
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            matchingFallbacks += listOf("release")
+            // Installed next to the real release app, which is signed with a different key.
+            applicationIdSuffix = ".bench"
+        }
     }
 
     compileOptions {
@@ -292,6 +307,20 @@ android {
         }
     }
 
+}
+
+// The Baseline Profile plugin creates its profile-generation build type (`nonMinifiedRelease`) in
+// its own `afterEvaluate`, so it can only be configured once this project has been evaluated. It
+// inherits `release`, and left alone it carries the release application id while being signed with
+// the debug key: capturing a profile would then install over a real release install on the device,
+// and the tooling that drives the run removes the package it was pointed at when the run ends. It
+// gets the same separate identity the benchmark build type has.
+afterEvaluate {
+    extensions.configure<com.android.build.api.dsl.ApplicationExtension>("android") {
+        buildTypes.named("nonMinifiedRelease") {
+            applicationIdSuffix = ".bench"
+        }
+    }
 }
 
 androidComponents {
@@ -406,6 +435,8 @@ ksp {
 }
 
 dependencies {
+    // The generated baseline profile, produced by :benchmark on a device.
+    baselineProfile(project(":benchmark"))
     // Upstream SpotiFLAC Go runtime (Goja extension engine + signed-session +
     // provider download pipeline), built from the SpotiFLAC-Mobile go_backend
     // via gomobile. Reflection-based access keeps this optional at compile time.
@@ -1670,10 +1701,178 @@ val verifyRowControls =
         doLast(rowControlVerifier(sources.files.sorted(), projectDir))
     }
 
+/**
+ * Rejects a staged Rust backend that does not match the revision the pins file names, as a task
+ * action that carries only its own inputs.
+ *
+ * `scripts/build-spotiflac-rust.sh` stages `app/libs/spotiflac-rust/{jniLibs,kotlin}` into a
+ * gitignored directory and writes a `PROVENANCE` file naming the checkout it built from, with the
+ * SHA-256 of every artifact it copied. Nothing can re-derive that afterwards: a Rust build is not
+ * reproducible bit for bit (paths, build ids, timestamps), so "are these artifacts the pinned
+ * backend?" has no answer from the binaries themselves. The stamp is that answer, taken down at
+ * the one moment both facts are known.
+ *
+ * The window this closes is the one a pin bump opens. The pins file moves to a new revision, the
+ * stage is not rebuilt - it is gitignored, so nothing reminds anyone it is there - and the build
+ * packages the previous backend while every script reports the new one. No test of the app can see
+ * that, and it is a silently wrong backend rather than a failure, so it is checked on every
+ * assemble, where the other three source guards already are.
+ *
+ * An absent stage is not a failure: the stage is not a build input yet (Phase 4 wires it), so a
+ * checkout that never ran the Rust build passes with nothing to say. What cannot pass is a stage
+ * that exists without saying where it came from, or one whose own record no longer describes its
+ * files.
+ */
+fun spotiflacRustStageVerifier(
+    pins: File,
+    stageRoot: File,
+    stagedFiles: List<File>,
+): Action<Task> = object : Action<Task> {
+
+    /** SHA-256 as lowercase hex, the same shape `shasum -a 256` writes into the stamp. */
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(1 shl 16)
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    /** A `NAME="value"` line out of the shell pins file, without sourcing it. */
+    private fun pinValue(name: String): String? =
+        pins
+            .readLines()
+            .firstOrNull { it.startsWith("$name=") }
+            ?.substringAfter('=')
+            ?.trim()
+            ?.removeSurrounding("\"")
+
+    /** The staged artifacts, as stage-relative paths, ignoring what the stamp cannot describe. */
+    private fun artifacts(): List<String> =
+        stagedFiles
+            .filter { it.name != "PROVENANCE" && it.name != ".DS_Store" }
+            .map { it.relativeTo(stageRoot).path.replace(File.separatorChar, '/') }
+            .filter { it.startsWith("jniLibs/") || it.startsWith("kotlin/") }
+            .sorted()
+
+    override fun execute(task: Task) {
+        val onDisk = artifacts()
+        if (onDisk.isEmpty()) return
+
+        val revision = pinValue("SPOTIFLAC_RUST_TAG")
+        val commit = pinValue("SPOTIFLAC_RUST_SHA")
+        val api = pinValue("SPOTIFLAC_ANDROID_API")
+        if (revision.isNullOrBlank() || commit.isNullOrBlank() || api.isNullOrBlank()) {
+            throw GradleException(
+                "${pins.path} does not state SPOTIFLAC_RUST_TAG, SPOTIFLAC_RUST_SHA and " +
+                    "SPOTIFLAC_ANDROID_API, so the staged Rust backend at $stageRoot cannot be checked " +
+                    "against a revision.",
+            )
+        }
+
+        val stamp = File(stageRoot, "PROVENANCE")
+        if (!stamp.isFile) {
+            throw GradleException(
+                buildString {
+                    appendLine("The staged Rust backend at $stageRoot has no PROVENANCE file.")
+                    appendLine()
+                    appendLine("It holds ${onDisk.size} artifact(s) nothing can identify: a Rust build is not")
+                    appendLine("reproducible, so the revision cannot be read back out of the binaries. A stage")
+                    appendLine("like that must not ship.")
+                    appendLine()
+                    append("Rebuild it with: scripts/build-spotiflac-rust.sh")
+                },
+            )
+        }
+
+        var claimedCommit: String? = null
+        var claimedApi: String? = null
+        val claimed = mutableMapOf<String, String>()
+        stamp.readLines().forEach { line ->
+            when {
+                line.startsWith("commit=") -> claimedCommit = line.substringAfter('=').trim()
+                line.startsWith("android_api=") -> claimedApi = line.substringAfter('=').trim()
+                line.startsWith("artifact=") -> {
+                    val rest = line.removePrefix("artifact=")
+                    claimed[rest.substringBefore(" sha256=").trim()] =
+                        rest.substringAfter("sha256=", "").trim()
+                }
+            }
+        }
+
+        val problems = mutableListOf<String>()
+        if (claimedCommit != commit) {
+            problems += "built from ${claimedCommit?.take(7) ?: "an unrecorded revision"}, not the pinned $revision ($commit)"
+        }
+        if (claimedApi != api) {
+            problems += "built for Android API ${claimedApi ?: "unrecorded"}, not the pinned $api"
+        }
+        onDisk.forEach { path ->
+            val recorded = claimed[path]
+            when {
+                recorded == null -> problems += "$path is staged but the stamp does not describe it"
+                recorded != sha256(File(stageRoot, path)) ->
+                    problems += "$path does not match the hash the stamp recorded (replaced or modified since the build)"
+            }
+        }
+        claimed.keys.filterNot { it in onDisk }.forEach { path ->
+            problems += "$path is recorded in the stamp but missing from the stage"
+        }
+
+        if (problems.isNotEmpty()) {
+            throw GradleException(
+                buildString {
+                    appendLine("The staged Rust backend at $stageRoot is not the pinned revision:")
+                    problems.forEach { appendLine("  $it") }
+                    appendLine()
+                    appendLine("Packaging it would ship a backend that no script in this repo claims to build.")
+                    append("Rebuild it with: scripts/build-spotiflac-rust.sh")
+                },
+            )
+        }
+
+        task.logger.lifecycle(
+            "Staged Rust backend verified: $revision ($commit), ${onDisk.size} artifact(s).",
+        )
+    }
+}
+
+/**
+ * Fails when the staged Rust backend does not match `scripts/spotiflac-backend-pins.sh`.
+ *
+ * The revision is read from that file rather than repeated here: the check exists to compare the
+ * stage against the single place a backend revision is written down, so a pin bumped there is
+ * caught by a stage that was not rebuilt - which is the whole point of the guard.
+ */
+val verifySpotiFLACRustStage by tasks.registering {
+    description = "Fails when the staged Rust backend was not built from the revision the pins file names"
+    group = "verification"
+
+    val pinsFile = rootProject.file("scripts/spotiflac-backend-pins.sh")
+    val stageRoot = file("libs/spotiflac-rust")
+    val stageFiles = fileTree(stageRoot)
+    inputs
+        .file(pinsFile)
+        .withPropertyName("backendPins")
+        .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+    inputs
+        .files(stageFiles)
+        .withPropertyName("stagedRustBackend")
+        .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+
+    doLast(spotiflacRustStageVerifier(pinsFile, stageRoot, stageFiles.files.sorted()))
+}
+
 // Every assemble, so the guard runs on the debug builds used locally and on the release
 // builds CI signs - the same reach the NewApi lint guard has.
 tasks.matching { it.name.startsWith("assemble") }.configureEach {
     dependsOn(verifyDownloadNaming)
     dependsOn(verifyMarqueeRouting)
     dependsOn(verifyRowControls)
+    dependsOn(verifySpotiFLACRustStage)
 }

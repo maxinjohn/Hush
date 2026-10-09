@@ -130,27 +130,32 @@ fun PlayerVisualizerOverlay(
             }
             vis.enabled = true
 
-            val fftBuffer = ByteArray(256)
-            val waveBuffer = ByteArray(256)
+            // The capture is a JNI read and an FFT every frame for as long as the visualizer runs.
+            // It runs on the default pool, not the main thread the composition lives on; the state it
+            // writes is snapshot state, which Compose reads on the next frame.
+            withContext(Dispatchers.Default) {
+                val fftBuffer = ByteArray(256)
+                val waveBuffer = ByteArray(256)
 
-            while (isActive && currentEnabled) {
-                try {
-                    // Read FFT
-                    val fftResult = vis.getFft(fftBuffer)
-                    if (fftResult == Visualizer.SUCCESS) {
-                        val processed = processFftToBands(fftBuffer, 16, smoothedBands, peakHold, currentSensitivity)
-                        bands = processed
-                    }
+                while (isActive && currentEnabled) {
+                    try {
+                        // Read FFT
+                        val fftResult = vis.getFft(fftBuffer)
+                        if (fftResult == Visualizer.SUCCESS) {
+                            val processed = processFftToBands(fftBuffer, 16, smoothedBands, peakHold, currentSensitivity)
+                            bands = processed
+                        }
 
-                    // Read waveform
-                    val waveResult = vis.getWaveForm(waveBuffer)
-                    if (waveResult == Visualizer.SUCCESS) {
-                        waveform = processWaveformToSamples(waveBuffer, 64)
+                        // Read waveform
+                        val waveResult = vis.getWaveForm(waveBuffer)
+                        if (waveResult == Visualizer.SUCCESS) {
+                            waveform = processWaveformToSamples(waveBuffer, 64)
+                        }
+                    } catch (_: Exception) {
+                        break
                     }
-                } catch (_: Exception) {
-                    break
+                    kotlinx.coroutines.delay(cadence.visualizerFrameMs)
                 }
-                kotlinx.coroutines.delay(cadence.visualizerFrameMs)
             }
         } finally {
             runCatching {

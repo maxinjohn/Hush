@@ -33,7 +33,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
 import app.hush.music.constants.CONTENT_TYPE_LIST
@@ -72,9 +72,12 @@ fun LocalSearchScreen(
 
     val lazyListState = rememberLazyListState()
 
+    // Hide the keyboard once per scroll gesture, not once per scrolled pixel:
+    // firstVisibleItemScrollOffset changes on every frame of a drag or a fling, which turned this
+    // into a platform hide() call per frame on the UI thread.
     LaunchedEffect(Unit) {
-        snapshotFlow { lazyListState.firstVisibleItemScrollOffset }
-            .drop(1)
+        snapshotFlow { lazyListState.isScrollInProgress }
+            .filter { it }
             .collect {
                 keyboardController?.hide()
             }

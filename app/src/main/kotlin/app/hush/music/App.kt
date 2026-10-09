@@ -31,6 +31,7 @@ import coil3.request.allowHardware
 import coil3.request.crossfade
 import app.hush.music.spotiflac.SpotiFLACDiag
 import app.hush.music.spotiflac.SpotiFLAutoVerifier
+import app.hush.music.spotiflac.SpotiFLACSessionNotice
 import app.hush.music.spotiflac.SpotiFLACRouteWatch
 import app.hush.music.spotiflac.SpotiFLACSessionRenewWorker
 import app.hush.music.spotiflac.SpotiFLACSessionRenewer
@@ -160,6 +161,12 @@ class App :
         } catch (_: Exception) {
         }
 
+        // The music database is injected into MainActivity, whose injection runs in its onCreate -
+        // i.e. on the main thread, before the first frame. Building it here instead gives the rest of
+        // startup to run alongside it; see [DatabaseOpener]. Placed after the logging above so the
+        // opener thread begins with logging already configured.
+        runCatching { app.hush.music.db.DatabaseOpener.start(this) }
+
         initializeCriticalSync()
         initializeDeferredAsync()
     }
@@ -207,7 +214,6 @@ class App :
             apiKey = BuildConfig.LASTFM_API_KEY,
             secret = BuildConfig.LASTFM_SECRET,
         )
-
         CipherConfigFetcher.init(this)
     }
 
@@ -286,6 +292,17 @@ class App :
                 // run background work, and this path is a no-op when nothing is due.
                 SpotiFLACSessionRenewer.renewAll(this@App, reason = "app-start")
             }.onFailure { Timber.w(it, "Unable to schedule SpotiFLAC session renewal") }
+
+            // Then say so, if the answer is still "nothing can be fetched". The renewer above is
+            // the only automatic attempt at fixing a lapsed session, so this is the first moment
+            // the engine's state is known for this launch - and the only one where the user is
+            // guaranteed to be looking at the app. Deliberately *outside* the block above and in
+            // its own guard: the realistic failure of that block is a renewal that throws (a dead
+            // gateway, a vanished extension directory), and "the auto-renewal could not run" is
+            // precisely the state this notice exists to report. Nested inside it, the one launch
+            // where the card is most needed would be the one launch that never evaluated it.
+            runCatching { SpotiFLACSessionNotice.refresh(this@App) }
+                .onFailure { Timber.w(it, "Unable to evaluate the SpotiFLAC session notice") }
 
             // SponsorBlock decides whether it is enabled, which categories to fetch, and the
             // default skip behaviour when it starts - none of which survives a process death

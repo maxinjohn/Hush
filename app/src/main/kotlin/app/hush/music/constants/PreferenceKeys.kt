@@ -287,7 +287,23 @@ enum class PrimaryAudioScraper {
 val PrimaryAudioScraperKey = stringPreferencesKey("primaryAudioScraper")
 
 val YoutubeStreamingEnabledKey = booleanPreferencesKey("youtubeStreamingEnabled")
+/** Whether SpotiFLAC may serve playback. Off by default: it is an opt-in audio source. */
 val SpotiFLACEnabledKey = booleanPreferencesKey("spotiflacEnabled")
+
+/**
+ * The user's final "no" to the launch-time lossless invitation: set by the offer's close button and
+ * by nothing else, and never undone by the app, so the offer is over for this install.
+ */
+val SpotiFLACLosslessNudgeHandledKey = booleanPreferencesKey("spotiflacLosslessNudgeHandled")
+
+/**
+ * How many times the launch-time lossless invitation has been *shown*, so it can be capped rather
+ * than put to the user at every launch until they silence it.
+ *
+ * Written by the offer itself as each appearance is made - answered or not - and read before the
+ * next one, not by the composition's own default.
+ */
+val SpotiFLACLosslessNudgeAskCountKey = intPreferencesKey("spotiflacLosslessNudgeAskCount")
 val SpotiFLACDevGateKey = booleanPreferencesKey("spotiflacDevGate")
 val SpotiFLACQualityKey = stringPreferencesKey("spotiflacQuality")
 val SourcePriorityKey = stringPreferencesKey("sourcePriority")
@@ -728,23 +744,42 @@ enum class PlayerDesignStyle {
     V7,
     V8,
     V9,
+    AURA,
     ;
 
-    /** Legacy/rationalized styles hidden from settings; existing users are migrated to [DEFAULT]. */
+    /**
+     * Styles that are not the design the app ships with, and so are migrated to [DEFAULT].
+     *
+     * V6 ("Expressive") is in here now that Aura replaced it as the shipped design: the enum value
+     * is what an existing install has stored, and a design the settings screen can no longer offer
+     * must not be what such an install keeps running. The Expressive code is left in place - only
+     * its settings entry and its default were taken away - so a stored V6 lands on Aura like every
+     * other legacy style.
+     */
     val isDeprecated: Boolean
         get() = this != DEFAULT
 
-    /** Only deprecated styles normalize to [DEFAULT]; active styles keep their identity. */
+    /** Only deprecated styles normalize to [DEFAULT]; the shipped style keeps its identity. */
     fun normalized(): PlayerDesignStyle =
         if (isDeprecated) DEFAULT else this
 
     companion object {
-        /** Default for new installs before the user picks a style in settings. */
-        val DEFAULT = V6
+        /**
+         * The one design the player ships with.
+         *
+         * Aura is the artwork-driven player; the Expressive (V6) layout is kept in the code but is no
+         * longer offered, so this is also what a legacy stored style resolves to.
+         */
+        val DEFAULT = AURA
 
-        /** Styles shown in Settings → Player design style. */
+        /**
+         * Styles shown in Settings → Player design style.
+         *
+         * One entry, because Aura is the only design the app offers: Expressive was removed from the
+         * selector rather than deleted, so nothing in the app has to change if it comes back.
+         */
         val selectableValues: List<PlayerDesignStyle> =
-            listOf(V6)
+            listOf(AURA)
     }
 }
 

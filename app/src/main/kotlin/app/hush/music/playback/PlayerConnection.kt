@@ -23,6 +23,8 @@ import androidx.media3.common.Player.STATE_ENDED
 import androidx.media3.common.Timeline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -170,7 +172,39 @@ class PlayerConnection(
      */
     fun playCurrentTrackFromYouTube(): Boolean = service.playCurrentTrackFromYouTube()
 
+    /**
+     * Button skips, offered to the player artwork before they happen.
+     *
+     * The artwork turns its page first and changes the track while the page goes over - the same
+     * motion as a swipe. Buttons that run without the artwork on screen (the mini player, lyrics)
+     * have no subscriber here and skip straight away. `true` is next, `false` is previous.
+     */
+    val turnRequests =
+        MutableSharedFlow<Boolean>(
+            extraBufferCapacity = 8,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        )
+
+    private fun isTogetherGuest(): Boolean {
+        val state = service.togetherSessionState.value as? app.hush.music.together.TogetherSessionState.Joined
+        return state?.role is app.hush.music.together.TogetherRole.Guest
+    }
+
+    private fun requestArtworkTurn(forward: Boolean): Boolean =
+        !isTogetherGuest() && turnRequests.subscriptionCount.value > 0 && turnRequests.tryEmit(forward)
+
     fun seekToNext() {
+        if (requestArtworkTurn(forward = true)) return
+        skipNext()
+    }
+
+    fun seekToPrevious() {
+        if (requestArtworkTurn(forward = false)) return
+        skipPrevious()
+    }
+
+    /** Skips to the next track now, with no turn on screen first. Used by the artwork's own turn. */
+    fun skipNext() {
         val state = service.togetherSessionState.value as? app.hush.music.together.TogetherSessionState.Joined
         if (state?.role is app.hush.music.together.TogetherRole.Guest) {
             service.requestTogetherControl(app.hush.music.together.ControlAction.SkipNext)
@@ -206,7 +240,8 @@ class PlayerConnection(
         player.play()
     }
 
-    fun seekToPrevious() {
+    /** Skips to the previous track now, with no turn on screen first. Used by the artwork's own turn. */
+    fun skipPrevious() {
         val state = service.togetherSessionState.value as? app.hush.music.together.TogetherSessionState.Joined
         if (state?.role is app.hush.music.together.TogetherRole.Guest) {
             service.requestTogetherControl(app.hush.music.together.ControlAction.SkipPrevious)

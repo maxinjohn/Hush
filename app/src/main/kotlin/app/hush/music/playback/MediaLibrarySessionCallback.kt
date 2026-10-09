@@ -17,6 +17,7 @@ import android.widget.Toast
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.core.net.toUri
+import androidx.datastore.preferences.core.edit
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -40,6 +41,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
@@ -60,6 +62,8 @@ import app.hush.music.constants.MediaSessionConstants
 import app.hush.music.constants.PlaylistSongSortType
 import app.hush.music.constants.PlaylistSortType
 import app.hush.music.constants.SongSortType
+import app.hush.music.constants.SpotiFLACEnabledKey
+import app.hush.music.constants.SpotiFLACLosslessNudgeHandledKey
 import app.hush.music.db.MusicDatabase
 import app.hush.music.db.entities.PlaylistEntity
 import app.hush.music.db.entities.PlaylistSong
@@ -76,11 +80,13 @@ import app.hush.music.innertube.models.filterVideo
 import app.hush.music.innertube.models.filterYoutubeShorts
 import app.hush.music.models.PersistQueue
 import app.hush.music.playback.MusicService.Companion.PERSISTENT_QUEUE_FILE
+import app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder
 import app.hush.music.spotify.SpotifyLibraryRepository
 import app.hush.music.spotify.SpotifyPlaybackResolver
 import app.hush.music.utils.dataStore
 import app.hush.music.utils.get
 import app.hush.music.utils.isLocalMediaId
+import app.hush.music.utils.isLowDataModeActive
 import app.hush.music.utils.reportException
 import java.io.ObjectInputStream
 import java.text.Collator
@@ -115,11 +121,23 @@ class MediaLibrarySessionCallback
          */
         var onEmptyPlayerTransportRequest: (() -> Unit)? = null
 
+        /**
+         * The failure a car's request is answered with when nothing about playback may change.
+         *
+         * It never escapes: a failure raised inside the future Media3 is handed *is* the failure of
+         * that future, and a failed command is the only way to leave the player alone. Any item list
+         * returned instead is applied, and applying one re-opens the current stream.
+         */
+        private class NoPlaybackChange(
+            reason: String,
+        ) : RuntimeException(reason)
+
         private data class AutoPlaylistSortOption(
             val sortType: PlaylistSongSortType,
             val descending: Boolean,
             @StringRes val titleRes: Int,
         )
+
 
         private fun browsableExtras(
             browsableHint: Int = CONTENT_STYLE_GRID_ITEM,
@@ -217,44 +235,61 @@ class MediaLibrarySessionCallback
             controller: MediaSession.ControllerInfo,
             isForPlayback: Boolean,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> =
-            scope.future {
-                val player = mediaSession.player
-                val currentItems = List(player.mediaItemCount) { index -> player.getMediaItemAt(index) }
-                val persistedItems =
-                    withContext(Dispatchers.IO) {
-                        readPersistentQueue()?.let { queue ->
-                            PlaybackResumptionPlanner.PersistedItems(
-                                items = queue.items.map { it.toMediaItem() },
-                                mediaItemIndex = queue.mediaItemIndex,
-                                positionMs = queue.position,
-                            )
-                        }
+            scope.future { resumptionItems(mediaSession, isForPlayback) }
+
+        /**
+         * What a car should be given to play when it asks and nothing is loaded.
+         *
+         * Called from two places: the car's own resumption request when it connects to an empty
+         * player, and the tap on the lossless offer when a driver takes it while nothing is playing.
+         * Both mean only one thing - "play something" - so both get the queue the user last had,
+         * the tail of their history if they never had one, and, for a browse-only request, nothing.
+         *
+         * The player's own properties are read on the calling dispatcher, which is the session's
+         * main thread from either caller: a tap arrives through `scope.future(Dispatchers.IO)` and
+         * hands off to the main thread before getting here.
+         */
+        private suspend fun resumptionItems(
+            mediaSession: MediaSession,
+            isForPlayback: Boolean,
+        ): MediaSession.MediaItemsWithStartPosition {
+            val player = mediaSession.player
+            val currentItems = List(player.mediaItemCount) { index -> player.getMediaItemAt(index) }
+            val persistedItems =
+                withContext(Dispatchers.IO) {
+                    readPersistentQueue()?.let { queue ->
+                        PlaybackResumptionPlanner.PersistedItems(
+                            items = queue.items.map { it.toMediaItem() },
+                            mediaItemIndex = queue.mediaItemIndex,
+                            positionMs = queue.position,
+                        )
                     }
-                // Read only in the case it can be used: a playback request with nothing loaded
-                // and nothing persisted. This is the media-key path, where a skip or a play
-                // reaches the player directly and never passes the UI transport policy, so
-                // without a fallback here those presses are the ones that do nothing at all.
-                val fallbackItems =
-                    if (isForPlayback && currentItems.isEmpty() && persistedItems == null) {
-                        withContext(Dispatchers.IO) { database.historyRecoveryItems() }
-                    } else {
-                        emptyList()
-                    }
-                val result =
-                    PlaybackResumptionPlanner.resolve(
-                        currentItems = currentItems,
-                        currentIndex = player.currentMediaItemIndex,
-                        currentPositionMs = player.currentPosition,
-                        persistedItems = persistedItems,
-                        isForPlayback = isForPlayback,
-                        fallbackItems = fallbackItems,
-                    )
-                MediaSession.MediaItemsWithStartPosition(
-                    result.items,
-                    result.startIndex,
-                    result.startPositionMs,
+                }
+            // Read only in the case it can be used: a playback request with nothing loaded
+            // and nothing persisted. This is the media-key path, where a skip or a play
+            // reaches the player directly and never passes the UI transport policy, so
+            // without a fallback here those presses are the ones that do nothing at all.
+            val fallbackItems =
+                if (isForPlayback && currentItems.isEmpty() && persistedItems == null) {
+                    withContext(Dispatchers.IO) { database.historyRecoveryItems() }
+                } else {
+                    emptyList()
+                }
+            val result =
+                PlaybackResumptionPlanner.resolve(
+                    currentItems = currentItems,
+                    currentIndex = player.currentMediaItemIndex,
+                    currentPositionMs = player.currentPosition,
+                    persistedItems = persistedItems,
+                    isForPlayback = isForPlayback,
+                    fallbackItems = fallbackItems,
                 )
-            }
+            return MediaSession.MediaItemsWithStartPosition(
+                result.items,
+                result.startIndex,
+                result.startPositionMs,
+            )
+        }
 
         private fun readPersistentQueue(): PersistQueue? {
             val file = context.filesDir.resolve(PERSISTENT_QUEUE_FILE)
@@ -477,6 +512,14 @@ class MediaLibrarySessionCallback
                             // Auto screen, so they are always published. The five sections that do
                             // are published in the order that screen arranged them, minus the ones
                             // switched off - which is what its own hint promises.
+                            //
+                            // The lossless offer is the one entry here that is not a part of the
+                            // library: a car has no banner, so the offer the phone makes at launch
+                            // is a line at the top of the list instead. It leads because that is
+                            // its whole job - a driver who never scrolls past Home is exactly the
+                            // user who never finds Audio Sources in Settings.
+                            val offer =
+                                if (losslessOfferAvailable()) listOf(losslessOfferItem()) else emptyList()
                             val alwaysOn =
                                 listOf(
                                     browsableMediaItem(
@@ -555,7 +598,7 @@ class MediaLibrarySessionCallback
                                 AndroidAutoPlaylists.enabledSections(
                                     context.dataStore.get(AndroidAutoSectionsOrderKey, ""),
                                 )
-                            alwaysOn + sections.mapNotNull { section -> bySection[section] }
+                            offer + alwaysOn + sections.mapNotNull { section -> bySection[section] }
                         }
 
                         MusicService.HOME -> {
@@ -806,6 +849,18 @@ class MediaLibrarySessionCallback
                                 ).build(),
                             null,
                         )
+                    }
+
+                    AndroidAutoPlaylists.isLosslessOffer(mediaId) -> {
+                        // Answered only while it is still on offer: a car that kept the entry from an
+                        // earlier browse must not be able to reach it after the user took it or
+                        // SpotiFLAC was switched off somewhere else.
+                        if (losslessOfferAvailable()) {
+                            LibraryResult.ofItem(losslessOfferItem(), null)
+                        } else {
+                            // The same answer every other id that is not in the library gets.
+                            LibraryResult.ofError(SessionError.ERROR_UNKNOWN)
+                        }
                     }
 
                     mediaId == MusicService.HOME -> {
@@ -1099,6 +1154,46 @@ class MediaLibrarySessionCallback
                 }
                 val path = firstItem.mediaId.split("/").filter { it.isNotBlank() }
                 when (path.firstOrNull()) {
+                    AndroidAutoPlaylists.LOSSLESS_OFFER -> {
+                        // The car's offer, tapped. There is no settings screen to send a driver to,
+                        // so the tap is the switch - which is the one thing this entry is for.
+                        setLosslessEnabledFromCar()
+                        withContext(Dispatchers.Main.immediate) {
+                            val player = mediaSession.player
+                            if (player.mediaItemCount == 0) {
+                                // Nothing to interrupt, so the tap gets to show its work: the driver
+                                // hears the difference on the queue they would have resumed anyway.
+                                SpotiFLACDiag.log("android auto: lossless offer tapped; nothing loaded - starting the queue")
+                                resumptionItems(mediaSession, isForPlayback = true)
+                            } else {
+                                // A driver is already listening, so the tap may not touch playback at
+                                // all - and that rules out *every* way of answering it with items:
+                                // Media3 re-opens the current stream for any item list this callback
+                                // returns, including the queue exactly as it stands, and a re-opened
+                                // track starts from its beginning. Handing back the items with
+                                // [C.TIME_UNSET] rather than a position - the "do not seek" value a
+                                // car's own tap carries - was measured to restart the track too.
+                                //
+                                // So this answers with nothing, which is the whole of what is wanted
+                                // here: the switch above has already been flipped, and the track the
+                                // driver is on plays on untouched, with the next one lossless.
+                                //
+                                // A head unit is not shown an error for it. Android Auto reaches a
+                                // media app through the legacy transport path, and that path's
+                                // failure callback does nothing at all - no result, no error, no
+                                // change - so the tap is silent and the music never stops. A modern
+                                // Media3 controller would see the failed command instead; that is
+                                // the price of not interrupting the driver, and the one caller this
+                                // app's own car screen uses is not it.
+                                SpotiFLACDiag.log(
+                                    "android auto: lossless offer turned on; leaving " +
+                                        "${player.mediaItemCount} items at index=${player.currentMediaItemIndex} playing",
+                                )
+                                throw NoPlaybackChange("lossless offer: enabled without touching playback")
+                            }
+                        }
+                    }
+
                     MusicService.HOME_QUICK_PICKS -> {
                         val songs =
                             database
@@ -1312,7 +1407,14 @@ class MediaLibrarySessionCallback
             mediaItems: MutableList<MediaItem>,
         ): ListenableFuture<MutableList<MediaItem>> =
             scope.future(Dispatchers.IO) {
+                // A car's "add to queue" on the offer is the same wish as a tap on it, so it turns
+                // SpotiFLAC on - but the item itself is not media and is never queued: queueing a
+                // question would leave a song-shaped hole between two tracks.
+                if (mediaItems.any { item -> AndroidAutoPlaylists.isLosslessOffer(item.mediaId) }) {
+                    setLosslessEnabledFromCar()
+                }
                 mediaItems
+                    .filterNot { item -> AndroidAutoPlaylists.isLosslessOffer(item.mediaId) }
                     .flatMap { item ->
                         val query =
                             item.requestMetadata.searchQuery
@@ -2161,6 +2263,62 @@ class MediaLibrarySessionCallback
                     player.currentPosition,
                 )
             }
+
+        /**
+         * Whether a car is still to be offered lossless playback.
+         *
+         * The decision itself is [AndroidAutoPlaylists.offersLossless]'s, so it can be tested
+         * without a car; this only gathers what it is decided from.
+         */
+        private fun losslessOfferAvailable(): Boolean =
+            AndroidAutoPlaylists.offersLossless(
+                runtimeAvailable = SpotiFLACNativeRuntimeBridgeHolder.instance?.isRuntimeAvailable == true,
+                spotiflacEnabled = context.dataStore.get(SpotiFLACEnabledKey, false),
+                dismissed = context.dataStore.get(SpotiFLACLosslessNudgeHandledKey, false),
+                lowDataModeActive = context.isLowDataModeActive(),
+            )
+
+        /**
+         * The car's lossless offer as a media item.
+         *
+         * Playable rather than browsable: the only thing a car can do with a list entry is play it,
+         * and there is nothing behind this one to open. Tapping it therefore arrives as a play
+         * request, which [onSetMediaItems] answers itself - the item is never resolved to a stream,
+         * never added to a queue and never reaches the player as media.
+         */
+        private fun losslessOfferItem(): MediaItem =
+            MediaItem
+                .Builder()
+                .setMediaId(AndroidAutoPlaylists.LOSSLESS_OFFER)
+                .setMediaMetadata(
+                    MediaMetadata
+                        .Builder()
+                        .setTitle(context.getString(R.string.spotiflac_nudge_title))
+                        .setSubtitle(context.getString(R.string.spotiflac_car_offer_subtitle))
+                        .setArtist(context.getString(R.string.spotiflac_car_offer_subtitle))
+                        .setArtworkUri(drawableUri(R.drawable.graphic_eq))
+                        .setIsPlayable(true)
+                        .setIsBrowsable(false)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                        .setExtras(playableExtras())
+                        .build(),
+                ).build()
+
+        /**
+         * Turns SpotiFLAC on because a car asked for it.
+         *
+         * The same preference the Audio Sources switch writes, and nothing else: the switch does not
+         * mark the launch offer as answered either, so a driver who turns lossless off again is
+         * offered it once more - on the phone and in the car alike. On the phone that tap opens the
+         * settings screen instead of flipping this; a car cannot be sent to a settings screen, and
+         * standing between the driver and the one preference the entry exists to set would make the
+         * entry pointless.
+         */
+        private suspend fun setLosslessEnabledFromCar() {
+            runCatching {
+                context.dataStore.edit { prefs -> prefs[SpotiFLACEnabledKey] = true }
+            }.onFailure { reportException(it) }
+        }
 
         @JvmName("mediaItemsToMediaItemsWithStartPosition")
         private fun List<MediaItem>.toMediaItemsWithStartPosition(

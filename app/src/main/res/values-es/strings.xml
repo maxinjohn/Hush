@@ -90,7 +90,7 @@
     <string name="remove_from_history">Quitar del historial</string>
     <string name="remove_from_playlist">Quitar de la lista de reproducción</string>
     <string name="remove_from_queue">Quitar de cola</string>
-    <string name="search_online">Buscar en linea</string>
+    <string name="search_online">Buscar en línea</string>
     <string name="tempo_and_pitch">Velocidad y tono</string>
     <string name="tempo">Velocidad</string>
     <string name="pitch">Tono</string>
@@ -525,7 +525,7 @@
     <string name="together_allow_guests_control">Los invitados pueden controlar la reproducción</string>
     <string name="together_require_approval">Requiere aprobación</string>
     <string name="together_lan">LAN</string>
-    <string name="together_online">En linea</string>
+    <string name="together_online">En línea</string>
     <string name="together_join_link">Enlace</string>
     <string name="together_join_code">Código</string>
     <string name="together_join_link_hint">Pega un enlace para unirte o un código</string>

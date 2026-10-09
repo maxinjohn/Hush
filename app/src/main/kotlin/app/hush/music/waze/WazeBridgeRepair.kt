@@ -74,7 +74,7 @@ object WazeBridgeRepair {
      *
      * That is not a theoretical worry: the first half of a repair is a system uninstall, which puts
      * Hush in the background while the platform's dialog is up, and an app in the background can be
-     * killed. Measured on a OnePlus NE2211, the process was recreated between the removal and the
+     * killed. Measured on a test device, the process was recreated between the removal and the
      * install, and the repair - which lived only in memory - was simply forgotten: the Bridge was gone
      * and nothing installed the bundled one. Persisting the target is what makes the second half run
      * on the next inspection, whichever process performs it.

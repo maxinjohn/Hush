@@ -44,7 +44,25 @@ fun FormatEntity.codecLabel(): String {
     }
 }
 
-fun FormatEntity.formattedBitrate(): String = if (bitrate > 0) "${bitrate / 1000} kbps" else "Unknown"
+/**
+ * The rate of this format in kbps, or `Unknown` when the row cannot carry one.
+ *
+ * A rate below 1 kbps cannot survive this rendering. One cached file was stored as `705` - a
+ * `sampleRate * bitDepth * 2` figure that reached the field in kbps while every reader divides by
+ * 1000 - and drew `0 kbps`, which reads as a player that does not know what it is playing. No audio
+ * bitrate is that small, so a value below [MIN_RENDERABLE_BITRATE_BPS] is a unit mistake rather than
+ * a rate, and the row says nothing instead: the player omits an `Unknown` rate rather than printing
+ * it.
+ */
+fun FormatEntity.formattedBitrate(): String =
+    if (bitrate >= MIN_RENDERABLE_BITRATE_BPS) "${bitrate / 1000} kbps" else "Unknown"
+
+/**
+ * The lowest rate [formattedBitrate] renders as a whole number of kbps.
+ *
+ * Read off the field's own unit, not chosen: below 1 kbps the rendering rounds every value to `0`.
+ */
+private const val MIN_RENDERABLE_BITRATE_BPS = 1000
 
 fun FormatEntity.formattedSampleRate(): String? =
     sampleRate?.takeIf { it > 0 }?.let {
@@ -59,7 +77,9 @@ enum class RatePriority {
 }
 
 fun FormatEntity.autoRateDisplay(priority: RatePriority = RatePriority.BITRATE_FIRST): String {
-    val hasBitrate = bitrate > 0
+    // The same condition [formattedBitrate] renders on, so a rate it would refuse cannot be picked
+    // here either - and the sample rate is shown in its place when there is one.
+    val hasBitrate = bitrate >= MIN_RENDERABLE_BITRATE_BPS
     val hasSampleRate = sampleRate != null && sampleRate > 0
 
     return when (priority) {

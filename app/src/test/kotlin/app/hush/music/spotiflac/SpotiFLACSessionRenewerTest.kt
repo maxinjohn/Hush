@@ -1080,4 +1080,91 @@ class SpotiFLACSessionRenewerTest {
         assertNull(SpotiFLACSessionRenewer.blockWaitFromAnswer(404, "not found"))
         assertNull(SpotiFLACSessionRenewer.blockWaitFromAnswer(503, """{"retry_after":600}"""))
     }
+
+    // ------------------------------------------------------------------
+    // The Audio Sources countdown — it has to name the next *renewal*,
+    // which is not the next expiry, and it has to stay silent rather than
+    // promise one that cannot happen
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `the countdown measures to the renewal window, not to expiry`() {
+        // The whole point of the number. A session with five hours of validity is renewed once it is
+        // three hours from expiry, so the next run is two hours away - quoting the five would name
+        // the wrong event, and the row would promise a renewal it will not make.
+        val wait = SpotiFLACSessionRenewer.nextRenewalWaitMs(listOf(5 * 3600L))
+        assertEquals(2 * 3600_000L, wait)
+        assertEquals("Next renewal in 2h", SpotiFLACSessionRenewer.nextRenewalLabel(listOf(5 * 3600L)))
+    }
+
+    @Test
+    fun `the soonest live session decides when the next run is`() {
+        // Renewals are one sweep, so the run that tops everything up is the one the soonest session
+        // brings forward. Reading only the first, or the last, would be a countdown to the wrong run.
+        assertEquals(
+            3600_000L,
+            SpotiFLACSessionRenewer.nextRenewalWaitMs(listOf(5 * 3600L, 4 * 3600L, 6 * 3600L)),
+        )
+        assertEquals(
+            "Next renewal in 1h",
+            SpotiFLACSessionRenewer.nextRenewalLabel(listOf(5 * 3600L, 4 * 3600L, 6 * 3600L)),
+        )
+    }
+
+    @Test
+    fun `a session already inside the window is due now`() {
+        // Inside the window the wait from [nextRenewalWaitMs] is negative, and a screen cannot print
+        // a negative countdown. What is true and useful there is that the renewal is imminent, which
+        // is what the label says instead of inventing a number for a run that happens on the next
+        // opportunity rather than on a schedule.
+        val dueSeconds = SpotiFLACSessionRenewer.RENEW_WINDOW_SECONDS - 60L
+        assertTrue(SpotiFLACSessionRenewer.nextRenewalWaitMs(listOf(dueSeconds))!! < 0L)
+        assertEquals("Renewal due now", SpotiFLACSessionRenewer.nextRenewalLabel(listOf(dueSeconds)))
+        // Exactly on the boundary counts as due, not as a second of wait.
+        assertEquals(
+            "Renewal due now",
+            SpotiFLACSessionRenewer.nextRenewalLabel(listOf(SpotiFLACSessionRenewer.RENEW_WINDOW_SECONDS)),
+        )
+    }
+
+    @Test
+    fun `an expired record is not a renewal the countdown can promise`() {
+        // A lapsed record is not renewable at all - the runtime clears it and raises a challenge - so
+        // counting it would advertise a renewal that cannot happen and hide the source that actually
+        // needs the user. The lapsed source is the rows' and the notice's job, not this line's.
+        assertNull(SpotiFLACSessionRenewer.nextRenewalWaitMs(listOf(null, -600L)))
+        assertNull(SpotiFLACSessionRenewer.nextRenewalLabel(listOf(null, -600L)))
+        assertNull(SpotiFLACSessionRenewer.nextRenewalWaitMs(listOf(0L)))
+        // ...and it does not poison a live sibling either.
+        assertEquals(
+            "Next renewal in 2h",
+            SpotiFLACSessionRenewer.nextRenewalLabel(listOf(-600L, 5 * 3600L)),
+        )
+    }
+
+    @Test
+    fun `no session at all means no countdown`() {
+        // Nothing read, or only sources that hold no session: a line saying "never" would be worse
+        // than the line saying nothing, so it is absent.
+        assertNull(SpotiFLACSessionRenewer.nextRenewalWaitMs(emptyList()))
+        assertNull(SpotiFLACSessionRenewer.nextRenewalWaitMs(listOf(null, null)))
+        assertNull(SpotiFLACSessionRenewer.nextRenewalLabel(emptyList()))
+        assertNull(SpotiFLACSessionRenewer.nextRenewalLabel(listOf(null)))
+    }
+
+    @Test
+    fun `the countdown label uses the shared wait wording`() {
+        // The same formatter the gateway-block wait uses, so two waits on one screen cannot read in
+        // two different dialects - and a sub-minute wait still gets a unit rather than "0m".
+        assertEquals(
+            "Next renewal in 1h 30m",
+            SpotiFLACSessionRenewer.nextRenewalLabel(listOf(4 * 3600L + 1800L)),
+        )
+        assertEquals(
+            "Next renewal in ${SpotiFLACAvailability.remainingLabel(45_000L)}",
+            SpotiFLACSessionRenewer.nextRenewalLabel(
+                listOf(SpotiFLACSessionRenewer.RENEW_WINDOW_SECONDS + 45L),
+            ),
+        )
+    }
 }

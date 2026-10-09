@@ -165,7 +165,7 @@
     <string name="audio_crossfade_description">Gestaltet den Übergänge zwischen Liedern durch Überblenden sanfter.</string>
     <string name="audio_crossfade_dialog_title">Überblendungsdauer</string>
     <string name="player_stream_client">Wiedergabeclient</string>
-    <string name="player_stream_client_desc">Bestimmt welcher YouTube Client zum Abrufen von Steams genutzt wurd</string>
+    <string name="player_stream_client_desc">Bestimmt, welcher YouTube Client zum Abrufen von Streams genutzt wird</string>
     <string name="player_stream_client_android_vr">Android VR</string>
     <string name="player_stream_client_android_vr_desc">Streamt direkt ohne Signatur Entschlüsselung für maximale Geschwindigkeit. Für die meisten Nutzer geeignet.</string>
     <string name="player_stream_client_web_remix">Web Remix</string>

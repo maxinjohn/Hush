@@ -660,7 +660,8 @@ var originalQueueSize: Int = 0
                     // `serving downloaded file for mediaId=W-KuIsdWexk` read `codec from this
                     // session's resolve` over `(live stream)`, which is the one thing this line is
                     // supposed to make impossible to say.
-                    flowOf(FormatRow(fresh, servedRowSource(storedBytes(mediaId.orEmpty()))))
+                    val source = servedRowSource(storedBytes(mediaId.orEmpty()))
+                    flowOf(FormatRow(deviceFileFormat(fresh, source, decoded), source))
                 } else {
                     storedFormatForUi(mediaId, decoded)
                 }
@@ -700,8 +701,12 @@ var originalQueueSize: Int = 0
             return database
                 .format(id)
                 .map { row ->
-                    row?.let { FormatRow(it, FormatRowSource.DEVICE_FILE) }
-                        ?: decodedRowFor(id, null, decoded)?.let { FormatRow(it, FormatRowSource.DECODED_AUDIO) }
+                    row?.let {
+                        FormatRow(
+                            deviceFileFormat(it, FormatRowSource.DEVICE_FILE, decoded),
+                            FormatRowSource.DEVICE_FILE,
+                        )
+                    } ?: decodedRowFor(id, null, decoded)?.let { FormatRow(it, FormatRowSource.DECODED_AUDIO) }
                 }
         }
         return database
@@ -709,13 +714,33 @@ var originalQueueSize: Int = 0
             .map { row ->
                 val source = row?.let { storedRowSource(id, it) }
                 if (row != null && source != null) {
-                    FormatRow(row, source)
+                    FormatRow(deviceFileFormat(row, source, decoded), source)
                 } else {
                     decodedRowFor(id, row, decoded)?.let { FormatRow(it, FormatRowSource.DECODED_AUDIO) }
                 }
             }
             .flowOn(Dispatchers.IO)
     }
+
+    /**
+     * A row about a file this device serves, with the rate the decoder measured.
+     *
+     * A file-backed row can honestly name the file's container, codec and size, but not its rate: the
+     * SpotiFLAC cache's own figures are not the file's ([SpotiFLACFileFormat]), and a resolve's are
+     * the stream's. The decoder is the only thing that measured the bytes being played, so it fills
+     * the gap - and only for a device file, because a streamed or stored-resolve row is not the
+     * decoder's row to correct.
+     */
+    private fun deviceFileFormat(
+        row: FormatEntity,
+        source: FormatRowSource,
+        decoded: FormatEntity?,
+    ): FormatEntity =
+        if (source == FormatRowSource.DEVICE_FILE) {
+            DecodedAudioRow.withDecodedRate(row, decoded)
+        } else {
+            row
+        }
 
     /**
      * The decoded audio's row for [mediaId], or null when Media3 has not described it yet.
@@ -1766,6 +1791,15 @@ var originalQueueSize: Int = 0
         extensionRepoManager.initialize(dataStore)
         scope.launch(Dispatchers.IO) {
             extensionRepoManager.syncRegistries()
+            // Re-read the engine's state now that the source list exists. The launch-time notice is
+            // also evaluated from App's start, which races this service: at that moment neither the
+            // repository manager (registered two lines up) nor the runtime bridge (injected into
+            // this service) is in place, so that evaluation finds no sources to read and stays
+            // silent - on exactly the launch a lapsed session makes it matter. Both exist from here
+            // on, and the records this reads are on disk, so the answer is available before the
+            // runtime has even been warmed below.
+            runCatching { app.hush.music.spotiflac.SpotiFLACSessionNotice.refresh(this@MusicService) }
+                .onFailure { Timber.tag(TAG).w(it, "Unable to evaluate the SpotiFLAC session notice") }
             // Warm the SpotiFLAC runtime and extension packages so the first track
             // does not pay the download/load cost inside playback resolution.
             if (dataStore.get(app.hush.music.constants.SpotiFLACEnabledKey, false)) {
@@ -4026,15 +4060,16 @@ var originalQueueSize: Int = 0
             }
         }
         val file = native.file
-        val mime = when {
-            native.codec.equals("flac", true) || file.extension.equals("flac", true) -> "audio/flac"
-            native.codec.equals("opus", true) || file.extension.equals("opus", true) -> "audio/ogg"
-            native.codec.equals("mp3", true) || file.extension.equals("mp3", true) -> "audio/mpeg"
-            else -> "audio/mp4"
-        }
+        // The same mapping the row for a file already on disk uses, so a track cannot be named one
+        // container while it resolves and another while it plays back.
+        val mime = SpotiFLACFileFormat.containerMime(native.codec, file.extension)
+        // Both branches are bps, which is what `Format.bitrate` means for every other engine's
+        // format - and what every reader of the field divides by 1000. The fallback is CD audio's
+        // nominal 1411 kbps *expressed in bps*; as a bare `1411` it was a kbps figure in a bps field,
+        // which the codec row rendered as `1 kbps`.
         val bitrate = if (native.bitDepth != null && native.sampleRate != null) {
             native.sampleRate * native.bitDepth * 2
-        } else 1411
+        } else 1_411_000
         val format = PlayerResponse.StreamingData.Format(
             itag = app.hush.music.spotiflac.SpotiFLACServedRow.ITAG,
             url = Uri.fromFile(file).toString(),
@@ -4161,32 +4196,30 @@ var originalQueueSize: Int = 0
      * resolution entirely, so the row kept describing whatever engine last resolved the
      * track - typically a ~5 MB YouTube WebM - while a 30 MB FLAC was decoding. That
      * mismatch is what made a correctly-served SpotiFLAC track look like it was still
-     * playing from YouTube. Publishing the file's own codec, sample rate and size keeps
-     * the row and the source label describing the same audio.
+     * playing from YouTube. Publishing the file's container, codec and size keeps the row
+     * and the source label describing the same audio.
+     *
+     * What such a row may *not* say is a rate. The cache entry's figures do not describe
+     * the file: the playback cache names every file `<key>.media`, so the extension named
+     * nothing and the row was stored as `audio/media`, and the rate it carried was a
+     * nominal PCM figure divided by 1000 on its way into a field every reader divides by
+     * 1000 - which is how a cached file came to read `MEDIA - 0 kbps`. Measured on device,
+     * the same entry's `sampleRate` is not the file's rate either: an HE-AAC file whose
+     * entry said `22050` decodes at `44100`. The rate therefore comes from
+     * [DecodedAudioRow], once Media3 has decoded these very bytes. See
+     * [SpotiFLACFileFormat] for what the row states instead.
      */
     private fun publishSpotiFLACFileFormat(mediaId: String) {
         if (!::spotiflacNativeRuntime.isInitialized) return
         val entry =
             runCatching { spotiflacNativeRuntime.cachedPlaybackEntryForMediaId(mediaId) }
                 .getOrNull() ?: return
-        val sampleRate = entry.sampleRate?.takeIf { it > 0 } ?: 44100
-        val bitDepth = entry.bitDepth?.takeIf { it > 0 } ?: 16
-        val extension = entry.extension?.lowercase()?.takeIf { it.isNotBlank() } ?: "flac"
         val formatEntity =
-            FormatEntity(
-                id = mediaId,
-                itag = app.hush.music.spotiflac.SpotiFLACServedRow.ITAG,
-                mimeType = "audio/$extension",
-                codecs = entry.codec?.takeIf { it.isNotBlank() } ?: extension,
-                // Lossless is variable-rate; this is the nominal rate implied by the
-                // stream's own sample format (stereo), the same figure the SpotiFLAC
-                // resolution path reports.
-                bitrate = sampleRate * bitDepth * 2 / 1000,
-                sampleRate = sampleRate,
-                contentLength = entry.sizeBytes.takeIf { it > 0L } ?: 0L,
-                loudnessDb = null,
-                perceptualLoudnessDb = null,
-                playbackUrl = null,
+            SpotiFLACFileFormat.row(
+                mediaId = mediaId,
+                codec = entry.codec,
+                extension = entry.extension,
+                sizeBytes = entry.sizeBytes,
             )
         formatEntityCache[mediaId] = formatEntity
         publishedFormatEntity.value = mediaId to formatEntity
@@ -4309,14 +4342,24 @@ var originalQueueSize: Int = 0
         runCatching {
             val mediaId = next.mediaId
             if (mediaId.isBlank() || mediaId.isLocalMediaId()) return@runCatching
-            // Nothing to warm for a track that is already a file on this device. It used to be
-            // skipped only when a SpotiFLAC cache file existed, so a track the user had
-            // *downloaded* - whose cached copy is deliberately dropped when the download is made -
-            // was fetched all over again, tens of megabytes for a song sitting in the downloads
-            // folder, and left a second copy of it in the cache.
-            ownedLocalPlaybackFile(mediaId)?.let { local ->
+            // One question, asked once, judged by the rule that owns it. It used to be two guards
+            // covering different halves of it: a track the user had *downloaded* was fetched all over
+            // again - tens of megabytes for a song already in the downloads folder, and a second copy
+            // left in the cache - and a track already *streamed* was fetched too, because the first
+            // guard knew only about files the app owns, a streamed track's bytes being in Media3's
+            // cache instead. Measured on the reporting device, every warm of an already-streamed track
+            // was a full six-source sweep - the exact "why is it fetching SpotiFLAC for a song I
+            // already have" the log showed - for bytes that were about to be read off disk. Skipping
+            // it removes the request instead of moving it: nothing later re-resolves this track.
+            val ownedLocal = ownedLocalPlaybackFile(mediaId)
+            if (!LocalPlaybackLookahead.needsFetch(localPlaybackEvidence(mediaId, owned = ownedLocal))) {
                 app.hush.music.spotiflac.SpotiFLACDiag.log(
-                    "prefetch spotiflac skipped mediaId=$mediaId: already on disk (${local.name})",
+                    "prefetch spotiflac skipped mediaId=$mediaId: " +
+                        if (ownedLocal != null) {
+                            "already on disk (${ownedLocal.name})"
+                        } else {
+                            "the whole track is already cached"
+                        },
                 )
                 return@runCatching
             }
@@ -4485,7 +4528,11 @@ var originalQueueSize: Int = 0
     private fun startPlaybackUrlPrefetch(mediaId: String) {
         if (mediaId.isBlank() || mediaId.isLocalMediaId()) return
         if (cachedPlaybackUrl(mediaId) != null) return
-        if (hasFullyDownloadedLocalPlayback(mediaId)) return
+        // No URL is needed for a track this device already has, so there is no resolve to warm and no
+        // reason to start one: the resolver this would call returns the file's own URI, or serves the
+        // bytes already on disk, without touching the network. Read through the lookahead's own rule
+        // so "already local" cannot mean one thing here and another in the SpotiFLAC lookahead.
+        if (!LocalPlaybackLookahead.needsFetch(localPlaybackEvidence(mediaId, includeStreamingCache = false))) return
 
         lateinit var deferred: Deferred<AuthScopedCacheValue?>
         deferred =
@@ -9029,9 +9076,34 @@ var originalQueueSize: Int = 0
                     putParcelableArrayListExtra("queue_items", ArrayList(snapshot.queueBundles))
                     setPackage(shimPackage)
                 }
-                sendBroadcast(intent)
+                sendWazeSnapshot(intent)
             } catch (e: Exception) {
                 Timber.tag(TAG).e(e, "Failed to send metadata to $shimPackage")
+            }
+        }
+    }
+
+    /**
+     * The thread the Bridge's snapshots are sent on.
+     *
+     * `sendBroadcast` marshals the intent - and a snapshot carries the whole queue - into a Binder
+     * transaction, which is tens of milliseconds per Bridge on a long queue. Built on the player's
+     * thread, that landed in the frame a track change is drawn on: measured on the device, one skip
+     * spent around a quarter of a second of that frame here, which is the artwork's own frame.
+     *
+     * One thread rather than a pool, because the snapshots are numbered and a Bridge shown
+     * yesterday's title for a moment - which is what an out-of-order send looks like - would be
+     * worse than a snapshot that is a few milliseconds late.
+     */
+    private val wazeSnapshotDispatcher = Dispatchers.IO.limitedParallelism(1)
+
+    /** Sends one built snapshot off the player's thread. See [wazeSnapshotDispatcher]. */
+    private fun sendWazeSnapshot(intent: Intent) {
+        scope.launch(wazeSnapshotDispatcher) {
+            try {
+                sendBroadcast(intent)
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "Failed to send metadata to ${intent.`package`}")
             }
         }
     }
@@ -9051,18 +9123,22 @@ var originalQueueSize: Int = 0
     /**
      * A cheap value that changes whenever the queue's contents do.
      *
-     * Deliberately allocation-free: it is computed on every metadata tick, so building a
-     * string of ids here would just move the cost being removed. `String.hashCode` is
-     * cached inside the id itself, and the media metadata is only read when the
-     * fingerprint actually moved.
+     * Allocation-free, and - as of the fix that removed the item walk - a constant number of
+     * reads: it is computed on every metadata tick, and it was also computed on each of the state
+     * callbacks a skip fires.
+     *
+     * The revision is sufficient on its own. It is bumped on every `EVENT_TIMELINE_CHANGED` (see
+     * `onEvents`), and that covers everything that can change a queue item's id: adding, removing,
+     * replacing and reordering all move the timeline. The walk that used to be folded in here read
+     * every item's id through `player.getMediaItemAt`, and on a source whose timeline is masked
+     * that is not a field read - measured on the device with a queue of a few hundred items, the
+     * walk alone was tens of milliseconds, which arrived in front of the frame that draws a track
+     * change, since a skip republishes the snapshot several times over.
+     *
+     * `itemCount` stays in the value so a queue of the same ids in a different length is still a
+     * different queue.
      */
-    private fun wazeQueueFingerprint(itemCount: Int): Long {
-        var hash = itemCount.toLong() * 31 + wazeQueueRevision.get()
-        for (i in 0 until itemCount) {
-            hash = hash * 31 + player.getMediaItemAt(i).mediaId.hashCode()
-        }
-        return hash
-    }
+    private fun wazeQueueFingerprint(itemCount: Int): Long = itemCount.toLong() * 31 + wazeQueueRevision.get()
 
     private fun buildWazeQueueBundles(itemCount: Int): List<Bundle> {
         if (itemCount <= 0) return emptyList()
@@ -10961,6 +11037,54 @@ var originalQueueSize: Int = 0
         return downloadCache.isCached(mediaId, 0L, length)
     }
 
+    /**
+     * Everything already on this device for [mediaId], in the shape the lookahead's rule reads.
+     *
+     * Assembled here and *judged* by [LocalPlaybackLookahead.needsFetch] rather than inside each
+     * guard, because the guarantee this exists for - a queue that is already local costs no provider
+     * request - has to be stated once to be pinned once. It was two guards asking different halves of
+     * it, and the gap between them is what the device measured: a track the user had *downloaded* was
+     * fetched all over again, and a track already *streamed* was fetched because the first guard knew
+     * only about files the app owns, its bytes being in Media3's cache instead.
+     *
+     * The whole track's length is inferred rather than known - a cache that stores a track end to end
+     * is the only thing that can say how long it is - and deliberately the *whole* track rather than a
+     * prefix: a partial cache is not "already playable", and treating the first few megabytes of a
+     * stream as one would leave the lookahead with nothing to do and the play itself fetching
+     * mid-seek.
+     *
+     * [includeStreamingCache] is false for the one caller that warms a *stream URL*: that entry point
+     * has always asked only about files and finished downloads, and widening it changes what a URL
+     * prefetch skips rather than what the no-request guarantee covers.
+     */
+    private fun localPlaybackEvidence(
+        mediaId: String,
+        owned: java.io.File? = ownedLocalPlaybackFile(mediaId),
+        includeStreamingCache: Boolean = true,
+    ): LocalPlaybackLookahead.LocalEvidence {
+        if (owned != null) return LocalPlaybackLookahead.LocalEvidence(ownedFile = true)
+        val length =
+            inferCachedContentLength(
+                mediaId = mediaId,
+                position = 0L,
+                includePlayerCache = includeStreamingCache,
+                includeDownloadCache = true,
+            )
+        return LocalPlaybackLookahead.LocalEvidence(
+            downloadCacheComplete = length != null && downloadCacheCovers(mediaId, length),
+            streamingCacheComplete =
+                includeStreamingCache && length != null && streamingCacheCovers(mediaId, length),
+        )
+    }
+
+    /** Whether the download store's cache holds all [length] bytes of [mediaId] from the start. */
+    private fun downloadCacheCovers(mediaId: String, length: Long): Boolean =
+        runCatching { downloadCache.isCached(mediaId, 0L, length) }.getOrDefault(false)
+
+    /** Whether Media3's streaming cache holds all [length] bytes of [mediaId] from the start. */
+    private fun streamingCacheCovers(mediaId: String, length: Long): Boolean =
+        runCatching { playerCache.isCached(mediaId, 0L, length) }.getOrDefault(false)
+
     private fun inferCachedContentLength(
         mediaId: String,
         position: Long,
@@ -11111,8 +11235,6 @@ var originalQueueSize: Int = 0
         includePlayerCache: Boolean = true,
         includeDownloadCache: Boolean = true,
     ): Long {
-        val targetEnd = position.saturatingAdd(requestedLength)
-        var cursor = position
         val spans =
             (
                 if (!includeDownloadCache) {
@@ -11124,27 +11246,13 @@ var originalQueueSize: Int = 0
                 } else {
                     runCatching { playerCache.getCachedSpans(mediaId).toList() }.getOrNull().orEmpty()
                 }
-            ).asSequence()
-                .filter { span -> span.position.saturatingAdd(span.length) > position }
-                .sortedBy { span -> span.position }
-                .toList()
-
-        for (span in spans) {
-            if (span.position > cursor) break
-            val spanEnd = span.position.saturatingAdd(span.length)
-            if (spanEnd > cursor) {
-                cursor = minOf(spanEnd, targetEnd)
-                if (cursor >= targetEnd) break
+            ).map { span ->
+                LocalPlaybackLookahead.Span(position = span.position, length = span.length)
             }
-        }
-
-        return (cursor - position).coerceAtLeast(0L)
-    }
-
-    private fun Long.saturatingAdd(value: Long): Long {
-        if (value <= 0L) return this
-        val result = this + value
-        return if (result < this) Long.MAX_VALUE else result
+        // The walk lives in LocalPlaybackLookahead, where the lookahead's own rule reads it too: one
+        // copy of the arithmetic means the skip decision and the resolve cannot disagree about what
+        // a hole in a cache looks like.
+        return LocalPlaybackLookahead.continuousLength(spans, position, requestedLength)
     }
 
     private fun Uri.shouldBypassYouTubeResolver(): Boolean {

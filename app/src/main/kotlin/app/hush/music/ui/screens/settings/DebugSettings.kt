@@ -73,9 +73,11 @@ import app.hush.music.constants.ShowCodecOnPlayerDefault
 import app.hush.music.constants.ShowCodecOnPlayerKey
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import app.hush.music.BuildConfig
 import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
+import app.hush.music.ui.player.PlayerDiagnosticsEnabledKey
 import app.hush.music.playback.PlaybackSourceLabels
 import app.hush.music.ui.player.displayName
 import app.hush.music.ui.component.IconButton
@@ -101,6 +103,12 @@ fun DebugSettings(navController: NavController) {
         rememberPreference(
             key = ShowCodecOnPlayerKey,
             defaultValue = ShowCodecOnPlayerDefault,
+        )
+
+    val (showTrackChangeDiagnostics, onShowTrackChangeDiagnosticsChange) =
+        rememberPreference(
+            key = PlayerDiagnosticsEnabledKey,
+            defaultValue = false,
         )
 
 
@@ -158,6 +166,19 @@ fun DebugSettings(navController: NavController) {
                         icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
                         checked = showCodecOnPlayer,
                         onCheckedChange = onShowCodecOnPlayerChange,
+                    )
+                }
+
+                // Debug builds only, because the overlay only draws in one; see
+                // [PlayerDiagnosticsEnabledKey]. A switch that does nothing is worse than no
+                // switch.
+                item(visible = BuildConfig.DEBUG) {
+                    SwitchPreference(
+                        title = { Text(stringResource(R.string.show_track_change_diagnostics)) },
+                        description = stringResource(R.string.description_show_track_change_diagnostics),
+                        icon = { Icon(painterResource(R.drawable.stats), null) },
+                        checked = showTrackChangeDiagnostics,
+                        onCheckedChange = onShowTrackChangeDiagnosticsChange,
                     )
                 }
             }

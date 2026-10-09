@@ -15,6 +15,11 @@
 # Parents walked by default: the car's root, the Home folder, and "Mixes and radios" - the folder
 # that decides whether the recommended-playlist groups (YouTube, Spotify) appear at all.
 #
+# Every report opens with the switches the tree was built from, including a `lossless offer:` line
+# naming the four states the car's lossless entry is published from - the entry itself shows up in
+# the root report as `enable_lossless`, so "is it offered?" is answered by reading one line rather
+# than by tapping it and listening.
+#
 # Exit codes: 0 every parent answered, 1 a parent returned nothing, 2 the run could not be decided
 # (no device, no debug build) - a run that decided nothing is never reported as a pass.
 #

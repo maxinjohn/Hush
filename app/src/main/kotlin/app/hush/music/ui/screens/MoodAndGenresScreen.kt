@@ -12,6 +12,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -48,6 +49,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
@@ -231,8 +233,6 @@ fun MoodAndGenresButton(
                     },
             )
         }
-    val glassBorder = isExploreTheme
-
     Card(
         onClick = onClick,
         shape = MoodAndGenresButtonShape,
@@ -255,19 +255,28 @@ fun MoodAndGenresButton(
                     },
                 ),
     ) {
-        Box(
+        BoxWithConstraints(
             modifier =
                 Modifier
                     .fillMaxSize()
                     .background(cardBrush),
         ) {
+            // Measured rather than assumed: this button is a half-width cell on a phone and a
+            // wider column elsewhere, and the title has to clear the artwork at either width.
+            val layout = moodAndGenresCardLayout(maxWidth)
+            val bottomScrimBrush =
+                remember(colorScheme.scrim) {
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, colorScheme.scrim.copy(alpha = 0.55f)),
+                    )
+                }
             if (artworkModel != null) {
                 Box(
                     modifier =
                         Modifier
                             .align(Alignment.TopEnd)
-                            .padding(top = 10.dp, end = 12.dp)
-                            .size(MoodAndGenresCoverSize)
+                            .padding(top = layout.coverTop, end = layout.coverInset)
+                            .size(layout.coverSize)
                             .clip(MoodAndGenresCoverShape)
                             .background(coverBrush),
                 ) {
@@ -285,21 +294,41 @@ fun MoodAndGenresButton(
                         .fillMaxSize()
                         .background(textScrimBrush),
             )
+            // A narrow card puts its title under the artwork rather than beside it, so a wrapped
+            // second line would end over the light half of the card. This pass is what keeps the
+            // text readable wherever that line stops.
+            if (layout.compact) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .background(bottomScrimBrush),
+                )
+            }
             Text(
                 text = title,
                 style =
-                    if (isExploreTheme) {
-                        MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
-                    } else {
-                        MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black)
+                    when {
+                        layout.compact ->
+                            MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = if (isExploreTheme) FontWeight.ExtraBold else FontWeight.Bold,
+                            )
+                        isExploreTheme ->
+                            MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
+                        else ->
+                            MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black)
                     },
                 color = Color.White,
-                maxLines = 1,
+                maxLines = layout.titleMaxLines,
                 overflow = TextOverflow.Ellipsis,
                 modifier =
                     Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = 16.dp, end = 92.dp, bottom = 16.dp),
+                        .padding(
+                            start = layout.titleStart,
+                            end = layout.titleEnd,
+                            bottom = layout.titleBottom,
+                        ),
             )
         }
     }
@@ -362,5 +391,72 @@ private val MoodAndGenresButtonShape = RoundedCornerShape(24.dp)
 private val MoodAndGenresCoverShape = RoundedCornerShape(16.dp)
 private val MoodAndGenresCoverSize = 80.dp
 private val MoodAndGenresArtworkRequestSize = 80.dp
+
+/**
+ * How one mood/genre card lays itself out at the width it was given.
+ *
+ * The card used to assume it was wide: the title kept 92dp of its width clear of the artwork and
+ * was held to one line. In the Search screen's two-up grid on a 360dp phone a card is 162dp wide,
+ * which leaves the title 54dp - four or five characters, so "Chill" and "Feel Good" both arrived
+ * as "Chi..." and "Fee..." and every mood had to be guessed from its gradient. The two widths are
+ * the same card, so the fix belongs in what the card does with the room it is given.
+ *
+ * Narrow (below [MoodAndGenresCompactMaxWidth]) drops to two lines and shrinks the cover to 44dp,
+ * which widens the title's column to 90dp - wide enough for the longest single-word label the mood
+ * strip ships ("Classical" measures about 57dp at the 14sp used here) and for the longest label of
+ * all ("Bollywood & Indian", which takes two lines) to read in full. Wide cards keep the original
+ * metrics, so the standalone Mood & Genres screen - one 348dp column on this screen size, where the
+ * title has always had 240dp - is unchanged, as are tablets and landscape.
+ */
+internal data class MoodAndGenresCardLayout(
+    val compact: Boolean,
+    val coverSize: Dp,
+    val coverInset: Dp,
+    val coverTop: Dp,
+    val titleStart: Dp,
+    val titleEnd: Dp,
+    val titleBottom: Dp,
+    val titleMaxLines: Int,
+) {
+    /** The horizontal room the title actually gets, once both of its insets are taken off. */
+    internal fun titleWidth(cardWidth: Dp): Dp = cardWidth - titleStart - titleEnd
+}
+
+/** Width below which a cell is treated as the search screen's half-width one. */
+private val MoodAndGenresCompactMaxWidth = 210.dp
+
+/** Cover size, and the gap kept between it and the title's column, on a narrow cell. */
+private val MoodAndGenresCompactCoverSize = 44.dp
+private val MoodAndGenresCompactCoverInset = 8.dp
+private val MoodAndGenresCompactGap = 8.dp
+
+internal fun moodAndGenresCardLayout(width: Dp): MoodAndGenresCardLayout {
+    val compact = width < MoodAndGenresCompactMaxWidth
+    return if (compact) {
+        MoodAndGenresCardLayout(
+            compact = true,
+            coverSize = MoodAndGenresCompactCoverSize,
+            coverInset = MoodAndGenresCompactCoverInset,
+            coverTop = 8.dp,
+            titleStart = 12.dp,
+            // The title stops where the artwork's column starts, so a second line can never run
+            // under the cover even when the first one stops early.
+            titleEnd = MoodAndGenresCompactCoverInset + MoodAndGenresCompactCoverSize + MoodAndGenresCompactGap,
+            titleBottom = 10.dp,
+            titleMaxLines = 2,
+        )
+    } else {
+        MoodAndGenresCardLayout(
+            compact = false,
+            coverSize = MoodAndGenresCoverSize,
+            coverInset = 12.dp,
+            coverTop = 10.dp,
+            titleStart = 16.dp,
+            titleEnd = 92.dp,
+            titleBottom = 16.dp,
+            titleMaxLines = 1,
+        )
+    }
+}
 
 val MoodAndGenresButtonHeight = 100.dp

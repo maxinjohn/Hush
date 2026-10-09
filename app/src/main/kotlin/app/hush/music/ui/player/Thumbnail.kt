@@ -16,7 +16,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
@@ -46,12 +49,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,6 +96,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import app.hush.music.ui.component.hushMarquee
+import app.hush.music.BuildConfig
+import app.hush.music.LocalAnimationsDisabled
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.R
 import app.hush.music.canvas.models.CanvasArtwork
@@ -141,6 +149,33 @@ private data class ThumbnailPage(
     val mediaItem: MediaItem,
 )
 
+/**
+ * What a swipe is turning in: the neighbour's cover, its arrival identity, and the track it belongs
+ * to - fixed when the direction is decided, because the hand-over moves the queue underneath it.
+ */
+private data class SwipeTurnIn(
+    val coverUrl: String?,
+    val trackKey: Any?,
+    val mediaId: String?,
+)
+
+/** Where a swipe explains itself: a drag that went over and had nothing to hand to. */
+private const val SwipeLogTag = "Swipe"
+
+/** The cover a swipe turns in for [item], asked for the way a page asks for its own. */
+private fun swipeTurnInOf(item: MediaItem?): SwipeTurnIn? =
+    item?.let {
+        SwipeTurnIn(
+            coverUrl = it.metadata?.thumbnailUrl?.highRes() ?: it.mediaMetadata.artworkUri?.toString(),
+            trackKey =
+                trackIdentityOf(
+                    mediaId = it.mediaId,
+                    artworkUri = it.mediaMetadata.artworkUri?.toString(),
+                ),
+            mediaId = it.mediaId,
+        )
+    }
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Thumbnail(
@@ -155,6 +190,10 @@ fun Thumbnail(
 
     // States
     val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
+
+    // Which way the queue is travelling, so the artwork, the title and the artists all move the
+    // same way when the track changes. The instance is shared - see [LocalTrackChangeDirection].
+    val trackChangeDirection = LocalTrackChangeDirection.current
     val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
     val error by playerConnection.error.collectAsStateWithLifecycle()
     val queueTitle by playerConnection.queueTitle.collectAsStateWithLifecycle()
@@ -182,6 +221,11 @@ fun Thumbnail(
             defaultValue = 16f,
         )
     val cropThumbnailToSquare by rememberPreference(CropThumbnailToSquareKey, false)
+    // Whether to draw the track change over the artwork; see [PlayerDiagnosticsOverlay]. A debug
+    // build only: the overlay is what these changes are diagnosed with, and a build that ships has
+    // no reason to carry it - or the writes behind it.
+    val trackChangeDiagnosticsEnabled by rememberPreference(PlayerDiagnosticsEnabledKey, false)
+    val showTrackChangeDiagnostics = BuildConfig.DEBUG && trackChangeDiagnosticsEnabled
     val (pulseMatrixEnabled) = rememberPreference(PulseMatrixEnabledKey, PulseMatrixEnabledDefault)
     val (pulseMatrixThemeStr) = rememberPreference(PulseMatrixThemeKey, PulseMatrixDefaultTheme.name)
     val pulseMatrixTheme = PulseMatrixTheme.valueOf(pulseMatrixThemeStr)
@@ -300,6 +344,34 @@ fun Thumbnail(
     // Grid state
     val thumbnailLazyGridState = rememberLazyGridState()
 
+    // Whether the platform is animating at all - the system's animator duration scale, which is what
+    // Compose's own scroll animations follow - and not Hush's motion preference. The page alignment
+    // below is the one place the difference matters; see there.
+    val gridAnimationsOff =
+        remember(context) {
+            android.provider.Settings.Global.getFloat(
+                context.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f,
+            ) == 0f
+        }
+
+    // What each page remembers across its arrivals, held here rather than in the page.
+    //
+    // A page lives inside a lazy grid item and the grid recycles those, and a swipe - the gesture
+    // this screen exists for - is what makes it recycle. Remembered inside the page, that state was
+    // thrown away on exactly the change it was there for: the arriving page turned out to be a page
+    // that had never arrived before, so a swipe faded where a tap turns, and it had no cover under
+    // it to arrive over. See [TrackArtworkMemory].
+    val artworkMemories = remember { TrackArtworkMemories() }
+
+    // The state the readout draws, one instance shared by the three composables a track change is
+    // made of - this screen, the page that turns inside the grid, and the canvas over it; see
+    // [PlayerTrackChangeDiagnostics]. Written here because this is where the switch is read, and a
+    // plain field so that flipping it does not invalidate the screen that draws it.
+    val playerDiagnostics = remember { PlayerTrackChangeDiagnostics() }
+    playerDiagnostics.enabled = showTrackChangeDiagnostics
+
     // Create a playlist using correct shuffle-aware logic
     val timeline = playerConnection.player.currentTimeline
     val currentIndex = playerConnection.player.currentMediaItemIndex
@@ -390,40 +462,196 @@ fun Thumbnail(
             )
         }
 
-    // Current item tracking
-    val currentItem by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemIndex } }
-    val itemScrollOffset by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemScrollOffset } }
+    // The swipe, which is a page turn and nothing else.
+    //
+    // There used to be two motions for one gesture. The grid scrolled a neighbour in under the
+    // finger, a fling had to settle before the track could be changed at all, the grid was carried
+    // back to the playing page, and only then did the turn play - on a page that had been off screen
+    // while the song, its cover and its title had already changed. So the change arrived first and
+    // the flip arrived after it, as a second animation, for one gesture. Now the finger drives the
+    // turn: the neighbour's cover comes over exactly as far as the page is dragged, and the track is
+    // handed over as the page goes over, so the song changes *during* the flip. See
+    // [heldTurnProgress], [swipeHandsOver] and [TrackArtworkMemory.handover].
+    val swipeHeldTarget = remember { mutableFloatStateOf(HELD_TURN) }
+    var swipeDragging by remember { mutableStateOf(false) }
+    var swipeDirection by remember { mutableIntStateOf(0) }
+    var swipeHandedOver by remember { mutableStateOf(false) }
+    // Whether a *finger* is on the page right now. The button turn below moves the same state a drag
+    // does, so it needs to know the difference: one is a script it can finish and put away, the other
+    // belongs to the gesture until the finger lifts.
+    var fingerDragging by remember { mutableStateOf(false) }
+    // Counts the gestures this screen has seen, so that a swipe's turn-in is re-read for each one.
+    // See [SwipeTurnInKey]: two swipes the same way in a row are one direction, and keyed on the
+    // direction alone the second one kept the first one's neighbour - the track now playing.
+    var swipeGestureId by remember { mutableIntStateOf(0) }
+    // Follows the finger exactly, swings back if the drag does not go over, and holds where the
+    // finger left it when it does.
+    val swipeHeld by
+        animateFloatAsState(
+            targetValue = swipeHeldTarget.floatValue,
+            animationSpec = if (swipeDragging) tween(0) else tween(SWIPE_SETTLE_MS),
+            label = "swipe_held",
+        )
+    val swipeCanNext = rememberUpdatedState(canSkipNext)
+    val swipeCanPrevious = rememberUpdatedState(canSkipPrevious)
 
-    // Handle swipe to change song
-    LaunchedEffect(itemScrollOffset) {
-        if (!thumbnailLazyGridState.isScrollInProgress || !swipeThumbnail || itemScrollOffset != 0 ||
-            currentMediaIndex < 0
-        ) {
-            return@LaunchedEffect
+    // What the finger is turning in, fixed when the direction is decided rather than read again as
+    // the queue moves: the hand-over changes what the neighbour slot holds, and reading it then would
+    // swap this layer to the following track's cover halfway through its own turn.
+    //
+    // Derived here rather than kept in state and filled by an effect on the direction. An effect
+    // keyed on the direction alone did not re-run when two swipes went the same way - the key it
+    // compares never changed - so the second swipe kept the first swipe's neighbour, which by then
+    // was the track already playing. Keying the derivation on the gesture as well makes every swipe
+    // read its own neighbour, while a recomposition *within* one gesture still cannot move it.
+    val swipeTurned =
+        remember(SwipeTurnInKey(gestureId = swipeGestureId, direction = swipeDirection)) {
+            when (swipeDirection) {
+                TRACK_CHANGE_NEXT -> swipeTurnInOf(nextMediaMetadata)
+                TRACK_CHANGE_PREVIOUS -> swipeTurnInOf(previousMediaMetadata)
+                else -> null
+            }
         }
-
-        if (currentItem > currentMediaIndex && canSkipNext) {
-            playerConnection.player.seekToNext()
-        } else if (currentItem < currentMediaIndex && canSkipPrevious) {
-            playerConnection.player.seekToPreviousMediaItem()
+    // The turn-in, read live inside the gesture rather than captured by the gesture's own lambda.
+    //
+    // `pointerInput`'s block runs for as long as its keys stay the same, and a plain `val` read
+    // inside it is whatever that val held when the block was built - for this screen, a composition
+    // with no direction yet, so `null`. Every swipe therefore animated its page perfectly and then
+    // failed the hand-over's `swipeTurned != null` test, forever: the page turned, the song never
+    // changed. Wrapped the way the skip flags above already are, the same read is the live one the
+    // composition drew the flap from.
+    val swipeTurnedState = rememberUpdatedState(swipeTurned)
+    val swipeCoverRequest = rememberOfflineArtworkImageRequest(swipeTurned?.coverUrl)
+    val currentPageMemory = artworkMemories.forSlot("current")
+    val animationsDisabled = LocalAnimationsDisabled.current
+    // Once the page's own arrival has taken the handed-over track it draws that cover itself, from
+    // the same progress, and the finger's copy of it would be one layer too many.
+    val swipeSettled =
+        swipeHandedOver &&
+            (currentPageMemory.turnedFor.value == swipeTurned?.trackKey ||
+                (animationsDisabled && currentMediaItem?.mediaId == swipeTurned?.mediaId))
+    val swipeShowing =
+        swipeCoverRequest != null && swipeDirection != 0 && !swipeSettled && swipeHeld < HELD_TURN
+    // A hand-over that never lands must not leave the page half turned over: a player that refused
+    // the skip, say, would otherwise keep the finger's layer at its progress with nothing to take it.
+    LaunchedEffect(swipeHandedOver) {
+        if (!swipeHandedOver) return@LaunchedEffect
+        delay(SWIPE_GIVE_UP_MS)
+        if (currentPageMemory.turnedFor.value != swipeTurned?.trackKey) {
+            swipeHeldTarget.floatValue = HELD_TURN
         }
     }
 
-    // Update position when song changes
-    LaunchedEffect(mediaMetadata, currentMediaItem?.mediaId, canSkipPrevious, canSkipNext) {
-        val index = maxOf(0, currentMediaIndex)
-        if (index >= 0 && index < thumbnailPages.size) {
+    // A button skip, turned the way a swipe turns: the page goes over and the track is handed over as
+    // it passes the hand-over point, instead of the track changing at once and the page moving after.
+    //
+    // The finger is replaced by the frame clock - the same distance over the same time - so the turn
+    // always finishes. It used to wait for the neighbour's turn-in before moving, with the hold parked
+    // at the hand-over point until that resolved: a parked hold is a cover frozen half way over, which
+    // is the stall this was reported as. Nothing here waits to start.
+    LaunchedEffect(playerConnection) {
+        playerConnection.turnRequests.collect { forward ->
+            val canTurn = if (forward) swipeCanNext.value else swipeCanPrevious.value
+            if (!isPlayerExpanded || !swipeThumbnail || !canTurn || fingerDragging) {
+                if (forward) playerConnection.skipNext() else playerConnection.skipPrevious()
+                return@collect
+            }
+            swipeGestureId++
+            // A finger can take the page over while this turn runs, so what this turn owns is the
+            // gesture it belongs to: a newer turn - or a drag - must not be written over by an older
+            // one finishing.
+            val gesture = swipeGestureId
+            swipeDirection = if (forward) TRACK_CHANGE_NEXT else TRACK_CHANGE_PREVIOUS
+            swipeHandedOver = false
+            swipeDragging = true
+            swipeHeldTarget.floatValue = HELD_TURN
+            var handedOver = false
+            // Timed from the clock, like the page's own arrival: the same press takes the same time
+            // to carry the page over whether the next cover is cached or still arriving.
+            var startNanos = 0L
             try {
-                thumbnailLazyGridState.animateScrollToItem(index)
-            } catch (e: Exception) {
-                thumbnailLazyGridState.scrollToItem(index)
+                while (true) {
+                    val running =
+                        withFrameNanos { frameTimeNanos ->
+                            if (startNanos == 0L) startNanos = frameTimeNanos
+                            val elapsed = (frameTimeNanos - startNanos) / 1_000_000L
+                            val fraction = (elapsed / TRACK_CHANGE_TURN_MS.toFloat()).coerceIn(0f, 1f)
+                            val held = HELD_TURN - (HELD_TURN - HELD_FLAT) * fraction
+                            swipeHeldTarget.floatValue = held
+                            if (!handedOver && HELD_TURN - held >= SWIPE_HAND_OVER_FRACTION) {
+                                handedOver = true
+                                // The page about to receive the track picks the turn up exactly where the
+                                // clock left it, the way it picks up a finger's.
+                                currentPageMemory.handover.value = held
+                                swipeHandedOver = true
+                                if (forward) playerConnection.skipNext() else playerConnection.skipPrevious()
+                            }
+                            elapsed < TRACK_CHANGE_TURN_MS && swipeGestureId == gesture
+                        }
+                    if (!running) break
+                }
+                // A press is a press: a turn cut short - a finger crossing it, say - still changes the
+                // track rather than being swallowed.
+                if (!handedOver && swipeGestureId == gesture) {
+                    if (forward) playerConnection.skipNext() else playerConnection.skipPrevious()
+                }
+            } finally {
+                // The layer comes down however this ends - the turn finishing, a finger taking the page
+                // over, the sheet closing on it - because a hold left standing is a cover frozen half
+                // way over, the very thing this path exists to avoid. A finger on the page is the one
+                // case where lifting it is not this turn's to do.
+                swipeDragging = false
+                if (!fingerDragging && swipeGestureId == gesture) {
+                    // Set aside at the flat moment, the page having taken the track by now, and wound
+                    // back with the layer already hidden: neither move is seen.
+                    swipeDirection = 0
+                    swipeHandedOver = false
+                    swipeHeldTarget.floatValue = HELD_TURN
+                }
             }
         }
     }
 
-    LaunchedEffect(playerConnection.player.currentMediaItemIndex, currentMediaItem?.mediaId) {
+    // Keep the page under the finger on the track that is playing.
+    //
+    // One effect, and an *animated* one. There used to be two: this one and a second that called
+    // `scrollToItem` - an instant jump - on the same queue changes. Whenever both ran, the instant
+    // jump cancelled the animation that had just started, which is the largest part of why a skip
+    // looked like an immediate switch rather than a move. The instant jump had no case of its own:
+    // every change it reacted to (the track, or its index) is one this effect already sees, and the
+    // non-animated call is kept only as the fallback for a grid that cannot animate at all.
+    LaunchedEffect(mediaMetadata, currentMediaItem?.mediaId, canSkipPrevious, canSkipNext, gridAnimationsOff) {
         val index = currentMediaIndex
-        if (index >= 0 && index != currentItem) {
+        if (index < 0 || index >= thumbnailPages.size) return@LaunchedEffect
+        // A device with its animations switched off gets the page at once.
+        //
+        // The platform's scroll animation does not advance when the animator duration scale is 0, so
+        // asking it to carry the grid left the artwork between two pages - half the previous track and
+        // half the new one, split down the middle - until something else happened to align the grid,
+        // which is seconds later and reads as a cover stuck half way over. The instant move is not an
+        // animation, so it always lands. On a device that does animate, nothing changes.
+        if (gridAnimationsOff) {
+            thumbnailLazyGridState.scrollToItem(index)
+            return@LaunchedEffect
+        }
+        try {
+            thumbnailLazyGridState.animateScrollToItem(index)
+        } catch (_: Exception) {
+            thumbnailLazyGridState.scrollToItem(index)
+        }
+        // The page has to *be* the page, and not a point between two of them.
+        //
+        // The animated scroll is the only alignment left - the instant jump that used to follow it was
+        // dropped as redundant - and it does not always land. A grid that re-lays-out under it cancels
+        // it, and the page width follows the artwork's own size, so that is the ordinary case rather
+        // than a rare one. What is left on screen then is the artwork cut down the middle, the previous
+        // track's page on the left and the new track's on the right, and it does not move again until
+        // the next track change: the cover reported as stuck half way over. This snap is not an
+        // animation, so it always lands, and it does nothing at all when the scroll did.
+        if (thumbnailLazyGridState.isScrollInProgress) return@LaunchedEffect
+        if (thumbnailLazyGridState.firstVisibleItemIndex != index ||
+            thumbnailLazyGridState.firstVisibleItemScrollOffset != 0
+        ) {
             thumbnailLazyGridState.scrollToItem(index)
         }
     }
@@ -514,14 +742,21 @@ fun Thumbnail(
                         state = thumbnailLazyGridState,
                         rows = GridCells.Fixed(1),
                         flingBehavior = rememberSnapFlingBehavior(thumbnailSnapLayoutInfoProvider),
-                        userScrollEnabled = swipeThumbnail && isPlayerExpanded, // Only allow swipe when player is expanded
+                        // The finger never scrolls the grid: the swipe is the page's own turn, handled by
+                        // the gesture below. A grid that moved as well would put a second motion beside the
+                        // turn - and it would need the track to change after it settled, which is exactly
+                        // what made the change arrive before the flip.
+                        userScrollEnabled = false,
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         items(
                             items = thumbnailPages,
-                            key = { page ->
-                                "${page.slotKey}:${page.windowIndex}:${page.mediaItem.mediaId.ifEmpty { "unknown" }}"
-                            },
+                            // Keyed by *slot* (previous | current | next), not by track. A key that
+                            // carried the track id meant a track change replaced the page composable
+                            // outright - so nothing inside it could animate, and the arrival was a cut
+                            // with an empty frame in front of it. A stable slot lets the artwork bring
+                            // itself in; see [TrackArtwork].
+                            key = { page -> page.slotKey },
                             contentType = { "thumbnailPage" },
                         ) { page ->
                             val item = page.mediaItem
@@ -639,6 +874,98 @@ fun Thumbnail(
                                                     showSeekEffect = true
                                                 },
                                             )
+                                        }
+                                        .pointerInput(swipeThumbnail, isPlayerExpanded) {
+                                            if (!swipeThumbnail || !isPlayerExpanded) return@pointerInput
+                                            // The swipe: the finger carries the page over and the track is handed
+                                            // over as it goes. No fling, no settle, no snap back to the playing
+                                            // page - the turn is the whole of the gesture.
+                                            detectHorizontalDragGestures(
+                                                onDragStart = {
+                                                    swipeGestureId++
+                                                    fingerDragging = true
+                                                    swipeDragging = true
+                                                    swipeHandedOver = false
+                                                    swipeDirection = 0
+                                                    swipeHeldTarget.floatValue = HELD_TURN
+                                                },
+                                                onHorizontalDrag = { _, dragAmount ->
+                                                    val width = size.width.toFloat()
+                                                    if (width <= 0f) return@detectHorizontalDragGestures
+                                                    if (swipeDirection == 0 && dragAmount != 0f) {
+                                                        swipeDirection =
+                                                            if (dragAmount < 0f) {
+                                                                TRACK_CHANGE_NEXT
+                                                            } else {
+                                                                TRACK_CHANGE_PREVIOUS
+                                                            }
+                                                    }
+                                                    // The page comes over as far as the finger has carried it, and
+                                                    // a drag that doubles back unwinds it instead of winding it
+                                                    // further.
+                                                    swipeHeldTarget.floatValue =
+                                                        (swipeHeldTarget.floatValue + dragAmount * swipeDirection / width)
+                                                            .coerceIn(HELD_FLAT, HELD_TURN)
+                                                },
+                                                onDragEnd = {
+                                                    fingerDragging = false
+                                                    swipeDragging = false
+                                                    val dragged = HELD_TURN - swipeHeldTarget.floatValue
+                                                    // The live turn-in, not the one this lambda captured when it was
+                                                    // built: the gesture decides its direction after the handler
+                                                    // exists, and a captured value was null for every gesture.
+                                                    if (swipeHandsOver(
+                                                            dragged,
+                                                            swipeDirection,
+                                                            swipeCanNext.value,
+                                                            swipeCanPrevious.value,
+                                                        ) &&
+                                                        swipeTurnedState.value != null
+                                                    ) {
+                                                        // The finger's part of the turn goes to the page that is about
+                                                        // to receive the track, and only then is the track changed:
+                                                        // the song changes as the page goes over, and the turn carries
+                                                        // on from where the finger left it rather than starting again
+                                                        // once the cover has already arrived.
+                                                        currentPageMemory.handover.value = swipeHeldTarget.floatValue
+                                                        swipeHandedOver = true
+                                                        // Through the connection, not the raw player: the two transport
+                                                        // buttons and every other skip in the app go through these, and
+                                                        // they are where the queue's own rules live - a guest in a
+                                                        // Together session asks the host instead of skipping locally,
+                                                        // an emptied timeline is recovered rather than left silent, and
+                                                        // a player left IDLE is prepared and played. A swipe that called
+                                                        // the raw player did none of that, so the same gesture skipped
+                                                        // the two of them out of step. A skip these refuse is what the
+                                                        // hand-over's give-up net is there to catch.
+                                                        if (swipeDirection > 0) {
+                                                            playerConnection.skipNext()
+                                                        } else {
+                                                            playerConnection.skipPrevious()
+                                                        }
+                                                    } else {
+                                                        // A drag long enough to hand over that found nothing to
+                                                        // hand to - the end of the queue, or a neighbour with
+                                                        // no cover to turn in. On screen the page springs back,
+                                                        // which is indistinguishable from a skip the player
+                                                        // refused, so it is said out loud rather than left to be
+                                                        // rediscovered. (This is the shape the stale-turn-in
+                                                        // bug hid in: every swipe sprang back here.)
+                                                        if (dragged >= SWIPE_HAND_OVER_FRACTION && swipeTurnedState.value == null) {
+                                                            Timber.tag(SwipeLogTag).d(
+                                                                "no turn-in for direction=%d (neighbour has no cover)",
+                                                                swipeDirection,
+                                                            )
+                                                        }
+                                                        swipeHeldTarget.floatValue = HELD_TURN
+                                                    }
+                                                },
+                                                onDragCancel = {
+                                                    fingerDragging = false
+                                                    swipeDragging = false
+                                                    swipeHeldTarget.floatValue = HELD_TURN
+                                                },
+                                            )
                                         },
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -675,22 +1002,29 @@ fun Thumbnail(
                                                 playerDesignStyle != PlayerDesignStyle.V7 &&
                                                 playerDesignStyle != PlayerDesignStyle.V8
 
-                                        val thumbnailBgUrl =
-                                            item.metadata?.thumbnailUrl?.highRes()
-                                                ?: item.mediaMetadata.artworkUri?.toString()
-                                        val thumbnailBgRequest = rememberOfflineArtworkImageRequest(thumbnailBgUrl)
+                                        // One remembered url for the cover and the backdrop behind it,
+                                        // which are the same image: the two copies that used to be here
+                                        // ran `highRes()` - a set of regexes over the url - twice per page
+                                        // on every recomposition, and this screen recomposes several
+                                        // times a second while a track plays, so the cost landed on
+                                        // frames nobody would connect to a url. Remembered on the item,
+                                        // because that is when the artwork can change.
                                         val thumbnailArtworkUrl =
-                                            item.metadata?.thumbnailUrl?.highRes()
-                                                ?: item.mediaMetadata.artworkUri?.toString()
-                                        val thumbnailArtworkRequest = rememberOfflineArtworkImageRequest(thumbnailArtworkUrl)
+                                            remember(item) {
+                                                item.metadata?.thumbnailUrl?.highRes()
+                                                    ?: item.mediaMetadata.artworkUri?.toString()
+                                            }
+                                        val thumbnailBgRequest = rememberOfflineArtworkImageRequest(thumbnailArtworkUrl)
+                                        val thumbnailArtworkRequest = thumbnailBgRequest
                                         val thumbnailBgBlurEnabled = backdropEnabled && !disableBlur && backdropBlurAmount > 0
 
+                                        // The backdrop is the same cover, blurred: one layer, so the
+                                        // blur is a single pass over the composited result rather than
+                                        // one pass per layer. It swaps in place while the artwork over
+                                        // it travels - a colour field has no direction to tell.
                                         if (thumbnailBgBlurEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                                             val blurRadiusPx = (backdropBlurAmount * 60 / 100f).coerceAtMost(60f)
-                                            AsyncImage(
-                                                model = thumbnailBgRequest,
-                                                contentDescription = null,
-                                                contentScale = ContentScale.FillBounds,
+                                            Box(
                                                 modifier =
                                                     Modifier
                                                         .fillMaxSize()
@@ -699,34 +1033,84 @@ fun Thumbnail(
                                                             renderEffect = BlurEffect(radiusX = blurRadiusPx, radiusY = blurRadiusPx),
                                                             alpha = 0.6f,
                                                         ),
-                                            )
+                                            ) {
+                                                TrackArtwork(
+                                                    model = thumbnailBgRequest,
+                                                    trackKey = "backdrop:$thumbnailArtworkUrl",
+                                                    contentScale = ContentScale.FillBounds,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    turn = false,
+                                                )
+                                            }
                                         } else if (thumbnailBgBlurEnabled) {
                                             ThumbnailBgBlurApi30(
-                                                imageUrl = thumbnailBgUrl,
+                                                imageUrl = thumbnailArtworkUrl,
                                                 blurAmount = backdropBlurAmount,
                                                 shouldCropArtwork = shouldCropArtwork,
                                             )
                                         } else {
-                                            AsyncImage(
-                                                model = thumbnailBgRequest,
-                                                contentDescription = null,
-                                                contentScale = ContentScale.FillBounds,
+                                            Box(
                                                 modifier =
                                                     Modifier
                                                         .fillMaxSize()
                                                         .let { if (shouldCropArtwork) it.aspectRatio(1f) else it }
                                                         .graphicsLayer(alpha = 0.6f),
-                                            )
+                                            ) {
+                                                TrackArtwork(
+                                                    model = thumbnailBgRequest,
+                                                    trackKey = "backdrop:$thumbnailArtworkUrl",
+                                                    contentScale = ContentScale.FillBounds,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    turn = false,
+                                                )
+                                            }
                                         }
 
-                                        AsyncImage(
+                                        // What an arrival belongs to: read once per track, at the
+                                        // change - see [trackIdentityOf] - rather than re-read as
+                                        // the page recomposes.
+                                        val trackIdentity =
+                                            remember(item.mediaId, item.mediaMetadata.artworkUri) {
+                                                trackIdentityOf(
+                                                    mediaId = item.mediaId,
+                                                    artworkUri = item.mediaMetadata.artworkUri?.toString(),
+                                                )
+                                            }
+                                        TrackArtwork(
                                             model = thumbnailArtworkRequest,
-                                            contentDescription = null,
+                                            trackKey = trackIdentity,
                                             contentScale = if (shouldCropArtwork) ContentScale.Crop else ContentScale.Fit,
                                             modifier =
                                                 Modifier
                                                     .fillMaxSize()
                                                     .let { if (shouldCropArtwork) it.aspectRatio(1f) else it },
+                                            // Only the page being read is faded and turned frame by
+                                            // frame: the pages either side of it are off-screen, and
+                                            // a page that moved where nobody can see it would be a
+                                            // full-frame layer transform per frame spent on nothing.
+                                            //
+                                            // And it turns whichever way the track arrived - a tap
+                                            // on skip, or a swipe across the artwork. A swipe used to
+                                            // settle instead, on the argument that the page had
+                                            // already moved under the finger and the motion must not
+                                            // be doubled; on a device whose system animations are
+                                            // switched off the grid's own settle does not happen at
+                                            // all, so all that was left was the cover being
+                                            // replaced - which is not what a page turning looks
+                                            // like, and not what the buttons do.
+                                            animated = page.slotKey == "current",
+                                            turn = page.slotKey == "current",
+                                            direction = {
+                                                trackChangeDirection.directionOf(
+                                                    mediaMetadata?.id,
+                                                    playerConnection.player.currentMediaItemIndex,
+                                                )
+                                            },
+                                            memory = artworkMemories.forSlot(page.slotKey),
+                                            // The panel reads the page that is playing and no other:
+                                            // [TrackArtwork] reports an arrival only from the layer
+                                            // that turns, which is this one.
+                                            diagnostics = playerDiagnostics,
                                         )
 
                                         if (shouldUseCanvas &&
@@ -737,6 +1121,37 @@ fun Thumbnail(
                                                 fallbackUrl = fallbackCanvasUrl,
                                                 isPlaying = isPlaying,
                                                 modifier = Modifier.fillMaxSize(),
+                                                diagnostics = playerDiagnostics,
+                                            )
+                                        }
+
+                                        // The finger's page, drawn *over* the canvas and not under it.
+                                        //
+                                        // A track with a canvas has its whole artwork area covered by this
+                                        // layer, so a swipe's cover drawn before it was a page nobody could
+                                        // see: what flapped was the canvas of the song already playing, which
+                                        // is what was reported. Drawn last, the turn-in is the top layer for
+                                        // as long as the finger is on it, and the canvas is what is being
+                                        // turned over - which is also what it is after the hand-over, when
+                                        // the page itself takes the track and this layer steps aside.
+                                        if (page.slotKey == "current" && swipeShowing) {
+                                            // The page under the finger: the track a swipe is turning in, held
+                                            // at exactly the progress the drag has carried the page to.
+                                            // Nothing about it is on a clock - the finger is the clock - and
+                                            // it is drawn only until the page itself takes the track over,
+                                            // from the same progress.
+                                            TrackArtwork(
+                                                model = swipeCoverRequest,
+                                                trackKey = swipeTurned?.trackKey,
+                                                contentScale = if (shouldCropArtwork) ContentScale.Crop else ContentScale.Fit,
+                                                modifier =
+                                                    Modifier
+                                                        .fillMaxSize()
+                                                        .let { if (shouldCropArtwork) it.aspectRatio(1f) else it },
+                                                animated = false,
+                                                turn = true,
+                                                direction = { swipeDirection },
+                                                heldProgress = swipeHeld,
                                             )
                                         }
                                     }
@@ -758,6 +1173,43 @@ fun Thumbnail(
                     }
                 }
             }
+        }
+
+        // The track-change readout, drawn over the artwork it describes and gated *here*, before
+        // its bundles are built, so that a build with it off pays nothing for it - the panel's own
+        // reads are all inside it. See [PlayerDiagnosticsOverlay].
+        if (showTrackChangeDiagnostics) {
+            PlayerDiagnosticsOverlay(
+                diagnostics = playerDiagnostics,
+                grid =
+                    PlayerDiagnosticsGrid(
+                        state = thumbnailLazyGridState,
+                        currentSlotIndex = currentMediaIndex,
+                        pageCount = thumbnailPages.size,
+                        animationsOff = gridAnimationsOff,
+                    ),
+                finger =
+                    PlayerDiagnosticsFinger(
+                        gesture =
+                            when {
+                                !swipeDragging -> PlayerDiagnosticsGesture.IDLE
+                                fingerDragging -> PlayerDiagnosticsGesture.DRAG
+                                else -> PlayerDiagnosticsGesture.TURN
+                            },
+                        // A gesture with no direction yet is reported as the direction the page
+                        // would take, so the line never reads as a move that is not happening.
+                        direction = if (swipeDirection == 0) TRACK_CHANGE_NEXT else swipeDirection,
+                        held = swipeHeld,
+                        handedOver = swipeHandedOver,
+                        layerShowing = swipeShowing,
+                    ),
+                trackId = mediaMetadata?.id,
+                queueIndex = playerConnection.player.currentMediaItemIndex,
+                modifier =
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = PlayerHorizontalPadding + 8.dp),
+            )
         }
 
         // Seek effect
