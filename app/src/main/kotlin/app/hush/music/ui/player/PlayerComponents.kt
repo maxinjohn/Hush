@@ -28,6 +28,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -243,11 +244,24 @@ fun PlayerTitleSection(
             navController = navController,
             state = state,
         )
+    // The title is what most people are looking at when the next song starts, so it travels the
+    // same way the cover does - away to the left on a skip, back from the left on a return -
+    // rather than the plain crossfade it used to be, which read as the text being replaced rather
+    // than as the queue moving on.
+    val playerConnection = LocalPlayerConnection.current
+    val trackChangeDirection = LocalTrackChangeDirection.current
     Column(modifier = modifier) {
         AnimatedContent(
             targetState = mediaMetadata.title,
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
-            label = "",
+            transitionSpec = {
+                trackChangeSlide(
+                    trackChangeDirection.directionOf(
+                        mediaMetadata.id,
+                        playerConnection?.player?.currentMediaItemIndex ?: 0,
+                    ),
+                )
+            },
+            label = "player_title",
         ) { title ->
             Text(
                 text = title,
@@ -636,7 +650,7 @@ fun PlayerTopActions(
             }
         }
 
-        PlayerDesignStyle.V6 -> {
+        PlayerDesignStyle.V6, PlayerDesignStyle.AURA -> {
             val buttonSize =
                 when {
                     landscape -> 44.dp
@@ -1499,7 +1513,7 @@ fun PlayerPlaybackControls(
             }
         }
 
-        PlayerDesignStyle.V6 -> {
+        PlayerDesignStyle.V6, PlayerDesignStyle.AURA -> {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier =
@@ -1893,12 +1907,18 @@ fun PlayerControlsContent(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = textBackgroundColor.copy(alpha = 0.8f),
                                     )
-                                    Text(
-                                        text = formatRow.source.displayLabel(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = textBackgroundColor.copy(alpha = 0.5f),
-                                        maxLines = 1,
-                                    )
+                                    // The origin line is drawn only for a source that has one: a
+                                    // row served off a file on this device is named by nothing, and
+                                    // an empty second line under the badge would be a gap the eye
+                                    // reads as a missing fact.
+                                    formatRow.source.displayLabel()?.let { evidence ->
+                                        Text(
+                                            text = evidence,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = textBackgroundColor.copy(alpha = 0.5f),
+                                            maxLines = 1,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -2330,6 +2350,13 @@ internal fun V6PortraitSingleActionRow(
     iconSize: Dp = 20.dp,
     buttonSpacing: Dp? = null,
     modifier: Modifier = Modifier,
+    /**
+     * Reports the width the buttons actually occupy inside [modifier], so a sibling caption can
+     * align with the first and last button instead of guessing from the container's width. Only
+     * meaningful when [buttonSpacing] is set: without it the row spreads evenly and its content
+     * width is whatever the parent gives it.
+     */
+    onContentWidthChange: ((Dp) -> Unit)? = null,
 ) {
     val database = LocalDatabase.current
     val download = rememberDownload(mediaMetadata.id)
@@ -2348,6 +2375,25 @@ internal fun V6PortraitSingleActionRow(
             Player.REPEAT_MODE_ALL -> R.drawable.repeat_on
             else -> R.drawable.repeat
         }
+
+    // How many buttons this row is about to draw, counted from the same conditions that gate them
+    // below: the queue chip, share, like, download (hidden for local media), shuffle, repeat, the
+    // sleep chip, the lyrics chip and the overflow menu. A sibling caption uses the resulting span
+    // to line its ends up with the first and last button, which is why the span is measured here
+    // rather than guessed by the caller.
+    val actionCount =
+        (if (onExpandQueue != null) 1 else 0) +
+            2 +
+            (if (!isLocalMedia) 1 else 0) +
+            2 +
+            (if (onSleepTimerClick != null) 1 else 0) +
+            (if (onShowLyrics != null) 1 else 0) +
+            1
+    if (onContentWidthChange != null && buttonSpacing != null) {
+        LaunchedEffect(actionCount, buttonSize, buttonSpacing) {
+            onContentWidthChange(buttonSize * actionCount + buttonSpacing * (actionCount - 1))
+        }
+    }
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -2550,7 +2596,10 @@ private fun V6PortraitActionIcon(
                     haloColor = tint,
                 )
                 .clip(CircleShape)
-                .background(backgroundColor),
+                .background(backgroundColor)
+                // Hairline ring: the action row sits on the artwork's accent wash, where
+                // 12%-white discs lose their edge and the whole row reads as floating text.
+                .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         if (showProgress) {
@@ -4193,12 +4242,16 @@ private fun V8QualityChip(
                     color = foreground.copy(alpha = 0.72f),
                     maxLines = 1,
                 )
-                Text(
-                    text = formatRow.source.displayLabel(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = foreground.copy(alpha = 0.45f),
-                    maxLines = 1,
-                )
+                // A source that is named by nothing draws the chip's own line only; see
+                // [formatRowSourceLabelRes].
+                formatRow.source.displayLabel()?.let { evidence ->
+                    Text(
+                        text = evidence,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = foreground.copy(alpha = 0.45f),
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }
@@ -6031,12 +6084,16 @@ fun WideLandscapePlayerContent(
                 ?.takeIf { !it.fromCache && it.percent in 1..99 }
                 ?.let { stringResource(R.string.spotiflac_downloading_percent, it.percent) }
             ?: sourceInfo.delivery.displayName()
+    // The codec, and the origin phrase as a tail only when the source has one: a row served off a
+    // file on this device is named by nothing, so it reads as the codec alone rather than as a
+    // codec followed by a separator with nothing after it.
+    val formatEvidence = formatRow?.source?.displayLabel()
     val audioValue =
         formatRow
             ?.format
             ?.codecLabel()
             ?.takeIf { it.isNotBlank() }
-            ?.let { codec -> "$codec · ${formatRow.source.displayLabel()}" }
+            ?.let { codec -> listOfNotNull(codec, formatEvidence).joinToString(" · ") }
             ?: stringResource(R.string.player_audio_stereo)
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {

@@ -100,7 +100,7 @@
     <string name="advanced_login">Iniciar sesión con token</string>
     <string name="token_hidden">Pulsa para mostrar el token</string>
     <string name="token_shown">Pulsar de nuevo para copiar o editar</string>
-    <string name="token_adv_login_description">Este es un método de inicio de sesión AVANZADO. Como alternativa a la pagina web, puedes entrar directamente o actualizar tu token de sesión aquí. Por ejemplo, esto puede acelerar el inicio de sesión en múltiples equipos. Por favor toma en cuenta que cualquier formato de token invalido que la aplicación no pueda analizar no sera aceptado</string>
+    <string name="token_adv_login_description">Este es un método de inicio de sesión AVANZADO. Como alternativa a la página web, puedes entrar directamente o actualizar tu token de sesión aquí. Por ejemplo, esto puede acelerar el inicio de sesión en múltiples equipos. Por favor toma en cuenta que cualquier formato de token inválido que la aplicación no pueda analizar no será aceptado</string>
     <string name="yt_sync">Auto sincronizar con la cuenta</string>
     <string name="more_content">Más contenido</string>
     <string name="general">General</string>

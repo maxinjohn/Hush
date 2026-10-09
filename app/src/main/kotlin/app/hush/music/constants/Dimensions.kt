@@ -33,7 +33,48 @@ val QueuePeekHeight = 64.dp
 val LandscapeQueuePeekHeight = 44.dp
 val LandscapeQueuePeekHeightV9 = 52.dp
 val LandscapeUpNextBarHeight = 76.dp
-val LandscapePlayerBottomSpacing = 10.dp
+// Gap between the landscape player content and the collapsed queue sheet. Small on purpose:
+// the sheet's own slack (AuraLandscapePeekSlack) already keeps the glow clear of the content,
+// and every dp here is a dp the landscape artwork cannot use.
+val LandscapePlayerBottomSpacing = 6.dp
+
+/** Landscape Aura bottom chips: a 38dp touch target inside a 42dp bar. */
+val AuraLandscapePillHeight = 38.dp
+val AuraLandscapeBarVerticalPadding = 2.dp
+
+/**
+ * Slack the collapsed sheet keeps above its content. The player reserves
+ * (peek + system bottom inset + LandscapePlayerBottomSpacing) at the bottom, so the glow and the
+ * artwork clear the first sheet line by exactly (slack + spacing) on every device - the system
+ * inset cancels out because both the sheet bound and the player reserve include it.
+ */
+val AuraLandscapePeekSlack = 4.dp
+
+/**
+ * Breathing room the landscape Aura artwork keeps under itself. The chip row and the provenance
+ * line are right-aligned and the cover only ever occupies the left column, so the player does not
+ * reserve the whole bottom band for the artwork - this hairline is all it pays, and the canvas
+ * reaches the bottom of the screen on every window size.
+ */
+val AuraLandscapeArtBottomReserve = 14.dp
+
+/**
+ * Layout height of the landscape seek row. Material's own slider centres its track inside a 48dp
+ * touch row, and the 21dp of air that leaves *under* the bar is what made the seek bar read as
+ * floating high above the transport. Landscape therefore gives the row this short strip and drops
+ * the shared slider by [AuraLandscapeSeekSharedDrop] so the track lands on the strip's bottom edge
+ * - directly over the play button - without moving anything else in the column.
+ */
+val AuraLandscapeSeekStripHeight = 26.dp
+
+/**
+ * Dead air Material leaves under the track once the row is constrained to
+ * [AuraLandscapeSeekStripHeight]: the shared slider centres its track in whatever height it is
+ * given, so the bar sits (strip - stroke) / 2 above the strip's bottom and that is exactly how far
+ * the row has to move down for the track to land on it. Six dp is the stroke Wavy / Circular draw
+ * (Simple is 3dp, Thick 12dp); the caller picks the right value per style.
+ */
+val AuraLandscapeSeekSharedStroke = 6.dp
 val LandscapePlayerCompactHeight = 380.dp
 val LandscapePlayerTightHeight = 440.dp
 
@@ -98,6 +139,7 @@ fun portraitQueuePeekHeight(
             PlayerDesignStyle.V8,
             -> 112.dp
             PlayerDesignStyle.V6 -> V6QueueBottomBarHeight + 4.dp
+            PlayerDesignStyle.AURA -> V6QueueBottomBarHeight + 4.dp
             PlayerDesignStyle.V4,
             PlayerDesignStyle.V1,
             PlayerDesignStyle.V3,
@@ -107,11 +149,11 @@ fun portraitQueuePeekHeight(
         }
     return base +
         (if (showCodecOnPlayer) {
-            if (playerDesignStyle == PlayerDesignStyle.V6) 22.dp else 32.dp
+            if (playerDesignStyle == PlayerDesignStyle.V6 || playerDesignStyle == PlayerDesignStyle.AURA) 22.dp else 32.dp
         } else {
             0.dp
         }) +
-        (if (sleepTimerEnabled && playerDesignStyle != PlayerDesignStyle.V6) 48.dp else 0.dp)
+        (if (sleepTimerEnabled && playerDesignStyle != PlayerDesignStyle.V6 && playerDesignStyle != PlayerDesignStyle.AURA) 48.dp else 0.dp)
 }
 
 /** Reserved height for the collapsed queue sheet in landscape. */
@@ -132,11 +174,24 @@ fun landscapeQueuePeekHeight(
             PlayerDesignStyle.V3,
             -> if (playerDesignStyle == PlayerDesignStyle.V6) 96.dp else 84.dp
             PlayerDesignStyle.V2 -> 76.dp
+            // Aura draws a compact chip row in landscape: AuraLandscapePillHeight (38dp) plus
+            // AuraLandscapeBarVerticalPadding on each side, so the bar measures 42dp. The sheet
+            // content is bottom-anchored and the bar pads for the real system bottom inset
+            // itself, so the reserve only needs the bar plus the slack - anything more was dead
+            // band at the sheet's top that the landscape artwork could not use.
+            PlayerDesignStyle.AURA -> AuraLandscapePillHeight + AuraLandscapeBarVerticalPadding * 2 + AuraLandscapePeekSlack
             else -> LandscapeQueuePeekHeight
         }
     return base +
-        (if (showCodecOnPlayer) 32.dp else 0.dp) +
-        (if (sleepTimerEnabled) LandscapeSleepTimerPeekExtra else 0.dp)
+        // Aura renders its provenance label inline beside the landscape chips (it shares the
+        // chip row's height), so unlike every other style the codec adds nothing to the reserve -
+        // that freed band is what lets the landscape artwork reach the bottom of the screen.
+        (if (showCodecOnPlayer) {
+            if (playerDesignStyle == PlayerDesignStyle.AURA) 0.dp else 32.dp
+        } else {
+            0.dp
+        }) +
+        (if (sleepTimerEnabled && playerDesignStyle != PlayerDesignStyle.AURA) LandscapeSleepTimerPeekExtra else 0.dp)
 }
 
 val AppBarHeight = 64.dp
@@ -160,14 +215,27 @@ val NavigationBarAnimationSpec =
         stiffness = Spring.StiffnessLow,
     )
 
+// Both sheet springs carry an explicit [spring] visibilityThreshold. A Dp spring's default is a
+// hundredth of a pixel, so the last stretch of every transition was spent animating movements
+// nobody can see - on the sheet, that is a full screen of content still being re-drawn for a
+// fraction of a pixel of travel. Half a pixel is below what a display can show, and the animation
+// still lands exactly on its target value.
+val SheetSettleThreshold = 0.5.dp
+
 val BottomSheetAnimationSpec =
     spring<Dp>(
         dampingRatio = Spring.DampingRatioNoBouncy,
         stiffness = Spring.StiffnessMediumLow,
+        visibilityThreshold = SheetSettleThreshold,
     )
 
+// StiffnessMedium, not Low. Low (200) takes roughly three quarters of a second to cross a screen,
+// which every frame of a transition has to be drawn within - and, more to the point, is long enough
+// to read as hesitation when a person taps the mini player expecting the player. Medium (1500)
+// arrives in about a third of that and still leaves from and lands on the same places.
 val BottomSheetSoftAnimationSpec =
     spring<Dp>(
         dampingRatio = Spring.DampingRatioNoBouncy,
-        stiffness = Spring.StiffnessLow,
+        stiffness = Spring.StiffnessMedium,
+        visibilityThreshold = SheetSettleThreshold,
     )

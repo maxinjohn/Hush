@@ -1016,6 +1016,8 @@
     <string name="description_show_nerd_stats">Display real-time playback statistics (codec, bitrate, buffer)</string>
     <string name="display_codec_on_player">Display Codec on Player</string>
     <string name="description_display_codec_on_player">Show current audio codec information on the player</string>
+    <string name="show_track_change_diagnostics">Show track change diagnostics</string>
+    <string name="description_show_track_change_diagnostics">Draw the track change over the artwork (turn, cover, canvas, grid) in debug builds</string>
     <string name="nerd_stats">Nerd Stats</string>
     <string name="track_label">Track</string>
     <string name="no_track_playing">No track playing</string>

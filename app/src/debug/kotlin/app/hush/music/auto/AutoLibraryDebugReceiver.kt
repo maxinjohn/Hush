@@ -25,8 +25,12 @@ import app.hush.music.constants.AndroidAutoSpotifyPlaylistsKey
 import app.hush.music.constants.AndroidAutoTargetPlaylistKey
 import app.hush.music.constants.AndroidAutoYouTubePlaylistsKey
 import app.hush.music.constants.MediaSessionConstants
+import app.hush.music.constants.SpotiFLACEnabledKey
+import app.hush.music.constants.SpotiFLACLosslessNudgeHandledKey
 import app.hush.music.playback.AndroidAutoPlaylists
 import app.hush.music.playback.MusicService
+import app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder
+import app.hush.music.utils.isLowDataModeActive
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -129,7 +133,12 @@ class AutoLibraryDebugReceiver : BroadcastReceiver() {
             when (name) {
                 NAME_YOUTUBE -> AndroidAutoYouTubePlaylistsKey
                 NAME_SPOTIFY -> AndroidAutoSpotifyPlaylistsKey
-                else -> return "failed: unknown switch '$name' (youtube|spotify)"
+                // The switch the lossless offer exists to flip. It is reachable from here because
+                // the offer publishes itself only while SpotiFLAC is off, and both sides of that
+                // have to be checked against a live session - which is the one state a reinstall
+                // cannot produce.
+                NAME_SPOTIFLAC -> SpotiFLACEnabledKey
+                else -> return "failed: unknown switch '$name' (youtube|spotify|spotiflac)"
             }
         // Written through the same DataStore key the settings screen uses, so what is exercised is
         // the app's own state and not a copy of it.
@@ -239,7 +248,14 @@ class AutoLibraryDebugReceiver : BroadcastReceiver() {
             }
         browser.prepare()
         lines += "  tapped $mediaId: resolved=${settled == true} timeline=${browser.mediaItemCount} items"
-        lines += "  playing state=${browser.playbackState} current=${browser.currentMediaItem?.mediaId}"
+        // Prepared, not necessarily audible: this drives a media session from a broadcast, and the
+        // app is in the background then, where this device refuses to *start* playback at all
+        // (measured: the same press plays once the app is in front). So a `ready` here means the
+        // queue was built and loaded - whether the driver heard it is the app's own log and the
+        // phone's player screen, not this line.
+        lines +=
+            "  playback state=${playbackStateName(browser.playbackState)} " +
+                "current=${browser.currentMediaItem?.mediaId} position=${browser.currentPosition}ms"
         return lines
     }
 
@@ -327,13 +343,40 @@ class AutoLibraryDebugReceiver : BroadcastReceiver() {
                 spotifyEnabled = spotify,
                 spotifyConnected = spotifyConnected,
             )
+        // The lossless offer is the one entry the switches above do not explain: it is published
+        // from four states at once, so a dump that shows it missing (or present) without them is a
+        // report of a result with no cause.
+        val runtimeAvailable =
+            SpotiFLACNativeRuntimeBridgeHolder.instance?.isRuntimeAvailable == true
+        val spotiflacEnabled = prefs[SpotiFLACEnabledKey] == true
+        val offerDismissed = prefs[SpotiFLACLosslessNudgeHandledKey] == true
+        val lowDataMode = context.isLowDataModeActive()
         return listOf(
             "  switches: youtube=$youtube spotify=$spotify spotifyConnected=$spotifyConnected",
             "  sources: youtube=${sources.youtube} spotify=${sources.spotify}",
             "  sections: stored='$stored' published=${AndroidAutoPlaylists.enabledSections(stored)}",
             "  quick-add: target='${prefs[AndroidAutoTargetPlaylistKey].orEmpty()}'",
+            "  lossless offer: offered=" +
+                AndroidAutoPlaylists.offersLossless(
+                    runtimeAvailable = runtimeAvailable,
+                    spotiflacEnabled = spotiflacEnabled,
+                    dismissed = offerDismissed,
+                    lowDataModeActive = lowDataMode,
+                ) +
+                " (runtime=$runtimeAvailable spotiflac=$spotiflacEnabled " +
+                "dismissed=$offerDismissed lowData=$lowDataMode)",
         )
     }
+
+    /** The player's state as a word: `state=3` cannot be told from `state=2` at a glance. */
+    private fun playbackStateName(state: Int): String =
+        when (state) {
+            Player.STATE_IDLE -> "idle($state)"
+            Player.STATE_BUFFERING -> "buffering($state)"
+            Player.STATE_READY -> "ready($state)"
+            Player.STATE_ENDED -> "ended($state)"
+            else -> "unknown($state)"
+        }
 
     private fun describe(item: MediaItem): String {
         val metadata = item.mediaMetadata
@@ -375,6 +418,7 @@ class AutoLibraryDebugReceiver : BroadcastReceiver() {
         private const val OP_PLAY = "play"
         private const val NAME_YOUTUBE = "youtube"
         private const val NAME_SPOTIFY = "spotify"
+        private const val NAME_SPOTIFLAC = "spotiflac"
         private const val REPORT_FILE = "auto-library.txt"
         private const val ROOT = "root"
         private const val BROWSE_LIMIT = 200

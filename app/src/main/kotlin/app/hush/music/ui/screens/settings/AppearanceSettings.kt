@@ -103,9 +103,6 @@ import app.hush.music.constants.FontPreferenceKey
 import app.hush.music.constants.GridItemSize
 import app.hush.music.constants.GridItemsSizeKey
 import app.hush.music.constants.HidePlayerThumbnailKey
-import app.hush.music.constants.LandscapePlayerLayoutKey
-import app.hush.music.constants.CarExpressiveAutoHideTitleKey
-import app.hush.music.constants.CarExpressiveTitleHideDelayKey
 import app.hush.music.constants.LibraryFilter
 import app.hush.music.constants.MiniPlayerBackgroundStyle
 import app.hush.music.constants.MiniPlayerBackgroundStyleKey
@@ -202,21 +199,6 @@ fun AppearanceSettings(
             defaultValue = DarkMode.AUTO,
         )
     val (playerDesignStyle, onPlayerDesignStyleChange) = rememberPlayerDesignStylePreference()
-    val (carExpressiveLayout, onCarExpressiveLayoutChange) =
-        rememberPreference(
-            LandscapePlayerLayoutKey,
-            defaultValue = false,
-        )
-    val (carExpressiveAutoHideTitle, onCarExpressiveAutoHideTitleChange) =
-        rememberPreference(
-            CarExpressiveAutoHideTitleKey,
-            defaultValue = false,
-        )
-    val (carExpressiveTitleHideDelay, onCarExpressiveTitleHideDelayChange) =
-        rememberPreference(
-            CarExpressiveTitleHideDelayKey,
-            defaultValue = 5,
-        )
     val (hidePlayerThumbnail, onHidePlayerThumbnailChange) =
         rememberPreference(
             HidePlayerThumbnailKey,
@@ -695,7 +677,10 @@ fun AppearanceSettings(
         }
 
         PreferenceGroup(title = stringResource(R.string.player)) {
-            if (PlayerDesignStyle.selectableValues.size > 1) {
+            // Drawn whenever there is a design to name, not only when there is a choice to make:
+            // Aura is the only design the app offers now, and the row is how a user can see which
+            // one is active.
+            if (PlayerDesignStyle.selectableValues.isNotEmpty()) {
                 item {
                     EnumListPreference(
                         title = { Text(stringResource(R.string.player_design_style)) },
@@ -705,6 +690,7 @@ fun AppearanceSettings(
                         values = PlayerDesignStyle.selectableValues,
                         valueText = {
                             when (it) {
+                                PlayerDesignStyle.AURA -> stringResource(R.string.player_design_aura)
                                 PlayerDesignStyle.V9 -> stringResource(R.string.player_design_v9)
                                 PlayerDesignStyle.V8 -> stringResource(R.string.player_design_v8)
                                 PlayerDesignStyle.V7 -> stringResource(R.string.player_design_v7)
@@ -719,44 +705,6 @@ fun AppearanceSettings(
                         },
                     )
                 }
-            }
-
-            item(visible = playerDesignStyle == PlayerDesignStyle.V6) {
-                SwitchPreference(
-                    title = { Text(stringResource(R.string.car_expressive_player_layout)) },
-                    description = stringResource(R.string.car_expressive_player_layout_desc),
-                    icon = { Icon(painterResource(R.drawable.grid_view), null) },
-                    checked = carExpressiveLayout,
-                    onCheckedChange = onCarExpressiveLayoutChange,
-                )
-            }
-
-            item(visible = playerDesignStyle == PlayerDesignStyle.V6 && carExpressiveLayout) {
-                SwitchPreference(
-                    title = { Text(stringResource(R.string.car_expressive_auto_hide_title)) },
-                    description = stringResource(R.string.car_expressive_auto_hide_title_desc),
-                    icon = { Icon(painterResource(R.drawable.visibility_off), null) },
-                    checked = carExpressiveAutoHideTitle,
-                    onCheckedChange = onCarExpressiveAutoHideTitleChange,
-                )
-            }
-
-            item(
-                visible =
-                    playerDesignStyle == PlayerDesignStyle.V6 &&
-                        carExpressiveLayout &&
-                        carExpressiveAutoHideTitle,
-            ) {
-                ListPreference(
-                    title = { Text(stringResource(R.string.car_expressive_title_hide_delay)) },
-                    icon = { Icon(painterResource(R.drawable.timer), null) },
-                    selectedValue = carExpressiveTitleHideDelay.toString(),
-                    onValueSelected = { value ->
-                        value.toIntOrNull()?.let(onCarExpressiveTitleHideDelayChange)
-                    },
-                    values = listOf("3", "5", "8", "10"),
-                    valueText = { seconds -> stringResource(R.string.car_expressive_title_hide_delay_value, seconds) },
-                )
             }
 
             item {

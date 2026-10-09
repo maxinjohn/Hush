@@ -1,5 +1,6 @@
 package app.hush.music.ui.screens.settings
 
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -65,6 +66,7 @@ import app.hush.music.spotiflac.SpotiFLACAvailability
 import app.hush.music.spotiflac.SpotiFLACDiag
 import app.hush.music.spotiflac.SpotiFLACEngineState
 import app.hush.music.spotiflac.SpotiFLACEngineStatus
+import app.hush.music.spotiflac.SpotiFLACSessionRecovery
 import app.hush.music.spotiflac.SpotiFLACSessionRenewer
 import app.hush.music.spotiflac.SpotiFLACSessionVerdict
 import app.hush.music.spotiflac.SpotiFLACSessionVerdictReport
@@ -78,10 +80,19 @@ import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberLowDataModeActive
 import app.hush.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "SpotiFLACSettings"
+
+/**
+ * How often the renewal countdown is re-derived from the session read the screen is holding.
+ *
+ * The label is minute-granular, so this only has to be fine enough that a number never reads as
+ * stale - and coarse enough that a screen left open is not recomposing on a clock for no gain.
+ */
+private const val RENEWAL_COUNTDOWN_TICK_MS = 30_000L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -159,6 +170,16 @@ fun SpotiFLACSettingsScreen(
     // does the extension demands a fresh Cloudflare check.
     var sessionValidity by remember { mutableStateOf<Map<String, Long?>>(emptyMap()) }
 
+    /**
+     * The monotonic clock behind [sessionValidity], so the renewal countdown can age with it.
+     *
+     * [sessionValidity] is a snapshot of remaining seconds, and this screen can stay open for far
+     * longer than the read that produced it. Kept as an elapsed-time reading rather than a wall-clock
+     * one because it exists only to measure how long ago the read happened, and a clock the user can
+     * change must not be able to move the countdown with it.
+     */
+    var sessionSnapshotElapsedMs by remember { mutableStateOf(0L) }
+
     /** The session id on disk per source, so a renewal verdict can be matched to the session it judged. */
     var sessionIds by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
 
@@ -167,7 +188,18 @@ fun SpotiFLACSettingsScreen(
         mutableStateOf<Map<String, SpotiFLACSessionVerdict>>(emptyMap())
     }
     var renewMessage by remember { mutableStateOf<String?>(null) }
-    var isRenewingSessions by remember { mutableStateOf(false) }
+
+    /**
+     * The shared recovery run's own state, observed rather than owned.
+     *
+     * Renew is one action with one implementation - this screen's Renew and the launch notice's are
+     * both [SpotiFLACSessionRecovery.renewAndCheck] - so the two also have one progress and one
+     * outcome, and neither can report something the other did not do. Owning the coroutine here
+     * instead meant leaving this screen mid-run cancelled the reads that report the result, and the
+     * launch notice's own copy of the work was cancelled outright the moment its card was dismissed.
+     */
+    val isRenewingSessions by SpotiFLACSessionRecovery.running.collectAsState()
+    val recoveryOutcome by SpotiFLACSessionRecovery.outcome.collectAsState()
 
     /**
      * The gateway's client-wide block, when it is holding one.
@@ -246,6 +278,7 @@ fun SpotiFLACSettingsScreen(
     suspend fun refreshSessionValidity() {
         val sessions = withContext(Dispatchers.IO) { SpotiFLACSessionRenewer.sessions(context) }
         sessionValidity = sessions.associate { it.extensionId to it.remainingSeconds }
+        sessionSnapshotElapsedMs = SystemClock.elapsedRealtime()
         // The record alone cannot say whether the gateway still honours a session, so whatever it
         // last answered is read back with it. Held per source and matched against the session on
         // disk, so a re-verification clears it without anything having to remember to.
@@ -500,23 +533,12 @@ fun SpotiFLACSettingsScreen(
      * So they are two buttons, and this one reports the renewals it really performed.
      */
     fun renewSessions() {
-        scope.launch {
-            isRenewingSessions = true
-            renewMessage = null
-            val results = withContext(Dispatchers.IO) {
-                SpotiFLACSessionRenewer.renewAll(context, force = true, reason = "settings-renew")
-            }
-            refreshSessionValidity()
-            // A source the gateway says is gone has to stop reading "Verified" in the rows above,
-            // which is also what puts it in the count the Verify button acts on.
-            if (results.any { it.needsVerification }) refreshVerifyStatus()
-            // Every source is named with what actually happened to it. A bare "renewed 1 session"
-            // left the user unable to tell a dead session (needs a verification) from a refused one
-            // (needs time) from one that never needed anything - which is exactly the question the
-            // button is pressed to answer.
-            renewMessage = SpotiFLACSessionRenewer.summarise(results)
-            isRenewingSessions = false
-        }
+        renewMessage = null
+        // The same action the launch notice's Renew runs, so the two cannot drift about what "Renew"
+        // means. It renews every session the gateway will still rotate and then raises a check for
+        // whatever that could not fix - a source the gateway has thrown away cannot be renewed at
+        // all, so renewing alone would leave it exactly as unusable while the button looked pressed.
+        SpotiFLACSessionRecovery.renewAndCheck(context, reason = "settings-renew")
     }
 
     fun startVerification(extensionId: String) {
@@ -655,6 +677,19 @@ fun SpotiFLACSettingsScreen(
         }
     }
 
+    // Everything a finished run can change is read back here, at the one place that knows a run
+    // ended. Reporting it from inside the coroutine that ran it is how the launch notice lost its
+    // result: that coroutine does not survive the card that started it, so the rows above and the
+    // message under the buttons were never refreshed at all.
+    LaunchedEffect(recoveryOutcome) {
+        val report = recoveryOutcome ?: return@LaunchedEffect
+        renewMessage = report.line
+        refreshSessionValidity()
+        // A source the gateway says is gone has to stop reading "Verified" in the rows above, which
+        // is also what puts it in the count the Verify button acts on.
+        refreshVerifyStatus()
+    }
+
     Scaffold(
         topBar = {
             LargeTopAppBar(
@@ -777,6 +812,15 @@ fun SpotiFLACSettingsScreen(
                     // YouTube in the meantime. Shown here rather than in a separate card because this
                     // is where the switch that would fix it lives.
                     EngineStatusLine(status = spotiflacEngineStatus)
+                    // When the sessions behind that status are next topped up. The launch notice can
+                    // only speak at launch and only when something is already wrong; this is the same
+                    // fact on the screen the user comes to when they want to know, at any time.
+                    if (spotiflacEnabled) {
+                        SessionRenewalLine(
+                            remainingSeconds = sessionValidity.values.toList(),
+                            snapshotElapsedMs = sessionSnapshotElapsedMs,
+                        )
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
 
                     if (spotiflacEnabled) {
@@ -2126,6 +2170,54 @@ private fun EngineStatusLine(status: SpotiFLACEngineStatus) {
             )
         }
     }
+}
+
+/**
+ * When the next automatic renewal falls due, counted down from the session read the screen holds.
+ *
+ * The other half of what [EngineStatusLine] says, and it reads next to it for that reason: the status
+ * answers "can the engine fetch right now", and this answers "when are the sessions behind it topped
+ * up" - the same two things the launch notice reports, but readable whenever the user asks rather
+ * than only at a launch where something is already wrong. Silent when there is nothing to renew,
+ * because the honest answer there is nothing rather than "never".
+ *
+ * The clock lives in here, not in the screen. Derived in the screen's body it would move the whole
+ * screen - a lazy list of source rows - on every tick; here the same tick invalidates this one line.
+ * It is a clock and not a re-read on purpose: the countdown is linear, and re-reading sessions means
+ * touching the extensions directory and the gateway's block record for an answer that has not moved.
+ */
+@Composable
+private fun SessionRenewalLine(
+    remainingSeconds: List<Long?>,
+    snapshotElapsedMs: Long,
+) {
+    var tickElapsedMs by remember { mutableStateOf(0L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(RENEWAL_COUNTDOWN_TICK_MS)
+            tickElapsedMs = SystemClock.elapsedRealtime()
+        }
+    }
+    val label =
+        remember(remainingSeconds, snapshotElapsedMs, tickElapsedMs) {
+            // Before the first tick, and before the screen has read any session at all, nothing has
+            // aged: the snapshot is the answer as it was taken. Only a tick that lands *after* the
+            // read can date it, which is what the subtraction is guarded for.
+            val elapsedSeconds =
+                if (snapshotElapsedMs <= 0L) {
+                    0L
+                } else {
+                    ((tickElapsedMs - snapshotElapsedMs).coerceAtLeast(0L)) / 1000L
+                }
+            SpotiFLACSessionRenewer.nextRenewalLabel(
+                remainingSeconds.map { remaining -> remaining?.minus(elapsedSeconds) },
+            )
+        } ?: return
+    Text(
+        text = label,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 private fun spotiflacPrefetchSummary(count: Int): String =

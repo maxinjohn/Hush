@@ -67,6 +67,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
@@ -148,6 +149,65 @@ fun FloatingNavigationToolbar(
     }
 }
 
+/**
+ * The highlight that slides between destinations, and the only place its animation is read.
+ *
+ * The two animated values live here rather than in [ToolbarItemsContainer] because of where a state
+ * read is allowed to happen. `animateDpAsState` hands back a `State`, and reading it in composition
+ * subscribes *that* composable's scope to it - so while the spring ran, every frame invalidated the
+ * container and re-ran the composition of every item in the bar, for a highlight whose own shape
+ * never changes. Hoisting the reads down here means a frame of the slide costs a recomposition of
+ * one `Box` with no children, and the container only recomposes when the *targets* move, which is a
+ * handful of times per tab change instead of sixty a second.
+ *
+ * The targets are passed as plain `Dp`s and not as the animating state, which is what keeps the
+ * container out of the per-frame path; passing the state itself would move the read back up.
+ *
+ * The offset stays on the non-lambda overload on purpose, so lint's `UseOfNonLambdaOffsetOverload`
+ * is still reported here. Moving it to the lambda form would not remove this composable's
+ * per-frame recomposition, because the width beside it has no lambda overload and is read in the
+ * same scope - the recomposition has already happened by the time the offset would be deferred.
+ * The cost that mattered was *which* scope paid it, and that is what the hoist fixed.
+ */
+@Composable
+private fun SlidingNavigationPill(
+    targetOffset: Dp,
+    targetWidth: Dp,
+    accentGradient: Brush,
+) {
+    val slidingPillWidth by
+        animateDpAsState(
+            targetValue = targetWidth,
+            animationSpec =
+                spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            label = "pillWidth",
+        )
+
+    val slidingPillOffset by
+        animateDpAsState(
+            targetValue = targetOffset,
+            animationSpec =
+                spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            label = "pillOffset",
+        )
+
+    Box(
+        modifier =
+            Modifier
+                .offset(x = slidingPillOffset)
+                .width(slidingPillWidth)
+                .fillMaxHeight()
+                .clip(HushDesign.navItemShape)
+                .background(accentGradient),
+    )
+}
+
 @Composable
 private fun ToolbarItemsContainer(
     items: List<Screens>,
@@ -168,40 +228,16 @@ private fun ToolbarItemsContainer(
     val targetWidth = itemWidths[activeScreen] ?: 0.dp
     val targetPosition = itemPositions[activeScreen] ?: 0.dp
 
-    val slidingPillWidth by animateDpAsState(
-        targetValue = targetWidth,
-        animationSpec =
-            spring(
-                dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = Spring.StiffnessMediumLow,
-            ),
-        label = "pillWidth",
-    )
-
-    val slidingPillOffset by animateDpAsState(
-        targetValue = targetPosition,
-        animationSpec =
-            spring(
-                dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = Spring.StiffnessMediumLow,
-            ),
-        label = "pillOffset",
-    )
-
     Row(
         modifier = Modifier.height(IntrinsicSize.Min),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(modifier = Modifier.weight(1f, fill = false)) {
             if (targetWidth > 0.dp) {
-                Box(
-                    modifier =
-                        Modifier
-                            .offset(x = slidingPillOffset)
-                            .width(slidingPillWidth)
-                            .fillMaxHeight()
-                            .clip(HushDesign.navItemShape)
-                            .background(accentGradient),
+                SlidingNavigationPill(
+                    targetOffset = targetPosition,
+                    targetWidth = targetWidth,
+                    accentGradient = accentGradient,
                 )
             }
 

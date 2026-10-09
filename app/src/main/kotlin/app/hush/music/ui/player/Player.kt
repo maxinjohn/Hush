@@ -31,6 +31,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -171,6 +173,7 @@ import kotlinx.coroutines.withContext
 import me.saket.squiggles.SquigglySlider
 import app.hush.music.ui.component.hushMarquee
 import app.hush.music.ui.component.hushPressMotion
+import app.hush.music.ui.component.hushRotationSettle
 import app.hush.music.ui.component.rememberPressInteractionSource
 import app.hush.music.LocalDownloadUtil
 import app.hush.music.LocalMiniPlayerBottomPadding
@@ -232,8 +235,10 @@ import app.hush.music.ui.theme.PlayerBackgroundColorUtils
 import app.hush.music.ui.theme.PlayerColorExtractor
 import app.hush.music.ui.theme.PlayerSliderColors
 import app.hush.music.ui.utils.ShowMediaInfo
+import app.hush.music.ui.utils.rememberDeviceTier
 import app.hush.music.ui.utils.rememberDownload
 import app.hush.music.ui.utils.resize
+import app.hush.music.utils.DeviceTier
 import app.hush.music.utils.ImageBlurUtils
 import app.hush.music.utils.fetchFraction
 import app.hush.music.utils.isFetchingTrack
@@ -409,19 +414,6 @@ fun BottomSheetPlayer(
                 if (darkTheme == DarkMode.AUTO) isSystemInDarkTheme else darkTheme == DarkMode.ON
             useDarkTheme && pureBlack
         }
-    val backgroundColor =
-        if (useBlackBackground && state.value > state.collapsedBound) {
-            val progress =
-                ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
-                    .coerceIn(0f, 1f)
-            Color.Black.copy(alpha = progress)
-        } else {
-            val progress =
-                ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
-                    .coerceIn(0f, 1f)
-            MaterialTheme.colorScheme.surfaceContainer.copy(alpha = progress)
-        }
-
     val playbackState by playerConnection.playbackState.collectAsStateWithLifecycle()
     val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
@@ -800,6 +792,23 @@ fun BottomSheetPlayer(
 
     val landscapePlayerBottomPadding = dynamicQueuePeekHeight + LandscapePlayerBottomSpacing
 
+    // Aura paints a full-bleed glow and the artwork behind the controls, and the landscape sheet
+    // renders its collapsed content (provenance line, chips) above the system bar - so Aura has to
+    // clear the sheet *content*, not just the sheet box. Reserving the real bottom inset keeps the
+    // glow and the artwork clear of the first sheet line on every device; the sheet bound already
+    // includes the same inset, so the two stay in step.
+    val auraLandscapeBottomPadding =
+        landscapePlayerBottomPadding + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
+
+    // Where the landscape controls column starts, published by the player content: the artwork
+    // column plus the offset the centred composition leaves to its left. The queue sheet lives in
+    // its own composable tree and cannot measure the player, so this is how the collapsed chip row
+    // knows where to centre itself.
+    var auraLandscapeChromeWidth by remember { mutableStateOf(0.dp) }
+    // And the same offset on the right. Both are needed: the chip row centres in the space between
+    // them, and that space is only the controls column if it is closed on the right as well.
+    var auraLandscapeChromeInset by remember { mutableStateOf(0.dp) }
+
     val queueSheetState =
         rememberBottomSheetState(
             dismissedBound = dismissedBound,
@@ -980,62 +989,24 @@ fun BottomSheetPlayer(
                         }
                     }
                 },
+        // The surface's colour is a decision, its alpha is the drag: the colour is resolved here
+        // (it changes when the design or the theme changes, not per frame) and the fade is handed to
+        // the sheet as a lambda that it evaluates while *drawing*. Computing either of them from
+        // `state.value` in this body - which this used to do - recomposed the whole player on every
+        // frame of the expansion, which is the cost the sheet's own layer does not pay.
         backgroundColor =
-            if (playerDesignStyle == PlayerDesignStyle.V7 || playerDesignStyle == PlayerDesignStyle.V8) {
-                val progress =
-                    ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
-                        .coerceIn(0f, 1f)
-                val fadeProgress =
-                    if (progress < 0.2f) {
-                        ((0.2f - progress) / 0.2f).coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    }
-                Color.Black.copy(alpha = 1f - fadeProgress)
-            } else {
-                when (playerBackground) {
-                    PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT -> {
-                        // Apply same enhanced fade logic to blur/gradient backgrounds
-                        val progress =
-                            ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
-                                .coerceIn(0f, 1f)
+            when {
+                playerDesignStyle == PlayerDesignStyle.V7 || playerDesignStyle == PlayerDesignStyle.V8 ->
+                    Color.Black
 
-                        // Only start fading when very close to dismissal (last 20%)
-                        val fadeProgress =
-                            if (progress < 0.2f) {
-                                ((0.2f - progress) / 0.2f).coerceIn(0f, 1f)
-                            } else {
-                                0f
-                            }
+                playerBackground == PlayerBackgroundStyle.BLUR ||
+                    playerBackground == PlayerBackgroundStyle.GRADIENT -> MaterialTheme.colorScheme.surface
 
-                        MaterialTheme.colorScheme.surface.copy(alpha = 1f - fadeProgress)
-                    }
+                useBlackBackground -> Color.Black
 
-                    else -> {
-                        // Enhanced background - stable until last 20% of drag (both normal and pure black)
-                        // Calculate progress for fade effect
-                        val progress =
-                            ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
-                                .coerceIn(0f, 1f)
-
-                        // Only start fading when very close to dismissal (last 20%)
-                        val fadeProgress =
-                            if (progress < 0.2f) {
-                                ((0.2f - progress) / 0.2f).coerceIn(0f, 1f)
-                            } else {
-                                0f
-                            }
-
-                        if (useBlackBackground) {
-                            // Apply same logic to pure black background
-                            Color.Black.copy(alpha = 1f - fadeProgress)
-                        } else {
-                            // Apply same logic to normal theme
-                            MaterialTheme.colorScheme.surface.copy(alpha = 1f - fadeProgress)
-                        }
-                    }
-                }
+                else -> MaterialTheme.colorScheme.surface
             },
+        backgroundAlpha = { progress -> progress * (1f - playerSheetDismissFade(progress)) },
         onDismiss = {
             playerConnection.service.stopAndClearPlayback(clearPersistentState = true)
         },
@@ -1274,7 +1245,13 @@ fun BottomSheetPlayer(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .zIndex(if (queueExpanded) 0f else 2f),
+                    .zIndex(if (queueExpanded) 0f else 2f)
+                    // The branch below is chosen from the shape of this box, so a turn swaps one
+                    // full player tree for another between two frames. Handled by `configChanges`,
+                    // there is nothing on screen in between, which is why the turn read as a cut.
+                    // The settle lays the arriving tree down slightly small and rides it up into
+                    // place with a bounce, which is also the jiggle every button in it gets.
+                    .hushRotationSettle(),
         ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val isWideLayout = maxWidth > maxHeight
@@ -1564,6 +1541,46 @@ fun BottomSheetPlayer(
                             )
                         }
                     }
+                } else if (playerDesignStyle == PlayerDesignStyle.AURA) {
+                    enrichedMetadata?.let { metadata ->
+                        AuraPlayerContent(
+                            mediaMetadata = metadata,
+                            playbackState = playbackState,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            repeatMode = repeatMode,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            sliderPosition = sliderPosition,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            context = context,
+                            onSliderValueChange = onSliderValueChange,
+                            onSliderValueChangeFinished = onSliderValueChangeFinished,
+                            sliderStyle = sliderStyle,
+                            landscape = true,
+                            bottomPadding = auraLandscapeBottomPadding,
+                            // The provenance line left the queue sheet in landscape: it now rides in
+                            // the player column on its own short row, directly under the action
+                            // buttons. Handing it in here is what keeps the sheet from reserving a
+                            // second copy of that band - the freed height is the artwork's.
+                            showCodecOnPlayer = showCodecOnPlayer,
+                            formatRow = currentFormatRow,
+                            onChromeWidthChange = { auraLandscapeChromeWidth = it },
+                            onChromeInsetChange = { auraLandscapeChromeInset = it },
+                            onCollapseClick = { state.collapseSoft() },
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .windowInsetsPadding(landscapePlayerInsets)
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                        )
+                    }
                 } else {
                     Row(
                         modifier =
@@ -1826,6 +1843,37 @@ fun BottomSheetPlayer(
                                     ).nestedScroll(state.preUpPostDownNestedScrollConnection),
                         )
                     }
+                } else if (playerDesignStyle == PlayerDesignStyle.AURA) {
+                    enrichedMetadata?.let { metadata ->
+                        AuraPlayerContent(
+                            mediaMetadata = metadata,
+                            playbackState = playbackState,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            repeatMode = repeatMode,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            sliderPosition = sliderPosition,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            context = context,
+                            onSliderValueChange = onSliderValueChange,
+                            onSliderValueChangeFinished = onSliderValueChangeFinished,
+                            sliderStyle = sliderStyle,
+                            landscape = false,
+                            bottomPadding = queueSheetState.collapsedBound,
+                            onCollapseClick = { state.collapseSoft() },
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                        )
+                    }
                 } else if (playerDesignStyle == PlayerDesignStyle.V6 && !isWideLayout) {
                     enrichedMetadata?.let { metadata ->
                         Column(
@@ -1920,8 +1968,20 @@ fun BottomSheetPlayer(
         }
         }
 
-        val queueOnBackgroundColor = if (useBlackBackground) Color.White else MaterialTheme.colorScheme.onSurface
-        val queueSurfaceColor = if (useBlackBackground) Color.Black else MaterialTheme.colorScheme.surface
+        val isAuraStyle = playerDesignStyle == PlayerDesignStyle.AURA
+        val auraQueueAccent =
+            if (isAuraStyle) {
+                rememberAuraColors(mediaMetadata?.thumbnailUrl).getOrElse(0) { MaterialTheme.colorScheme.primary }
+            } else {
+                MaterialTheme.colorScheme.primary
+            }
+        val queueOnBackgroundColor = if (useBlackBackground || isAuraStyle) Color.White else MaterialTheme.colorScheme.onSurface
+        val queueSurfaceColor =
+            when {
+                useBlackBackground -> Color.Black
+                isAuraStyle -> Color.White.copy(alpha = 0.12f)
+                else -> MaterialTheme.colorScheme.surface
+            }
 
         val (queueTextButtonColor, queueIconButtonColor) =
             when (playerButtonsStyle) {
@@ -1943,10 +2003,17 @@ fun BottomSheetPlayer(
             playerBottomSheetState = state,
             navController = navController,
             backgroundColor =
-                if (useBlackBackground) {
-                    Color.Black
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainer
+                when {
+                    // Aura: a deep artwork-tinted surface so the sheet reads as part of the glow.
+                    isAuraStyle ->
+                        Color(
+                            red = auraQueueAccent.red * 0.10f + 0.020f,
+                            green = auraQueueAccent.green * 0.10f + 0.024f,
+                            blue = auraQueueAccent.blue * 0.10f + 0.034f,
+                        )
+
+                    useBlackBackground -> Color.Black
+                    else -> MaterialTheme.colorScheme.surfaceContainer
                 },
             onBackgroundColor = queueOnBackgroundColor,
             TextBackgroundColor = TextBackgroundColor,
@@ -1954,6 +2021,8 @@ fun BottomSheetPlayer(
             iconButtonColor = iconButtonColor,
             onShowLyrics = { isLyricsScreenVisible = true },
             pureBlack = pureBlack,
+            landscapeChromeWidth = auraLandscapeChromeWidth,
+            landscapeChromeInset = auraLandscapeChromeInset,
         )
 
         mediaMetadata?.let { metadata ->
@@ -2002,6 +2071,24 @@ fun BottomSheetPlayer(
     }
     }
 }
+
+/**
+ * How much of the sheet's surface has faded out at a given progress.
+ *
+ * Zero for all but the last fifth of a dismissal: the surface has to stay solid while the panel is
+ * still the screen, and only gives way once the panel is nearly gone and the screen behind it has
+ * become the thing a person is looking at.
+ *
+ * A plain function of the progress rather than a read of the sheet: the sheet evaluates it inside
+ * its draw block, where a value that changes every frame costs a redraw, while a composition read of
+ * the same value would have cost a recomposition of everything the panel contains.
+ */
+private fun playerSheetDismissFade(progress: Float): Float =
+    if (progress < 0.2f) {
+        ((0.2f - progress) / 0.2f).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
 
 @Composable
 private fun MikoLyricsTransition(
@@ -2081,6 +2168,13 @@ private fun V8PlayerBackdrop(
         }
     val backdropRequest = rememberOfflineArtworkImageRequest(backdropModel)
     val blurRadiusDp = 44.dp * (backdropBlurAmount.toFloat() / 100f)
+    // A full-screen layer blur is re-computed by the GPU on every frame the sheet moves, which is
+    // the worst possible moment to ask for one: the player's own open and close is a spring that
+    // crosses the whole screen. Capable phones take it in their stride; a 2 GB phone runs out of
+    // frame, and a rough open is exactly what that looks like. The cheaper path blurs the cover
+    // once, off the frame thread, and draws the result - see [BackdropBlurApi30].
+    val blurInLayer =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && rememberDeviceTier() == DeviceTier.STANDARD
 
     Box(
         modifier =
@@ -2090,7 +2184,7 @@ private fun V8PlayerBackdrop(
     ) {
         if (backdropModel != null) {
             val backdropHasBlur = backdropBlurAmount > 0
-            if (backdropHasBlur && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (backdropHasBlur && blurInLayer) {
                 AsyncImage(
                     model = backdropRequest,
                     contentDescription = null,
@@ -2590,6 +2684,20 @@ private fun LittlePlayerContent(
                 mediaMetadata.artists.joinToString(separator = ", ") { artist -> artist.name }
             }
 
+        // One transition for the three lines. A track change moves the panel, so the title, the
+        // album and the artists travel together with the cover instead of cross-fading over each
+        // other while it is already on its way.
+        val playerConnection = LocalPlayerConnection.current
+        val trackChangeDirection = LocalTrackChangeDirection.current
+        val trackChangeSpec: AnimatedContentTransitionScope<String>.() -> ContentTransform = {
+            trackChangeSlide(
+                trackChangeDirection.directionOf(
+                    mediaMetadata.id,
+                    playerConnection?.player?.currentMediaItemIndex ?: 0,
+                ),
+            )
+        }
+
         Column(
             modifier =
                 Modifier
@@ -2606,7 +2714,7 @@ private fun LittlePlayerContent(
                 Column(modifier = Modifier.weight(1f)) {
                     AnimatedContent(
                         targetState = mediaMetadata.title,
-                        transitionSpec = { fadeIn() togetherWith fadeOut() },
+                        transitionSpec = trackChangeSpec,
                         label = "little_title",
                     ) { title ->
                         Text(
@@ -2625,7 +2733,7 @@ private fun LittlePlayerContent(
                     mediaMetadata.album?.title?.takeIf { it.isNotBlank() }?.let { albumTitle ->
                         AnimatedContent(
                             targetState = albumTitle,
-                            transitionSpec = { fadeIn() togetherWith fadeOut() },
+                            transitionSpec = trackChangeSpec,
                             label = "little_album",
                         ) { album ->
                             Text(
@@ -2642,7 +2750,7 @@ private fun LittlePlayerContent(
                     artistsText.takeIf { it.isNotBlank() }?.let { artists ->
                         AnimatedContent(
                             targetState = artists,
-                            transitionSpec = { fadeIn() togetherWith fadeOut() },
+                            transitionSpec = trackChangeSpec,
                             label = "little_artists",
                         ) { artistLine ->
                             Text(

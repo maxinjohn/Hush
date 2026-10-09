@@ -290,21 +290,32 @@ object CanvasArtworkPlaybackCache {
         return writeToDisk()
     }
 
-    @Synchronized
-    fun setMaxSize(value: Int) {
-        maxSizeBytes = value.toCanvasCacheLimitBytes()
-        val directory = cacheDirectory
-        if (maxSizeBytes == 0L) {
-            cancelCacheJobsLocked()
-            clearFilesLocked()
-            map.clear()
-            schedulePersist()
-            return
+    /**
+     * Applies a new byte limit and trims the cache down to it.
+     *
+     * The trim walks the cache directory, stat-ing every file and deleting the ones over the limit,
+     * so it is disk work, and it is done off the caller's thread. Every caller is a composition
+     * effect, where the same work used to run in a frame - a launch was measured with a directory
+     * enumeration and file deletion happening on the main thread while the UI was coming up.
+     */
+    suspend fun setMaxSize(value: Int) {
+        withContext(Dispatchers.IO) {
+            synchronized(this@CanvasArtworkPlaybackCache) {
+                maxSizeBytes = value.toCanvasCacheLimitBytes()
+                val directory = cacheDirectory
+                if (maxSizeBytes == 0L) {
+                    cancelCacheJobsLocked()
+                    clearFilesLocked()
+                    map.clear()
+                    schedulePersist()
+                    return@synchronized
+                }
+                if (directory != null) {
+                    trimLocked(directory)
+                }
+                schedulePersist()
+            }
         }
-        if (directory != null) {
-            trimLocked(directory)
-        }
-        schedulePersist()
     }
 
     @Synchronized

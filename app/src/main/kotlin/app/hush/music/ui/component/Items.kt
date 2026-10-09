@@ -110,8 +110,11 @@ import coil3.request.allowHardware
 import coil3.toBitmap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -585,48 +588,71 @@ fun ArtistGridItem(
     modifier = modifier,
 )
 
+/** A download that is finished, or on its way there. */
+private val ActiveDownloadStates = setOf(STATE_QUEUED, STATE_DOWNLOADING, STATE_COMPLETED)
+
+/**
+ * An album's download state, from its song ids and each song's download state (null when the song
+ * is not on the device).
+ *
+ * Pure, so the rule can be tested without a database, a downloader or a composition - [stateOf] is
+ * asked about an id and answers, which is all this ever needed to know.
+ *
+ * An album with no songs is *not* downloaded. `all` over an empty list is true, so without that
+ * branch every album that had not loaded its songs yet showed as a completed download.
+ */
+internal fun albumDownloadState(
+    songIds: List<String>,
+    stateOf: (String) -> Int?,
+): Int =
+    when {
+        songIds.isEmpty() -> Download.STATE_STOPPED
+        songIds.all { stateOf(it) == STATE_COMPLETED } -> STATE_COMPLETED
+        songIds.all { stateOf(it) in ActiveDownloadStates } -> STATE_DOWNLOADING
+        else -> Download.STATE_STOPPED
+    }
+
+/**
+ * [albumDownloadState] for one album, as state a badge can read.
+ *
+ * This was a two-effect, per-tile computation on the frame thread, in both album rows and album
+ * tiles. The second effect re-subscribed to the download map whenever the album's songs changed,
+ * and the map is republished on every tick of every download on the device - while the aggregate
+ * has to look at every song of the album to answer. On a grid of albums that is a full scan of
+ * each visible album's track list, on the frame thread, per tick, which is work that lands in the
+ * middle of a scroll.
+ *
+ * Combining the two sources makes the subscription stable, [flowOn] moves the scan onto a
+ * background worker, and [distinctUntilChanged] makes the badge hear about a change rather than
+ * about a tick.
+ */
+@Composable
+private fun rememberAlbumDownloadState(albumId: String): Int {
+    val database = LocalDatabase.current
+    val downloadUtil = LocalDownloadUtil.current
+    var downloadState by remember(albumId) { mutableStateOf(Download.STATE_STOPPED) }
+
+    LaunchedEffect(albumId) {
+        combine(
+            database.albumSongs(albumId),
+            downloadUtil.downloads,
+        ) { songs, downloads ->
+            albumDownloadState(songs.map { it.id }) { downloads[it]?.state }
+        }.flowOn(Dispatchers.Default)
+            .distinctUntilChanged()
+            .collect { downloadState = it }
+    }
+
+    return downloadState
+}
+
 @Composable
 fun AlbumListItem(
     album: Album,
     modifier: Modifier = Modifier,
     showLikedIcon: Boolean = true,
     badges: @Composable RowScope.() -> Unit = {
-        val database = LocalDatabase.current
-        val downloadUtil = LocalDownloadUtil.current
-        var songs by remember {
-            mutableStateOf(emptyList<Song>())
-        }
-
-        LaunchedEffect(Unit) {
-            database.albumSongs(album.id).collect {
-                songs = it
-            }
-        }
-
-        var downloadState by remember {
-            mutableStateOf(Download.STATE_STOPPED)
-        }
-
-        LaunchedEffect(songs) {
-            if (songs.isEmpty()) return@LaunchedEffect
-            downloadUtil.downloads.collect { downloads ->
-                downloadState =
-                    when {
-                        songs.all { downloads[it.id]?.state == STATE_COMPLETED } -> STATE_COMPLETED
-
-                        songs.all {
-                            downloads[it.id]?.state in
-                                listOf(
-                                    STATE_QUEUED,
-                                    STATE_DOWNLOADING,
-                                    STATE_COMPLETED,
-                                )
-                        } -> STATE_DOWNLOADING
-
-                        else -> Download.STATE_STOPPED
-                    }
-            }
-        }
+        val downloadState = rememberAlbumDownloadState(album.id)
 
         if (showLikedIcon && album.album.bookmarkedAt != null) {
             Icon.Favorite()
@@ -667,36 +693,7 @@ fun AlbumGridItem(
     modifier: Modifier = Modifier,
     coroutineScope: CoroutineScope,
     badges: @Composable RowScope.() -> Unit = {
-        val database = LocalDatabase.current
-        val downloadUtil = LocalDownloadUtil.current
-        var songs by remember { mutableStateOf(emptyList<Song>()) }
-
-        LaunchedEffect(Unit) {
-            database.albumSongs(album.id).collect { songs = it }
-        }
-
-        var downloadState by remember { mutableStateOf(Download.STATE_STOPPED) }
-
-        LaunchedEffect(songs) {
-            if (songs.isEmpty()) return@LaunchedEffect
-            downloadUtil.downloads.collect { downloads ->
-                downloadState =
-                    when {
-                        songs.all { downloads[it.id]?.state == STATE_COMPLETED } -> STATE_COMPLETED
-
-                        songs.all {
-                            downloads[it.id]?.state in
-                                listOf(
-                                    STATE_QUEUED,
-                                    STATE_DOWNLOADING,
-                                    STATE_COMPLETED,
-                                )
-                        } -> STATE_DOWNLOADING
-
-                        else -> Download.STATE_STOPPED
-                    }
-            }
-        }
+        val downloadState = rememberAlbumDownloadState(album.id)
 
         if (album.album.bookmarkedAt != null) {
             Icon.Favorite()

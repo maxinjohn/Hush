@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -76,11 +77,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import coil3.compose.AsyncImage
 import app.hush.music.R
+import app.hush.music.constants.AuraLandscapeBarVerticalPadding
+import app.hush.music.constants.AuraLandscapePillHeight
 import app.hush.music.constants.EnableHapticFeedbackKey
 import app.hush.music.constants.PrimaryAudioScraper
 import app.hush.music.constants.PrimaryAudioScraperKey
@@ -676,30 +680,46 @@ fun SleepTimerDialog(
 }
 
 /**
- * Names where the codec row's facts came from, for the reader who has to trust them.
+ * Names where the codec row's facts came from, for the reader who has to trust them - or null for
+ * the source that is named by nothing; see [formatRowSourceLabelRes].
  *
  * Short and plain on purpose: this line is already the most fact-dense thing on the player, so the
  * source is a phrase rather than a symbol, and it says whether the row came from a resolve, from a
- * file, from a saved record, or from the audio being decoded right now.
+ * saved record, or from the audio being decoded right now.
  */
 @Composable
-internal fun FormatRowSource.displayLabel(): String =
-    stringResource(
-        when (this) {
-            FormatRowSource.SESSION_RESOLVE -> R.string.format_row_from_session_resolve
-            FormatRowSource.SAVED_RESOLVE -> R.string.format_row_from_saved_resolve
-            FormatRowSource.DEVICE_FILE -> R.string.format_row_from_device_file
-            FormatRowSource.DECODED_AUDIO -> R.string.format_row_from_decoder
-        },
-    )
+internal fun FormatRowSource.displayLabel(): String? =
+    formatRowSourceLabelRes(this)?.let { stringResource(it) }
+
+/**
+ * The phrase a row's source is named by, or null for a source the row does not name.
+ *
+ * [FormatRowSource.DEVICE_FILE] is not named, because the row already says it: a row backed by a
+ * download or by SpotiFLAC's cached playback file is the row whose delivery reads *(device cache)*
+ * beside the codec, and the phrase said the same thing again in the longest wording of the four, on
+ * the line on the screen with the least room to spare. The other three each name something the rest
+ * of the line cannot - a resolve in this session, an earlier resolve's saved row, and the decoder -
+ * so they stay.
+ *
+ * A resource id rather than the sentence itself, so that which sources are named is a decision a
+ * unit test can read rather than one only a phone can show; see [FormatRowSourceLabelTest].
+ */
+internal fun formatRowSourceLabelRes(source: FormatRowSource): Int? =
+    when (source) {
+        FormatRowSource.SESSION_RESOLVE -> R.string.format_row_from_session_resolve
+        FormatRowSource.SAVED_RESOLVE -> R.string.format_row_from_saved_resolve
+        // Named by nothing; see above.
+        FormatRowSource.DEVICE_FILE -> null
+        FormatRowSource.DECODED_AUDIO -> R.string.format_row_from_decoder
+    }
 
 /**
  * Codec information row displayed when showCodecOnPlayer is enabled.
  *
  * [evidence] names where the row's facts came from - this session's resolve, an earlier resolve's saved
- * row, a file on the device, or the decoder. It is passed in rather than read here because it belongs
- * to the *same* [FormatRow] as the codec and bitrate above it: two flows would eventually disagree and
- * the line would credit the wrong source.
+ * row, or the decoder - and is null for a source that is named by nothing; see [displayLabel]. It is
+ * passed in rather than read here because it belongs to the *same* [FormatRow] as the codec and
+ * bitrate above it: two flows would eventually disagree and the line would credit the wrong source.
  */
 @Composable
 fun CodecInfoRow(
@@ -709,9 +729,15 @@ fun CodecInfoRow(
     textColor: Color,
     modifier: Modifier = Modifier,
     playbackClient: String? = null,
+    /** Horizontal inset of the label. Portrait draws the full-width strip with 30dp; the compact
+     * landscape pill trims it so the label can sit beside the chips. */
+    horizontalPadding: Dp = 30.dp,
+    topPadding: Dp = 6.dp,
+    bottomPadding: Dp = 2.dp,
     // Required, not defaulted: this row draws a codec name and the whole point of [evidence] is that
     // the name never appears without the origin that makes it trustworthy. A default of null would
-    // let a future caller draw the old provenance-free line by saying nothing.
+    // let a future caller draw the old provenance-free line by saying nothing - the null this row is
+    // handed has to be the *source's* own answer, from [displayLabel].
     evidence: String?,
 ) {
     val fallbackFlow = remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }
@@ -763,7 +789,12 @@ fun CodecInfoRow(
         modifier =
             modifier
                 .fillMaxWidth()
-                .padding(start = 30.dp, end = 30.dp, top = 6.dp, bottom = 2.dp),
+                .padding(
+                    start = horizontalPadding,
+                    end = horizontalPadding,
+                    top = topPadding,
+                    bottom = bottomPadding,
+                ),
     ) {
         Text(
             text =
@@ -2519,6 +2550,267 @@ fun WideLandscapeUpNextBar(
                             modifier = Modifier.size(20.dp),
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Aura collapsed queue: the codec provenance label and the glass Queue / sleep / Lyrics pills.
+ * Portrait stacks the strip over the pills; landscape folds the label into the pill row so the
+ * artwork above can reach the bottom of the screen. The pills sit inside the aura glow while the
+ * player is expanded, so they are translucent white rather than V6's opaque theme-colored boxes.
+ */
+@Composable
+fun AuraQueueCollapsedContent(
+    showCodecOnPlayer: Boolean,
+    formatRow: FormatRow?,
+    sleepTimerEnabled: Boolean,
+    sleepTimerTimeLeft: Long,
+    onExpandQueue: () -> Unit,
+    onSleepTimerClick: () -> Unit,
+    onShowLyrics: () -> Unit,
+    modifier: Modifier = Modifier,
+    applyBottomInsets: Boolean = true,
+    compact: Boolean = false,
+    /**
+     * Where the player's controls column starts: the artwork column plus the offset the centred
+     * landscape composition leaves to its left. The compact chip row centres itself in the space
+     * that is left, so the chips land between the first and the last action button instead of
+     * hanging off the right edge of the screen.
+     */
+    chromeStartGap: Dp = 0.dp,
+    /**
+     * The same offset on the right. Needed, not decorative: the chip row centres in the space
+     * between the two gaps, so closing it on the left only would put them half an offset too far
+     * right - 57dp off the action row at a 1280dp window, measured on device.
+     */
+    chromeEndGap: Dp = 0.dp,
+) {
+    // Landscape passes compact = true: the sheet keeps only the chip row, sitting under the
+    // player's action row. The provenance line moves up into the player column on a line of its
+    // own, directly below those actions, so this sheet no longer reserves its height.
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = if (compact) Alignment.End else Alignment.Start,
+    ) {
+        if (!compact && showCodecOnPlayer && formatRow != null) {
+            val currentFormat = formatRow.format
+
+            // The provenance line sits where the bottom glow is brightest, so plain white text
+            // sank into the artwork. A slim glass strip keeps it legible in portrait.
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color.Black.copy(alpha = 0.34f))
+                        .border(0.5.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(14.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                CodecInfoRow(
+                    codec = currentFormat.containerLabel(),
+                    bitrate = currentFormat.formattedBitrate(),
+                    fileSize = currentFormat.formattedFileSize(),
+                    textColor = Color.White.copy(alpha = 0.88f),
+                    evidence = formatRow.source.displayLabel(),
+                    modifier =
+                        Modifier.padding(
+                            top = 3.dp,
+                            bottom = 3.dp,
+                        ),
+                )
+            }
+        }
+
+        AuraQueueBottomBar(
+            sleepTimerEnabled = sleepTimerEnabled,
+            sleepTimerTimeLeft = sleepTimerTimeLeft,
+            onExpandQueue = onExpandQueue,
+            onSleepTimerClick = onSleepTimerClick,
+            onShowLyrics = onShowLyrics,
+            applyBottomInsets = applyBottomInsets,
+            compact = compact,
+            chromeStartGap = chromeStartGap,
+            chromeEndGap = chromeEndGap,
+        )
+    }
+}
+
+/** Glass bottom pills for the Aura style: Queue, sleep timer and Lyrics. */
+@Composable
+fun AuraQueueBottomBar(
+    sleepTimerEnabled: Boolean,
+    sleepTimerTimeLeft: Long,
+    onExpandQueue: () -> Unit,
+    onSleepTimerClick: () -> Unit,
+    onShowLyrics: () -> Unit,
+    modifier: Modifier = Modifier,
+    applyBottomInsets: Boolean = true,
+    compact: Boolean = false,
+    /** See [AuraQueueCollapsedContent.chromeStartGap]: the chrome the chips must centre after. */
+    chromeStartGap: Dp = 0.dp,
+    /** See [AuraQueueCollapsedContent.chromeEndGap]: the mirrored offset on the right. */
+    chromeEndGap: Dp = 0.dp,
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    val pillText = Color.White.copy(alpha = 0.92f)
+    // Compact chips (landscape) hug their label so Queue / Lyrics stop stretching half the
+    // screen width; the portrait pills keep the full-width shape they were designed for.
+    val pillHeight = if (compact) AuraLandscapePillHeight else 48.dp
+    val chipShape = RoundedCornerShape(pillHeight / 2)
+    val iconSize = if (compact) 18.dp else 20.dp
+    val chipGap = if (compact) 8.dp else 10.dp
+    val chipLabelStyle =
+        if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge
+
+    Box(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .padding(
+                    // Landscape matches the player column's insets (12dp start / 20dp end) so the
+                    // chip row's right edge lines up with the action row and the provenance line.
+                    start = if (compact) 12.dp else 16.dp,
+                    end = if (compact) 20.dp else 16.dp,
+                    top = if (compact) AuraLandscapeBarVerticalPadding else 4.dp,
+                    bottom = if (compact) AuraLandscapeBarVerticalPadding else 4.dp,
+                ).then(
+                    if (applyBottomInsets) {
+                        Modifier.windowInsetsPadding(
+                            WindowInsets.systemBars.only(
+                                WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
+                            ),
+                        )
+                    } else {
+                        Modifier
+                    },
+                ),
+    ) {
+        // Compact (landscape): the short inset mirrors the player column's own start padding, and
+        // the chip row then centres inside the space that is left. Both ends of that space come
+        // from the player, so what the chips centre in is exactly the controls column - the chips
+        // end up between Share and the overflow menu, under the action row, while the artwork
+        // reaches the bottom of the screen on its left.
+        Row(
+            horizontalArrangement = if (compact) Arrangement.Center else Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .then(if (compact && chromeStartGap > 0.dp) Modifier.padding(start = chromeStartGap) else Modifier)
+                    .then(if (compact && chromeEndGap > 0.dp) Modifier.padding(end = chromeEndGap) else Modifier),
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .height(pillHeight)
+                        .then(if (compact) Modifier else Modifier.weight(1f))
+                        .clip(chipShape)
+                        .background(Color.White.copy(alpha = 0.10f))
+                        .hushPressable(onClick = onExpandQueue, pressScale = HushDesign.RowPressScale)
+                        .then(if (compact) Modifier.padding(horizontal = 16.dp) else Modifier),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = if (compact) Modifier else Modifier.fillMaxSize(),
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.queue_music),
+                        contentDescription = stringResource(id = R.string.queue),
+                        modifier = Modifier.size(iconSize),
+                        tint = pillText,
+                    )
+                    Spacer(modifier = Modifier.width(if (compact) 6.dp else 8.dp))
+                    Text(
+                        text = stringResource(id = R.string.queue),
+                        color = pillText,
+                        style = chipLabelStyle,
+                        maxLines = 1,
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(chipGap))
+
+            Box(
+                modifier =
+                    Modifier
+                        .size(pillHeight)
+                        .clip(CircleShape)
+                        .background(
+                            if (sleepTimerEnabled) {
+                                accent.copy(alpha = 0.32f)
+                            } else {
+                                Color.White.copy(alpha = 0.10f)
+                            },
+                        ).hushPressable(onClick = onSleepTimerClick, pressScale = HushDesign.ChipPressScale),
+                contentAlignment = Alignment.Center,
+            ) {
+                AnimatedContent(
+                    targetState = sleepTimerEnabled,
+                    label = "auraSleep",
+                ) { enabled ->
+                    if (enabled) {
+                        Text(
+                            text = makeTimeString(sleepTimerTimeLeft),
+                            color = accent,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 4.dp)
+                                    .hushMarquee(),
+                        )
+                    } else {
+                        Icon(
+                            painter = painterResource(id = R.drawable.bedtime),
+                            contentDescription = stringResource(id = R.string.sleep_timer),
+                            modifier = Modifier.size(if (compact) 18.dp else 22.dp),
+                            tint = pillText,
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(chipGap))
+
+            Box(
+                modifier =
+                    Modifier
+                        .height(pillHeight)
+                        .then(if (compact) Modifier else Modifier.weight(1f))
+                        .clip(chipShape)
+                        .background(Color.White.copy(alpha = 0.10f))
+                        .hushPressable(onClick = onShowLyrics, pressScale = HushDesign.RowPressScale)
+                        .then(if (compact) Modifier.padding(horizontal = 16.dp) else Modifier),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = if (compact) Modifier else Modifier.fillMaxSize(),
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.lyrics),
+                        contentDescription = stringResource(id = R.string.lyrics),
+                        modifier = Modifier.size(iconSize),
+                        tint = pillText,
+                    )
+                    Spacer(modifier = Modifier.width(if (compact) 6.dp else 8.dp))
+                    Text(
+                        text = stringResource(id = R.string.lyrics),
+                        color = pillText,
+                        style = chipLabelStyle,
+                        maxLines = 1,
+                    )
                 }
             }
         }

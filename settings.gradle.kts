@@ -46,6 +46,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "Hush"
 include(":app")
+include(":benchmark")
 include(":core")
 include(":lyrics:kugou")
 include(":lyrics:lrclib")

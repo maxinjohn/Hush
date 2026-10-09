@@ -82,6 +82,47 @@ object AndroidAutoPlaylists {
     /** Whether a parsed playlist id addresses the account's Liked Songs. */
     fun isLiked(playlistId: String): Boolean = playlistId == LIKED_PLAYLIST_ID
 
+    /**
+     * The media id of the car's lossless offer.
+     *
+     * A car has no banner, so the offer the phone makes at launch has to be an entry in the library
+     * a driver is already looking at - and an entry in a car's library is a *media item*, so tapping
+     * it is a play request. The id is a word rather than an id-shaped token on purpose: it is read
+     * back by the same `when` that resolves every other browsed id, and nothing that addresses the
+     * user's own media may ever parse as it.
+     */
+    const val LOSSLESS_OFFER = "enable_lossless"
+
+    /** Whether a car asked for the lossless offer rather than for something to play. */
+    fun isLosslessOffer(mediaId: String): Boolean = mediaId == LOSSLESS_OFFER
+
+    /**
+     * Whether a car should be offered lossless playback.
+     *
+     * Four conditions, and each one is a way the entry would lie if it were left out:
+     *
+     * - **the runtime has to be in this build.** Without the gobackend module there is no lossless
+     *   playback to turn on, and the entry would lead to a switch that cannot deliver anything.
+     * - **SpotiFLAC has to be off.** With it already on there is nothing to offer, and the entry
+     *   would sit at the top of the library asking a question that has been answered.
+     * - **it must not have been dismissed on the phone.** The banner's close button is the user's
+     *   "no" and it is the only word for it in the app; a car that ignored it would be asking again
+     *   from a screen the user cannot dismiss.
+     * - **low data mode must be off.** While it is on, the Audio Sources screen refuses to turn
+     *   SpotiFLAC on, because every SpotiFLAC play is a whole lossless file over a metered link. An
+     *   entry that turns on what its own settings screen refuses to turn on is worse than no entry.
+     *
+     * The phone's launch counter is deliberately *not* consulted. That counter rations a banner that
+     * interrupts a launch the user did not ask for; this is one line in a list they opened
+     * themselves. The moment they take the offer, or decline it on the phone, the line is gone.
+     */
+    fun offersLossless(
+        runtimeAvailable: Boolean,
+        spotiflacEnabled: Boolean,
+        dismissed: Boolean,
+        lowDataModeActive: Boolean,
+    ): Boolean = runtimeAvailable && !spotiflacEnabled && !dismissed && !lowDataModeActive
+
     /** The media id of the Liked Songs folder in the car's Spotify group. */
     fun spotifyLikedMediaId(): String = spotifyMediaId(LIKED_PLAYLIST_ID)
 

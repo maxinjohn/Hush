@@ -750,6 +750,46 @@ object SpotiFLACSessionRenewer {
         }.getOrDefault(false)
     }
 
+    /**
+     * How long until the next automatic renewal falls due, or null when none can.
+     *
+     * The rule this reports is the one [renewAll] implements: a session is renewed once its record is
+     * inside [RENEW_WINDOW_SECONDS] of expiry. So the next renewal falls due when the
+     * **soonest-expiring live session** reaches that window - not when some session expires. That
+     * distinction is the whole value of the number. Measured on the reporting device, a run logged
+     * `not due (228m left)` against a three-hour window, i.e. 48 minutes before the next attempt;
+     * quoting the 228 minutes there names the wrong event, and "renews in 5h 42m" beside a 3h window
+     * is a promise the renewal will not keep.
+     *
+     * A session already inside the window answers zero or less - the renewal is due *now*, and a
+     * negative countdown is not a thing a screen can print. A session whose record has already lapsed
+     * is left out entirely rather than counted as zero, because an expired record is not renewable at
+     * all: the runtime clears it and raises a challenge, so including it would advertise a renewal
+     * that cannot happen and hide the lapsed source that actually needs the user.
+     *
+     * Null is the honest answer when nothing is renewable: no sessions at all, or none with time
+     * left. A screen should stay silent about that rather than print "never".
+     */
+    internal fun nextRenewalWaitMs(remainingSeconds: List<Long?>): Long? {
+        val live = remainingSeconds.filterNotNull().filter { it > 0L }
+        if (live.isEmpty()) return null
+        return live.min() * 1000L - RENEW_WINDOW_SECONDS * 1000L
+    }
+
+    /**
+     * [nextRenewalWaitMs] as the Audio Sources row says it, or null when there is nothing to say.
+     *
+     * "Due now" rather than a zero or a negative wait: `RENEW_WINDOW_SECONDS` makes the *due* moment
+     * precise, but the run itself happens on the next opportunity - the playback path's own check, the
+     * hourly worker, or the next app start - so claiming a specific number there would be inventing
+     * one. What the user can act on is that the renewal is imminent, which is what this says.
+     */
+    internal fun nextRenewalLabel(remainingSeconds: List<Long?>): String? {
+        val waitMs = nextRenewalWaitMs(remainingSeconds) ?: return null
+        if (waitMs <= 0L) return "Renewal due now"
+        return "Next renewal in ${SpotiFLACAvailability.remainingLabel(waitMs)}"
+    }
+
     /** The remaining wait as a screen counting it down says it. */
     internal fun formatBlockRemaining(remainingMs: Long): String {
         val minutes = (remainingMs.coerceAtLeast(0L) + 59_999L) / 60_000L

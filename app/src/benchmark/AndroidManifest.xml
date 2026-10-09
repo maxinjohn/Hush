@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Hush (2026)
+  GPL-3.0 License | Contributors: see git history
+  Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+-->
+<!--
+  The benchmark variant only. Declaring the app profileable is what lets the profile generator and
+  Macrobenchmark capture a profile from it and compile it from the shell; a release build carries no
+  such declaration and stays opaque to anything outside the app.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <profileable
+            android:shell="true"
+            tools:targetApi="29" />
+    </application>
+
+</manifest>

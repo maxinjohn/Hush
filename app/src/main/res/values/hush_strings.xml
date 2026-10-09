@@ -263,6 +263,8 @@
     <string name="player_design_v7">Immersive</string>
     <string name="player_design_v8">Immersive Extended</string>
     <string name="player_design_v9">Material Extended</string>
+    <string name="player_design_aura">Aura</string>
+    <string name="aura_now_playing">NOW PLAYING</string>
     <string name="player_background_blur">Blur</string>
     <string name="coloring">Coloring</string>
     <string name="blur_gradient">Blur Gradient</string>
@@ -476,6 +478,12 @@
     <string name="stream_sources_desc">Choose which YouTube clients are used when resolving playback streams.</string>
     <string name="audio_sources">Audio Sources</string>
     <string name="audio_sources_desc">YouTube and SpotiFLAC source priority settings</string>
+    <!-- The launch-time offer to turn on lossless playback (see SpotiFLACLosslessNudge). -->
+    <string name="spotiflac_nudge_title">Lossless audio is available</string>
+    <string name="spotiflac_nudge_body">SpotiFLAC plays true FLAC from Qobuz, Tidal, Deezer and Amazon. It is off by default.</string>
+    <string name="spotiflac_nudge_action">Turn on</string>
+    <!-- The same offer, as one line in the Android Auto library (a car has no banner). -->
+    <string name="spotiflac_car_offer_subtitle">Tap to turn on and play</string>
     <string name="spotiflac">SpotiFLAC</string>
     <string name="spotiflac_desc">Lossless FLAC from Tidal, Qobuz &amp; Amazon Music via Spotify metadata</string>
     <string name="youtube_enabled">YouTube Enabled</string>
@@ -781,6 +789,5 @@
     <!-- Where the player's codec row came from, appended after the codec, rate and source. -->
     <string name="format_row_from_session_resolve">codec from this session\'s resolve</string>
     <string name="format_row_from_saved_resolve">codec from an earlier resolve</string>
-    <string name="format_row_from_device_file">codec from a file on this device</string>
     <string name="format_row_from_decoder">codec from the decoder</string>
 </resources>

@@ -17,6 +17,8 @@ import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import app.hush.music.BuildConfig
 import app.hush.music.constants.SpotiFLACEnabledKey
+import app.hush.music.constants.SpotiFLACLosslessNudgeAskCountKey
+import app.hush.music.constants.SpotiFLACLosslessNudgeHandledKey
 import app.hush.music.constants.YoutubeStreamingEnabledKey
 import app.hush.music.playback.ExoDownloadService
 import app.hush.music.utils.dataStore
@@ -144,6 +146,8 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
                     OP_SOURCE_TEST -> sourceTest(source)
 
                     OP_RENEW -> renewSessions(context.applicationContext)
+
+                    OP_NUDGE_RESET -> resetLosslessOffer(context.applicationContext)
 
                     OP_GATEWAY_RETURNED -> replayAfterGatewayReturns()
 
@@ -388,6 +392,31 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
      * new `expires_at`, so the record's own generation is reported before and after - an unchanged id
      * with a moved expiry is a timer, a changed id is a renewal.
      */
+    /**
+     * Clears both records the launch-time lossless offer keeps, so the offer and its cap can be
+     * walked from the start again.
+     *
+     * The offer lives in a launch frame, not on a screen a shell can navigate to, and it is limited
+     * twice over: the close button retires it for good, and the appearance count - spent whether or
+     * not the user answered - runs out after two launches. Both are correct for a user and useless
+     * for a probe, since the one install that has spent them can never see the offer again. So
+     * checking the offer, its action, its dismissal and its cap on a real device needs a way back to
+     * the untouched state, and this is it: the count returns to zero as well as the flag.
+     */
+    private suspend fun resetLosslessOffer(context: Context) {
+        runCatching {
+            withContext(Dispatchers.IO) {
+                context.dataStore.edit { prefs ->
+                    prefs[SpotiFLACLosslessNudgeHandledKey] = false
+                    prefs[SpotiFLACLosslessNudgeAskCountKey] = 0
+                }
+            }
+        }.onFailure {
+            return log("spotiflac-debug step=nudge-reset source=- verdict=FAIL reason=${it.message}")
+        }
+        log("spotiflac-debug step=nudge-reset source=- verdict=ok handled=false asks=0")
+    }
+
     private suspend fun renewSessions(context: Context) {
         val before = sessionSnapshot(context)
         val attempt = withContext(Dispatchers.IO) {
@@ -987,6 +1016,11 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
         const val OP_SOURCE_ROW = "source-row"
         const val OP_SOURCE_TEST = "source-test"
         const val OP_RENEW = "renew"
+
+        /**
+         * Puts the launch-time lossless offer back on the table; see [resetLosslessOffer].
+         */
+        const val OP_NUDGE_RESET = "nudge-reset"
         const val OP_GATEWAY_RETURNED = "gateway-returned"
         const val EXTRA_STATE = "state"
         const val EXTRA_MESSAGE = "message"

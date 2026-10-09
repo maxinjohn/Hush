@@ -28,7 +28,17 @@ object SpotiFLACDiag {
 
     @Volatile private var appContext: Context? = null
     private val timeFormat = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
-    private val lock = Any()
+
+    /**
+     * The file is read and rewritten in full on every line, so it is done here, off the caller.
+     * [log] is called from playback, download and UI code alike, and a couple of those callers are
+     * on the main thread - where the whole rolling log used to be read and written inside a frame.
+     * One thread keeps the lines in order, and keeps [timeFormat] to a single thread of its own.
+     */
+    private val writer =
+        java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "spotiflac-diag")
+        }
 
     fun attach(context: Context) {
         appContext = context.applicationContext
@@ -37,11 +47,12 @@ object SpotiFLACDiag {
     fun log(message: String) {
         Log.i(TAG, message)
         val context = appContext ?: return
-        synchronized(lock) {
+        val text = message.take(500)
+        writer.execute {
             runCatching {
                 val dir = File(context.filesDir, "spotiflac").apply { mkdirs() }
                 val file = File(dir, FILE_NAME)
-                val line = "${timeFormat.format(Date())} ${message.take(500)}"
+                val line = "${timeFormat.format(Date())} $text"
                 val existing = if (file.isFile) file.readLines().takeLast(MAX_LINES - 1) else emptyList()
                 file.writeText((existing + line).joinToString("\n"))
             }

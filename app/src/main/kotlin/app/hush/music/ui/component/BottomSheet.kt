@@ -22,7 +22,6 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,9 +40,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -52,7 +53,6 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
@@ -67,37 +67,59 @@ import app.hush.music.utils.rememberPreference
 /**
  * Bottom Sheet
  * Modified from [ViMusic](https://github.com/vfsfitvnm/ViMusic)
+ *
+ * The sheet is *translated*, never resized, and every value that moves with it - its offset, its
+ * corner radius and the alpha of its surface - is read inside a layer or draw block rather than in
+ * composition. That is the whole performance story of this file: [BottomSheetState.value] changes on
+ * every pointer sample of a drag and on every frame of an animation, and a composition read of it
+ * recomposed the sheet *and its content* - here a full player screen with a backdrop image and a
+ * blur - at that same rate. Reading it in the draw phase instead re-runs a layer update.
+ *
+ * @param backgroundAlpha the surface's alpha at a given sheet progress, as a multiplier of the
+ *   colour's own alpha. Defaults to the drag itself: transparent at the bottom, opaque when open.
+ *   It is drawn, not composed, so a caller may vary the surface across a drag for free.
  */
 @Composable
 fun BottomSheet(
     state: BottomSheetState,
     modifier: Modifier = Modifier,
     backgroundColor: Color,
+    backgroundAlpha: (progress: Float) -> Float = { it },
     onDismiss: (() -> Unit)? = null,
     collapsedContent: @Composable BoxScope.() -> Unit,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val density = LocalDensity.current
+    val cornerRadius = with(density) { 16.dp.toPx() }
+    val roundedShape = remember(cornerRadius) { RoundedCornerShape(CornerSize(cornerRadius)) }
+    val squareShape = remember { RectangleShape }
+
     Box(
         modifier =
             modifier
                 .fillMaxSize()
-                .offset {
-                    val y =
+                .graphicsLayer {
+                    translationY =
                         (state.expandedBound - state.value)
                             .roundToPx()
                             .coerceAtLeast(0)
-                    IntOffset(x = 0, y = y)
-                }.bottomSheetDraggable(state, onDismiss)
-                .clip(
-                    RoundedCornerShape(
-                        topStart = if (!state.isExpanded) 16.dp else 0.dp,
-                        topEnd = if (!state.isExpanded) 16.dp else 0.dp,
-                    ),
-                ).background(
-                    backgroundColor.copy(
-                        alpha = backgroundColor.alpha * state.progress.coerceIn(0f, 1f),
-                    ),
-                ),
+                            .toFloat()
+                    // The rounded top is what tells a person the panel is a sheet while it is on its
+                    // way up, and it is square once the panel is the screen. Both are layer
+                    // properties, so crossing that line at the end of a drag costs nothing either.
+                    val radius = if (state.isExpanded) 0f else cornerRadius
+                    shape = if (radius == 0f) squareShape else roundedShape
+                    clip = radius > 0f
+                }
+                .drawBehind {
+                    drawRect(
+                        color = backgroundColor,
+                        alpha =
+                            (backgroundColor.alpha * backgroundAlpha(state.progress))
+                                .coerceIn(0f, 1f),
+                    )
+                }
+                .bottomSheetDraggable(state, onDismiss),
     ) {
         if (state.isExpandedOrExpanding) {
             PredictiveBackHandler { progress ->
@@ -117,7 +139,10 @@ fun BottomSheet(
         }
 
         if (!state.isCollapsed) {
-            BoxWithConstraints(
+            // A plain [Box], not a `BoxWithConstraints`: `content` is a [BoxScope] lambda and cannot
+            // read constraints at all, so the subcomposition (a second measure pass of the whole
+            // player, every time this mounts) bought nothing.
+            Box(
                 modifier =
                     Modifier
                         .fillMaxSize()

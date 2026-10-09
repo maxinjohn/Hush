@@ -14,6 +14,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.exoplayer.offline.Download
 import app.hush.music.LocalDownloadUtil
 import app.hush.music.utils.DeviceProfile
+import app.hush.music.utils.DeviceTier
 import app.hush.music.utils.MotionCadence
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -39,6 +40,21 @@ fun <T> rememberFlow(
 fun rememberMotionCadence(): MotionCadence {
     val context = LocalContext.current
     return remember(context) { DeviceProfile.cadence(context) }
+}
+
+/**
+ * Which tier of device this is, read once per composition.
+ *
+ * Exists for the few effects whose cost is decided by the hardware rather than by a preference: a
+ * full-screen blur that has to be recomputed on every frame of a transition, for instance, which a
+ * phone with memory to spare takes in its stride and a 2 GB phone cannot. Anything a person can
+ * see should be theirs to choose, so this stays for the cases where the alternative to degrading is
+ * dropping frames.
+ */
+@Composable
+fun rememberDeviceTier(): DeviceTier {
+    val context = LocalContext.current
+    return remember(context) { DeviceProfile.tier(context) }
 }
 
 /**

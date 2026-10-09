@@ -57,6 +57,8 @@ import app.hush.music.spotiflac.SpotiFLACChallengeRoute
 import app.hush.music.spotiflac.SpotiFLACDiag
 import app.hush.music.spotiflac.SpotiFLAutoVerifier
 import app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder
+import app.hush.music.spotiflac.SpotiFLACSessionNotice
+import app.hush.music.spotiflac.SpotiFLACSessionRecovery
 import app.hush.music.spotiflac.SpotiFLACSourceAuthState
 import app.hush.music.spotiflac.SpotiFLACVerificationRequest
 import kotlinx.coroutines.Dispatchers
@@ -96,7 +98,15 @@ fun SpotiFLACVerificationOverlay() {
     val scope = rememberCoroutineScope()
     val extensionId =
         requested ?: autoSource ?: run {
-            SpotiFLACVerificationNotice(extensionId = pendingExtension)
+            // Two different reasons to speak, and only one of them at a time: a source playback is
+            // actively waiting on takes priority over the engine's launch-time state, and the
+            // launch notice is what covers the case where nothing is playing yet but nothing could
+            // be fetched either.
+            if (pendingExtension != null) {
+                SpotiFLACVerificationNotice(extensionId = pendingExtension)
+            } else {
+                SpotiFLACSessionLaunchNotice()
+            }
             return
         }
     // Automatic runs render no Cloudflare page: the challenge is still a real,
@@ -718,6 +728,112 @@ private fun SpotiFLACVerificationNotice(extensionId: String?) {
                         ) {
                             Text("Verify in browser")
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The launch-time prompt: SpotiFLAC is on, and no source can fetch with it.
+ *
+ * Distinguished from [SpotiFLACVerificationNotice] by what it is about. That card is raised by
+ * playback and names one source a track is parked on; this one is raised by app start and says the
+ * engine as a whole is parked. Both are dismissible and neither blocks anything - the difference the
+ * user sees is that this one can appear before any track has been tried, which is the whole point:
+ * the engine's state is knowable at launch and was otherwise only visible by opening Audio Sources.
+ *
+ * One action, because there is only one useful thing to do: ask the gateway again and, for whatever
+ * is still unusable, raise the check. A renewal alone cannot fix a source with no session at all -
+ * which is the common case after a long gap - and a check alone would spend a browser trip on a
+ * session that a renewal would have rotated for free. Doing both in that order is the answer a user
+ * means by "try again".
+ */
+@Composable
+private fun SpotiFLACSessionLaunchNotice() {
+    val notice by SpotiFLACSessionNotice.notice.collectAsState()
+    val current = notice ?: return
+    val context = LocalContext.current
+    // The run belongs to SpotiFLACSessionRecovery, not to this card, and that is the fix for the
+    // bug this card shipped with: it launched the work on its own rememberCoroutineScope and then
+    // removed itself - dismissal clears the notice the card is drawn from - which cancels the scope
+    // it had just launched on. Measured on device: `session renew (launch-notice): renewed=0 of 4`
+    // was written and then nothing, so the renewal happened, real and invisible, and the check the
+    // button promised was never raised. Observing the run instead of owning it also means the
+    // progress and the outcome survive the card being recomposed.
+    val renewing by SpotiFLACSessionRecovery.running.collectAsState()
+    val outcome by SpotiFLACSessionRecovery.outcome.collectAsState()
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 4.dp,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 96.dp),
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text(
+                    text = "SpotiFLAC sessions need attention",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = current.body,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // The outcome is drawn under the card's own line, not instead of it: a run that
+                // fixed some sources and not others has to leave both facts on screen, because the
+                // card is still the thing telling the user what is parked.
+                val status =
+                    when {
+                        renewing -> "Renewing sessions…"
+                        else -> outcome?.line
+                    }
+                if (status != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (renewing) {
+                            HushProgressSpinner(
+                                modifier = Modifier.height(16.dp).width(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(
+                            text = status,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = { SpotiFLACSessionNotice.dismiss() }) {
+                        Text("Not now")
+                    }
+                    TextButton(
+                        enabled = !renewing,
+                        // The same action Audio Sources' Renew runs - one implementation, so the two
+                        // cannot drift - and the card deliberately stays up while it runs.
+                        //
+                        // It used to dismiss itself on the tap, which was wrong three times over:
+                        // it was what cancelled the work (see above), the spinner it set could never
+                        // be seen because the card it lived in had already gone, and dismissal is
+                        // permanent for the process, so a run that failed left no way back to the
+                        // card that offered it. A successful run clears the notice anyway - the
+                        // notice reports a state, and the state is the thing that moved.
+                        onClick = {
+                            SpotiFLACSessionRecovery.renewAndCheck(context, reason = "launch-notice")
+                        },
+                    ) {
+                        Text("Renew session")
                     }
                 }
             }

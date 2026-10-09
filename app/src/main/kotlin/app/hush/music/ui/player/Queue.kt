@@ -92,6 +92,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
@@ -156,6 +157,13 @@ fun Queue(
     iconButtonColor: Color,
     onShowLyrics: () -> Unit = {},
     pureBlack: Boolean,
+    /**
+     * Where the landscape player's controls column starts: the artwork column plus the offset the
+     * centred composition leaves to its left. The Aura chip row centres itself after it.
+     */
+    landscapeChromeWidth: Dp = 0.dp,
+    /** The same offset on the right, which closes that space into the controls column. */
+    landscapeChromeInset: Dp = 0.dp,
 ) {
     val (enableHapticFeedback) = rememberPreference(EnableHapticFeedbackKey, true)
     val context = LocalContext.current
@@ -421,7 +429,10 @@ fun Queue(
     val isLandscape =
         LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE ||
             LocalConfiguration.current.screenWidthDp > LocalConfiguration.current.screenHeightDp
-    val queueShowCodecOnPlayer = showCodecOnPlayer && !isLandscape
+    // Aura keeps the codec provenance line in landscape too - the source labels are part of the
+    // theme's bottom stack, not an afterthought that vanishes on rotation.
+    val queueShowCodecOnPlayer =
+        showCodecOnPlayer && (!isLandscape || playerDesignStyle == PlayerDesignStyle.AURA)
 
     BottomSheet(
         state = state,
@@ -601,6 +612,30 @@ fun Queue(
                             onShowLyrics = onShowLyrics,
                         )
                     }
+                }
+
+                PlayerDesignStyle.AURA -> {
+                    AuraQueueCollapsedContent(
+                        showCodecOnPlayer = queueShowCodecOnPlayer,
+                        formatRow = currentFormatRow,
+                        // Landscape renders content-sized chips centred under the action row;
+                        // portrait keeps the full-width pills. The player hands over the width of
+                        // its artwork column so the chips can centre in what is left of the bar.
+                        compact = isLandscape,
+                        chromeStartGap = landscapeChromeWidth,
+                        chromeEndGap = landscapeChromeInset,
+                        sleepTimerEnabled = sleepTimerEnabled,
+                        sleepTimerTimeLeft = sleepTimerTimeLeft,
+                        onExpandQueue = openQueue,
+                        onSleepTimerClick = {
+                            if (sleepTimerEnabled) {
+                                playerConnection.service.sleepTimer?.clear()
+                            } else {
+                                showSleepTimerDialog = true
+                            }
+                        },
+                        onShowLyrics = onShowLyrics,
+                    )
                 }
 
                 PlayerDesignStyle.V9 -> {
