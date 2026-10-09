@@ -26,7 +26,7 @@
 #
 # One variable is not Hush's to control: the device's package verifier (Play Protect) scans a
 # sideloaded bridge and, when that scan cannot reach Google, aborts the install session. Observed on a
-# OnePlus NE2211 as `E/Finsky: VerifyApps: Waiting for package installation timed out` followed by the
+# test device as `E/Finsky: VerifyApps: Waiting for package installation timed out` followed by the
 # platform's "App not installed" - the app did everything right and the session died anyway. It is not
 # suppressed by the verify-apps setting, so the gate reports that case as BLOCKED (its own verdict and
 # exit code 3) rather than inventing a pass: the run did not prove the app works, and it did not prove

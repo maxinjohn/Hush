@@ -357,7 +357,7 @@ the pin, `a34e2935`), and the release APK was assembled for real rather than pro
 
 ## 10. On device: the stripped AAR loads, downloads and plays
 
-Run on the reporting device once it was back on USB — a OnePlus NE2211 (Android 16, arm64-v8a). Factor
+Run on the reporting device once it was back on USB — Android 16, arm64-v8a. Factor
 builds of **both** variants were installed, both built from the stripped AAR (§9): release
 `app.hush.music` (34,779,056 B, signed with `app/keystore/release.keystore`, cert SHA-256 `fbd0b596…`
 — the same cert the pre-existing install carried, so it updated in place with data intact) and debug

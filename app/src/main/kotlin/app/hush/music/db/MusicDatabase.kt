@@ -175,7 +175,7 @@ abstract class InternalDatabase : RoomDatabase() {
          * file I/O, the schema check, and the corruption repair below - happened on whichever thread
          * asked Hilt for the singleton. In practice that is `MainActivity`'s injection in `onCreate`,
          * so a launch blocked on the database before it had drawn a frame: 39-41 ms measured on the
-         * NE2211, and on a fresh install the whole open (175 ms) because injection follows
+         * test device, and on a fresh install the whole open (175 ms) because injection follows
          * `App.onCreate` by only milliseconds, leaving nothing to overlap with.
          *
          * Room opens the file on first *use* instead, and it does that on the executors set below -

@@ -13,7 +13,7 @@ build does not ship those rules verbatim: R8 rewrites them against the release m
 `assets/dexopt/baseline.prof` (**25,942 B**, plus a 4,041 B `.profm`) into
 `hush-foss-mobile-universal-release.apk`.
 
-Measured on the NE2211 (Android 16, arm64), cold start of the **first** launch after install drops
+Measured on the test device (Android 16, arm64), cold start of the **first** launch after install drops
 from **470.5 ms to 305.5 ms (−35%)**, and repeat cold starts from **359.5 ms to 234.8 ms (−35%)**,
 in a two-cycle interleaved A/B whose arms are byte-identical APKs apart from the profile.
 
@@ -101,7 +101,7 @@ Method, per arm, interleaved across two cycles so a warming device cannot favour
    both arms sit at `[status=verify]` and run identical code paths (§4).
 3. Three cold starts per arm, each preceded by `am force-stop`, timing `am start -W`'s `TotalTime`.
 
-`TotalTime` (ms), NE2211 / Android 16:
+`TotalTime` (ms), test device / Android 16:
 
 | Cycle | Arm | Launch 1 | Launch 2 | Launch 3 |
 |---|---|---|---|---|
@@ -142,7 +142,7 @@ The release APK, signed with the project's release keystore, installed as `app.h
 (versionName 13.14.6, md5 `54e2bdafeca95b53c5fed6814688c19a`, shipping the 25,942 B profile) against the
 debug install (`app.hush.music.debug`, the same sources, unminified, `debuggable=true`). Four cold
 starts each, measured one app at a time with a 20 s settle before each block, `am start -W`'s
-`TotalTime`, NE2211 / Android 16:
+`TotalTime`, test device / Android 16:
 
 | Build (state) | Cold start, four launches | Mean |
 |---|---|---|
@@ -176,7 +176,7 @@ The database was the one piece of launch work that ran inline on the main thread
 `InternalDatabase.newInstance` forces `openHelper.writableDatabase` so it can catch and repair a
 corrupt or half-migrated file before handing the app a database, and Hilt resolved that singleton
 for `MainActivity`'s injection in `onCreate` — before the content view existed. Measured on the
-NE2211, the open itself. The first step kept the open eager and only moved it off the main thread:
+test device, the open itself. The first step kept the open eager and only moved it off the main thread:
 
 | The open, timed around `openHelper.writableDatabase` | warm database | fresh install (schema created) |
 |---|---|---|
@@ -218,7 +218,7 @@ that wait is the whole open. So the block was removed rather than moved:
 - `DatabaseOpener` remains, narrowed to the *build*: cheap, no disk, on a thread of its own started
   from `App.onCreate`, and the provider waits only for that.
 
-Where the two steps land, from the same instrumentation (NE2211):
+Where the two steps land, from the same instrumentation (test device):
 
 | On the calling thread | First step (eager, off-main) | Second step (lazy) |
 |---|---|---|
@@ -229,7 +229,7 @@ Where the two steps land, from the same instrumentation (NE2211):
 still waits for it - and the ordering is not what the design intended. The first request for the
 database does not come from `App.onCreate` at all: Hilt resolves it during the pre-`onCreate` phase
 (provider installation), so `await` runs there and blocks for the whole build. Markers added for one
-run, NE2211:
+run, test device:
 
 | Time | Thread | What |
 |---|---|---|
@@ -256,7 +256,7 @@ the file and let Room recreate it - is unchanged.
 
 ## 7. Limitations
 
-- **One device.** NE2211 / Android 16 / arm64, for every number here.
+- **One device.** Android 16 / arm64, for every number here.
 - **The −35% is measured on the unminified benchmark variant**, the −12% on the signed release (§5).
   Neither pair holds the app's data constant: the release install is fresh and the debug install
   holds a real library, so the debug/release split is a bound, not a decomposition. A like-for-like

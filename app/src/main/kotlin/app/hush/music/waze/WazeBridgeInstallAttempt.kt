@@ -31,8 +31,8 @@ object WazeBridgeInstallAttempt {
      *
      * Deliberately much longer than the ten seconds this used to allow, and longer still than the ~33
      * seconds it allowed next. The thing being waited for is a person working through what the platform
-     * puts in front of them, and on a real device that is more than one screen: measured on a OnePlus
-     * NE2211, a Bridge install is the installer dialog, then Play Protect's "Scan app" prompt, then the
+     * puts in front of them, and on a real device that is more than one screen: measured on a test
+     * device, a Bridge install is the installer dialog, then Play Protect's "Scan app" prompt, then the
      * vendor's own `InstallGuideActivity` ("Continue installation"). Answering three prompts took longer
      * than 33 seconds per pass, so the attempt gave up on an install that then completed when asked for
      * again - the retry rescued it, at the cost of a spurious failure message first. The wait costs

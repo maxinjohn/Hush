@@ -18,7 +18,7 @@ import java.util.concurrent.FutureTask
  * `InternalDatabase.newInstance` used to open the database before returning - forcing
  * `writableDatabase` so a corrupt or half-migrated file could be repaired before the app saw it -
  * and that happened on whichever thread asked Hilt for the singleton: `MainActivity`'s injection in
- * `onCreate`, i.e. the main thread, before the content view existed. 39-41 ms measured on the NE2211,
+ * `onCreate`, i.e. the main thread, before the content view existed. 39-41 ms measured on the test device,
  * and on a fresh install the entire open, ~175 ms, because injection follows `App.onCreate` by only
  * milliseconds.
  *

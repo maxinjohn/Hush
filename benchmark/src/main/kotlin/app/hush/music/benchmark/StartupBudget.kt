@@ -101,7 +101,7 @@ class StartupBudget {
         const val ITERATIONS = 5
 
         /**
-         * The median of this test's own launches on the NE2211 (Android 16, arm64) on 2026-10-09,
+         * The median of this test's own launches on the test device (Android 16, arm64) on 2026-10-09,
          * `CompilationMode.Partial(BaselineProfileMode.Require)`, fresh install of the unminified
          * benchmark variant: 1619, 1644, 1678, 1704, 1811 ms - median 1678 ms, worst 1811 ms.
          *

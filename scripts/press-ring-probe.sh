@@ -5,7 +5,7 @@
 #
 # ## Why this exists
 #
-# `screencap` on a phone is slow: measured on the reporting device (OnePlus NE2211), 1347ms as PNG
+# `screencap` on a phone is slow: measured on the reporting device, 1347ms as PNG
 # and 613ms as raw pixels. A press ring lives 520ms. So a capture fired at a press is always
 # finished *after* the thing being measured - and, worse, the frame it samples is decided by when in
 # that 613ms the display buffer is read, which the caller cannot see. Two earlier attempts at this
