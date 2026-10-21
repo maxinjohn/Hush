@@ -79,9 +79,21 @@ fun HushTheme(
     disableAnimations: Boolean = false,
     fontPreference: AppFontPreference = AppFontPreference.DEFAULT,
     customFontUri: String = "",
+    /**
+     * The look the whole app renders in; see [AppSkin].
+     *
+     * Defaults to the shipped one, whose spec is every value this composable already used - so a
+     * caller that has not been taught about skins renders exactly as it did before they existed.
+     */
+    skin: AppSkin = AppSkin.DEFAULT,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
+    val skinSpec = skin.spec
+    // Before anything below composes, because every component that draws a card or a chip reads
+    // these radii as plain values - see [HushDesign.applyRadiusScale] for why they are not a
+    // composition-local like the colours are.
+    HushDesign.applyRadiusScale(skinSpec.radiusScale)
     val useSystemDynamicColor =
         (seedPalette == null && themeColor == DefaultThemeColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
 
@@ -110,14 +122,23 @@ fun HushTheme(
         remember(fontPreference) {
             plainFontFamilyFor(fontPreference)
         }
-    val typography =
+    val brandTypography =
         remember(resolvedFontFamily, plainFontFamily) {
             getTypography(
                 brandFont = resolvedFontFamily,
                 plainFont = plainFontFamily,
             )
         }
-    val expressiveMotionScheme = remember { MotionScheme.expressive() }
+    // The skin's type scale, on top of the font the user chose: a skin decides the shape of the
+    // scale (weights, tracking, display sizes), never which font is being used.
+    val typography =
+        remember(brandTypography, skin) {
+            skinTypography(skin, brandTypography)
+        }
+    val motionScheme =
+        remember(skinSpec.expressiveMotion) {
+            if (skinSpec.expressiveMotion) MotionScheme.expressive() else MotionScheme.standard()
+        }
     val paletteStyle =
         remember(themeColor, seedPalette) {
             paletteStyleFor(seedPalette?.primary ?: themeColor)
@@ -140,37 +161,68 @@ fun HushTheme(
         }
 
     val baseColorScheme =
-        if (useSystemDynamicColor) {
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        } else {
-            appColorScheme
+        when {
+            // A monochrome skin keeps the user's palette as *intensity* and throws the hue away: the
+            // scheme is still theirs to change, it just arrives in grey. Painting a fixed palette
+            // over the setting they chose would make the two controls fight each other.
+            // Remembered on the same inputs the non-monochrome branch is. It used to be computed
+            // inline, so every recomposition of `HushTheme` - a font or skin change, a preference
+            // landing after launch - re-solved the whole HCT palette on the main thread. Measured
+            // with the startup profiler: `materialKolorDynamicColorScheme` was 28% of a 535 ms
+            // first-composition frame, and it appeared again in a later 1,006 ms frame.
+            skinSpec.color == SkinColor.MONOCHROME ->
+                remember(seedPalette?.primary, themeColor, darkTheme) {
+                    materialKolorDynamicColorScheme(
+                        keyColor = seedPalette?.primary ?: themeColor,
+                        isDark = darkTheme,
+                        style = PaletteStyle.Monochrome,
+                    )
+                }
+
+            useSystemDynamicColor -> if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+
+            else -> appColorScheme
         }
 
+    // A solid skin asks for flat surfaces, and on a dark scheme the flat version of a tonal surface
+    // is black - so the skin's treatment is expressed through the same switch Pure black uses rather
+    // than as a second way of painting backgrounds.
+    val flatSurfaces = pureBlack || skinSpec.surface == SkinSurface.SOLID
     val colorScheme =
-        remember(baseColorScheme, pureBlack, darkTheme) {
-            if (darkTheme && pureBlack) baseColorScheme.pureBlack(true) else baseColorScheme
+        remember(baseColorScheme, flatSurfaces, darkTheme) {
+            if (darkTheme && flatSurfaces) baseColorScheme.pureBlack(true) else baseColorScheme
         }
 
     val animatedColorScheme = if (disableAnimations) colorScheme else animateColorScheme(colorScheme)
 
+    // Identical to the shipped shapes at scale 1, and the same ratios thereafter: a skin bends the
+    // scale, it does not replace it.
     val expressiveShapes =
-        remember {
+        remember(skinSpec.radiusScale) {
             Shapes(
-                extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                small = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-                medium = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-                large = androidx.compose.foundation.shape.RoundedCornerShape(32.dp),
-                extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(40.dp),
+                extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(skinRadius(12.dp, skinSpec)),
+                small = androidx.compose.foundation.shape.RoundedCornerShape(skinRadius(18.dp, skinSpec)),
+                medium = androidx.compose.foundation.shape.RoundedCornerShape(skinRadius(24.dp, skinSpec)),
+                large = androidx.compose.foundation.shape.RoundedCornerShape(skinRadius(32.dp, skinSpec)),
+                extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(skinRadius(40.dp, skinSpec)),
             )
         }
 
     CompositionLocalProvider(
         LocalArchiveTuneFontPreference provides fontPreference,
         LocalArchiveTuneFontFamily provides resolvedFontFamily,
+        LocalAppSkin provides skin,
+        // The bottom panel's measurements, published here beside the skin that chose them: the pill
+        // itself, the inset arithmetic in MainActivity and the sheet's collapsed bound all have to
+        // agree, and none of them can see a `SkinSpec` field on its own.
+        LocalMiniPlayerAnatomy provides skinMiniPlayerAnatomy(skin),
+        // The bottom bar's measurements, for the same reason: the bar's height is the skin's, and
+        // the screens that have to clear it cannot read a `SkinNav` field.
+        LocalNavigationAnatomy provides skinNavigationAnatomy(skin),
     ) {
         MaterialExpressiveTheme(
             colorScheme = animatedColorScheme,
-            motionScheme = expressiveMotionScheme,
+            motionScheme = motionScheme,
             typography = typography,
             shapes = expressiveShapes,
             content = content,
@@ -333,18 +385,63 @@ private fun mergedSeedColorScheme(
     )
 }
 
-private fun materialKolorScheme(
+internal fun materialKolorScheme(
     seedColor: Color,
     isDark: Boolean,
     contrastLevel: Double,
     style: PaletteStyle,
-): ColorScheme =
-    dynamicColorScheme(
-        seedColor = seedColor,
-        isDark = isDark,
-        contrastLevel = contrastLevel,
-        style = style,
-    )
+): ColorScheme {
+    val key = SchemeKey(seedColor.value, isDark, contrastLevel, style)
+    synchronized(schemeCache) { schemeCache[key] }?.let { return it }
+    // Solved outside the lock: the solve is the expensive part, and holding a monitor across it
+    // would serialise the pre-warm below against the first composition for no benefit - the cache
+    // is only ever a lookup table, and two threads that race on one key write the same scheme.
+    val scheme =
+        dynamicColorScheme(
+            seedColor = seedColor,
+            isDark = isDark,
+            contrastLevel = contrastLevel,
+            style = style,
+        )
+    synchronized(schemeCache) { schemeCache[key] = scheme }
+    return scheme
+}
+
+/**
+ * What makes one generated scheme the same scheme as another.
+ *
+ * The colour is compared by its packed value, not by `Color` equality, because that is what the
+ * solver actually reads - two `Color`s that differ only in colour space would otherwise be two
+ * cache entries for one palette.
+ */
+private data class SchemeKey(
+    val seed: ULong,
+    val dark: Boolean,
+    val contrast: Double,
+    val style: PaletteStyle,
+)
+
+/**
+ * The last eight solved schemes, least recently used first out.
+ *
+ * A cold start used to solve the *same* palette four times before the first frame: the dynamic
+ * scheme feeds one key colour in as primary, secondary, tertiary and neutral, and each of those
+ * asks the HCT solver for a full Material scheme. `mergedSeedColorScheme` also asks for a scheme
+ * per seed on an exact palette, and `HushTheme` recomposes whenever a font, skin or palette
+ * preference lands - so the same handful of schemes were being re-solved several times a launch.
+ * Measured with the startup profiler, `materialKolorDynamicColorScheme` was 28% of a 535 ms
+ * first-composition frame and 12% of a later 1,006 ms one.
+ *
+ * Eight entries because a session realistically holds two (light and dark) or four (an exact
+ * palette's four seeds) at a time; the bound is there so a theme picker dragged through a gradient
+ * cannot grow this without limit. [LinkedHashMap] with access order is the whole LRU.
+ */
+private val schemeCache =
+    object : LinkedHashMap<SchemeKey, ColorScheme>(8, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<SchemeKey, ColorScheme>?,
+        ): Boolean = size > 8
+    }
 
 private fun paletteStyleFor(seedColor: Color): PaletteStyle {
     val chroma = seedColor.toHct().chroma

@@ -1082,6 +1082,10 @@ fun Queue(
                                         isPlaying = isPlaying && isActive,
                                         shouldLoadImage = shouldLoadImages,
                                         trailingContent = {
+                                            // The lookahead's work on *this* row's track, if any: a
+                                            // track being fetched ahead says so here, and never on
+                                            // the row of the song that is playing.
+                                            QueuePrefetchBadge(mediaId = window.mediaItem.mediaId)
                                             HushIconButton(
                                                 onClick = {
                                                     menuState.show {

@@ -6,6 +6,9 @@
 
 package app.hush.music.spotiflac
 
+import app.hush.music.ui.player.CodecRowState
+import app.hush.music.ui.player.codecRowState
+import app.hush.music.utils.PlaybackDownloadProgress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -116,5 +119,60 @@ class SpotiFLACProgressParsingTest {
     fun `malformed payloads are ignored instead of throwing`() {
         assertNull(parse("not json"))
         assertNull(parse("[]"))
+    }
+
+    //
+    // What a source attempt says before its first byte. Measured on device: a sweep spent 5.4s in
+    // `deezer` alone and published nothing, so the player's provenance row had nothing to draw for
+    // the whole window and the track looked stuck at 0:00 with no explanation.
+    //
+
+    /** The attempt names the source, for the track it belongs to, with no bytes behind it. */
+    @Test
+    fun `an attempt names the source before any byte arrives`() {
+        val attempt = attemptProgress(mediaId = "abc123", sourceId = "deezer", sourceLabel = "Deezer")
+        assertEquals("abc123", attempt.mediaId)
+        assertEquals("Deezer", attempt.sourceDisplayName)
+        assertEquals(0, attempt.percent)
+        assertEquals(0L, attempt.bytesTotal)
+        assertEquals("resolving_stream", attempt.stage)
+        // Which is what the row reads as "Fetching from Deezer…" rather than "Downloading 0%".
+        assertEquals(CodecRowState.RESOLVING, attempt.codecRowState())
+    }
+
+    /** A source whose display name is unknown still gets named by its id, never left blank. */
+    @Test
+    fun `an attempt with no label falls back to the source id`() {
+        val attempt = attemptProgress(mediaId = "abc123", sourceId = "qobuz-web", sourceLabel = null)
+        assertEquals("qobuz-web", attempt.sourceDisplayName)
+    }
+
+    //
+    // Which clear may wipe the shared progress signal. The lookahead's attempt for the *next*
+    // track ends many times while the playing track is being fetched, and every one of those
+    // endings used to blank the player's row.
+    //
+
+    /** An attempt for another track must not clear this one's line. */
+    @Test
+    fun `a clear for another track keeps the line`() {
+        val playing = PlaybackDownloadProgress(mediaId = "playing", percent = 40, bytesTotal = 30_000_000L)
+        assertFalse(clearMayEnd(playing, "next-track"))
+        assertTrue(clearMayEnd(playing, "playing"))
+    }
+
+    /** The runtime's own unnamed transfer belongs to whatever is running, so it may clear. */
+    @Test
+    fun `an unnamed transfer may be cleared by anything`() {
+        val unnamed = PlaybackDownloadProgress(mediaId = "", percent = 40, bytesTotal = 30_000_000L)
+        assertTrue(clearMayEnd(unnamed, "whatever"))
+    }
+
+    /** A stop or a cancel ends the whole signal, and nothing is held back. */
+    @Test
+    fun `an unconditional clear always applies`() {
+        val playing = PlaybackDownloadProgress(mediaId = "playing", percent = 40)
+        assertTrue(clearMayEnd(playing, null))
+        assertTrue(clearMayEnd(null, "playing"))
     }
 }

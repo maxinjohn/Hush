@@ -74,8 +74,8 @@ android {
         applicationId = "app.hush.music"
         minSdk = 26
         targetSdk = 37
-        versionCode = 177
-        versionName = "13.14.7"
+        versionCode = 178
+        versionName = "13.14.8"
 
         ndk {
             // ABI filters are set per product flavor (arm64, universal, etc.).
@@ -508,6 +508,12 @@ dependencies {
 
     implementation(libs.apache.lang3)
 
+    // The JavaScript engine the module host runs BitChord modules in. Already on `core`'s
+    // classpath for cipher work and already kept by `proguard-rules.pro`; declared here because
+    // app code now uses it directly - `core` marks it `implementation`, so it is not on this
+    // module's compile classpath by transitivity.
+    implementation(libs.rhino)
+
     implementation(libs.hilt)
     implementation(libs.re2j)
     annotationProcessor(libs.kotlin.metadata.jvm)
@@ -924,8 +930,21 @@ fun rowControlVerifier(
     sources: List<File>,
     root: File,
 ): Action<Task> = object : Action<Task> {
-    /** The loop that draws one row per source. */
-    private val rowAnchor = "sessionRows.forEach"
+    /**
+     * The list that draws one row per source - and the end of the verification card's own region.
+     *
+     * An anchor for where the card *stops*, not for a loop the card contains: each source's session is
+     * stated on its own row of this one list (`SourceRow`), so what the card still owns is its title
+     * and its batch controls. The card used to draw its own rows here, and the two lists could
+     * disagree about the same source at the same moment, which is the regression this reads for.
+     */
+    private val listAnchor = "itemsIndexed(sources"
+
+    // A prefix, not the whole call: the list carries a `key` argument now (so a reorder or a sync
+    // that inserts a source does not rebuild every row below it), and an anchor with the closing
+    // parenthesis in it stopped matching the moment the argument was added. What the anchor is for
+    // is the *call site* - the line the card's region ends at - so the argument list may grow
+    // without the guard going blind. It still fails the build when there is no such call at all.
 
     /** The composable that draws one row per extension source. */
     private val sourceRowAnchor = "private fun SourceRow("
@@ -941,6 +960,16 @@ fun rowControlVerifier(
 
     /** The overflow and its single item: a third callback would be a third control. */
     private val maxRowClicks = 2
+
+    /**
+     * What only a row draws, and therefore what may never appear in the verification card.
+     *
+     * `IconButton` is the row's one overflow and `$overflowIcon` is the icon it draws, `Switch` is the
+     * row's own state, `DropdownMenu` is what sits behind the overflow, and `itemsIndexed`/`SourceRow`
+     * are the list itself - drawing any of them inside the card is a second list of the same sources.
+     */
+    private val cardRowConstructs =
+        listOf("IconButton", overflowIcon, "Switch", "DropdownMenu", listAnchor, "SourceRow(")
 
     private val forbiddenControls = listOf(
         "TextButton", "OutlinedButton", "FilledTonalButton", "ElevatedButton", "Button",
@@ -1087,25 +1116,6 @@ fun rowControlVerifier(
         return null
     }
 
-    /** The row loop's body, or null when the loop is not there. */
-    private fun rowLoop(code: String): IntRange? {
-        val start = code.indexOf(rowAnchor)
-        if (start < 0) return null
-        val open = code.indexOf('{', start)
-        if (open < 0) return null
-        var depth = 0
-        for (index in open until code.length) {
-            when (code[index]) {
-                '{' -> depth++
-                '}' -> {
-                    depth--
-                    if (depth == 0) return (open + 1) until index
-                }
-            }
-        }
-        return null
-    }
-
     /** [token] as a whole word, so `Button` is not found in `TextButton`. */
     private fun count(
         code: String,
@@ -1114,92 +1124,111 @@ fun rowControlVerifier(
 
     private fun strings(text: String): List<String> = literal.findAll(text).map { it.value }.toList()
 
-    /** Everything wrong with one card source. Empty means one Verify for the batch, one overflow a row. */
+    /** A button by its exact name, so `Button` is not found inside `TextButton`. */
+    private val buttonNames =
+        Regex("(?<![A-Za-z0-9_])(TextButton|OutlinedButton|FilledTonalButton|ElevatedButton|Button)(?![A-Za-z0-9_])")
+
+    /**
+     * The literals that label a button in [text] - the **label** of a control, not any string in it.
+     *
+     * Read from each button's own block, because the merged-control rule is about what a *control* is
+     * called and the card's prose is allowed to name both jobs in one sentence: reading the whole
+     * region reported "Verify turns lossless playback back on; Renew rotates a session that is still
+     * live" as a merged button, which is a sentence, not a control.
+     */
+    private fun buttonLabels(text: String): List<String> {
+        val labels = mutableListOf<String>()
+        val buttons = buttonNames.findAll(text).map { it.range }.toList()
+        buttons.forEachIndexed { index, range ->
+            // Every block the button owns, not just the first one: a button's first brace is its
+            // `onClick` lambda, and its label lives in the trailing content block after it - reading
+            // only the first block found the click handler and no label at all, which is why the
+            // self-check reported this rule as dead.
+            val limit = buttons.getOrNull(index + 1)?.first ?: text.length
+            var from = range.last
+            while (true) {
+                val open = text.indexOf('{', from)
+                if (open < 0 || open >= limit) break
+                val close = matchingBrace(text, open) ?: break
+                labels += strings(text.substring(open, close))
+                from = close + 1
+            }
+        }
+        return labels
+    }
+
+    /**
+     * Everything wrong with the verification card, read from the card's own region.
+     *
+     * The region is the card's title up to the source list below it, and three things are true of it:
+     * one Verify and one Renew for the batch, no single control doing both jobs, and *no rows*. The
+     * last one is what this rule was rewritten for: the card used to draw its own list of the sources
+     * - `sessionRows.forEach`, each row with its own overflow - beside the source list further down,
+     * and the two could disagree about the same source at the same moment. Each source's session now
+     * lives on its own row of the one list, where `actionRowViolations` polices it, so a row drawn
+     * here again is the duplicate list coming back and is reported as `[card-row]`.
+     */
     private fun violations(source: String): List<String> {
         val code = masked(source, blankLiterals = true)
         val words = masked(source, blankLiterals = false)
-        val loop =
-            rowLoop(code) ?: return listOf(
-                "[row-loop-missing] `$rowAnchor` was not found, so the guard cannot read the rows it " +
-                    "exists to police. If the loop moved or was renamed, move the anchor with it " +
-                    "deliberately - this card has already shipped a per-row Verify button once.",
-            )
-
-        val found = mutableListOf<String>()
-        val rowCode = code.substring(loop.first, loop.last + 1)
-        val rowWords = words.substring(loop.first, loop.last + 1)
-
-        forbiddenControls.forEach { control ->
-            val seen = count(rowCode, control)
-            if (seen > 0) {
-                found += "[row-control] a per-source row carries $seen " +
-                    (if (seen == 1) control else "${control}s") +
-                    ". The row's job is to say where its session stands; the card's Verify is the " +
-                    "batch, and one source's check lives behind the row's overflow."
-            }
-        }
-        forbiddenGestures.forEach { gesture ->
-            if (rowCode.contains(gesture)) {
-                found += "[row-gesture] a per-source row makes something tappable with `$gesture`. " +
-                    "A row's only tap target is its overflow - a clickable \"Verify\" label is a " +
-                    "per-row Verify control wearing no button."
-            }
-        }
-        val overflows = count(rowCode, "IconButton")
-        if (overflows != 1) {
-            found += "[row-overflow] a per-source row has $overflows overflow buttons; exactly one " +
-                "is allowed."
-        }
-        val clicks = count(rowCode, "onClick")
-        if (clicks > maxRowClicks) {
-            found += "[row-clicks] a per-source row has $clicks tappable callbacks; it offers " +
-                "exactly $maxRowClicks (the overflow and the single item behind it)."
-        }
-        if (!rowCode.contains(overflowIcon)) {
-            found += "[row-overflow-missing] a per-source row no longer draws its overflow " +
-                "($overflowIcon), so the guard cannot confirm the row offers exactly one control."
-        }
-        found += anchorViolations(rowCode, "row", "a per-source row")
-        val items = count(rowCode, "DropdownMenuItem")
-        if (items != 1) {
-            found += "[row-menu] a per-source row has $items dropdown items; exactly one is " +
-                "allowed - the single-source check."
-        }
-        val wording = strings(rowWords).filter { it.contains(verifyStem, ignoreCase = true) }
-        when {
-            wording.size > 1 -> found += "[row-wording] a per-source row carries ${wording.size} " +
-                "verify labels (${wording.joinToString()}); re-checking one source is one item in " +
-                "one overflow, not a control of its own."
-
-            wording.size == 1 -> {
-                val labelAt = rowWords.indexOf(wording.first())
-                val itemAt = rowCode.indexOf("DropdownMenuItem")
-                if (itemAt < 0 || labelAt < itemAt) {
-                    found += "[row-wording] the row's verify label ${wording.first()} is drawn before " +
-                        "its dropdown item, so it is not inside the overflow - it is a control on the row."
-                }
-            }
-        }
-
         val cardStart = source.indexOf(cardAnchor)
         if (cardStart < 0) {
-            found += "[card-missing] `$cardAnchor` was not found, so the batch controls could not " +
-                "be read. Move the anchor with the title if it was reworded."
-            return found
+            return listOf(
+                "[card-missing] `$cardAnchor` was not found, so the batch controls could not be read. " +
+                    "Move the anchor with the title if it was reworded.",
+            )
         }
-        val batchCode = code.substring(cardStart, loop.first)
-        val batchWords = words.substring(cardStart, loop.first)
-        val batchVerifies = count(batchCode, "verifyAllSources")
+        val listStart = code.indexOf(listAnchor)
+        if (listStart <= cardStart) {
+            return listOf(
+                "[card-list-missing] `$listAnchor` was not found after `$cardAnchor`, so the guard " +
+                    "cannot tell where the card ends and the one source list begins. That list is the " +
+                    "other half of this rule: a source's state belongs on its own row of it, not on a " +
+                    "second list inside this card.",
+            )
+        }
+
+        val found = mutableListOf<String>()
+        val cardCode = code.substring(cardStart, listStart)
+        val cardWords = words.substring(cardStart, listStart)
+
+        // The card's own body, which is the batch and nothing else. Every construct that can only
+        // belong to a row is reported here: the overflow a row carries, the switch that is a row's
+        // state, the menu behind the overflow, the row composable itself, and the single-source check
+        // - which is raised from a row's overflow and from no card, because the card's own Verify is
+        // the batch below.
+        cardRowConstructs.forEach { construct ->
+            val seen = count(cardCode, construct)
+            if (seen > 0) {
+                found += "[card-row] the verification card draws $seen " +
+                    (if (seen == 1) construct else "${construct}s") +
+                    ". Each source is stated on its own row of the source list below, with its switch " +
+                    "and its one overflow; a card that draws rows again is the duplicate list this " +
+                    "rule exists to prevent."
+            }
+        }
+        if (cardCode.contains("startVerification")) {
+            found += "[card-row] the card raises a single-source check of its own. One source's check " +
+                "belongs behind that source row's overflow; the card's Verify is the batch for the " +
+                "sources that need one."
+        }
+        forbiddenGestures.forEach { gesture ->
+            if (cardCode.contains(gesture)) {
+                found += "[card-gesture] the card makes something tappable with `$gesture`. Its own " +
+                    "controls are the two batch buttons; a clickable label here is a third one."
+            }
+        }
+        val batchVerifies = count(cardCode, "verifyAllSources")
         if (batchVerifies != 1) {
             found += "[card-verify-all] the card raises $batchVerifies batch checks; there is one " +
                 "Verify, for the sources that need a check."
         }
-        val renews = count(batchCode, "renewSessions")
+        val renews = count(cardCode, "renewSessions")
         if (renews != 1) {
             found += "[card-renew] the card has $renews renew actions; there is one Renew, kept " +
                 "apart from Verify because the two jobs have different outcomes."
         }
-        strings(batchWords)
+        buttonLabels(cardWords)
             .filter { it.contains(verifyStem, ignoreCase = true) && it.contains(renewStem, ignoreCase = true) }
             .forEach { merged ->
                 found += "[card-merged] $merged is one control doing two jobs. It was removed because " +
@@ -1432,33 +1461,33 @@ fun rowControlVerifier(
                 }
                 """.trimIndent(),
             ),
-            "[row-control]",
+            "[card-row]",
         )
         mustTrip(
-            "a clickable \"Verify\" label on a row",
+            "a clickable \"Verify\" label on the card",
             card("Text(text = \"Verify\", modifier = Modifier.clickable { startVerification(source.id) })"),
-            "[row-gesture]",
+            "[card-gesture]",
         )
         mustTrip(
-            "a row whose one control was taken away",
-            card("Column { Text(text = source.displayName) }"),
-            "[row-overflow-missing]",
+            "the card drawing its own list of sources again",
+            card(duplicateRow),
+            "[card-row]",
         )
         mustTrip(
             "one control doing both jobs",
-            card(shippedRow, batch = mergedBatch),
+            card("", batch = mergedBatch),
             "[card-merged]",
         )
         mustTrip(
-            "a row loop that cannot be read",
+            "a card with no source list below it, so its region has no end",
             "Text(text = \"$cardAnchor\", style = MaterialTheme.typography.titleSmall)",
-            "[row-loop-missing]",
+            "[card-list-missing]",
         )
 
-        mustPass("the row as it is drawn now", card(shippedRow))
+        mustPass("the card as it is drawn now, with its rows on the list below", card(""))
         mustPass(
             "a comment that mentions Verify",
-            card("// This row says \"Verify\" but draws nothing of the sort.\n" + shippedRow),
+            card("// This card says \"Verify\" but draws no row of its own.\n"),
         )
 
         mustTrip(
@@ -1563,7 +1592,10 @@ fun rowControlVerifier(
     override fun execute(task: Task) {
         val contents = sources.map { file -> file to file.readText() }
         val problems = mutableListOf<String>()
-        problems += scan(contents, rowAnchor, "the verification card's rows", ::violations)
+        // Anchored on the source list, because that is what marks the end of the card's own region:
+        // `violations` reads the card from its title up to this line and refuses a row drawn inside
+        // it. Anchoring on the card's title alone would let the whole file be its region.
+        problems += scan(contents, listAnchor, "the verification card and the source list", ::violations)
         problems += scan(contents, sourceRowAnchor, "the extension source rows", ::sourceRowViolations)
         problems += scan(contents, priorityRowAnchor, "the playback priority rows", ::priorityRowViolations)
         problems += selfCheck()
@@ -1575,8 +1607,9 @@ fun rowControlVerifier(
                     problems.forEach { appendLine("  $it") }
                     appendLine()
                     appendLine(
-                        "The verification card's rows state a session and carry one overflow; the " +
-                            "extension rows carry their verdict, their switch and one overflow.",
+                        "The verification card carries one Verify and one Renew for the batch and no " +
+                            "rows of its own; every source's state, switch and one overflow live on its " +
+                            "own row of the single source list.",
                     )
                     append("Put an action behind the overflow rather than in the row, and leave the row's state in its text.")
                 },
@@ -1609,7 +1642,11 @@ fun rowControlVerifier(
         return problems
     }
 
-    /** A card skeleton with the two batch controls, so the batch rules have something to read. */
+    /**
+     * A card skeleton with the two batch controls and the source list below it, so the card rules
+     * have something to read: [rows] is whatever the fixture draws between the batch and the list,
+     * which is the region that may not contain a row.
+     */
     private fun card(
         rows: String,
         batch: String = shippedBatch,
@@ -1618,8 +1655,9 @@ fun rowControlVerifier(
         Text(text = "$cardAnchor", style = MaterialTheme.typography.titleSmall)
         Text(text = "Each source keeps its own gateway session.")
         $batch
-        $rowAnchor { (source, sessionRow) ->
         $rows
+
+        $listAnchor { index, source ->
         }
         """.trimIndent()
 
@@ -1641,8 +1679,14 @@ fun rowControlVerifier(
         }
         """.trimIndent()
 
-    /** The row as it is drawn now: status only, plus one overflow hiding one check. */
-    private val shippedRow =
+    /**
+     * The card's own row as it was: a source's name and session, plus an overflow hiding its check.
+     *
+     * Kept as the fixture the `[card-row]` rule is proven against. It is no longer a shape the app
+     * draws anywhere - that state moved onto the source's own row in the list below - and it is kept
+     * because this is exactly what the duplicate list looked like before it was removed.
+     */
+    private val duplicateRow =
         """
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {

@@ -36,7 +36,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -114,6 +113,7 @@ import app.hush.music.extensions.togglePlayPause
 import app.hush.music.playback.queues.ListQueue
 import app.hush.music.ui.component.DraggableScrollbar
 import app.hush.music.ui.component.EmptyPlaceholder
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.LocalMenuState
 import app.hush.music.ui.component.StandardPlaylistHeaderActions
@@ -446,7 +446,11 @@ fun CachePlaylistScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                CircularProgressIndicator()
+                // A spinner stands in a screen that is loading, so it is the one control that has to
+                // move on a device whose animations are switched off: Material's indicator is an
+                // animation, and with the system's animator duration scale at 0 it paints a single
+                // arc and holds it, which says the load has stalled.
+                HushProgressSpinner(strokeWidth = 4.dp)
             }
         } else {
         LazyColumn(

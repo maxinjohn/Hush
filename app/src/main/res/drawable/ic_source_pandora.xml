@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Pandora's own mark: the letter "P" of the wordmark, which is what the service's app icon carries
+  on its own blue field. The path is the one Simple Icons publishes (CC0), like Spotify's, Deezer's
+  and the rest of the set drawn from it - Pandora's art is a blue field with a white letter, and the
+  letter alone is what a single-tint row can draw. The colour is the bright blue its own icon field
+  is (#3668FF) rather than the darker hex the icon set publishes beside the path: at the row's size
+  the darker blue reads as an empty plate on Hush's dark surface, which is the TIDAL problem in
+  another colour.
+
+  Written because this was the last source without a mark: the built-in list carries Pandora, so it
+  appeared in Audio Sources next to twelve vendor marks while falling back to the generic note.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#000000"
+        android:pathData="M1.882,0v24H8.32a1.085,1.085 0,0 0,1.085 -1.085v-4.61h1.612c7.88,0 11.103,-4.442 11.103,-9.636C22.119,2.257 17.247,0 12.662,0H1.882Z" />
+</vector>

@@ -7,56 +7,77 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The watchdog exists because one wedged provider used to spend the whole sweep budget
- * and starve every provider behind it. These pin the boundaries that decide when a
- * provider is abandoned, and the classification that keeps a stall from being mistaken
- * for "the catalogues do not have this track".
+ * The watchdog exists because one wedged provider used to spend the whole sweep budget and starve
+ * every provider behind it. These pin the boundaries that decide when a provider is abandoned - and
+ * the windows those boundaries are counted in are the user's per-source policy, so each case names
+ * the policy it is asserting rather than a constant in the app.
+ *
+ * The two windows answer two different questions and are asserted separately throughout:
+ *
+ *  - the connect window bounds silence *before* the first byte ("it never connected");
+ *  - the download window bounds silence *after* bytes have started ("the transfer stopped"), and it
+ *    is much longer, because cutting a download that is arriving is the failure this file exists to
+ *    prevent - measured on device as a provider 70% through a 26 MB FLAC abandoned and the track
+ *    falling back to YouTube.
  */
 class SpotiFLACProviderStallTest {
 
-    private val timeout = SpotiFLACProviderStallPolicy.STALL_TIMEOUT_MS
-    private val ceiling = SpotiFLACProviderStallPolicy.ATTEMPT_CEILING_MS
+    private val policy = SpotiFLACFetchPolicy.DEFAULT
+    private val connect = policy.connectTimeoutMs
+    private val download = policy.downloadTimeoutMs
+    private val ceiling = policy.attemptCeilingMs
 
     @Test
-    fun `a provider is stalled only once the silence outlasts the timeout`() {
+    fun `the shipped policy is five seconds to connect and a minute of silence to download`() {
+        assertEquals(5_000L, connect)
+        assertEquals(60_000L, download)
+        assertEquals(3, policy.maxAttempts)
+        // The attempt may spend the connect window and then its whole download window.
+        assertEquals(connect + download, ceiling)
+    }
+
+    @Test
+    fun `a provider is stalled only once the silence outlasts the window`() {
         val lastProgress = 1_000L
-        assertFalse(SpotiFLACProviderStallPolicy.isStalled(lastProgress, lastProgress))
-        assertFalse(SpotiFLACProviderStallPolicy.isStalled(lastProgress, lastProgress + timeout - 1))
-        // The boundary itself counts: qobuz-web sat silent for 26s on device.
-        assertTrue(SpotiFLACProviderStallPolicy.isStalled(lastProgress, lastProgress + timeout))
+        assertFalse(SpotiFLACProviderStallPolicy.isStalled(lastProgress, lastProgress, connect))
+        assertFalse(
+            SpotiFLACProviderStallPolicy.isStalled(lastProgress, lastProgress + connect - 1, connect),
+        )
+        // The boundary itself counts.
+        assertTrue(SpotiFLACProviderStallPolicy.isStalled(lastProgress, lastProgress + connect, connect))
         assertTrue(
-            SpotiFLACProviderStallPolicy.isStalled(lastProgress, lastProgress + 26_000L),
+            SpotiFLACProviderStallPolicy.isStalled(lastProgress, lastProgress + 26_000L, connect),
         )
     }
 
     @Test
-    fun `the absolute ceiling catches a provider that keeps dribbling progress`() {
+    fun `the ceiling is the attempt's own two windows`() {
         val started = 5_000L
-        assertFalse(SpotiFLACProviderStallPolicy.isOverCeiling(started, started + ceiling - 1))
-        assertTrue(SpotiFLACProviderStallPolicy.isOverCeiling(started, started + ceiling))
+        assertFalse(SpotiFLACProviderStallPolicy.isOverCeiling(started, started + ceiling - 1, ceiling))
+        assertTrue(SpotiFLACProviderStallPolicy.isOverCeiling(started, started + ceiling, ceiling))
     }
 
     @Test
     fun `the stall budget is clamped to what is left of the ceiling`() {
         val started = 0L
         assertEquals(
-            timeout,
-            SpotiFLACProviderStallPolicy.effectiveTimeoutMs(started, nowMs = 1_000L),
+            download,
+            SpotiFLACProviderStallPolicy.effectiveTimeoutMs(started, nowMs = 1_000L, download, ceiling),
         )
         // Near the ceiling the remaining time is what actually applies ...
         assertEquals(
             ceiling - 20_000L,
-            SpotiFLACProviderStallPolicy.effectiveTimeoutMs(started, nowMs = 20_000L),
+            SpotiFLACProviderStallPolicy.effectiveTimeoutMs(started, nowMs = 20_000L, download, ceiling),
         )
         // ... and past it the budget is zero rather than negative.
         assertEquals(
             0L,
-            SpotiFLACProviderStallPolicy.effectiveTimeoutMs(started, nowMs = ceiling + 5_000L),
+            SpotiFLACProviderStallPolicy.effectiveTimeoutMs(started, nowMs = ceiling + 5_000L, download, ceiling),
         )
     }
 
     @Test
-    fun `a stalled provider is demoted, not dropped, and only for the cooldown`() {
+    fun `a stalled provider is reported, never demoted, and only for the cooldown`() {
         val stalledAt = 10_000L
         assertTrue(SpotiFLACProviderStallPolicy.isDemoted(stalledAt, nowMs = 10_001L))
         assertTrue(
@@ -65,7 +86,7 @@ class SpotiFLACProviderStallTest {
                 nowMs = stalledAt + SpotiFLACProviderStallPolicy.DEMOTION_COOLDOWN_MS - 1,
             ),
         )
-        // After the cooldown it is an ordinary candidate again.
+        // After the cooldown it is an ordinary candidate again - and it never stopped being one.
         assertFalse(
             SpotiFLACProviderStallPolicy.isDemoted(
                 stalledAt,
@@ -75,199 +96,122 @@ class SpotiFLACProviderStallTest {
         assertFalse(SpotiFLACProviderStallPolicy.isDemoted(null, nowMs = 10_001L))
     }
 
+    /**
+     * A stall is reported, never applied.
+     *
+     * The list the user arranged is the order a resolve walks, so a source that went quiet once is
+     * still asked first next time.
+     */
     @Test
-    fun `ordering keeps the configured priority inside each half`() {
+    fun `a recently stalled provider keeps its place, and is only reported`() {
         val enabled = listOf("deezer", "amazon", "soundcloud", "qobuz-web", "tidal-web")
+        val stalled = mapOf("qobuz-web" to 1_000L)
 
-        // Nothing stalled: the user's own order is returned untouched.
         assertEquals(
-            enabled,
-            SpotiFLACProviderStallPolicy.orderByRecentStalls(enabled, emptyMap(), nowMs = 0L),
+            listOf("qobuz-web"),
+            SpotiFLACProviderStallPolicy.recentlyStalled(enabled, stalled, nowMs = 2_000L),
         )
-
-        // qobuz-web wedged: it goes last, everything else keeps its relative order.
-        val ordered =
-            SpotiFLACProviderStallPolicy.orderByRecentStalls(
-                candidates = enabled,
-                stalledAtMs = mapOf("qobuz-web" to 1_000L),
-                nowMs = 2_000L,
-            )
-        assertEquals(listOf("deezer", "amazon", "soundcloud", "tidal-web", "qobuz-web"), ordered)
-
-        // Two wedged providers both move back, still in their configured order.
-        val twoStalled =
-            SpotiFLACProviderStallPolicy.orderByRecentStalls(
-                candidates = enabled,
-                stalledAtMs = mapOf("qobuz-web" to 1_000L, "deezer" to 1_000L),
-                nowMs = 2_000L,
-            )
-        assertEquals(listOf("amazon", "soundcloud", "tidal-web", "deezer", "qobuz-web"), twoStalled)
-
-        // A stale stall entry no longer demotes anything.
         assertEquals(
             enabled,
-            SpotiFLACProviderStallPolicy.orderByRecentStalls(
-                candidates = enabled,
-                stalledAtMs = mapOf("qobuz-web" to 1_000L),
+            SpotiFLACProviderStallPolicy.orderAvailable(enabled, emptyMap(), nowMs = 2_000L),
+        )
+        assertTrue(
+            SpotiFLACProviderStallPolicy.recentlyStalled(
+                enabled,
+                stalled,
                 nowMs = 1_000L + SpotiFLACProviderStallPolicy.DEMOTION_COOLDOWN_MS,
-            ),
+            ).isEmpty(),
         )
     }
 
     @Test
     fun `the meter ignores repeated samples so a wedge cannot be masked`() {
-        val meter = ProviderStallMeter(startedAtMs = 1_000L)
+        val meter = ProviderStallMeter(startedAtMs = 1_000L, policy = policy)
         meter.onProgress(seq = 7L, stage = "resolving_metadata", nowMs = 1_000L)
 
         // The runtime repeats its last delta while the item sits still. If a repeat reset
         // the clock, a wedged provider would look healthy forever.
         meter.onProgress(seq = 7L, stage = "resolving_stream", nowMs = 4_000L)
-        val resolution = SpotiFLACProviderStallPolicy.RESOLUTION_STALL_TIMEOUT_MS
-        assertFalse(meter.shouldAbandon(nowMs = 1_000L + resolution - 1))
+        assertFalse(meter.shouldAbandon(nowMs = 1_000L + connect - 1))
         assertEquals("resolving_metadata", meter.lastStage)
 
         // A genuinely new event moves it forward and remembers the stage.
         meter.onProgress(seq = 8L, stage = "resolving_stream", nowMs = 9_000L)
         assertEquals("resolving_stream", meter.lastStage)
         assertEquals(9_000L, meter.lastProgressAt())
-        // No byte has arrived, so this attempt is still resolving and the resolution window
-        // applies (see `a provider waiting on its own declared retry is abandoned ...`). The
-        // meter here starts when the event arrives, which keeps the absolute ceiling out of the
-        // way of the boundary being checked - it would otherwise fire first, at 25s from the
-        // start.
-        val resolving = ProviderStallMeter(startedAtMs = 9_000L)
+        // No byte has arrived, so this attempt is still connecting and the connect window applies.
+        val resolving = ProviderStallMeter(startedAtMs = 9_000L, policy = policy)
         resolving.onProgress(seq = 1L, stage = "resolving_stream", nowMs = 9_000L)
-        assertFalse(resolving.shouldAbandon(nowMs = 9_000L + resolution - 1))
-        assertTrue(resolving.shouldAbandon(nowMs = 9_000L + resolution))
+        assertFalse(resolving.shouldAbandon(nowMs = 9_000L + connect - 1))
+        assertTrue(resolving.shouldAbandon(nowMs = 9_000L + connect))
     }
 
+    /**
+     * A source that is still connecting and one that has stopped transferring are the same silence
+     * to the meter, and the difference is which window it is judged by.
+     */
     @Test
-    fun `a provider waiting on its own declared retry is abandoned, and put the question again`() {
-        // Measured on device: a provider answers PROVIDER_UNAVAILABLE, retryable,
-        // retry_after_seconds=10 and the runtime sleeps the declared 10s and calls it again.
-        // Waiting that out is what a listener pays for at 0:00, and it does not even rescue the
-        // provider: in the same sweep `deezer` declared that retry twice and never delivered,
-        // while `qobuz-web` answered in 1.8s. So the attempt is abandoned inside the wait - the
-        // provider is neither waited for nor skipped, it is moved behind the sources this sweep
-        // has not reached yet and asked again (asserted below).
-        val meter = ProviderStallMeter(startedAtMs = 0L)
-        meter.onProgress(seq = 1L, stage = "resolving_stream", nowMs = 2_000L)
-        assertFalse(meter.hasTransferred())
-        val resolution = SpotiFLACProviderStallPolicy.RESOLUTION_STALL_TIMEOUT_MS
-        // Silence inside the window is still given the benefit of the doubt...
-        assertFalse(meter.shouldAbandon(nowMs = 2_000L + resolution - 1))
-        // ...and the declared 10s sleep is not: the retry cannot finish inside any window worth
-        // holding the player at 0:00 for.
+    fun `the connect window governs silence before the first byte, the download window after it`() {
+        val connecting = ProviderStallMeter(startedAtMs = 0L, policy = policy)
+        connecting.onProgress(seq = 1L, stage = "resolving_stream", nowMs = 0L)
+        assertEquals(connect, connecting.idleTimeoutMs())
+        assertTrue(connecting.shouldAbandon(nowMs = connect))
+
+        val transferring = ProviderStallMeter(startedAtMs = 0L, policy = policy)
+        transferring.onProgress(seq = 1L, stage = "resolving_stream", nowMs = 1_000L)
+        transferring.onProgress(
+            seq = 2L,
+            stage = "downloading",
+            bytesReceived = 4_000_000L,
+            nowMs = 3_000L,
+        )
+        assertTrue(transferring.hasTransferred())
+        assertEquals(download, transferring.idleTimeoutMs())
+        // The connect window has long passed - a download that needs a minute must not be killed by it.
+        assertFalse(
+            transferring.shouldAbandon(nowMs = 3_000L + connect + 1_000L),
+        )
         assertEquals(
             ProviderAbandonReason.STALLED,
-            meter.abandonReason(nowMs = 2_000L + 10_000L),
-        )
-
-        // Asked again later in the same sweep, not dropped: the one source already answered
-        // keeps its place, and the provider that went quiet moves behind the three the sweep has
-        // not reached yet.
-        val stalledAt = 100_000L
-        assertEquals(
-            listOf("amazon", "deezer", "soundcloud", "tidal-web", "qobuz-web"),
-            SpotiFLACProviderStallPolicy.orderRemaining(
-                candidates = listOf("amazon", "deezer", "qobuz-web", "soundcloud", "tidal-web"),
-                attemptedCount = 1,
-                stalledAtMs = mapOf("qobuz-web" to stalledAt),
-                nowMs = stalledAt + 1_000L,
-            ),
-        )
-    }
-
-    @Test
-    fun `a sweep in progress leaves what it answered alone and never re-asks it`() {
-        val nowMs = 500_000L
-        val candidates = listOf("amazon", "deezer", "qobuz-web", "soundcloud")
-        // Nothing has stalled: the order is untouched, so this can be applied unconditionally
-        // after every attempt without changing a sweep that is already working.
-        assertEquals(
-            candidates,
-            SpotiFLACProviderStallPolicy.orderRemaining(candidates, 1, emptyMap(), nowMs),
-        )
-        // A provider ahead of the cursor stays behind it: it has been answered, and re-asking it
-        // is exactly the duplicate cost this ordering exists to prevent.
-        val reordered =
-            SpotiFLACProviderStallPolicy.orderRemaining(
-                candidates = candidates,
-                attemptedCount = 2,
-                stalledAtMs = mapOf("amazon" to nowMs - 500L),
-                nowMs = nowMs,
-            )
-        assertEquals(listOf("amazon", "deezer"), reordered.take(2))
-        assertEquals(listOf("qobuz-web", "soundcloud"), reordered.drop(2))
-        // Every candidate survives the reorder, in one order or the other.
-        assertEquals(candidates.toSet(), reordered.toSet())
-        // Nothing left to try, nothing to reorder.
-        assertEquals(
-            candidates,
-            SpotiFLACProviderStallPolicy.orderRemaining(
-                candidates,
-                attemptedCount = candidates.size,
-                stalledAtMs = mapOf("soundcloud" to nowMs),
-                nowMs = nowMs,
-            ),
+            transferring.abandonReason(nowMs = 3_000L + download),
         )
     }
 
     @Test
     fun `a zero-byte progress event is not a transfer`() {
         // The runtime's resolving stages report `bytes=0/0`: a progress event with no data
-        // behind it. Counting that as a transfer puts every resolution phase on the tight
-        // transfer window, which is exactly how qobuz-web stayed abandoned at 8.1s even after
-        // the resolution budget was introduced.
-        val meter = ProviderStallMeter(startedAtMs = 0L)
+        // behind it. Counting that as a transfer would put every connection phase on the download
+        // window and undo the connect budget entirely.
+        val meter = ProviderStallMeter(startedAtMs = 0L, policy = policy)
         meter.onProgress(seq = 1L, stage = "resolving_stream", bytesReceived = 0L, nowMs = 1_000L)
         assertFalse(meter.hasTransferred())
-        val resolution = SpotiFLACProviderStallPolicy.RESOLUTION_STALL_TIMEOUT_MS
-        assertFalse(meter.shouldAbandon(nowMs = 1_000L + resolution - 1))
-        assertTrue(meter.shouldAbandon(nowMs = 1_000L + resolution))
-    }
-
-    @Test
-    fun `the tight window applies again once bytes have moved`() {
-        // Silence after data has flowed means a stopped transfer, not a provider asking for
-        // time, so the narrow window governs the rest of the attempt.
-        val meter = ProviderStallMeter(startedAtMs = 0L)
-        meter.onProgress(seq = 1L, stage = "resolving_stream", nowMs = 1_000L)
-        meter.onProgress(seq = 2L, stage = "downloading", bytesReceived = 4_000_000L, nowMs = 3_000L)
-        assertTrue(meter.hasTransferred())
-        assertFalse(meter.shouldAbandon(nowMs = 3_000L + timeout - 1))
-        assertEquals(
-            ProviderAbandonReason.STALLED,
-            meter.abandonReason(nowMs = 3_000L + timeout),
-        )
+        assertFalse(meter.shouldAbandon(nowMs = 1_000L + connect - 1))
+        assertTrue(meter.shouldAbandon(nowMs = 1_000L + connect))
     }
 
     @Test
     fun `the meter abandons on the ceiling even when events keep arriving`() {
-        val meter = ProviderStallMeter(startedAtMs = 0L)
+        val meter = ProviderStallMeter(startedAtMs = 0L, policy = policy)
         // Events keep ticking but no byte is ever reported, so the attempt is not moving
         // data - this is the dribble the ceiling exists to bound.
         meter.onProgress(seq = 1L, stage = "resolving_stream", nowMs = ceiling - 1_000L)
-        assertFalse(
-            SpotiFLACProviderStallPolicy.isStalled(
-                meter.lastProgressAt(),
-                nowMs = ceiling - 1_000L,
-            ),
-        )
         assertTrue(meter.shouldAbandon(nowMs = ceiling))
         assertEquals(ProviderAbandonReason.CEILING, meter.abandonReason(nowMs = ceiling))
     }
 
+    /**
+     * The bug this whole change is about: a download that is visibly arriving is never cut off.
+     *
+     * Bytes moving for three ceilings' worth of wall time, with a sample a second: the attempt is
+     * still transferring and nothing may abandon it, however long the file takes.
+     */
     @Test
     fun `an attempt that is moving bytes is not killed by the ceiling`() {
-        // On device a ceiling counted from the attempt start abandoned providers that
-        // were downloading fine, and demoted them for the full cooldown afterwards.
-        // A 60 MB lossless file at ~2 MB/s legitimately needs longer than the ceiling.
-        val meter = ProviderStallMeter(startedAtMs = 0L)
+        val meter = ProviderStallMeter(startedAtMs = 0L, policy = policy)
         var bytes = 0L
         var now = 1_000L
         while (now < ceiling * 3) {
-            bytes += 4_000_000L
+            bytes += 400_000L
             meter.onProgress(seq = now, stage = "downloading", bytesReceived = bytes, nowMs = now)
             now += 1_000L
         }
@@ -277,41 +221,87 @@ class SpotiFLACProviderStallTest {
     }
 
     @Test
-    fun `a transfer that stops is still caught by the stall timeout`() {
-        val meter = ProviderStallMeter(startedAtMs = 0L)
+    fun `a transfer that stops is caught, and reported with the silence since the last byte`() {
+        val meter = ProviderStallMeter(startedAtMs = 0L, policy = policy)
         meter.onProgress(seq = 1L, stage = "downloading", bytesReceived = 8_000_000L, nowMs = 9_000L)
-        // Bytes stopped at 9s: the ceiling is no longer what bounds this attempt.
         assertTrue(meter.transferring(nowMs = 10_000L))
-        assertFalse(meter.shouldAbandon(nowMs = 10_000L))
+        assertFalse(meter.shouldAbandon(nowMs = 9_000L + download - 1))
         assertEquals(
             ProviderAbandonReason.STALLED,
-            meter.abandonReason(nowMs = 9_000L + timeout),
+            meter.abandonReason(nowMs = 9_000L + download),
         )
+        // The reported number is the silence since the last byte, which is what an operator needs.
+        assertEquals(download, meter.transferSilenceMillis(nowMs = 9_000L + download))
     }
 
     @Test
     fun `a repeated byte count is not a transfer`() {
-        val meter = ProviderStallMeter(startedAtMs = 0L)
+        val meter = ProviderStallMeter(startedAtMs = 0L, policy = policy)
         meter.onProgress(seq = 1L, stage = "downloading", bytesReceived = 5_000L, nowMs = 1_000L)
         // The runtime re-reports its size without moving data; that must not look like
         // progress, or a wedged provider would hold the sweep indefinitely.
-        meter.onProgress(seq = 2L, stage = "downloading", bytesReceived = 5_000L, nowMs = 20_000L)
+        meter.onProgress(seq = 2L, stage = "downloading", bytesReceived = 5_000L, nowMs = 200_000L)
         assertEquals(1_000L, meter.lastTransferAt())
-        assertFalse(meter.transferring(nowMs = 20_000L))
+        assertFalse(meter.transferring(nowMs = 200_000L))
+    }
+
+    /**
+     * The user's setting is what the meter judges by, not a constant.
+     *
+     * A source that needs longer on this network gets longer, in both windows at once.
+     */
+    @Test
+    fun `a longer policy widens both windows and the ceiling`() {
+        val patient = SpotiFLACFetchPolicy(connectTimeoutSeconds = 20, downloadTimeoutSeconds = 300, maxAttempts = 5)
+        assertEquals(20_000L, patient.connectTimeoutMs)
+        assertEquals(300_000L, patient.downloadTimeoutMs)
+        assertEquals(320_000L, patient.attemptCeilingMs)
+
+        val meter = ProviderStallMeter(startedAtMs = 0L, policy = patient)
+        meter.onProgress(seq = 1L, stage = "resolving_stream", nowMs = 0L)
+        assertFalse(meter.shouldAbandon(nowMs = 19_000L))
+        assertTrue(meter.shouldAbandon(nowMs = 20_000L))
+
+        meter.onProgress(seq = 2L, stage = "downloading", bytesReceived = 1_024L, nowMs = 21_000L)
+        assertEquals(300_000L, meter.idleTimeoutMs())
+        assertFalse(meter.shouldAbandon(nowMs = 21_000L + 299_000L))
+    }
+
+    /** Every field is clamped into the range the settings screen offers. */
+    @Test
+    fun `a policy outside the offered range is clamped`() {
+        val clamped =
+            SpotiFLACFetchPolicy(
+                connectTimeoutSeconds = 0,
+                downloadTimeoutSeconds = 5,
+                maxAttempts = 99,
+            ).normalized()
+
+        assertEquals(SpotiFLACFetchPolicy.MIN_CONNECT_SECONDS, clamped.connectTimeoutSeconds)
+        assertEquals(SpotiFLACFetchPolicy.MIN_DOWNLOAD_SECONDS, clamped.downloadTimeoutSeconds)
+        assertEquals(SpotiFLACFetchPolicy.MAX_ATTEMPTS, clamped.maxAttempts)
+
+        val huge =
+            SpotiFLACFetchPolicy(
+                connectTimeoutSeconds = 100_000,
+                downloadTimeoutSeconds = 100_000,
+                maxAttempts = 0,
+            ).normalized()
+        assertEquals(SpotiFLACFetchPolicy.MAX_CONNECT_SECONDS, huge.connectTimeoutSeconds)
+        assertEquals(SpotiFLACFetchPolicy.MAX_DOWNLOAD_SECONDS, huge.downloadTimeoutSeconds)
+        assertEquals(SpotiFLACFetchPolicy.MIN_ATTEMPTS, huge.maxAttempts)
     }
 
     @Test
-    fun `the ceiling reports transfer silence rather than the last event gap`() {
-        // The misleading case seen on device: "timed out without progress for 29ms" for
-        // an attempt abandoned by the ceiling. The reported number must be the silence
-        // since the last byte, so an operator is not sent after the wrong cause.
-        val meter = ProviderStallMeter(startedAtMs = 0L)
-        // One real byte at the start, then events with no data until the ceiling.
-        meter.onProgress(seq = 1L, stage = "downloading", bytesReceived = 1_000L, nowMs = 0L)
-        meter.onProgress(seq = 2L, stage = "resolving_stream", nowMs = ceiling - 29L)
-        assertEquals(ProviderAbandonReason.CEILING, meter.abandonReason(nowMs = ceiling))
-        assertEquals(29L, meter.stalledMillis(nowMs = ceiling))
-        assertEquals(ceiling, meter.transferSilenceMillis(nowMs = ceiling))
+    fun `the summary names both windows and the retry count`() {
+        // Two lines, and the break is placed rather than left to the row's width: one line on a
+        // 360dp screen ended at `... \u00b7 3`, which is the retry count cut off.
+        assertEquals("5s connect \u00b7 60s download\n3 tries before the next source", policy.summary())
+        assertEquals(
+            "20s connect \u00b7 120s download\n1 try before the next source",
+            SpotiFLACFetchPolicy(connectTimeoutSeconds = 20, downloadTimeoutSeconds = 120, maxAttempts = 1)
+                .summary(),
+        )
     }
 
     @Test
@@ -331,100 +321,27 @@ class SpotiFLACProviderStallTest {
             "deezer=no results returned; amazon=no results returned; qobuz-web=${stalled.message}"
         assertFalse(SpotiFLACSweepVerdict.isCatalogueVerdict(aggregate))
 
-        // Sanity: without the stall that same aggregate really would be a verdict, so the
-        // assertion above is testing the stall and not a blanket rule.
         val noStall = "deezer=no results returned; amazon=no results returned"
         assertTrue(SpotiFLACSweepVerdict.isCatalogueVerdict(noStall))
         assertNotEquals(SpotiFLACSweepOutcome.NO_MATCH, SpotiFLACSweepVerdict.forFailure(stalled))
         assertEquals("qobuz-web", stalled.sourceId)
     }
 
+    /**
+     * The measurement survives tracks and launches, and is only ever reported.
+     *
+     * It no longer widens anything - the windows are the user's - but it is what the log prints next
+     * to the policy, so it still has to be a decayed average rather than the last sample.
+     */
     @Test
-    fun `a demotion restored after a restart still holds the provider back`() {
-        val stalledAt = 1_000_000L
-        val persisted = mapOf("amazon" to stalledAt)
-        val order =
-            SpotiFLACProviderStallPolicy.orderByRecentStalls(
-                candidates = listOf("amazon", "deezer", "qobuz-web"),
-                stalledAtMs = persisted,
-                // One instant after the restart, well inside the cooldown.
-                nowMs = stalledAt + 1_000L,
-            )
-        assertEquals(listOf("deezer", "qobuz-web", "amazon"), order)
-    }
-
-    @Test
-    fun `a demotion that expired while the app was closed is not applied`() {
-        val stalledAt = 1_000_000L
-        val nowMs = stalledAt + SpotiFLACProviderStallPolicy.DEMOTION_COOLDOWN_MS
-        // The restore path drops entries that are no longer in cooldown, so the provider
-        // is not pushed behind the answering ones on a stale statement.
-        assertFalse(SpotiFLACProviderStallPolicy.isDemoted(stalledAt, nowMs))
-        assertEquals(
-            listOf("amazon", "deezer", "qobuz-web"),
-            SpotiFLACProviderStallPolicy.orderByRecentStalls(
-                candidates = listOf("amazon", "deezer", "qobuz-web"),
-                stalledAtMs = emptyMap(),
-                nowMs = nowMs,
-            ),
-        )
-    }
-
-    //
-    // The resolution window. It used to be a constant, and on a network slower than that constant
-    // every provider was killed on the line: measured on device, deezer's own extension call took
-    // 6036ms and was abandoned at 6009ms of silence, and because every provider measured about the
-    // same the whole sweep failed and the track fell back to YouTube.
-    //
-
-    /** A provider this install has never timed is unknown, not fast. */
-    @Test
-    fun `an unmeasured provider gets the generous initial window`() {
-        assertEquals(
-            SpotiFLACProviderStallPolicy.INITIAL_RESOLUTION_WINDOW_MS,
-            SpotiFLACProviderStallPolicy.resolutionWindowMs(null),
-        )
-        assertEquals(
-            SpotiFLACProviderStallPolicy.INITIAL_RESOLUTION_WINDOW_MS,
-            SpotiFLACProviderStallPolicy.resolutionWindowMs(0L),
-        )
-        assertTrue(
-            SpotiFLACProviderStallPolicy.INITIAL_RESOLUTION_WINDOW_MS >
-                SpotiFLACProviderStallPolicy.RESOLUTION_STALL_TIMEOUT_MS,
-        )
-    }
-
-    /** The window a slow provider is given grows past the constant that killed it. */
-    @Test
-    fun `a measured provider is given twice what it needed, within the ceiling`() {
-        // The observed device figure: 6036ms was abandoned under a 6000ms window.
-        assertEquals(12_072L, SpotiFLACProviderStallPolicy.resolutionWindowMs(6_036L))
-        // A fast catalogue miss keeps the tight floor rather than inheriting the generous one.
-        assertEquals(
-            SpotiFLACProviderStallPolicy.RESOLUTION_STALL_TIMEOUT_MS,
-            SpotiFLACProviderStallPolicy.resolutionWindowMs(1_500L),
-        )
-        // Never past the ceiling that bounds every attempt anyway.
-        assertEquals(
-            SpotiFLACProviderStallPolicy.ATTEMPT_CEILING_MS,
-            SpotiFLACProviderStallPolicy.resolutionWindowMs(60_000L),
-        )
-    }
-
-    /** The memory of what a provider needs survives tracks and launches. */
-    @Test
-    fun `measured timings are averaged, not overwritten, and restored by id`() {
+    fun `measured first-byte times are averaged, not overwritten, and restored by id`() {
         val timings = ProviderTimings()
-        assertEquals(
-            SpotiFLACProviderStallPolicy.INITIAL_RESOLUTION_WINDOW_MS,
-            timings.windowFor("deezer"),
-        )
+        assertEquals(null, timings.observedMsFor("deezer"))
         timings.record("deezer", 4_000L)
-        assertEquals(8_000L, timings.windowFor("deezer"))
+        assertEquals(4_000L, timings.observedMsFor("deezer"))
         // A later, slower attempt moves the average toward it rather than replacing it.
         timings.record("deezer", 8_000L)
         assertEquals(5_000L, timings.snapshot()["deezer"])
-        assertEquals(10_000L, timings.windowFor("deezer"))
         // Case and padding are not a second provider.
         timings.record("  DEEZER ", 5_000L)
         assertEquals(1, timings.snapshot().size)
@@ -434,18 +351,12 @@ class SpotiFLACProviderStallTest {
 
         val restored = ProviderTimings()
         restored.restore(timings.snapshot())
-        assertEquals(timings.windowFor("deezer"), restored.windowFor("deezer"))
-        assertEquals(
-            SpotiFLACProviderStallPolicy.INITIAL_RESOLUTION_WINDOW_MS,
-            restored.windowFor("qobuz-web"),
-        )
+        assertEquals(timings.observedMsFor("deezer"), restored.observedMsFor("deezer"))
+        assertEquals(null, restored.observedMsFor("qobuz-web"))
     }
 
     /**
      * A provider that refused service is left out of the chain, not merely moved down it.
-     *
-     * Measured on the reporting device: Deezer answered `HTTP 429` and was still asked first on
-     * every later track, because a refusal is not a stall and nothing demoted it.
      */
     @Test
     fun `a provider that refused service is not asked again while it cools down`() {
@@ -455,7 +366,6 @@ class SpotiFLACProviderStallTest {
             listOf("amazon", "qobuz-web", "tidal-web"),
             SpotiFLACProviderStallPolicy.orderAvailable(
                 candidates = listOf("deezer", "amazon", "qobuz-web", "tidal-web"),
-                stalledAtMs = emptyMap(),
                 rateLimitedAtMs = cooling,
                 nowMs = now,
             ),
@@ -465,6 +375,80 @@ class SpotiFLACProviderStallTest {
             SpotiFLACProviderStallPolicy.coolingDown(
                 candidates = listOf("deezer", "amazon"),
                 rateLimitedAtMs = cooling,
+                nowMs = now,
+            ),
+        )
+    }
+
+    /**
+     * An addon that refused is taken out of the walk, so a dead source costs nothing per track.
+     *
+     * The two Tido profiles are the measured case: every call answered `403 {"error":"Unavailable"}`
+     * in under a second, so a walk that kept them spent two round trips on every track to learn what
+     * the first one had already said.
+     */
+    @Test
+    fun `an addon that refused is left out of the walk while it cools down`() {
+        val now = 1_000_000L
+        val tidoTop = "tido-tido-tido-dpdns-org-4bd14d1e2fa848febf1e9c03cdc237c0:com.yourname.tidal.hifi"
+        val tidoLossless = "tido-tido-tido-dpdns-org-a48bf403dcfc40ae94f668c562d08201:com.yourname.tidal.hifi"
+        val qobuz = "qobuz-addon-vercel-app:com.bitchord.qobuz"
+        val refused = mapOf(tidoTop to now - 60_000L)
+
+        assertEquals(
+            listOf(tidoLossless, qobuz),
+            SpotiFLACProviderStallPolicy.availableAddons(
+                addons = listOf(tidoTop, tidoLossless, qobuz),
+                unavailableAtMs = refused,
+                nowMs = now,
+            ),
+        )
+        // Nothing recorded: the list is the user's, untouched.
+        assertEquals(
+            listOf(tidoTop, tidoLossless, qobuz),
+            SpotiFLACProviderStallPolicy.availableAddons(
+                addons = listOf(tidoTop, tidoLossless, qobuz),
+                unavailableAtMs = emptyMap(),
+                nowMs = now,
+            ),
+        )
+    }
+
+    /**
+     * No valve: when every addon has refused, none is asked.
+     *
+     * This is the difference from [SpotiFLACProviderStallPolicy.orderAvailable], and it is the point
+     * of the rule. Asking anyway bought a second chance for a runtime provider that had been
+     * rate-limited; for an addon it buys the same refusal again on every track, which is exactly the
+     * per-song cost this removes. The walk fails fast instead, and the engine falls back.
+     */
+    @Test
+    fun `a walk of refused addons asks none of them`() {
+        val now = 1_000_000L
+        val refused = mapOf("a" to now - 60_000L, "b" to now - 60_000L)
+
+        assertEquals(
+            emptyList<String>(),
+            SpotiFLACProviderStallPolicy.availableAddons(
+                addons = listOf("a", "b"),
+                unavailableAtMs = refused,
+                nowMs = now,
+            ),
+        )
+    }
+
+    /** The cooldown lapses: an addon is paused, not blacklisted, and comes back on its own. */
+    @Test
+    fun `a refused addon comes back once its cooldown has expired`() {
+        val now = 1_000_000L
+        val expired =
+            mapOf("addon" to now - SpotiFLACProviderStallPolicy.UNAVAILABLE_COOLDOWN_MS - 1L)
+
+        assertEquals(
+            listOf("addon", "other"),
+            SpotiFLACProviderStallPolicy.availableAddons(
+                addons = listOf("addon", "other"),
+                unavailableAtMs = expired,
                 nowMs = now,
             ),
         )
@@ -480,19 +464,18 @@ class SpotiFLACProviderStallTest {
             listOf("deezer", "amazon"),
             SpotiFLACProviderStallPolicy.orderAvailable(
                 candidates = listOf("deezer", "amazon"),
-                stalledAtMs = emptyMap(),
                 rateLimitedAtMs = expired,
                 nowMs = now,
             ),
         )
-        assertTrue(SpotiFLACProviderStallPolicy.RATE_LIMIT_COOLDOWN_MS > SpotiFLACProviderStallPolicy.DEMOTION_COOLDOWN_MS)
+        assertTrue(
+            SpotiFLACProviderStallPolicy.RATE_LIMIT_COOLDOWN_MS >
+                SpotiFLACProviderStallPolicy.DEMOTION_COOLDOWN_MS,
+        )
     }
 
     /**
      * The safety valve: when every candidate is refusing, asking is still the only way to play.
-     *
-     * A single-source setup whose one provider has rate-limited us must not end up with an empty
-     * chain, which would look exactly like "everything is switched off".
      */
     @Test
     fun `a chain where every provider is cooling still asks them`() {
@@ -502,99 +485,16 @@ class SpotiFLACProviderStallTest {
             listOf("deezer", "amazon"),
             SpotiFLACProviderStallPolicy.orderAvailable(
                 candidates = listOf("deezer", "amazon"),
-                stalledAtMs = emptyMap(),
                 rateLimitedAtMs = allCooling,
                 nowMs = now,
             ),
         )
     }
 
-    /** A refusal never resurrects a provider the sweep has already asked. */
-    @Test
-    fun `the remaining tail drops a refusing provider without re-asking the attempted prefix`() {
-        val now = 1_000_000L
-        val reordered =
-            SpotiFLACProviderStallPolicy.orderRemainingAvailable(
-                candidates = listOf("deezer", "amazon", "qobuz-web", "tidal-web"),
-                attemptedCount = 1,
-                stalledAtMs = emptyMap(),
-                rateLimitedAtMs = mapOf("qobuz-web" to now),
-                nowMs = now,
-            )
-        assertEquals(listOf("deezer"), reordered.take(1))
-        assertEquals(
-            listOf("amazon", "tidal-web"),
-            reordered.drop(1),
-        )
-    }
-
-    // ------------------------------------------------------------------
-    // The runtime's own metadata phase
-    // ------------------------------------------------------------------
-
-    /**
-     * The measured bug: a provider killed on the line inside the runtime's metadata search.
-     *
-     * On the reporting device qobuz-web was given 6000ms (its own measured window), spent 9.7s and
-     * then 13.5s in the runtime's `searchTracks` calls for the *metadata* phase, and was abandoned
-     * 6027ms in - "stuck on resolving_metadata". Four providers went the same way and the sweep
-     * reported "all sources failed", which became a remembered miss, so the track kept falling back
-     * to YouTube although the providers were answering.
-     */
-    @Test
-    fun `the metadata phase gets its own measured budget, not the provider's window`() {
-        val meter = ProviderStallMeter(startedAtMs = 0L, resolutionTimeoutMs = 6_000L)
-        meter.onProgress(seq = 1L, stage = "resolving_metadata", bytesReceived = 0L, nowMs = 0L)
-        // The window that used to decide this would have killed it at 6s.
-        assertEquals(null, meter.abandonReason(6_000L))
-        assertEquals(null, meter.abandonReason(20_000L))
-        // Bounded all the same: the ceiling ends it, so this cannot hold the sweep open.
-        assertEquals(ProviderAbandonReason.CEILING, meter.abandonReason(25_000L))
-    }
-
-    /**
-     * Once bytes are moving, the metadata budget no longer applies - the tight window is the signal.
-     *
-     * A stopped socket is a stopped socket, and the runtime saying it is downloading while no data
-     * arrives is exactly the shape of a wedge this app has already paid for.
-     */
-    @Test
-    fun `a stopped transfer is still abandoned on the tight window`() {
-        val meter = ProviderStallMeter(startedAtMs = 0L, resolutionTimeoutMs = 6_000L)
-        meter.onProgress(seq = 1L, stage = "resolving_metadata", bytesReceived = 0L, nowMs = 0L)
-        meter.onProgress(seq = 2L, stage = "downloading", bytesReceived = 4096L, nowMs = 1_000L)
-        assertEquals(null, meter.abandonReason(8_000L))
-        assertEquals(ProviderAbandonReason.STALLED, meter.abandonReason(9_500L))
-    }
-
-    /** The stage that names the runtime's own work is matched exactly, not by substring. */
-    @Test
-    fun `only the metadata stage widens the budget`() {
-        assertTrue(SpotiFLACProviderStallPolicy.isMetadataStage("resolving_metadata"))
-        assertTrue(SpotiFLACProviderStallPolicy.isMetadataStage(" Resolving_Metadata "))
-        assertFalse(SpotiFLACProviderStallPolicy.isMetadataStage("resolving_stream"))
-        assertFalse(SpotiFLACProviderStallPolicy.isMetadataStage("downloading"))
-        assertFalse(SpotiFLACProviderStallPolicy.isMetadataStage(null))
-    }
-
-    /** The window a sweep's budget is sized from covers the metadata phase an attempt pays for. */
-    @Test
-    fun `the try window is never below the metadata phase`() {
-        assertEquals(
-            SpotiFLACProviderStallPolicy.METADATA_STAGE_IDLE_MS,
-            SpotiFLACProviderStallPolicy.tryWindowMs(3_000L),
-        )
-        // Never above the ceiling that bounds every attempt either.
-        assertEquals(
-            SpotiFLACProviderStallPolicy.ATTEMPT_CEILING_MS,
-            SpotiFLACProviderStallPolicy.tryWindowMs(null),
-        )
-    }
-
-    /** The meter reports the resolution cost the window is meant to cover. */
+    /** The meter reports the resolution cost the log prints, and nothing when no byte moved. */
     @Test
     fun `the meter measures time to first byte, and nothing when no byte moved`() {
-        val meter = ProviderStallMeter(startedAtMs = 1_000L, resolutionTimeoutMs = 12_000L)
+        val meter = ProviderStallMeter(startedAtMs = 1_000L, policy = policy)
         assertEquals(null, meter.timeToFirstByteMs())
         // A resolving-stage event with zero bytes is not a first byte.
         meter.onProgress(seq = 1L, stage = "resolving_stream", bytesReceived = 0L, nowMs = 3_000L)

@@ -9,8 +9,14 @@ package app.hush.music.constants
 
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 const val CONTENT_TYPE_HEADER = 0
 const val CONTENT_TYPE_LIST = 1
@@ -25,6 +31,83 @@ val FloatingToolbarHorizontalPadding = 0.dp
 val FloatingToolbarBottomPadding = 8.dp
 val CompactFloatingToolbarBottomPadding = 6.dp
 val MiniPlayerHeight = 64.dp
+
+/**
+ * The pill's height at the text size the display asks for, which is [MiniPlayerHeight] whenever that
+ * is enough for the two lines it draws.
+ *
+ * The pill is a fixed 64dp with two lines of text inside - Material's titleMedium over bodySmall -
+ * and it was the one surface in the app that did not follow the font scale. Measured on device at a
+ * 2.0 font scale, its 48dp of content could not hold the two lines: the artist line came back as a
+ * 15.2dp box and was drawn cut in half (the title line had taken its share first), while the pill
+ * itself stayed 64dp tall. Everything that places the pill - the sheet's collapsed bound, the
+ * insets the screens pad by - has to agree on the number, so it is computed once here and published
+ * through [app.hush.music.LocalMiniPlayerHeight] rather than by each site.
+ *
+ * What the two lines need is asked of the typography rather than assumed, and that is the part that
+ * has to be read carefully: since Android 14 a font scale is *not* a multiplier. Android converts sp
+ * to dp through a curve that grows more slowly above roughly 20sp, and Compose applies the same
+ * curve, so the 24sp and 16sp line heights measure 36dp and 28dp at a 2.0 scale rather than the 48dp
+ * and 32dp a multiplication would give. Adding the 40sp up front and converting the sum - the first
+ * version of this - returns 46.9dp where the two lines really take 64dp, which is less than the 64dp
+ * pill it was being compared against, so the pill stayed exactly as clipped as before. Asking each
+ * line for its own height is what makes the two agree at every scale, including the ones where the
+ * curve is linear.
+ */
+val MiniPlayerContentVerticalPadding = 8.dp
+
+/** Material's defaults, for a theme that leaves a line height unspecified. */
+private const val MiniPlayerTitleLineHeightSp = 24f
+private const val MiniPlayerArtistLineHeightSp = 16f
+
+/**
+ * @see MiniPlayerHeight
+ *
+ * The floor is the skin's own: a skin whose parent draws a 56dp pill gets a 56dp pill, and one whose
+ * parent draws 64dp gets 64dp, while the two lines inside still push the number up at a large text
+ * size in either case. Read from [app.hush.music.ui.theme.LocalMiniPlayerAnatomy] rather than passed
+ * in, so the sheet's collapsed bound, the insets the screens pad by and the pill itself all keep
+ * agreeing without three call sites having to thread a number between them.
+ */
+@Composable
+fun rememberMiniPlayerHeight(): Dp {
+    val typography = MaterialTheme.typography
+    val titleLineHeight = typography.titleMedium.lineHeight
+    val artistLineHeight = typography.bodySmall.lineHeight
+    val lines =
+        with(LocalDensity.current) {
+            titleLineHeight.orSp(MiniPlayerTitleLineHeightSp).toDp() to
+                artistLineHeight.orSp(MiniPlayerArtistLineHeightSp).toDp()
+        }
+    return miniPlayerHeight(
+        titleLineHeight = lines.first,
+        artistLineHeight = lines.second,
+        floor = app.hush.music.ui.theme.LocalMiniPlayerAnatomy.current.height,
+    )
+}
+
+/**
+ * The pill's height for the two lines it draws, given their heights in dp.
+ *
+ * Split out of [rememberMiniPlayerHeight] so the arithmetic can be pinned by a test without a
+ * composition - the conversion from sp is where the bug was, and it is the same conversion either
+ * way.
+ */
+internal fun miniPlayerHeight(
+    titleLineHeight: Dp,
+    artistLineHeight: Dp,
+    floor: Dp = MiniPlayerHeight,
+): Dp = maxOf(floor, titleLineHeight + artistLineHeight + MiniPlayerContentVerticalPadding * 2)
+
+/**
+ * A line height to measure with: the type's own, or Material's default when the theme leaves it open.
+ *
+ * An `em` line height would need the font size to mean anything and nothing in the app sets one, so
+ * it is treated the same as an unspecified one rather than measured as if it were dp.
+ */
+private fun TextUnit.orSp(fallbackSp: Float): TextUnit =
+    if (type == TextUnitType.Sp) this else fallbackSp.sp
+
 val MiniPlayerArtworkOuterSize = 48.dp
 val MiniPlayerArtworkInnerSize = 38.dp
 val MiniPlayerBottomSpacing = 6.dp

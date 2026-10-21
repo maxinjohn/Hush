@@ -167,6 +167,64 @@ class DownloadedFileStore
             return adopted
         }
 
+        /**
+         * Adopts every file the downloads folder already holds for the library's tracks.
+         *
+         * [adoptExistingFile] re-establishes one record at the moment its track is played, which
+         * leaves a fresh index empty until every song of an existing library has been played at
+         * least once. Everything that reports on the downloads as a whole - the size the Storage
+         * screen shows, the download badges, the downloaded-songs list - reads as "no downloads"
+         * until then, however much the folder actually holds. This is the same adoption done for
+         * the whole library at once, at startup: one read of the folder, one pass over the
+         * tracks, one write of the index. The rules are [DownloadsFolderAdoption]'s, unchanged.
+         *
+         * @return how many records were re-established.
+         */
+        fun adoptFolder(tracks: List<DownloadTrack>): Int {
+            if (tracks.isEmpty()) return 0
+            ensureLoaded()
+            val candidates =
+                runCatching {
+                    downloadsDirectory().listFiles { file -> file.isFile && file.length() > 0L }?.toList()
+                }.getOrNull().orEmpty()
+            if (candidates.isEmpty()) return 0
+            val (alreadyRecorded, claimed) =
+                synchronized(this) {
+                    entries.keys.toSet() to
+                        entries.values.mapNotNull { entry -> entry.fileName.takeIf(String::isNotBlank) }.toSet()
+                }
+            val adopted = DownloadsFolderAdoption.sweep(candidates, tracks, alreadyRecorded, claimed)
+            if (adopted.isEmpty()) return 0
+            synchronized(this) {
+                adopted.forEach { match ->
+                    val file = match.file
+                    entries[match.track.mediaId] =
+                        DownloadedFile(
+                            mediaId = match.track.mediaId,
+                            path = file.absolutePath,
+                            // Same as the one-track adoption: which engine wrote these bytes is
+                            // not knowable from the file alone, and naming one would decide
+                            // whether the track may play with YouTube switched off.
+                            origin = StoredBytesOrigin.UNKNOWN.name,
+                            title = match.track.title.orEmpty(),
+                            artist = match.track.artist.orEmpty(),
+                            bytes = file.length(),
+                            createdAtMs = file.lastModified(),
+                            fileName = file.name,
+                        )
+                }
+                while (entries.size > MAX_ENTRIES) {
+                    val oldest = entries.keys.firstOrNull() ?: break
+                    entries.remove(oldest)
+                }
+            }
+            persist()
+            SpotiFLACDiag.log(
+                "downloads: adopted ${adopted.size} file(s) from the downloads folder at startup",
+            )
+            return adopted.size
+        }
+
         fun totalBytes(): Long = all().sumOf { it.bytes }
 
         fun record(entry: DownloadedFile) {

@@ -64,8 +64,8 @@ class SpotiFLACPackageUpdateLogTest {
     @Test
     fun `a check the user asked for always answers`() {
         SpotiFLACPackageUpdateLog.record(update("amazon", "2.3.8", "2.3.10"))
-        // Pressing "Check for updates" and being told nothing at all would leave the button's own
-        // result in doubt, which is the whole reason the button exists.
+        // An explicit check that finds nothing reports that, rather than leaving the previous
+        // sweep's result standing: "up to date" is the answer to the question that was asked.
         SpotiFLACPackageUpdateLog.record(upToDate, userInitiated = true)
         assertEquals(upToDate, SpotiFLACPackageUpdateLog.summary.value)
     }

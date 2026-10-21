@@ -61,6 +61,28 @@ class SpotiFLACProviderNoteTest {
         )
     }
 
+    /**
+     * An addon is *skipped*, not moved to the back, so its row may not promise a turn it will not get.
+     *
+     * The two sentences describe two different decisions: a runtime provider that reported itself down
+     * stays in the walk behind the others, while an addon that refused before naming any track is left
+     * out of the walk entirely.
+     */
+    @Test
+    fun `a skipped addon's row leads with the decision and the wait`() {
+        // The row ellipsizes from the right, so "why is this row not being tried, and for how long"
+        // has to be the part that stays on screen. Measured on the phone: the same sentence with the
+        // wait at the end read `Provider's own service - Tido · …`.
+        val line =
+            SpotiFLACProviderNote.row(
+                "Tido · Lossless answered HTTP 403 (Unavailable)",
+                9 * 60_000L,
+                skipped = true,
+            )
+        assertTrue(line, line.startsWith("Skipped for 9m - "))
+        assertEquals("Skipped for 9m - Tido · Lossless answered HTTP 403 (Unavailable)", line)
+    }
+
     @Test
     fun `an elapsed-looking remainder still reads as a wait rather than a negative`() {
         assertEquals(

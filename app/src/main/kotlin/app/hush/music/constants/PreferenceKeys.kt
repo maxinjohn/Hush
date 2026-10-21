@@ -34,6 +34,15 @@ val GridItemsSizeKey = stringPreferencesKey("gridItemSize")
 val SliderStyleKey = stringPreferencesKey("sliderStyle")
 val SwipeToSongKey = booleanPreferencesKey("SwipeToSong")
 val PlayerDesignStyleKey = stringPreferencesKey("playerDesignStyle")
+
+/**
+ * The look the whole app renders in; the values are `AppSkin`'s enum names.
+ *
+ * Kept here with every other preference rather than next to the enum it names, so the one list of
+ * settings keys stays one list - and stored by *name* rather than by ordinal, because an ordinal is
+ * a promise that the enum's order never changes, and this one is expected to grow.
+ */
+val AppSkinKey = stringPreferencesKey("appSkin")
 val LandscapePlayerLayoutKey = booleanPreferencesKey("landscapePlayerStacked")
 val CarExpressiveAutoHideTitleKey = booleanPreferencesKey("carExpressiveAutoHideTitle")
 val CarExpressiveTitleHideDelayKey = intPreferencesKey("carExpressiveTitleHideDelaySeconds")
@@ -287,8 +296,18 @@ enum class PrimaryAudioScraper {
 val PrimaryAudioScraperKey = stringPreferencesKey("primaryAudioScraper")
 
 val YoutubeStreamingEnabledKey = booleanPreferencesKey("youtubeStreamingEnabled")
-/** Whether SpotiFLAC may serve playback. Off by default: it is an opt-in audio source. */
+/** Whether SpotiFLAC may serve playback. */
 val SpotiFLACEnabledKey = booleanPreferencesKey("spotiflacEnabled")
+
+/**
+ * What [SpotiFLACEnabledKey] reads when nothing has been stored.
+ *
+ * On, so a fresh install plays lossless from the first track without a visit to Audio Sources:
+ * the switch is how a user turns the engine off, not a gate they have to find first. Every read
+ * of the key has to use this - a lone `?: false` in the playback path would silently keep a new
+ * install on YouTube and make the screen and the engine disagree about which one is running.
+ */
+const val SpotiFLACEnabledDefault = true
 
 /**
  * The user's final "no" to the launch-time lossless invitation: set by the offer's close button and
@@ -323,6 +342,15 @@ val SpotiFLACFallbackToYouTubeKey = booleanPreferencesKey("spotiflacFallbackToYo
 
 /** Move on to the next SpotiFLAC source when one source fails a track. */
 val SpotiFLACTryNextSourceKey = booleanPreferencesKey("spotiflacTryNextSource")
+
+/**
+ * Per-source fetch windows and retry counts, as one JSON string.
+ *
+ * One value for the whole map rather than a key per source: the source list is dynamic, and keys of
+ * that shape leave entries behind for sources a repository no longer publishes. See
+ * `SpotiFLACFetchPolicies`, which owns the encoding and the defaults.
+ */
+val SpotiFLACFetchPoliciesKey = stringPreferencesKey("spotiflacFetchPolicies")
 
 /** Never let an unverified source block a verified one. */
 val SpotiFLACVerifiedOnlyKey = booleanPreferencesKey("spotiflacVerifiedOnly")

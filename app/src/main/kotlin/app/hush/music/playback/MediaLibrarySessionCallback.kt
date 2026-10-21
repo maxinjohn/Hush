@@ -62,6 +62,7 @@ import app.hush.music.constants.MediaSessionConstants
 import app.hush.music.constants.PlaylistSongSortType
 import app.hush.music.constants.PlaylistSortType
 import app.hush.music.constants.SongSortType
+import app.hush.music.constants.SpotiFLACEnabledDefault
 import app.hush.music.constants.SpotiFLACEnabledKey
 import app.hush.music.constants.SpotiFLACLosslessNudgeHandledKey
 import app.hush.music.db.MusicDatabase
@@ -2273,7 +2274,7 @@ class MediaLibrarySessionCallback
         private fun losslessOfferAvailable(): Boolean =
             AndroidAutoPlaylists.offersLossless(
                 runtimeAvailable = SpotiFLACNativeRuntimeBridgeHolder.instance?.isRuntimeAvailable == true,
-                spotiflacEnabled = context.dataStore.get(SpotiFLACEnabledKey, false),
+                spotiflacEnabled = context.dataStore.get(SpotiFLACEnabledKey, SpotiFLACEnabledDefault),
                 dismissed = context.dataStore.get(SpotiFLACLosslessNudgeHandledKey, false),
                 lowDataModeActive = context.isLowDataModeActive(),
             )

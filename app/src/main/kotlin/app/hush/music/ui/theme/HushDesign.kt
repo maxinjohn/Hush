@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.hush.music.LocalAnimationsDisabled
 import app.hush.music.ui.component.hushBouncyClickable
@@ -34,15 +35,38 @@ import app.hush.music.ui.component.rememberHushPressFeedback
 val LocalExploreTheme = compositionLocalOf { false }
 
 object HushDesign {
-    val ChipCornerRadius = 24.dp
-    val ItemCornerRadius = 20.dp
-    val CardCornerRadius = 32.dp
-    val SearchBarCornerRadius = 24.dp
-    val ThumbnailCornerRadius = 18.dp
-    val NavItemCornerRadius = 28.dp
-    val MiniButtonCornerRadius = 50.dp
-    val ToolbarCornerRadius = 32.dp
-    val HeaderActionCornerRadius = 14.dp
+    /**
+     * The skin's radius multiplier, applied by `HushTheme` before it composes its content.
+     *
+     * These radii are read directly by every component that draws a card, a chip or a row, which is
+     * exactly why they cannot be a theme parameter the way a colour is: making them composition-local
+     * would mean every one of those call sites had to become a composable read, and a half-converted
+     * app has two radius systems that disagree screen by screen.
+     *
+     * So the scale is set once, at the top of the tree, and read here. The contract that makes it
+     * correct is that the value only ever changes when the skin preference changes - which recomposes
+     * the theme itself, so the new value is in place before any content below reads it. It is a
+     * deliberate exception to "no global mutable state in a composable", and it is the reason
+     * `AppSkinTest` pins the arithmetic: a wrong scale here is wrong everywhere at once.
+     */
+    @Volatile
+    private var radiusScale = 1f
+
+    fun applyRadiusScale(scale: Float) {
+        radiusScale = scale.coerceIn(MinRadiusScale, MaxRadiusScale)
+    }
+
+    private fun scaled(base: Dp): Dp = base * radiusScale
+
+    val ChipCornerRadius: Dp get() = scaled(24.dp)
+    val ItemCornerRadius: Dp get() = scaled(20.dp)
+    val CardCornerRadius: Dp get() = scaled(32.dp)
+    val SearchBarCornerRadius: Dp get() = scaled(24.dp)
+    val ThumbnailCornerRadius: Dp get() = scaled(18.dp)
+    val NavItemCornerRadius: Dp get() = scaled(28.dp)
+    val MiniButtonCornerRadius: Dp get() = scaled(50.dp)
+    val ToolbarCornerRadius: Dp get() = scaled(32.dp)
+    val HeaderActionCornerRadius: Dp get() = scaled(14.dp)
     val HeaderActionSize = 56.dp
     val HeaderActionIconSize = 26.dp
 

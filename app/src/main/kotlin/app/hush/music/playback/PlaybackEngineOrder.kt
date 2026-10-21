@@ -83,6 +83,36 @@ object PlaybackEngineOrder {
     ): Boolean = !spotiflacFirst || !cachedIsYouTubeStream || spotiflacRecentlyMissed
 
     /**
+     * The same rule for *bytes*, which is where it was missing.
+     *
+     * A cached URL was only half of the problem. Media3's streaming cache holds the bytes a track
+     * was played from, and a complete entry there is served with no resolver call at all - so every
+     * track the user had listened to before was still answered by the engine that fetched it then,
+     * however the priority order read afterwards. Measured on the reporting device with the
+     * third-party engine moved to the first position: a fresh track swept the sources in order and
+     * played lossless, while the same track after one YouTube play kept playing from YouTube, and the
+     * order never came up. The URL-cache rule above could not help - the bytes path never asks for a
+     * URL.
+     *
+     * The three exceptions are the same three the URL rule has, for the same reasons:
+     *
+     * - YouTube first: nothing to trade, the cached bytes are the first engine's own answer.
+     * - The bytes are the third-party engine's: a file it fetched is already what the order would
+     *   produce, and it never expires.
+     * - Third-party has already been shown to have no match: re-running the sweep would only spend
+     *   the fallback timeout to reach the answer the memo already holds.
+     *
+     * What it is *not* is a deletion. A caller that declines the short-circuit keeps the bytes as a
+     * fallback, so a resolve that fails - no network, a provider outage - still plays the copy the
+     * device holds instead of showing an error over a track that is already on it.
+     */
+    fun cachedBytesMayShortCircuitResolve(
+        spotiflacFirst: Boolean,
+        bytesAreSpotiFLACs: Boolean,
+        spotiflacRecentlyMissed: Boolean = false,
+    ): Boolean = !spotiflacFirst || bytesAreSpotiFLACs || spotiflacRecentlyMissed
+
+    /**
      * Whether bytes already stored on disk for a track may be played.
      *
      * Media3's caches are keyed by mediaId alone, so the key cannot say which engine

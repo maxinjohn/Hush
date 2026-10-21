@@ -68,6 +68,19 @@ fun buildSettingsGroups(
                         )
                         add(
                             SettingsItem(
+                                key = "audio_sources",
+                                // Waves, not bars: the bar-chart icons here are taken (Listening
+                                // Stats draws one), and two rows with the same glyph read as the
+                                // same screen.
+                                icon = painterResource(R.drawable.waves),
+                                title = stringResource(R.string.audio_sources_title),
+                                subtitle = stringResource(R.string.audio_sources_subtitle),
+                                accentColor = MaterialTheme.colorScheme.primary,
+                                onClick = { navController.navigate("settings/player/audio_sources") },
+                            ),
+                        )
+                        add(
+                            SettingsItem(
                                 key = "playback",
                                 icon = painterResource(R.drawable.music_note),
                                 title = stringResource(R.string.settings_playback_title),

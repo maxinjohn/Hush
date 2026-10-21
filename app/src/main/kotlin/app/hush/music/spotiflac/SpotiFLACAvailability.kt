@@ -20,8 +20,10 @@ import android.content.Context
  *
  * So an engine with nothing usable but sources waiting on the user is *paused*: it is not consulted,
  * and playback runs on the other engine. It does not get to burn a sweep and hand back a failure.
- * A source with no session contract (SoundCloud, the YouTube Music provider) is not "waiting on the
- * user" - it has nothing to verify - so it is never the reason an engine is paused.
+ * A source with no session contract (SoundCloud, the YouTube Music provider, a credential-less module
+ * or addon) is not "waiting on the user" - it has nothing to verify - so it is never the reason an
+ * engine is paused, and it is the reason an engine with unverified neighbours stays in play: those
+ * sources can still fetch a track, and pausing on the session count took them out of the walk too.
  */
 enum class SpotiFLACEngineState {
     /** At least one source can actually download. */
@@ -30,10 +32,30 @@ enum class SpotiFLACEngineState {
     /** The user switched the engine off; nothing to say about sessions. */
     DISABLED,
 
+    /**
+     * Nothing switched on can fetch audio: every source left is a metadata provider (or nothing is
+     * on at all).
+     *
+     * Distinct from [NEEDS_VERIFICATION] because no check can fix it - a metadata provider never had
+     * a session to lose - and distinct from [READY] because an engine in this state cannot serve a
+     * single track. It used to read READY: a metadata source signs in with its own service, so the
+     * "has nothing to verify" rule counted it as healthy, playback was routed to SpotiFLAC first, and
+     * the sweep came back empty (measured on the reporting device: `no source the switches name can
+     * download (chosen=spoiti-lists); nothing else is swept`, then an "all sources failed" verdict
+     * and a fallback to YouTube - a slower path to the same track, and a miss memo recorded for it).
+     */
+    NO_AUDIO_SOURCE,
+
     /** Low data mode is on: the engine is paused so no lossless download is pulled over a metered link. */
     LOW_DATA,
 
-    /** Every source that needs a session is without one, so a verification is what fixes this. */
+    /**
+     * Every source that could serve audio needs a session and none has one, so a verification is
+     * what fixes this.
+     *
+     * Deliberately not "some source needs a check": the unverified sources are left out of the walk
+     * by the sweep itself, so the engine only has to stand down when there is nothing left to ask.
+     */
     NEEDS_VERIFICATION,
 
     /** The gateway is refusing this client outright - a rate limit or a block, not a missing session. */
@@ -89,10 +111,34 @@ object SpotiFLACAvailability {
         enabled: Boolean,
         verifiedSources: Int,
         sourcesNeedingCheck: Int,
+        /**
+         * How many switched-on sources can serve audio at all, or null when that is not known yet.
+         *
+         * Null is not zero on purpose: before the registry has been read the live source list is
+         * empty, and pausing the engine on that empty list would drop lossless playback on every
+         * cold start - the sweep is still able to fall back to the installed packages there. Unknown
+         * therefore leaves the answer as it was, and only a count that was actually read can say
+         * there is nothing to play.
+         */
+        audioSources: Int?,
         blockedRemainingMs: Long? = null,
         blockedReason: String? = null,
         lowDataActive: Boolean = false,
+        /**
+         * How many switched-on sources that can serve audio need **no** check at all.
+         *
+         * This is the difference between "every source is waiting on the user" and "the sources
+         * that are waiting are not the only ones". A credential-less module, a server addon and a
+         * provider that signs in with its own service have no session to lose, so a lapsed session on
+         * a neighbouring source says nothing about whether the engine can fetch a track - and the
+         * engine was paused on exactly that count, which took every one of those sources out of the
+         * walk with it. Measured on the reporting device with eight sources switched on: one lapsed
+         * session (`tidal-web`) and a zero verified count paused the engine, and every track resolved
+         * through YouTube while the credential-less modules and SoundCloud were enabled and working.
+         */
+        sourcesWithoutSession: Int = 0,
     ): SpotiFLACEngineStatus {
+        val sessionFree = sourcesWithoutSession.coerceAtLeast(0)
         val verified = verifiedSources.coerceAtLeast(0)
         val needing = sourcesNeedingCheck.coerceAtLeast(0)
         val blocked = blockedRemainingMs != null && blockedRemainingMs > 0
@@ -140,7 +186,24 @@ object SpotiFLACAvailability {
                 },
             )
 
-            verified == 0 && needing > 0 -> SpotiFLACEngineStatus(
+            // Above the session count, because a metadata provider has no session to verify: with
+            // only those switched on the two counts below are both zero, which used to read as
+            // "nothing to verify" and left the engine ready to spend a sweep on nothing.
+            audioSources != null && audioSources <= 0 -> SpotiFLACEngineStatus(
+                state = SpotiFLACEngineState.NO_AUDIO_SOURCE,
+                verifiedSources = verified,
+                sourcesNeedingCheck = needing,
+                headline = "Paused — no audio source",
+                detail = "Nothing switched on can fetch audio, so playback uses the other source. " +
+                    "Switch on a source that serves audio.",
+            )
+
+            // The session count pauses the engine only when it is the whole story: a source that
+            // needs no check is asked by the sweep whether or not a neighbour's session lapsed, and
+            // skipping those turned "one source needs a check" into "nothing can play". Unverified
+            // sources are left out of the walk by the sweep itself - see SpotiFLACVerifiedOnlyKey -
+            // so the engine does not have to be paused to keep them from costing the user a timeout.
+            verified == 0 && needing > 0 && sessionFree == 0 -> SpotiFLACEngineStatus(
                 state = SpotiFLACEngineState.NEEDS_VERIFICATION,
                 verifiedSources = 0,
                 sourcesNeedingCheck = needing,
@@ -156,6 +219,11 @@ object SpotiFLACAvailability {
                 sourcesNeedingCheck = needing,
                 headline = "Active",
                 detail = when {
+                    // Sources that need no session are the reason the engine is still in play here,
+                    // and the line has to say so: "Nothing to verify" described an install with
+                    // unverified sources on it as one that had nothing outstanding at all.
+                    verified == 0 && needing > 0 -> "$needing source${if (needing == 1) "" else "s"} " +
+                        "need${if (needing == 1) "s" else ""} a check; the rest need none and still play."
                     verified == 0 -> "Nothing to verify — these sources sign in with their own service."
                     needing == 0 -> "$verified source${if (verified == 1) "" else "s"} verified, " +
                         "renewing in the background."
@@ -189,20 +257,51 @@ object SpotiFLACAvailability {
         sources: List<String>,
         lowDataActive: Boolean = false,
     ): SpotiFLACEngineStatus {
-        if (!enabled) return of(enabled = false, verifiedSources = 0, sourcesNeedingCheck = 0)
+        if (!enabled) {
+            return of(
+                enabled = false,
+                verifiedSources = 0,
+                sourcesNeedingCheck = 0,
+                audioSources = null,
+            )
+        }
         val bridge = SpotiFLACNativeRuntimeBridgeHolder.instance
         val ids = sources.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-        val states = ids.mapNotNull { id ->
-            runCatching { bridge?.sourceAuthState(id) }.getOrNull()
-        }
+        // Keyed in lowercase because the two lists this reader is handed spell ids the way their
+        // own source object does: a lookup that missed on case would silently count a source as
+        // unreadable, which is the one answer that changes nothing either way.
+        val states =
+            ids.associateBy({ it.lowercase() }) { id ->
+                runCatching { bridge?.sourceAuthState(id) }.getOrNull()
+            }
         val block = runCatching { SpotiFLACSessionRenewer.relayBlock(context) }.getOrNull()
+        // Read from the live source list rather than counted from [sources], because [sources] is
+        // whatever the caller had at hand - the resolve path hands over the runtime's own ids and
+        // the settings screen the playable ones - while the question is about the switches. Null
+        // (no live list yet, or a read that failed) keeps the previous answer rather than pausing
+        // an engine that has not been described to us.
+        val audioSources =
+            runCatching { ExtensionRepositoryManager.getInstance().enabledAudioSourceIds() }
+                .getOrNull()
+        // Asked of the audio sources rather than of every switched-on source: a metadata provider
+        // also needs no check, and counting those would keep the engine ready on an install whose
+        // only sources can never fetch a track - which is what NO_AUDIO_SOURCE is for. A source whose
+        // state cannot be read is not counted here, so an unread runtime cannot hold the engine open.
+        val sourcesWithoutSession =
+            audioSources?.count { id ->
+                val state = states[id.lowercase()]
+                    ?: runCatching { bridge?.sourceAuthState(id) }.getOrNull()
+                state == SpotiFLACSourceAuthState.NOT_REQUIRED
+            } ?: 0
         return of(
             enabled = true,
-            verifiedSources = states.count { it == SpotiFLACSourceAuthState.VERIFIED },
-            sourcesNeedingCheck = states.count { it == SpotiFLACSourceAuthState.NEEDS_VERIFICATION },
+            verifiedSources = states.values.count { it == SpotiFLACSourceAuthState.VERIFIED },
+            sourcesNeedingCheck = states.values.count { it == SpotiFLACSourceAuthState.NEEDS_VERIFICATION },
+            audioSources = audioSources?.size,
             blockedRemainingMs = block?.remainingMs,
             blockedReason = block?.reason,
             lowDataActive = lowDataActive,
+            sourcesWithoutSession = sourcesWithoutSession,
         )
     }
 

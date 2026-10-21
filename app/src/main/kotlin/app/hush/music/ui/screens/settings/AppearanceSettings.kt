@@ -112,6 +112,8 @@ import app.hush.music.constants.PlayerButtonsStyle
 import app.hush.music.constants.PlayerButtonsStyleKey
 import app.hush.music.constants.PlayerDesignStyle
 import app.hush.music.constants.rememberPlayerDesignStylePreference
+import app.hush.music.ui.theme.AppSkin
+import app.hush.music.ui.theme.rememberAppSkinPreference
 import app.hush.music.constants.PureBlackKey
 import app.hush.music.constants.QuickPicksDisplayMode
 import app.hush.music.constants.QuickPicksDisplayModeKey
@@ -199,6 +201,10 @@ fun AppearanceSettings(
             defaultValue = DarkMode.AUTO,
         )
     val (playerDesignStyle, onPlayerDesignStyleChange) = rememberPlayerDesignStylePreference()
+    // The app-wide look, above everything else on this screen because it decides what the rest of
+    // them are read against: the palette below it is the skin's raw material, not a competing
+    // opinion about it.
+    val (appSkin, onAppSkinChange) = rememberAppSkinPreference()
     val (hidePlayerThumbnail, onHidePlayerThumbnailChange) =
         rememberPreference(
             HidePlayerThumbnailKey,
@@ -492,6 +498,20 @@ fun AppearanceSettings(
             .padding(bottom = SettingsDimensions.ScreenBottomPadding),
     ) {
         PreferenceGroup(title = stringResource(R.string.theme)) {
+            item {
+                EnumListPreference(
+                    title = { Text(stringResource(R.string.app_theme)) },
+                    // The blurb follows the selection, because what a skin does is the thing a name
+                    // cannot say: "Metrolist" is not a self-describing choice.
+                    description = appSkin.blurb,
+                    icon = { Icon(painterResource(R.drawable.palette), null) },
+                    selectedValue = appSkin,
+                    onValueSelected = onAppSkinChange,
+                    values = AppSkin.selectableValues,
+                    valueText = { it.label },
+                )
+            }
+
             item {
                 SwitchPreference(
                     title = { Text(stringResource(R.string.enable_dynamic_theme)) },

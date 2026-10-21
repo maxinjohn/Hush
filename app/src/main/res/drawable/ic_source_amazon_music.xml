@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Amazon Music's own mark: the smile, traced from the icon Amazon publishes for the app. That icon
+  is the wordmark "music" over the smile, and at the settings row's size the wordmark is a grey
+  smear - so the mark is the half of it that reads, which is also the half that says whose service
+  this is. Painted in Amazon's own smile orange rather than the cyan field the icon paints behind
+  a black wordmark: the orange reads on both of Hush's surfaces, and the black smile would be the
+  TIDAL problem all over again.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#000000"
+        android:fillType="evenOdd"
+        android:pathData="M20.50 9.14 19.31 9.54 18.91 9.78 18.63 10.21 18.83 10.41 19.39 10.41 19.86 10.25 21.37 10.25 21.73 10.45 21.73 11.09 21.57 11.56 20.78 12.99 20.78 13.31 20.90 13.43 21.13 13.43 21.53 13.19 22.52 12.04 22.92 11.01 23.00 9.90 22.72 9.46 22.17 9.22 20.58 9.14Z M1.20 9.46 1.00 9.66 1.00 9.97 1.48 10.69 2.79 12.00 4.38 13.11 5.65 13.75 7.47 14.38 10.17 14.86 13.67 14.78 15.02 14.54 16.92 13.99 18.91 13.03 20.02 12.24 20.62 11.56 20.62 11.25 20.42 11.05 17.72 12.16 15.34 12.71 13.27 12.95 10.57 12.95 8.11 12.64 5.57 11.92 3.50 10.97 1.28 9.46Z" />
+</vector>

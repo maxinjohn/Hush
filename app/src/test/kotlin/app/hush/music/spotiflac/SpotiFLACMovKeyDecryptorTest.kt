@@ -249,6 +249,75 @@ class SpotiFLACMovKeyDecryptorTest {
     }
 
     /* --------------------------------------------------------------------------------- *
+     * Payloads that have to be made seekable.
+     * --------------------------------------------------------------------------------- */
+
+    /**
+     * The DASH lossless case, unencrypted: FLAC inside a fragmented MP4.
+     *
+     * Such a file has a `moov` with no sample table and no `sidx`, so Media3 reports the stream
+     * as unseekable and snaps every seek back to the first sample - the track restarts and the
+     * seek bar keeps the position that was asked for. Splicing the frames into a native FLAC is
+     * what makes the same audio seekable without touching it.
+     */
+    @Test
+    fun `splices a native flac out of a clear fragmented mp4`() {
+        val frames = listOf(frame(180, 0xF8), frame(240, 0xF9), frame(120, 0xFA))
+        val streamInfo = ByteArray(34) { (it + 3).toByte() }
+        val source = write(
+            "dash.mp4",
+            clearFragmentedFlacFixture(
+                fragments = listOf(listOf(180, 240), listOf(120)),
+                frames = frames,
+                streamInfo = streamInfo,
+            ),
+        )
+
+        val spliced = SpotiFLACMovKeyDecryptor.spliceNativeFlac(source)
+
+        assertTrue("a fragmented-MP4 FLAC payload is spliced", spliced != null)
+        assertTrue("the splice lands beside the container", spliced!!.name.endsWith(".flac"))
+        assertEquals("the payload it came from is the caller's to replace", true, source.exists())
+
+        val bytes = spliced.readBytes()
+        assertEquals("fLaC", String(bytes, 0, 4, Charsets.ISO_8859_1))
+        assertEquals(0x80, bytes[4].toInt() and 0x80)
+        // The STREAMINFO is the muxer's own, byte for byte - it is what carries the MD5 and the
+        // duration the player is told about.
+        assertArrayEquals(streamInfo, bytes.copyOfRange(8, 42))
+        // Every frame, in order, and nothing else: no box headers survive into the stream.
+        assertArrayEquals(concatAll(frames), bytes.copyOfRange(42, bytes.size))
+        assertEquals("flac", SpotiFLACFileIntegrity.containerOf(bytes.copyOf(SpotiFLACFileIntegrity.HEAD_BYTES)))
+    }
+
+    @Test
+    fun `declines anything that is not a fragmented-mp4 flac`() {
+        // A real `.flac` is already seekable, and an MP4 carrying another codec has nothing to
+        // splice, so both have to come back untouched rather than as a rewritten file.
+        val native = write("native.flac", "fLaC".toByteArray() + byteArrayOf(0x80.toByte()) + ByteArray(38))
+        assertEquals(null, SpotiFLACMovKeyDecryptor.spliceNativeFlac(native))
+        assertEquals(native.readBytes().size, 43)
+
+        val opus = write(
+            "opus.mp4",
+            box("ftyp", "iso8".toByteArray() + u32(0) + "mp41".toByteArray()) +
+                box(
+                    "moov",
+                    box(
+                        "trak",
+                        box("mdia", box("minf", box("stbl", box("stsd", fullBoxBody(0, 0, u32(1) + box("Opus", ByteArray(28))))))),
+                    ),
+                    box("mvex", box("trex", ByteArray(24))),
+                ),
+        )
+        assertEquals(null, SpotiFLACMovKeyDecryptor.spliceNativeFlac(opus))
+        assertFalse(
+            "nothing is written beside an MP4 it cannot splice",
+            opus.parentFile!!.listFiles()!!.any { it.name != native.name && it.name.endsWith(".flac") },
+        )
+    }
+
+    /* --------------------------------------------------------------------------------- *
      * Fixtures.
      * --------------------------------------------------------------------------------- */
 
@@ -406,6 +475,74 @@ class SpotiFLACMovKeyDecryptorTest {
                 box("mvex", box("trex", ByteArray(24))),
             ) +
             box("mdat", payload)
+
+    /**
+     * A fragmented MP4 carrying FLAC in the clear: `ftyp`, `moov` with a `fLaC` entry and its
+     * `dfLa` STREAMINFO, then one `moof`/`mdat` pair per fragment - no `sidx`, no sample table.
+     */
+    private fun clearFragmentedFlacFixture(
+        fragments: List<List<Int>>,
+        frames: List<ByteArray>,
+        streamInfo: ByteArray,
+    ): ByteArray {
+        val moov = box(
+            "moov",
+            box("mvhd", ByteArray(8)),
+            box(
+                "trak",
+                box(
+                    "mdia",
+                    box(
+                        "minf",
+                        box(
+                            "stbl",
+                            box(
+                                "stsd",
+                                fullBoxBody(
+                                    0,
+                                    0,
+                                    u32(1) + box("fLaC", ByteArray(28) + box("dfLa", ByteArray(4) + flacBlock(0x00, streamInfo))),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            box("mvex", box("trex", ByteArray(24))),
+        )
+
+        val out = ByteArrayOutputStream()
+        out.write(box("ftyp", "iso8".toByteArray() + u32(0) + "mp41".toByteArray() + "dash".toByteArray()))
+        out.write(moov)
+        var index = 0
+        fragments.forEach { sizes ->
+            val payload = concatAll(sizes.map { frames[index++] })
+            // The data offset is relative to the moof, so it is known only once the moof exists;
+            // it never changes a box's size, so measuring a draft is exact.
+            val draft = clearMoof(sizes, 0)
+            val moof = clearMoof(sizes, draft.size + 8)
+            require(moof.size == draft.size)
+            out.write(moof)
+            out.write(box("mdat", payload))
+        }
+        return out.toByteArray()
+    }
+
+    private fun clearMoof(sizes: List<Int>, dataOffset: Int): ByteArray =
+        box(
+            "moof",
+            box("mfhd", fullBoxBody(0, 0, u32(1))),
+            box(
+                "traf",
+                // default-base-is-moof, sample-description-index, default duration.
+                box("tfhd", fullBoxBody(0, 0x02000A, u32(1) + u32(1) + u32(1000))),
+                box("tfdt", fullBoxBody(1, 0, ByteArray(8))),
+                box(
+                    "trun",
+                    fullBoxBody(0, 0x201, u32(sizes.size) + u32(dataOffset) + concatAll(sizes.map { u32(it) })),
+                ),
+            ),
+        )
 
     /* --------------------------------------------------------------------------------- *
      * Byte helpers.

@@ -12,6 +12,25 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!--
+      Needed for a downloads or cache folder the user picks in shared storage ("Download/Hush",
+      "Music", and anything created in the system folder chooser).
+
+      Since Android 11 an app may create new files in shared storage but may not write into a
+      directory another app created, and the folder chooser is another app - DocumentsUI. A
+      picked folder therefore resolved to a real path and then refused this app's probe write, so
+      the setting was saved, the app fell back to its own directory, and downloads never appeared
+      where the user had pointed them. That is what "permission denied" was.
+
+      All-files access is asked for on demand, from the storage screen, only when a folder needs
+      it, and the app keeps working from its own private folders when it is refused. It is a
+      special access switch (Settings > Apps > Special app access > All files access) rather than
+      a runtime permission, so the app never sees a prompt to answer - it has to send the user
+      there and re-check on the way back.
+    -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
@@ -67,6 +86,16 @@
         <uses-library
             android:name="org.apache.http.legacy"
             android:required="false" />
+
+        <!-- WorkManager's host for long-running work. Moving a library into a newly chosen
+             storage folder is tens of gigabytes and has to survive the restart that re-points
+             the caches, so the move runs as foreground work rather than in the process that
+             scheduled it. Android 14+ refuses to start a foreground service whose type is not
+             declared where the service is merged in, so the type is stated here. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
         <activity
             android:name=".MainActivity"

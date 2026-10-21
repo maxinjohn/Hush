@@ -36,14 +36,28 @@ object SpotiFLACProviderNote {
     fun headline(reason: String): String = "Provider's own service - ${reason.trim()}"
 
     /**
-     * The same headline with how long the source stays at the back of the chain.
+     * The same headline with what the sweep does with that source for the cooldown.
      *
-     * "tried last" rather than "skipped", because that is what the sweep does: a source whose own
-     * health says it cannot serve is demoted for the cooldown, never dropped - a sweep whose only
-     * sources are unreachable still asks them.
+     * A runtime provider is *tried last*: a source whose own health says it cannot serve is moved
+     * behind the others, never dropped, because a sweep whose only sources are unreachable still
+     * asks them.
+     *
+     * A module or addon is *skipped*, and its line leads with that. The two facts a reader needs are
+     * "why is this row not being tried" and "how long", and a row ellipsizes from the right: the old
+     * sentence put the wait last, and on a phone the addon's line read `Provider's own service - Tido
+     * · …` with neither the decision nor the time visible. So the decision comes first and the
+     * service's own words follow it.
      */
     fun row(
         reason: String,
         remainingMs: Long,
-    ): String = "${headline(reason)} · tried last for ${SpotiFLACSessionRenewer.formatBlockRemaining(remainingMs)}"
+        skipped: Boolean = false,
+    ): String {
+        val remaining = SpotiFLACSessionRenewer.formatBlockRemaining(remainingMs)
+        return if (skipped) {
+            "Skipped for $remaining - ${reason.trim()}"
+        } else {
+            "${headline(reason)} · tried last for $remaining"
+        }
+    }
 }

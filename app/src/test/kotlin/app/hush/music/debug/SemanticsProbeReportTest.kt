@@ -185,6 +185,96 @@ class SemanticsProbeReportTest {
     }
 
     @Test
+    fun `a clipped label is marked on its line and a fitting one is not`() {
+        val clipped = node(top = 120, id = 7).copy(text = "0:01", textFit = TextFit.CLIPPED)
+        val fits = clipped.copy(textFit = TextFit.FITS)
+        val ellipsized = clipped.copy(textFit = TextFit.ELLIPSIZED)
+        assertTrue(SemanticsProbeReport.line(clipped).contains(" clipped"))
+        // The two that are not a fault must not be marked: an ellipsized label is the app saying the
+        // label was shortened, and a label that fits has nothing to report at all.
+        assertFalse(SemanticsProbeReport.line(fits).contains("clipped"))
+        assertFalse(SemanticsProbeReport.line(ellipsized).contains("clipped"))
+    }
+
+    @Test
+    fun `a label nothing measured is not counted as one that fits`() {
+        // The distinction the whole check rests on: "not measured" and "it fits" must not read
+        // alike, or a probe that failed to ask would report a clean screen.
+        val line = SemanticsProbeReport.textFitLine(listOf(node(top = 10), node(top = 20)))
+        assertTrue(line.contains("no label was measured"))
+        assertFalse(line.contains("0 labels measured"))
+    }
+
+    @Test
+    fun `the text-fit line counts fits, ellipses and silent clips apart`() {
+        val nodes = listOf(
+            node(top = 10).copy(text = "0:01", textFit = TextFit.FITS),
+            node(top = 20).copy(text = "a long title", textFit = TextFit.ELLIPSIZED),
+            node(top = 30).copy(text = "2:48", textFit = TextFit.CLIPPED),
+            node(top = 40),
+        )
+        val line = SemanticsProbeReport.textFitLine(nodes)
+        assertTrue(line.contains("3 labels measured"))
+        assertTrue(line.contains("1 fit"))
+        assertTrue(line.contains("1 ellipsized"))
+        assertTrue(line.contains("1 clipped"))
+        // The clipped label is quoted, because the point of the line is to name what was lost.
+        assertTrue(line.contains("2:48"))
+    }
+
+    @Test
+    fun `a one-line label narrower than its words is clipped, and one that fills its box is not`() {
+        // The negative control that proved the check, as a test: a clock pinned to a 30dp box needed
+        // 200px and was given 136, and on the device it drew "0:1".
+        assertEquals(
+            TextFit.CLIPPED,
+            SemanticsProbeReport.textFitOf(
+                ellipsized = false, cannotWrap = true, needed = 200f, given = 136f,
+            ),
+        )
+        // The other half, and the one that kept the check honest: a label measured to its own
+        // intrinsic width comes back with `given` at or above `needed`, and a tenth of a pixel of
+        // slack must not read as a lost character. 40 labels on a player at a 1920x720dp window sat
+        // at exactly this boundary, the tightest of them with no slack at all.
+        assertEquals(
+            TextFit.FITS,
+            SemanticsProbeReport.textFitOf(
+                ellipsized = false, cannotWrap = true, needed = 273f, given = 273f,
+            ),
+        )
+        assertEquals(
+            TextFit.FITS,
+            SemanticsProbeReport.textFitOf(
+                ellipsized = false, cannotWrap = true, needed = 272f, given = 273f,
+            ),
+        )
+    }
+
+    @Test
+    fun `a label allowed to wrap is not a label that lost its words`() {
+        // A wrapped paragraph needs far more width than the box it folded into - that is the layout
+        // working. Reading it as a clip is how a check fires on every screen it is run against.
+        assertEquals(
+            TextFit.FITS,
+            SemanticsProbeReport.textFitOf(
+                ellipsized = false, cannotWrap = false, needed = 2250f, given = 695f,
+            ),
+        )
+    }
+
+    @Test
+    fun `an ellipsis outranks a clip even when the words are wider than the box`() {
+        // Both are true of a label the app chose to shorten and had to squeeze; the visible kind is
+        // the one to report, so it is the one that decides.
+        assertEquals(
+            TextFit.ELLIPSIZED,
+            SemanticsProbeReport.textFitOf(
+                ellipsized = true, cannotWrap = true, needed = 1322f, given = 695f,
+            ),
+        )
+    }
+
+    @Test
     fun `a line names the tree, the place and the words`() {
         val line = SemanticsProbeReport.line(
             node(top = 120, id = 7).copy(

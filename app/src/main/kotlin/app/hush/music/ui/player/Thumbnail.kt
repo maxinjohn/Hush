@@ -196,6 +196,19 @@ fun Thumbnail(
     val trackChangeDirection = LocalTrackChangeDirection.current
     val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
     val error by playerConnection.error.collectAsStateWithLifecycle()
+    // Whether the failure is the one the *artwork* must not cover.
+    //
+    // "No enabled source has this track" arrives as a playback error, and this panel is where every
+    // playback error used to land - a red card over the cover, reading like the audio was broken.
+    // Nothing is broken: the walk asked every source the user enabled and none had the track, which
+    // the codec line states under the controls, next to the sources it asked. So this error is drawn
+    // there and the cover is left alone. Everything else - a decoder failure, a refused session, an
+    // HTTP error, a stream that never started - keeps the panel, because for those the panel *is* the
+    // explanation, with its retry and its details.
+    val sourceFetchFailed =
+        remember(error) {
+            error?.toPlaybackErrorInfo()?.kind == PlaybackErrorKind.NoSourceAvailable
+        }
     val queueTitle by playerConnection.queueTitle.collectAsStateWithLifecycle()
 
     val swipeThumbnail by rememberPreference(SwipeThumbnailKey, true)
@@ -664,7 +677,7 @@ fun Thumbnail(
     Box(modifier = modifier) {
         // Error view
         AnimatedVisibility(
-            visible = error != null,
+            visible = error != null && !sourceFetchFailed,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier =
@@ -686,7 +699,7 @@ fun Thumbnail(
 
         // Main thumbnail view
         AnimatedVisibility(
-            visible = error == null,
+            visible = error == null || sourceFetchFailed,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier =

@@ -17,14 +17,20 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -736,6 +742,14 @@ private fun SpotiFLACVerificationNotice(extensionId: String?) {
 }
 
 /**
+ * How much room the session notice leaves under itself, so it does not sit on the mini player.
+ *
+ * A preference rather than a rule: see [SpotiFLACSessionLaunchNotice], where it is the first thing
+ * a short window gives up.
+ */
+private val SessionNoticeBannerClearance = 96.dp
+
+/**
  * The launch-time prompt: SpotiFLAC is on, and no source can fetch with it.
  *
  * Distinguished from [SpotiFLACVerificationNotice] by what it is about. That card is raised by
@@ -749,7 +763,25 @@ private fun SpotiFLACVerificationNotice(extensionId: String?) {
  * which is the common case after a long gap - and a check alone would spend a browser trip on a
  * session that a renewal would have rotated for free. Doing both in that order is the answer a user
  * means by "try again".
+ *
+ * ## When it cannot fit
+ *
+ * The card is anchored above the mini player, and on a short window at a large font scale the
+ * clearance plus its own text is taller than the window. A bottom-anchored card that does not fit
+ * grows *upward*: measured on device at a 280x380dp window with a 2.0 font scale, the headline was
+ * drawn past the top edge of the window and both answers — "Not now" and "Renew session" — came
+ * back from the accessibility tree as 0x0, so the card could be neither dismissed nor answered.
+ * That card has no other way out: its dismissal is its own button and the notice is raised again on
+ * every launch while the engine state is unchanged.
+ *
+ * So the card is capped to the height it actually has, what gives way inside it is the text (the
+ * headline, the body and the run's own outcome line share one scrollable region), and the two
+ * answers sit below that region and never scroll. The answers wrap as a *flow* rather than as
+ * labels, because at a large font scale two single-line buttons do not fit the card's width side by
+ * side: measured at the same window and scale, "Renew session" came out as four stacked fragments
+ * of a word, clipped by the card's right edge, and could be neither read nor hit.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SpotiFLACSessionLaunchNotice() {
     val notice by SpotiFLACSessionNotice.notice.collectAsState()
@@ -764,10 +796,14 @@ private fun SpotiFLACSessionLaunchNotice() {
     // progress and the outcome survive the card being recomposed.
     val renewing by SpotiFLACSessionRecovery.running.collectAsState()
     val outcome by SpotiFLACSessionRecovery.outcome.collectAsState()
-    Box(
+    BoxWithConstraints(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.BottomCenter,
     ) {
+        // See the card's own doc: the cap is the window minus its clearance, and the clearance
+        // yields first because it is clearance for a player the card is covering anyway.
+        val clearance = minOf(SessionNoticeBannerClearance, maxHeight * 0.35f)
+        val cap = (maxHeight - clearance).coerceAtLeast(0.dp)
         Surface(
             shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -775,48 +811,65 @@ private fun SpotiFLACSessionLaunchNotice() {
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, bottom = 96.dp),
+                    .padding(start = 16.dp, end = 16.dp, bottom = clearance)
+                    .heightIn(max = cap),
         ) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Text(
-                    text = "SpotiFLAC sessions need attention",
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Text(
-                    text = current.body,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                // The outcome is drawn under the card's own line, not instead of it: a run that
-                // fixed some sources and not others has to leave both facts on screen, because the
-                // card is still the thing telling the user what is parked.
-                val status =
-                    when {
-                        renewing -> "Renewing sessions…"
-                        else -> outcome?.line
-                    }
-                if (status != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (renewing) {
-                            HushProgressSpinner(
-                                modifier = Modifier.height(16.dp).width(16.dp),
-                                strokeWidth = 2.dp,
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                Column(
+                    modifier =
+                        Modifier
+                            // `fill = false`: on every ordinary window this is the height of the two
+                            // lines of text and nothing moves, and only a card that has genuinely
+                            // run out of room takes the rest of it for the scroll.
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                ) {
+                    // Named for what the card is about rather than for the engine behind it. Hush
+                    // reads several repositories now - SpotiFLAC's own two, the BitChord module
+                    // index, and anything the user adds - and every one of those sources reaches
+                    // this card the same way, so "SpotiFLAC sessions need attention" described one
+                    // repository's sources with the name of another's engine. The sources
+                    // themselves are named in the body, with the repository each came from.
+                    Text(
+                        text = "Third-party sources need a check",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        text = current.body,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // The outcome is drawn under the card's own line, not instead of it: a run that
+                    // fixed some sources and not others has to leave both facts on screen, because the
+                    // card is still the thing telling the user what is parked.
+                    val status =
+                        when {
+                            renewing -> "Renewing sessions…"
+                            else -> outcome?.line
                         }
-                        Text(
-                            text = status,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    if (status != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (renewing) {
+                                HushProgressSpinner(
+                                    modifier = Modifier.height(16.dp).width(16.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(
+                                text = status,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
                     TextButton(onClick = { SpotiFLACSessionNotice.dismiss() }) {
-                        Text("Not now")
+                        Text(text = "Not now", maxLines = 1, softWrap = false)
                     }
                     TextButton(
                         enabled = !renewing,
@@ -833,7 +886,7 @@ private fun SpotiFLACSessionLaunchNotice() {
                             SpotiFLACSessionRecovery.renewAndCheck(context, reason = "launch-notice")
                         },
                     ) {
-                        Text("Renew session")
+                        Text(text = "Renew session", maxLines = 1, softWrap = false)
                     }
                 }
             }

@@ -56,17 +56,60 @@ object SpotiFLACMissPolicy {
      * How long a sweep that never finished is trusted - it timed out, so it proves
      * nothing about the providers. Deliberately much shorter: one slow network must not
      * take a track away from SpotiFLAC for hours.
+     *
+     * Minutes rather than half an hour, because of what the entry does to the *next* play: a miss is
+     * also what lets a cached YouTube stream answer without asking the first-ranked engine (see
+     * [app.hush.music.playback.PlaybackEngineOrder.cachedValueMayShortCircuit]), so a sweep cut off
+     * once used to send every replay of that track to YouTube for the next thirty minutes - while the
+     * third-party sources were still ranked first and the user could hear it. This window is only
+     * here to stop a burst of replays from re-paying for a walk that is already running; a few minutes
+     * is enough for that, and it is short enough that a track the engine *can* serve comes back to it
+     * on the next attempt rather than on the next session.
      */
-    const val UNFINISHED_SWEEP_RETENTION_MS = 30L * 60 * 1000L
+    const val UNFINISHED_SWEEP_RETENTION_MS = 2L * 60 * 1000L
+
+    /**
+     * How long a sweep that came up empty is trusted once the track has *played* anyway.
+     *
+     * The unfinished retainer above is short because a sweep cut off once proves nothing about the
+     * providers - but a sweep that ended in the track playing from YouTube is a different record: the
+     * walk was paid for and the audio is on the device, so replaying it only re-asks a question that
+     * has an answer. Measured on the reporting device, every replay of such a track walked all sources
+     * from the first to the last again, while the same track served by the third-party engine started
+     * instantly from its cached file.
+     *
+     * Thirty minutes is long enough to cover a listening session - which is when a replay happens -
+     * and short enough that a provider outage or a bad network is re-tested within the same session
+     * rather than for the rest of the day. A wild change to the walk (a source enabled, a source
+     * verified, the quality changed) invalidates it through the context fingerprint, exactly as it
+     * does for the other reasons.
+     */
+    const val FALLBACK_RETENTION_MS = 30L * 60 * 1000L
 
     /** Upper bound on the memo, so it cannot grow with listening history. */
     const val MAX_ENTRIES = 500
 
     const val REASON_NO_MATCH = "no-match"
     const val REASON_SWEEP_UNFINISHED = "sweep-unfinished"
+    const val REASON_YOUTUBE_FALLBACK = "youtube-fallback"
 
     fun retentionFor(reason: String): Long =
-        if (reason == REASON_NO_MATCH) NO_MATCH_RETENTION_MS else UNFINISHED_SWEEP_RETENTION_MS
+        when (reason) {
+            REASON_NO_MATCH -> NO_MATCH_RETENTION_MS
+            REASON_YOUTUBE_FALLBACK -> FALLBACK_RETENTION_MS
+            else -> UNFINISHED_SWEEP_RETENTION_MS
+        }
+
+    /**
+     * Whether a fallback record should replace what the sweep already left behind.
+     *
+     * A fallback record is an *upgrade*, never a downgrade: a definite catalogue verdict is a
+     * stronger statement than "the walk did not serve it this time", and shortening its retention to
+     * half an hour would throw away the better answer. `null` means nothing was recorded, which is the
+     * ordinary case for a sweep that ended in a timeout and left the memo empty.
+     */
+    fun shouldRecordFallback(existingRetentionMs: Long?): Boolean =
+        existingRetentionMs == null || existingRetentionMs < FALLBACK_RETENTION_MS
 
     /**
      * Which answer a finished sweep earns.
@@ -270,6 +313,32 @@ class SpotiFLACMissMemo
             }
             persist()
             SpotiFLACDiag.log("miss memo record mediaId=$mediaId reason=$reason retentionMs=$retention")
+        }
+
+        /**
+         * Records that the track went on to play from YouTube because the walk could not serve it.
+         *
+         * Only ever *upgrades* a record: a definite catalogue verdict
+         * ([SpotiFLACMissPolicy.REASON_NO_MATCH], trusted for hours) is a stronger statement than
+         * "the walk did not serve it this time", so overwriting it would throw away the better
+         * answer.
+         * See [SpotiFLACMissPolicy.FALLBACK_RETENTION_MS] for why this one lives for half an hour.
+         */
+        fun recordYoutubeFallback(
+            mediaId: String,
+            context: String,
+            nowMs: Long = System.currentTimeMillis(),
+        ) {
+            if (mediaId.isBlank()) return
+            ensureLoaded()
+            val existing = entry(mediaId, context, nowMs)
+            if (!SpotiFLACMissPolicy.shouldRecordFallback(existing?.retentionMs)) return
+            record(
+                mediaId = mediaId,
+                context = context,
+                reason = SpotiFLACMissPolicy.REASON_YOUTUBE_FALLBACK,
+                nowMs = nowMs,
+            )
         }
 
         /** Forgets one track, used as soon as a sweep actually succeeds. */

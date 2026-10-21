@@ -17,8 +17,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Downloads and stores only registry packages whose HTTPS URL and SHA-256 digest
- * validate. Packages are kept as data; Hush does not execute downloaded JS.
+ * Downloads and stores registry packages, matching the digest their registry published when it
+ * published one.
+ *
+ * A package whose entry declares no `sha256` is stored too, with the hash it actually had: several
+ * registries publish none, upstream installs them, and refusing them only produced sources that
+ * looked installable and never worked (see [ExtensionSource.isRuntimeCompatible]). What is still
+ * checked for every package is its shape - manifest, entry point, safe paths, size - and a digest
+ * that is *declared* is always enforced.
  */
 @Singleton
 class SpotiFLACExtensionPackageStore @Inject constructor(
@@ -40,8 +46,12 @@ class SpotiFLACExtensionPackageStore @Inject constructor(
                 require(url.startsWith("https://", ignoreCase = true)) {
                     "Extension package URL must use HTTPS"
                 }
-                val digest = requireNotNull(source.sha256?.trim()) { "Extension package digest is missing" }
-                require(digest.matches(Regex("[0-9a-fA-F]{64}"))) { "Extension package digest is invalid" }
+                // No digest is not a refusal: see SpotiFLACExtensionPackageVerifier.verify. A digest
+                // that is present and malformed is, because that registry meant to pin the package.
+                val digest = source.sha256?.trim().orEmpty()
+                require(digest.isEmpty() || digest.matches(Regex("[0-9a-fA-F]{64}"))) {
+                    "Extension package digest is invalid"
+                }
 
                 val request = Request.Builder()
                     .url(url)

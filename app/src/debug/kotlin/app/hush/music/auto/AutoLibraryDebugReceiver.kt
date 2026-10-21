@@ -25,6 +25,7 @@ import app.hush.music.constants.AndroidAutoSpotifyPlaylistsKey
 import app.hush.music.constants.AndroidAutoTargetPlaylistKey
 import app.hush.music.constants.AndroidAutoYouTubePlaylistsKey
 import app.hush.music.constants.MediaSessionConstants
+import app.hush.music.constants.SpotiFLACEnabledDefault
 import app.hush.music.constants.SpotiFLACEnabledKey
 import app.hush.music.constants.SpotiFLACLosslessNudgeHandledKey
 import app.hush.music.playback.AndroidAutoPlaylists
@@ -348,7 +349,7 @@ class AutoLibraryDebugReceiver : BroadcastReceiver() {
         // report of a result with no cause.
         val runtimeAvailable =
             SpotiFLACNativeRuntimeBridgeHolder.instance?.isRuntimeAvailable == true
-        val spotiflacEnabled = prefs[SpotiFLACEnabledKey] == true
+        val spotiflacEnabled = prefs[SpotiFLACEnabledKey] ?: SpotiFLACEnabledDefault
         val offerDismissed = prefs[SpotiFLACLosslessNudgeHandledKey] == true
         val lowDataMode = context.isLowDataModeActive()
         return listOf(

@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.cos
 
 /**
  * Motion that survives a device with its animations turned off.
@@ -43,6 +44,9 @@ import androidx.compose.ui.unit.dp
  * user set. Everything here is built on it: a value from [rememberFramePhase] advances at the same
  * speed whether the system animates or not.
  */
+/** One full turn, as radians. `2 * PI` is not a compile-time constant, so it lives here. */
+private const val TWO_PI_F = 6.2831853f
+
 object IndeterminateMotion {
 
     /** One turn of an indeterminate ring. Slow enough to read as "busy", quick enough to notice. */
@@ -53,6 +57,25 @@ object IndeterminateMotion {
 
     /** Pointer sweep of the linear loader, as a fraction of the track. */
     const val BAR_SWEEP_FRACTION = 0.34f
+
+    /**
+     * How long the first bar of an equalizer indicator takes to rise and fall.
+     *
+     * One turn is one rise and one fall, so a bar is a dot, is at its tallest and is a dot again
+     * inside a second. Shared by everywhere the app draws the equalizer - the player's NOW PLAYING
+     * pill and the playing row of a list - so the two cannot drift into looking like two different
+     * indicators.
+     */
+    const val EQUALIZER_PERIOD_MILLIS = 900L
+
+    /**
+     * How much slower each bar after the first turns.
+     *
+     * A stagger that divided the period evenly would put every bar back in step at the end of each
+     * turn, and one bar's climb beside another's descent reads as a single shape pumping rather than
+     * as a meter; an odd stagger keeps the bars apart for as long as the loop runs.
+     */
+    const val EQUALIZER_STAGGER_MILLIS = 160L
 
     /**
      * Where a looping value sits after this long, as a fraction of its period.
@@ -74,6 +97,27 @@ object IndeterminateMotion {
     /** Where an indeterminate ring's arc starts, in degrees, always inside 0 until 360. */
     fun ringDegrees(elapsedMillis: Long, offsetMillis: Long = 0L): Float =
         fraction(elapsedMillis, RING_PERIOD_MILLIS, offsetMillis) * 360f
+
+    /** The period of bar [index] of an equalizer indicator. */
+    fun equalizerPeriodMillis(index: Int): Long =
+        EQUALIZER_PERIOD_MILLIS + EQUALIZER_STAGGER_MILLIS * index.coerceAtLeast(0)
+
+    /**
+     * How far up an equalizer bar stands at [phase], as 0 until 1 of its travel.
+     *
+     * A raised cosine rather than a sine: 0 at both ends of the turn and 1 halfway through it. A
+     * sine would begin - and end - mid-slope, so a bar that starts life as a resting dot would jump
+     * to half height on its first frame and snap back there every time the loop came round. This one
+     * leaves the dot, reaches the top and settles back onto the dot, for as long as the music plays.
+     *
+     * Total like [fraction]: a phase from a clock that ran far past its period, or one that went
+     * backwards, still lands inside the travel, so no caller has to guard it and no frame can put a
+     * bar off its own box.
+     */
+    fun equalizerBarRise(phase: Float): Float {
+        val turned = phase.mod(1f)
+        return (0.5f * (1f - cos(TWO_PI_F * turned))).coerceIn(0f, 1f)
+    }
 
     /**
      * How much of a pull-to-refresh ring to draw, or null for nothing at all.

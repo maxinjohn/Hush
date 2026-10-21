@@ -117,17 +117,27 @@ import app.hush.music.ui.screens.settings.UpdateScreen
 import app.hush.music.ui.utils.ShowMediaInfo
 import app.hush.music.utils.rememberEnumPreference
 import app.hush.music.utils.rememberPreference
+import app.hush.music.viewmodels.HomeViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
+/**
+ * @param homeViewModel the shell's own Home view model, handed to the Home destination rather than
+ *   created again inside it. Two instances meant two of everything a home feed costs - two
+ *   `YouTube.home()` calls, two sets of library queries, two fan-outs of similar recommendations - on
+ *   every launch, and the one *drawn* was the second: it was created when the destination composed,
+ *   so the feed started from work the shell had already done and thrown away. Measured on the test
+ *   device: the rendered feed's own quick picks arrived ~700 ms later than the shell's.
+ */
 fun NavGraphBuilder.navigationBuilder(
     navController: NavHostController,
     scrollBehavior: TopAppBarScrollBehavior,
     latestVersionName: () -> String,
+    homeViewModel: HomeViewModel,
     disableAnimations: Boolean = false,
     onClearUpdateBadge: () -> Unit = {},
 ) {
     composable(Screens.ROUTE_HOME) {
-        HomeScreen(navController)
+        HomeScreen(navController, viewModel = homeViewModel)
     }
     composable(
         Screens.ROUTE_LIBRARY,

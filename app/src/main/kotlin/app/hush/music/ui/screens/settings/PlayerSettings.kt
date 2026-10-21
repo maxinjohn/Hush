@@ -305,18 +305,10 @@ fun PlayerSettings(
         )
 
         PreferenceGroup(title = stringResource(R.string.audio_source)) {
-            // First in Playback, because it decides what plays at all - the rest of this
-            // screen configures how playback behaves once a source has answered.
-            // (The entry that used to open this screen is gone; this is now the only one.)
-            item {
-                PreferenceEntry(
-                    title = { Text(stringResource(R.string.audio_sources_title)) },
-                    description = stringResource(R.string.audio_sources_subtitle),
-                    icon = { Icon(painterResource(R.drawable.integration), null) },
-                    onClick = { navController.navigate("settings/player/audio_sources") },
-                )
-            }
-
+            // Audio Sources - which sources are enabled, in what order, and whether to fall back
+            // to YouTube - is a top-level entry in Settings now, the row after Appearance. What
+            // stays here is the stream source: which YouTube client the audio is fetched through,
+            // which is how playback is configured rather than what it plays from.
             item {
                 PreferenceEntry(
                     title = { Text(stringResource(R.string.stream_sources_and_client)) },

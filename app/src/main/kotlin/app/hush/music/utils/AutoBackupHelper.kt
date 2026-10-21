@@ -326,8 +326,14 @@ object AutoBackupHelper {
         hour: Int,
         minute: Int,
         dayOfWeek: Int? = null,
+    ): Long = calculateInitialDelayMillisFrom(hour = hour, minute = minute, dayOfWeek = dayOfWeek, now = LocalDateTime.now())
+
+    fun calculateInitialDelayMillisFrom(
+        hour: Int,
+        minute: Int,
+        dayOfWeek: Int?,
+        now: LocalDateTime,
     ): Long {
-        val now = LocalDateTime.now()
         var target =
             now
                 .withHour(hour.coerceIn(0, 23))
@@ -343,6 +349,96 @@ object AutoBackupHelper {
             target = target.plusDays(1)
         }
         return java.time.Duration.between(now, target).toMillis().coerceAtLeast(0L)
+    }
+
+    /**
+     * The instant the schedule last came due at or before [now], or null when nothing is
+     * scheduled. Weekly walks backwards from today's [hour]:[minute] until it lands on
+     * [dayOfWeek], so a backup due at 02:00 last Tuesday is still "last due" on Thursday.
+     */
+    fun lastScheduledDueTime(
+        frequency: AutoBackupFrequency,
+        hour: Int,
+        minute: Int,
+        dayOfWeek: Int,
+        now: LocalDateTime,
+    ): LocalDateTime? {
+        val todayAt =
+            now
+                .withHour(hour.coerceIn(0, 23))
+                .withMinute(minute.coerceIn(0, 59))
+                .withSecond(0)
+                .withNano(0)
+        return when (frequency) {
+            AutoBackupFrequency.DAILY -> if (todayAt.isAfter(now)) todayAt.minusDays(1) else todayAt
+            AutoBackupFrequency.WEEKLY -> {
+                val normalizedDay = dayOfWeek.coerceIn(1, 7)
+                var candidate = todayAt
+                while (candidate.dayOfWeek.value != normalizedDay || candidate.isAfter(now)) {
+                    candidate = candidate.minusDays(1)
+                }
+                candidate
+            }
+            AutoBackupFrequency.OFF -> null
+        }
+    }
+
+    /**
+     * Whether the scheduled backup came due at [dueAt] without a backup being written since.
+     * A null [lastBackupAtMillis] means none has ever been kept on this device, which is as
+     * overdue as it gets.
+     */
+    fun isScheduledBackupDue(
+        lastBackupAtMillis: Long?,
+        dueAt: LocalDateTime,
+        zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    ): Boolean =
+        lastBackupAtMillis == null ||
+            lastBackupAtMillis < dueAt.atZone(zone).toInstant().toEpochMilli()
+
+    /** When the newest scheduled backup of [backupType] was written, or null if none exists. */
+    fun lastScheduledBackupAt(
+        context: Context,
+        backupType: String,
+    ): Long? =
+        getAutoBackups(context)
+            .filter { file -> file.name.startsWith("auto_backup_${backupType}_") }
+            .maxOfOrNull { file -> file.lastModified() }
+
+    /**
+     * Runs the scheduled backup now when the schedule is already overdue.
+     *
+     * WorkManager is best-effort: a periodic worker fires when the OS decides it may, and a
+     * device that was off, dozing, or low on battery at the scheduled minute simply skipped its
+     * backup - which the next period then treated as nothing to do. Opening the app is the one
+     * moment the user and the storage are both present, so the missed slot is settled here, in
+     * the background and without any UI. Returns true when a backup was written.
+     */
+    fun runMissedScheduledBackupIfDue(
+        context: Context,
+        enabled: Boolean,
+        frequency: AutoBackupFrequency,
+        hour: Int,
+        minute: Int,
+        dayOfWeek: Int,
+    ): Boolean {
+        if (!enabled || frequency == AutoBackupFrequency.OFF) return false
+        val backupType =
+            when (frequency) {
+                AutoBackupFrequency.DAILY -> "daily"
+                AutoBackupFrequency.WEEKLY -> "weekly"
+                AutoBackupFrequency.OFF -> return false
+            }
+        val dueAt =
+            lastScheduledDueTime(frequency, hour, minute, dayOfWeek, LocalDateTime.now())
+                ?: return false
+        if (!isScheduledBackupDue(lastScheduledBackupAt(context, backupType), dueAt)) return false
+        Timber.tag("AutoBackup").i(
+            "Scheduled %s backup was missed (due %s); running it now",
+            backupType,
+            dueAt,
+        )
+        return performBackup(context, backupType)
     }
 
     fun updateScheduledBackupWork(

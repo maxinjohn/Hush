@@ -115,6 +115,13 @@ fun HomeScreen(
     val uiState = successState?.uiState
     val selectedChip = uiState?.selectedChip
 
+    // When the feed itself is on the screen, as opposed to when the window was drawn.
+    LaunchedEffect(uiState != null) {
+        if (uiState != null) {
+            app.hush.music.utils.StartupMark.mark("home feed on screen")
+        }
+    }
+
     LaunchedEffect(uiState?.homePage?.continuation) {
         val continuation = uiState?.homePage?.continuation ?: return@LaunchedEffect
         snapshotFlow {
@@ -144,6 +151,10 @@ fun HomeScreen(
         if (uiState?.showCategoryChips == false && selectedChip != null) {
             viewModel.onAction(HomeAction.SelectChip(selectedChip))
         }
+    }
+
+    LaunchedEffect(Unit) {
+        app.hush.music.utils.StartupMark.mark("home screen composed")
     }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -287,6 +298,10 @@ private fun HomeContent(
     onAction: (HomeAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    LaunchedEffect(Unit) {
+        app.hush.music.utils.StartupMark.mark("home feed content composed")
+    }
+
     val tonalStart = MaterialTheme.colorScheme.primaryContainer
     val tonalMiddle = MaterialTheme.colorScheme.secondaryContainer
     Box(modifier = modifier.fillMaxSize()) {

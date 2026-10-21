@@ -138,4 +138,56 @@ class SpotiFLACExtensionCheckReportTest {
             )!!.endsWith("· from zarzet"),
         )
     }
+
+    /**
+     * The line that follows a source row which already names its repository.
+     *
+     * Measured on the device before this was pinned: every source row printed its repository twice,
+     * and once a repository had been switched off - which moves a source to the other registry - the
+     * two copies disagreed (`From spotiflacapp/spotiflac-ext…` above `Checked 8 min ago · from
+     * zarzet`). One row, two repositories, and no way to tell which one to switch off.
+     */
+    @Test
+    fun `a row that names its repository elsewhere does not name it again`() {
+        val forRow = { check: SpotiFLACExtensionCheck?, registry: String? ->
+            SpotiFLACExtensionCheckReport.line(
+                check = check,
+                registry = registry,
+                nowMs = 1_000_000L + 2 * 3_600_000L,
+                namesRepository = false,
+            )
+        }
+        assertEquals("Checked 2 h ago", forRow(checked, "spotiflacapp"))
+        assertEquals(
+            "Updated 2 h ago",
+            forRow(checked.copy(outcome = SpotiFLACExtensionCheck.Outcome.UPDATED), "zarzet"),
+        )
+        assertEquals(
+            "Check failed 2 h ago",
+            forRow(checked.copy(outcome = SpotiFLACExtensionCheck.Outcome.FAILED, detail = null), null),
+        )
+        // The reason is not an origin, so a failure that has one still says it.
+        assertEquals(
+            "Check failed 2 h ago: HTTP 403",
+            forRow(
+                checked.copy(
+                    outcome = SpotiFLACExtensionCheck.Outcome.FAILED,
+                    detail = "HTTP 403",
+                ),
+                "zarzet",
+            ),
+        )
+        // And a source nothing has looked at still says so rather than going silent.
+        assertEquals("Not checked yet", forRow(null, "spotiflacapp"))
+        // The stored record that disagrees with the live merge is exactly what must not be printed:
+        // with the flag on, it wins - which is the row this test exists to keep off the screen.
+        assertEquals(
+            "Checked 2 h ago · from spotiflacapp",
+            SpotiFLACExtensionCheckReport.line(
+                check = checked,
+                registry = "spotiflacapp",
+                nowMs = 1_000_000L + 2 * 3_600_000L,
+            ),
+        )
+    }
 }

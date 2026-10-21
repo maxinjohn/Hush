@@ -133,4 +133,58 @@ class FrameDrivenMotionTest {
                 IndeterminateMotion.refreshRingStartDegrees(0.4f, true),
         )
     }
+
+    /**
+     * The app's playing indicators are one rule, and no two bars of them share a clock.
+     *
+     * Measured on the reporting device: `animator_duration_scale = 0`, so the pill's bars - a
+     * `rememberInfiniteTransition` with a sine on it - were drawn once and held as three still lines
+     * for the whole track. The replacement is only motion if the bars turn at all, and only a meter
+     * if they turn out of step.
+     */
+    @Test
+    fun `every equalizer bar turns on its own clock`() {
+        val periods = (0 until 3).map(IndeterminateMotion::equalizerPeriodMillis)
+        assertEquals(3, periods.distinct().size)
+        assertTrue(periods.zipWithNext().all { (first, next) -> next > first })
+        assertTrue(periods.all { it > 0L })
+        // A caller whose index is zero or negative still gets a period it can count on.
+        assertTrue(IndeterminateMotion.equalizerPeriodMillis(0) > 0L)
+        assertTrue(IndeterminateMotion.equalizerPeriodMillis(-4) > 0L)
+    }
+
+    /**
+     * A bar leaves its dot, reaches the top and comes back to the dot.
+     *
+     * The paused pill already stands on three dots, so the travelling bar has to start there: a sine
+     * would begin at half height and the first frame of playback would be a jump.
+     */
+    @Test
+    fun `an equalizer bar rises from its dot and returns to it`() {
+        assertEquals(0f, IndeterminateMotion.equalizerBarRise(0f), 0.0001f)
+        assertEquals(1f, IndeterminateMotion.equalizerBarRise(0.5f), 0.0001f)
+        assertEquals(0.5f, IndeterminateMotion.equalizerBarRise(0.25f), 0.0001f)
+        // Past the top it is on its way back down, not climbing again.
+        assertTrue(IndeterminateMotion.equalizerBarRise(0.9f) < IndeterminateMotion.equalizerBarRise(0.5f))
+    }
+
+    /** The loop has to be seamless: the frame the phase wraps is not a jump. */
+    @Test
+    fun `an equalizer bar is back on its dot at the end of a turn`() {
+        assertEquals(0f, IndeterminateMotion.equalizerBarRise(1f), 0.0001f)
+        assertEquals(0f, IndeterminateMotion.equalizerBarRise(2f), 0.0001f)
+        assertEquals(0f, IndeterminateMotion.equalizerBarRise(0.9999f), 0.001f)
+    }
+
+    /** Whatever the clock did, a bar stays inside its travel: never a negative or oversized height. */
+    @Test
+    fun `an equalizer bar never leaves its travel`() {
+        (0..1000).forEach { step ->
+            val rise = IndeterminateMotion.equalizerBarRise(step / 1000f)
+            assertTrue("rise=$rise at step=$step", rise >= 0f && rise <= 1f)
+        }
+        // A phase from a clock that ran far past its period, and one that went backwards.
+        assertTrue(IndeterminateMotion.equalizerBarRise(4137.42f) in 0f..1f)
+        assertTrue(IndeterminateMotion.equalizerBarRise(-0.3f) in 0f..1f)
+    }
 }

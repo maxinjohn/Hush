@@ -14,10 +14,12 @@ import android.os.Build
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import androidx.compose.ui.semantics.AccessibilityAction
 import androidx.compose.ui.semantics.SemanticsConfiguration
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsOwner
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
 import app.hush.music.BuildConfig
 import java.io.File
 import java.lang.reflect.Method
@@ -432,7 +434,17 @@ class SemanticsProbeReceiver : BroadcastReceiver() {
     ): Boolean {
         if (into.size >= MAX_NODES) return false
         val bounds = node.boundsInRoot
-        val described = describe(node.config)
+        // The label's fit is asked of the node that *owns* the words, and only of a node that was
+        // drawn: see describe() for what asking a merging ancestor answers instead, and what a box
+        // with no size in it would answer. That node is in the unmerged tree - the merged one has
+        // folded it into its parent - and it is the only place the question has an answer that can
+        // be trusted, so this is the one measurement the two trees are not both asked.
+        val drawn = bounds.width > 0f && bounds.height > 0f
+        val described = describe(
+            node.config,
+            measureTextFit = !merged && drawn && !node.config.isMergingSemanticsOfDescendants,
+            boxWidth = bounds.width.toInt(),
+        )
         into += SemanticsProbeNode(
             merged = merged,
             id = node.id,
@@ -441,9 +453,11 @@ class SemanticsProbeReceiver : BroadcastReceiver() {
             top = (bounds.top + offsetY).toInt(),
             right = (bounds.right + offsetX).toInt(),
             bottom = (bounds.bottom + offsetY).toInt(),
-            text = described.first,
-            keys = described.second,
-            clickable = described.third,
+            text = described.text,
+            keys = described.keys,
+            clickable = described.clickable,
+            textFit = described.textFit,
+            fitNote = described.fitNote,
         )
         // Only the merged tree is asked this: it is the one the bridge publishes from, and reading
         // two trees' internals would double the cost of the cheapest useful answer.
@@ -457,16 +471,44 @@ class SemanticsProbeReceiver : BroadcastReceiver() {
         return true
     }
 
+    /** A node's own words, the semantics it carries, and what became of its label. */
+    private data class Described(
+        val text: String,
+        val keys: String,
+        val clickable: Boolean,
+        val textFit: TextFit,
+        val fitNote: String = "",
+    )
+
     /**
      * A node's own words and the semantics it carries.
      *
      * Read off the configuration's entries rather than through typed getters, because the probe has
      * to name *whatever* a node carries - a node whose only semantics is a scroll action is exactly
-     * the evidence that a list is present, and a probe that only looked for text would miss it.
+     * the evidence that a list is present, and a probe that only looked for text would miss it. The
+     * label's fit is read here too, in the same pass over the entries.
+     *
+     * [measureTextFit] is passed true for the nodes that own words and nothing else, because asking
+     * anyone else reads the wrong layout. Measured at a 1920x720dp window at font scale 2.0: 41 of
+     * the 53 labels the merged tree offered came back "did not fit the width", and not one of them
+     * was: the first was a navigation rail's "Home", drawn complete in the capture in a 273px box
+     * holding 267px of glyphs. The rail item is a merging node, and the merged configuration hands
+     * back a layout that is not the label's own in the label's own box - it can be one of the
+     * unplaced copies of the words that a card keeps around (a box of 0x0 reports every label wider
+     * than it), which is why a node with no size is not asked either. The label itself is one node
+     * deeper, where merging has not folded it away, with its own box and its own action - so that is
+     * where the question is put, and a node that merges its children, or was never drawn, is never
+     * asked at all.
      */
-    private fun describe(config: SemanticsConfiguration): Triple<String, String, Boolean> {
+    private fun describe(
+        config: SemanticsConfiguration,
+        measureTextFit: Boolean,
+        boxWidth: Int = 0,
+    ): Described {
         var text = ""
         var clickable = false
+        var fit = TextFit.NOT_MEASURED
+        var note = ""
         val keys = mutableListOf<String>()
         for ((key, value) in config) {
             when (key.name) {
@@ -476,8 +518,106 @@ class SemanticsProbeReceiver : BroadcastReceiver() {
                 "OnClick" -> clickable = true
                 else -> keys += key.name
             }
+            if (measureTextFit && key.name == GET_TEXT_LAYOUT_RESULT) {
+                val (verdict, detail) = textFit(value, boxWidth)
+                fit = verdict
+                note = detail
+            }
         }
-        return Triple(text, keys.joinToString("|"), clickable)
+        return Described(
+            text = text,
+            keys = keys.joinToString("|"),
+            clickable = clickable,
+            // A node with no words of its own has no label to have clipped: the action it may carry
+            // belongs to whatever text is somewhere else in its subtree.
+            textFit = if (text.isEmpty()) TextFit.NOT_MEASURED else fit,
+            fitNote = if (text.isEmpty()) "" else note,
+        )
+    }
+
+    /**
+     * What Compose's own layout says became of a label, or [TextFit.NOT_MEASURED] when it cannot say.
+     *
+     * `GetTextLayoutResult` is the action the tree already advertises for exactly this question - it
+     * is how a screen reader reads the words back - and it hands back the layout the app drew from,
+     * so the one thing the tree's geometry cannot show is available in the node that has it. [TextFit]
+     * has why the width and not the overall overflow is the question, and why an ellipsis is
+     * separated from a silent clip.
+     *
+     * Silent on every failure - the value may be a different shape in another Compose version, or the
+     * node may have no layout to hand - because a probe that guessed would report clipped labels that
+     * are not clipped, and the caller can tell "not measured" from "fits" by the count it prints.
+     */
+    private fun textFit(value: Any?, boxWidth: Int): Pair<TextFit, String> {
+        // The stored value is the action; some versions hand over its lambda directly.
+        val action = (value as? AccessibilityAction<*>)?.action ?: value
+        @Suppress("UNCHECKED_CAST")
+        val invoke = action as? (MutableList<TextLayoutResult>) -> Boolean
+            ?: return TextFit.NOT_MEASURED to ""
+        val results = mutableListOf<TextLayoutResult>()
+        val answered = runCatching { invoke(results) }.getOrNull() == true
+        val layout = if (answered) results.firstOrNull() else null
+        if (layout == null) return TextFit.NOT_MEASURED to ""
+        // The witness is the words needing more width than the layout was given, asked only of a
+        // label the app has declared must hold one line - never `didOverflowWidth`, which is the
+        // flag that reads like this answer and is true of every label not pinned to its exact width;
+        // [TextFit] and `SemanticsProbeReport.textFitOf` carry the measurements that say so.
+        //
+        // `maxIntrinsicWidth` is what the words need on one line, and it is the number to want: a
+        // cut line's own width reads back clamped to the width it was broken to - a clock pinned
+        // back to 30dp reported its cut line at exactly the width it was given - while the intrinsic
+        // width is not clamped by anything.
+        val ellipsized = (0 until layout.lineCount).any { layout.isLineEllipsized(it) }
+        val verdict =
+            SemanticsProbeReport.textFitOf(
+                ellipsized = ellipsized,
+                cannotWrap = layout.layoutInput.maxLines == 1 || !layout.layoutInput.softWrap,
+                needed = layout.multiParagraph.maxIntrinsicWidth,
+                given = layout.size.width.toFloat(),
+            )
+        // The numbers are printed only where something was lost, so the report stays readable and a
+        // failure explains itself on the line it happened on.
+        val note = if (verdict == TextFit.FITS) "" else diagnose(layout, boxWidth, results.size, ellipsized)
+        return verdict to note
+    }
+
+    /**
+     * The numbers behind one label's verdict: what it was given to draw into, what its words need,
+     * how many lines and characters it holds, and whether it ends in an ellipsis. Printed only for a
+     * label that lost something, so the report stays readable while a failure explains itself where
+     * it happened.
+     */
+    private fun diagnose(
+        layout: TextLayoutResult,
+        boxWidth: Int,
+        layouts: Int,
+        ellipsized: Boolean,
+    ): String {
+        val paragraph = layout.multiParagraph
+        return buildString {
+            append("box=")
+            append(boxWidth)
+            append(" drew=")
+            append(layout.size.width)
+            append("x")
+            append(layout.size.height)
+            append(" needs=")
+            append((paragraph.maxIntrinsicWidth + 0.5f).toInt())
+            append(" lines=")
+            append(paragraph.lineCount)
+            append(" maxLines=")
+            append(layout.layoutInput.maxLines)
+            append(" wrap=")
+            append(layout.layoutInput.softWrap)
+            append(" overflow=")
+            append(layout.layoutInput.overflow)
+            append(" ellipsized=")
+            append(ellipsized)
+            append(" chars=")
+            append(layout.layoutInput.text.length)
+            append(" layouts=")
+            append(layouts)
+        }
     }
 
     private fun textOf(value: Any?): String =
@@ -517,6 +657,10 @@ class SemanticsProbeReceiver : BroadcastReceiver() {
         lines += "content (top < $boundary): merged=${snapshot.contentMerged} unmerged=${snapshot.contentUnmerged}"
         lines += "bars (top >= $boundary): merged=${snapshot.mergedTotal - snapshot.contentMerged} " +
             "unmerged=${snapshot.unmergedTotal - snapshot.contentUnmerged}"
+        // Said here, beside the counts, rather than only in the node sample: a clipped label is the
+        // one fault this report can see that the geometry cannot, and it must be a fact in the
+        // report even when the sampled nodes are not the clipped ones.
+        lines += SemanticsProbeReport.textFitLine(snapshot.nodes)
         lines += "merged y bands: ${SemanticsProbeReport.bandLine(snapshot.nodes.filter { it.merged }, screen.first)}"
         lines += "unmerged y bands: ${SemanticsProbeReport.bandLine(snapshot.nodes.filterNot { it.merged }, screen.first)}"
         // The cap is the caller's, because which nodes matter depends on the question: a screen whose
@@ -804,7 +948,17 @@ class SemanticsProbeReceiver : BroadcastReceiver() {
         /** Default node sample for a window besides the activity's: a menu is short. */
         private const val POPUP_SAMPLE_LIMIT = 40
 
-        private const val BAR_SAMPLE_LIMIT = 10
+        /**
+         * Node sample for the region below the boundary. Not a handful: the boundary is a guess at
+         * where the platform's bars begin, and an app's own controls can legitimately sit under it.
+         * Measured on device at a 640x960dp window: the player's action row (Share, Liked, Download,
+         * Shuffle, Repeat, the overflow menu) is drawn at ~823dp, below the 778dp boundary, so the
+         * old cap of 10 dropped the whole row from the report - a row the size sweep then reported as
+         * "not drawn as one row at this size" while it was on screen the whole time. The cap is here
+         * to keep the report readable, not to decide what exists, so it is the same 40 the window
+         * sample uses and the caller's own limit is the one that matters above the boundary.
+         */
+        private const val BAR_SAMPLE_LIMIT = 40
 
         /** The accessor Compose's view hosts expose. Public on the class, internal to Kotlin. */
         private const val SEMANTICS_OWNER_METHOD = "getSemanticsOwner"
@@ -835,6 +989,9 @@ class SemanticsProbeReceiver : BroadcastReceiver() {
 
         /** Compose's own test hook for building the platform tree without a screen reader attached. */
         private const val FORCE_A11Y_METHOD = "forceAccessibilityForTesting"
+
+        /** The semantics action that answers what became of a label inside the box it was given. */
+        private const val GET_TEXT_LAYOUT_RESULT = "GetTextLayoutResult"
 
         /** A tree this large is not a screen; the walk stops rather than holding the receiver open. */
         private const val MAX_NODES = 4_000

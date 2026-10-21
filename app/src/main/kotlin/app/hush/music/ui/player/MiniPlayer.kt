@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -48,7 +49,8 @@ import kotlinx.coroutines.withContext
 import app.hush.music.LocalPlayerConnection
 import app.hush.music.constants.MiniPlayerBackgroundStyle
 import app.hush.music.constants.MiniPlayerBackgroundStyleKey
-import app.hush.music.constants.MiniPlayerHeight
+import app.hush.music.LocalMiniPlayerHeight
+import app.hush.music.ui.theme.LocalMiniPlayerAnatomy
 import app.hush.music.constants.PlayerDesignStyle
 import app.hush.music.constants.SwipeSensitivityKey
 import app.hush.music.constants.rememberPlayerDesignStyle
@@ -224,11 +226,20 @@ private fun NewMiniPlayer(
         pureBlack = pureBlack,
         useLegacyBackground = false,
     ) { swipeOffset ->
+        // The pill's height is the one the app published for this font scale, not the design's
+        // constant: at a large text size two lines need more than 64dp and the pill used to clip the
+        // artist line rather than grow. See [app.hush.music.constants.rememberMiniPlayerHeight].
+        val pillHeight = LocalMiniPlayerHeight.current
+        // How far the pill is inset from the window's edges. Hush draws it the width of the window
+        // and three of its four parents inset theirs 12dp, which is the difference a BitChord or
+        // Metrolist screen shows at the bottom before a single colour is considered.
+        val horizontalInset = LocalMiniPlayerAnatomy.current.horizontalInset
         Box(
             modifier =
                 Modifier
+                    .padding(horizontal = horizontalInset)
                     .fillMaxWidth()
-                    .height(MiniPlayerHeight)
+                    .height(pillHeight)
                     // Drawn, not placed: a swipe moves this on every pointer sample, and the offset
                     // is read inside the layer block so that costs a redraw of the mini player
                     // rather than a recomposition of it and its content.
@@ -247,7 +258,7 @@ private fun NewMiniPlayer(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .clip(RoundedCornerShape(MiniPlayerHeight / 2)),
+                        .clip(RoundedCornerShape(pillHeight / 2)),
             ) {
                 MiniPlayerBackground(
                     style = effectiveBackgroundStyle,
@@ -371,7 +382,7 @@ private fun AuraPillInnerRim(
                 // one 2dp rim (outer 1dp + inner 1dp) and the clipped top edge still gets 1dp.
                 width = 1.dp,
                 color = accent.copy(alpha = 0.65f * breath),
-                shape = RoundedCornerShape(MiniPlayerHeight / 2),
+                shape = RoundedCornerShape(LocalMiniPlayerHeight.current / 2),
             ),
     )
 }
@@ -446,7 +457,7 @@ private fun MiniPlayerBackground(
                 modifier =
                     modifier
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f))
-                        .border(width = 0.5.dp, color = borderColor, shape = RoundedCornerShape(MiniPlayerHeight / 2)),
+                        .border(width = 0.5.dp, color = borderColor, shape = RoundedCornerShape(LocalMiniPlayerHeight.current / 2)),
             )
         }
 

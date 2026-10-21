@@ -14,6 +14,17 @@ package app.hush.music.utils
 data class PlaybackDownloadProgress(
     val mediaId: String,
     val sourceId: String? = null,
+    /**
+     * The source's name as the user reads it, with the repository it came from.
+     *
+     * [sourceId] is the registry's identifier (`ytmusic-spotiflac`, or a namespaced module id such
+     * as `bitchord-streaming-modules:bitchord-tidal-flac`), and it is what every consumer of the
+     * progress signal matched on. It is *not* what a listener can read, so the human name is
+     * resolved once by the publisher - which is the only place that holds both the live source list
+     * and the repository rows - rather than by each surface that draws it. Null when the publishing
+     * path does not know the list yet, and the reader falls back to [sourceId].
+     */
+    val sourceLabel: String? = null,
     val percent: Int = 0,
     val bytesReceived: Long = 0L,
     val bytesTotal: Long = 0L,
@@ -22,7 +33,27 @@ data class PlaybackDownloadProgress(
     val status: String? = null,
     /** True once the track is playing from the SpotiFLAC cache instead of a download. */
     val fromCache: Boolean = false,
+    /**
+     * Where in the sweep's walk this attempt is, 1-based, and how many the walk holds.
+     *
+     * The walk is the user's own Audio Sources order, and a line that names the source being tried
+     * without saying how many are behind it is the same sentence for a one-source sweep and a
+     * seven-source one - measured on the device as `Fetching from gglos…` held for the length of a
+     * five-provider walk, which reads as one stuck source rather than as a queue being worked
+     * through. Zero means the publisher did not know, and the row prints the name alone.
+     */
+    val attemptIndex: Int = 0,
+    val attemptTotal: Int = 0,
 ) {
+    /**
+     * What to call the source on screen: the resolved name, else the raw id, else null.
+     *
+     * One accessor so the player and any other surface cannot name the same transfer two ways.
+     */
+    val sourceDisplayName: String?
+        get() = sourceLabel?.takeIf { it.isNotBlank() }
+            ?: sourceId?.takeIf { it.isNotBlank() }
+
     /** Human-friendly speed, e.g. "8.2 MB/s"; null while unknown. */
     val speedLabel: String?
         get() = speedMbps.takeIf { it > 0.01 }?.let { "%.1f MB/s".format(it) }
@@ -30,6 +61,38 @@ data class PlaybackDownloadProgress(
     /** Human-friendly size, e.g. "24.1 MB"; null while unknown. */
     val sizeLabel: String?
         get() = bytesTotal.takeIf { it > 0 }?.let { "%.1f MB".format(it / 1_048_576.0) }
+
+    /** How much has arrived, e.g. "12.0 MB"; null before the first byte. */
+    val receivedLabel: String?
+        get() = bytesReceived.takeIf { it > 0 }?.let { "%.1f MB".format(it / 1_048_576.0) }
+
+    /**
+     * What a download line adds after its percentage: speed, how much of what size, and the source.
+     *
+     * "Downloading 42%" alone answers neither of the questions a listener waiting on a transfer
+     * asks - is it moving, and how much is left - and a fetch that swaps to a second source mid-track
+     * looked like the first one finishing. Assembled here rather than at each surface so the player
+     * and the refetch path cannot describe the same transfer two different ways, and in this order
+     * because that is the order a listener reads them.
+     *
+     * Every part is optional: the runtime reports bytes without a speed on some providers, and a
+     * cache hit has no bytes at all.
+     */
+    fun downloadDetailParts(): List<String> {
+        val received = receivedLabel
+        val total = sizeLabel
+        return listOfNotNull(
+            speedLabel,
+            when {
+                // How much has arrived against how much there is, when both are known.
+                received != null && total != null -> "$received of $total"
+                received != null -> received
+                // A known size with no bytes yet is still worth stating: it answers "how big".
+                else -> total
+            },
+            sourceDisplayName?.takeIf { it.isNotBlank() },
+        )
+    }
 }
 
 /**
@@ -68,12 +131,15 @@ fun PlaybackDownloadProgress?.isFetchingTrack(mediaId: String?): Boolean {
  *
  * @param mediaId the track on screen, so a prefetch of the *next* track cannot fill this one's
  *   ring.
- * @param isPlaying whether the audio is already playing. A fetch signal that outlives the audio is
- *   the other half of the same complaint: the ring stayed on a song that was audibly playing, so
- *   the play/pause control never came back.
+ * @param isAudiblyPlaying whether the audio is already coming out of the device. A fetch signal
+ *   that outlives the audio is the other half of the same complaint: the ring stayed on a song that
+ *   was audibly playing, so the play/pause control never came back. It has to be audible playback
+ *   and not `playWhenReady`, which is already set for the whole window a track is being fetched
+ *   (see `PlayerConnection.isAudiblyPlaying`) - reading that flag here suppressed the fraction
+ *   during the transfer itself, which is the only time it exists.
  */
-fun PlaybackDownloadProgress?.fetchFraction(mediaId: String?, isPlaying: Boolean): Float? {
-    if (isPlaying) return null
+fun PlaybackDownloadProgress?.fetchFraction(mediaId: String?, isAudiblyPlaying: Boolean): Float? {
+    if (isAudiblyPlaying) return null
     val progress = this ?: return null
     if (progress.fromCache || progress.percent <= 0 || progress.percent >= 100) return null
     val id = progress.mediaId.takeIf { it.isNotBlank() }

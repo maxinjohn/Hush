@@ -31,10 +31,12 @@ import app.hush.music.downloads.DownloadNaming
 import app.hush.music.downloads.DownloadedFile
 import app.hush.music.downloads.DownloadedFileLocation
 import app.hush.music.downloads.DownloadedFileStore
+import app.hush.music.downloads.DownloadTrack
 import app.hush.music.storage.StorageFolderKind
 import app.hush.music.storage.StorageLocationRepository
 import app.hush.music.spotiflac.SpotiFLACDiag
 import app.hush.music.spotiflac.SpotiFLACPlaybackIdentity
+import app.hush.music.spotiflac.SpotiFLACSearchArtist
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -65,7 +67,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import app.hush.music.constants.AudioQuality
 import app.hush.music.constants.AudioQualityKey
+import app.hush.music.constants.SongSortType
 import app.hush.music.constants.SourcePriorityKey
+import app.hush.music.constants.SpotiFLACEnabledDefault
 import app.hush.music.constants.SpotiFLACEnabledKey
 import app.hush.music.constants.SpotiFLACQualityKey
 import app.hush.music.constants.YoutubeStreamingEnabledKey
@@ -97,6 +101,24 @@ import java.util.concurrent.TimeUnit
 import java.util.LinkedHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * Whether the third-party engine may be asked to serve a download right now.
+ *
+ * Two inputs, because they are the two ways the engine is refused without being switched off: the
+ * user's own switch, and low data mode - the one state in which the app promises that no lossless
+ * byte is pulled over a metered link. The download path used to answer only the first: the Audio
+ * Sources screen draws the third-party switch off while low data mode holds, the resolve order
+ * refuses to route playback to the engine (`SpotiFLACEngineStatus.usable` reports LOW_DATA), and a
+ * download went ahead and fetched a whole lossless file anyway - the disagreement the engine's own
+ * reader warns about. A file that is already on disk is not this question (it costs no link), which
+ * is why the caller asks this after its local-copy branch; a rule rather than an expression so the
+ * four cases are read by a test instead of by opening the download path.
+ */
+internal fun spotiFLACMayServeDownload(
+    engineEnabled: Boolean,
+    lowDataActive: Boolean,
+): Boolean = engineEnabled && !lowDataActive
 
 @Singleton
 class DownloadUtil
@@ -442,6 +464,11 @@ class DownloadUtil
             // The store is the record, and it drops any entry whose file has since gone, so
             // a download deleted outside the app cannot come back as a ghost here.
             downloadScope.launch {
+                // The index is re-established from the folder before it is read, so a library
+                // the app has no record of (a reinstall, a data clear, a restore onto another
+                // device) still has its downloads - and only then is the record restored, so
+                // what is published below is what the folder actually holds.
+                adoptDownloadsFolder()
                 val restored =
                     downloadedFileStore.all().associate { recorded ->
                         recorded.mediaId to
@@ -663,7 +690,9 @@ class DownloadUtil
          */
         private fun resolveSpotiFLACDownloadUri(mediaId: String): android.net.Uri? {
             if (mediaId.isBlank() || mediaId.isLocalMediaId()) return null
-            if (!appContext.dataStore.get(SpotiFLACEnabledKey, false)) return null
+            val engineEnabled =
+                appContext.dataStore.get(SpotiFLACEnabledKey, SpotiFLACEnabledDefault)
+            if (!engineEnabled) return null
 
             val bridge = SpotiFLACNativeRuntimeBridgeHolder.instance ?: return null
             if (!bridge.isRuntimeAvailable) return null
@@ -672,6 +701,30 @@ class DownloadUtil
             runCatching { bridge.playbackFileForMediaId(mediaId) }.getOrNull()?.let { cached ->
                 Timber.tag(TAG).i("download source: SpotiFLAC cache file for %s", mediaId)
                 return cached.toUri()
+            }
+
+            // Everything below this line is a *fetch*, and low data mode is the one state the engine
+            // may not pull bytes in - a state this path used to walk past: the Audio Sources screen
+            // draws the third-party switch off while it holds, the resolve order refuses to route
+            // playback to the engine (`SpotiFLACEngineStatus.usable` reports LOW_DATA), and the download
+            // went ahead and fetched a whole lossless file over a metered link at the user's BEST
+            // setting. That is the disagreement the engine's own reader warns about ("a resolve would
+            // still spend a sweep on SpotiFLAC while the screen says the engine is off"). The check sits
+            // after the branch above rather than before it because a file already on disk costs no link:
+            // what is refused here is a fetch, not a copy. Returning null hands the download to the
+            // YouTube resolver, where this policy is already answered for the other engine - it lowers
+            // the quality it asks that engine for on a metered link.
+            if (
+                !spotiFLACMayServeDownload(
+                    engineEnabled = engineEnabled,
+                    lowDataActive = appContext.isLowDataModeActive(),
+                )
+            ) {
+                Timber.tag(TAG).i(
+                    "download source: low data mode is on, not fetching lossless for %s",
+                    mediaId,
+                )
+                return null
             }
 
             val ytEnabled = appContext.dataStore.get(YoutubeStreamingEnabledKey, true)
@@ -713,7 +766,15 @@ class DownloadUtil
                     runCatching {
                         bridge.resolve(
                             title = title,
-                            artist = identity?.artist ?: dbSong?.artists?.joinToString(", ") { it.name }.orEmpty(),
+                            // The stored identity carries whatever artist line was read when this
+                            // track was first resolved, so it is cleaned here too: a value recorded
+                            // before this rule existed must not keep every provider from matching
+                            // the track for as long as the file lives.
+                            artist =
+                                SpotiFLACSearchArtist.forSearch(
+                                    composite = identity?.artist,
+                                    fallback = dbSong?.artists?.map { it.name },
+                                ),
                             album = identity?.album ?: dbSong?.song?.albumName,
                             // Same rule as playback: an unknown duration must not become a
                             // distinct identity for a track that already has a cached file.
@@ -906,6 +967,40 @@ class DownloadUtil
                 recorded,
             )
 
+        /**
+         * Re-establishes the index from the files the downloads folder already holds.
+         *
+         * The index lives in the app's private data and the files do not, so a reinstall, a data
+         * clear or a restore onto another device loses the record while the songs stay put.
+         * Adopting them one at a time - on the first play of each track - meant that until every
+         * song had been played, the app reported an existing library as having no downloads: the
+         * Storage screen read 0 B, and the downloaded badges and library list were empty. This
+         * adopts the whole folder up front instead, once per service start.
+         *
+         * The track's name is what the file is matched on, one folder read for the whole
+         * library, and a file is only adopted when its name is the track's own - so nothing here
+         * can serve one song's bytes as another's.
+         */
+        private suspend fun adoptDownloadsFolder() {
+            runCatching {
+                val tracks =
+                    database
+                        .songs(SongSortType.CREATE_DATE, descending = false)
+                        .first()
+                        .map { song ->
+                            DownloadTrack(
+                                mediaId = song.song.id,
+                                title = song.song.title,
+                                artist = song.artists.joinToString(", ") { it.name },
+                            )
+                        }
+                val adopted = downloadedFileStore.adoptFolder(tracks)
+                if (adopted > 0) {
+                    Timber.tag(TAG).i("adopted %d download file(s) from the folder at startup", adopted)
+                }
+            }.onFailure { Timber.tag(TAG).w(it, "Unable to adopt the downloads folder") }
+        }
+
         private fun isFileDownload(mediaId: String): Boolean =
             fileDownloads.value.containsKey(mediaId) || downloadedFileStore.get(mediaId) != null
 
@@ -952,6 +1047,10 @@ class DownloadUtil
                     ?.let { previous -> runCatching { previous.delete() } }
                 downloadedFileStore.record(entry)
                 downloadOriginStore.record(mediaId, result.origin)
+                // The bytes just written *are* the user's file, in the user's folder: there is
+                // one downloads location and one copy of the song, so nothing is copied on
+                // afterwards and the folder is safe to change between downloads.
+
                 // The same audio now lives in the downloads folder as a file playback serves
                 // first, so the copy streaming wrote into the player cache is pure duplication:
                 // it costs the song-cache budget twice and outlives the download it duplicates.

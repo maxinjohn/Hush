@@ -37,6 +37,50 @@ internal data class SpotiFLACProgressDelta(
 }
 
 /**
+ * The sample that announces a source being tried, before its first byte.
+ *
+ * The runtime's transfer meter answers "how fast", not "who is being asked", and a source that
+ * answers "not mine" - or refuses outright - can spend seconds doing it without publishing a byte.
+ * That window is exactly the one a listener watches, so the attempt itself is published as a
+ * resolving sample and the player's provenance row can name the source while it is being tried.
+ */
+internal fun attemptProgress(
+    mediaId: String?,
+    sourceId: String,
+    sourceLabel: String?,
+    attemptIndex: Int = 0,
+    attemptTotal: Int = 0,
+): PlaybackDownloadProgress =
+    PlaybackDownloadProgress(
+        mediaId = mediaId.orEmpty(),
+        sourceId = sourceId,
+        sourceLabel = sourceLabel,
+        stage = "resolving_stream",
+        status = "preparing",
+        attemptIndex = attemptIndex,
+        attemptTotal = attemptTotal,
+    )
+
+/**
+ * Whether ending [mediaId]'s attempt may wipe [current].
+ *
+ * The progress signal is shared by everything the runtime is doing, so an unattributed clear lets
+ * one attempt end another track's line - measured in the player as a row that went empty in the
+ * middle of a live fetch whenever the lookahead's attempt for the *next* track stopped. A null
+ * [mediaId] means the caller is ending the whole signal (a stop, a cancel), and a blank id is the
+ * runtime's own "the transfer running now", both of which may clear anything.
+ */
+internal fun clearMayEnd(
+    current: PlaybackDownloadProgress?,
+    mediaId: String?,
+): Boolean {
+    if (mediaId == null) return true
+    if (current == null) return true
+    if (current.mediaId.isBlank()) return true
+    return current.mediaId == mediaId
+}
+
+/**
  * Parses the extension runtime's `MultiProgressDelta` payload.
  *
  * The runtime answers `{"seq":N,"reset":true|false,"items":{"<item_id>":{...}}}` and

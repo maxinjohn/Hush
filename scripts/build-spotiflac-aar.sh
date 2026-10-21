@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Build the upstream SpotiFLAC Go runtime AAR (gobackend) used for native
-# SpotiFLAC playback. The AAR is produced from the SpotiFLAC-Mobile go_backend
-# via gomobile and lands at app/libs/gobackend.aar.
+# Build the upstream Go runtime AAR (gobackend) used for native lossless playback. The AAR is
+# produced from the go_backend of the upstream app - SpotiFLAC-Mobile until it was renamed Mornye on
+# 2026-10-20, `SpotiFLAC-Mobile/` on disk here because that is the directory every existing
+# checkout and document uses - via gomobile, and lands at app/libs/gobackend.aar.
 #
 # Upstream deleted go_backend in 5.0.x and replaced it with rust_backend, so a checkout on a
 # current tag has nothing to build from. This script therefore pins the Go tree: the checkout has

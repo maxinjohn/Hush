@@ -84,6 +84,19 @@ object SpotiFLACSessionVerdictReport {
          * above the list leaves it out for the same reason.
          */
         val checkable: Boolean,
+
+        /**
+         * How long the session still has, when there is a countdown to show - "2h 13m left".
+         *
+         * Carried as its own field rather than appended to [text] because the two are read
+         * differently: the sentence is a statement about the source, and the countdown is a number
+         * that changes every minute. In one ellipsized line the number was the part that got cut -
+         * measured on the device as `Verified — renews automatically (2h 1…` - so the one fact the
+         * line exists to report was the first thing lost, and a label drawn from a ticking value in
+         * a proportional font shifts sideways every time a digit changes width. Split, the sentence
+         * can clip without taking the number with it and the number can be drawn in tabular figures.
+         */
+        val remaining: String? = null,
     )
 
     /**
@@ -145,35 +158,37 @@ object SpotiFLACSessionVerdictReport {
         verdict: SpotiFLACSessionVerdict?,
         currentSessionId: String?,
         formatRemaining: (Long) -> String,
-        declaredTypes: List<String> = emptyList(),
+        /**
+         * Whether this source is switched on in Audio Sources.
+         *
+         * A switched-off source is not checked, renewed or swept, so a row that described it with
+         * the sentence a checked source gets was describing a check that is not happening: measured
+         * on the reporting device, thirteen switched-off sources each read "Checking session…" for
+         * as long as the screen stayed open, because the state map only ever held the enabled
+         * sources' ids and a miss was drawn as "not read yet". The state a switched-off source is in
+         * is still worth saying - a session that has lapsed must be verified once the source is
+         * switched back on - so the sentence keeps the verdict and says the source is off beside it.
+         */
+        enabled: Boolean = true,
     ): Row {
         val verified = authState == SpotiFLACSourceAuthState.VERIFIED
         val expired = remainingSeconds != null && remainingSeconds <= 0
         val refused = applies(verdict, currentSessionId)
-        val text = when {
+        var remaining: String? = null
+        val verdictText = when {
             // Reported from the manifest: this source signs in with the service itself, so there is
-            // no Cloudflare check to offer. Which is not one situation, and saying one sentence for
-            // both is what made two of these sources look missing from the list rather than
-            // deliberately not part of it: a *download* provider without a session (SoundCloud, the
-            // YouTube Music provider) fetches audio on its own, while an extension that only resolves
-            // and enriches metadata has no download to authorise at all - Apple Music searches,
-            // validates ISRCs and supplies lyrics, and Spotify Web turns a Spotify link into a match.
-            authState == SpotiFLACSourceAuthState.NOT_REQUIRED ->
-                // A source whose roles nobody has stated must fall back to the neutral wording:
-                // claiming "metadata only" about a source that has not been read would be an
-                // invention, and this card is read precisely when a source looks unfamiliar. The
-                // roles arrive from the registry in [app.hush.music.spotiflac.ExtensionSource.declaredRoles],
-                // which reports a download provider, a metadata provider with or without lyrics, or
-                // nothing at all.
-                if (declaredTypes.isEmpty() ||
-                    declaredTypes.any { it.equals("download_provider", ignoreCase = true) }
-                ) {
-                    "No verification needed"
-                } else if (declaredTypes.any { it.equals("lyrics_provider", ignoreCase = true) }) {
-                    "Metadata & lyrics only — no session needed"
-                } else {
-                    "Metadata only — no session needed"
-                }
+            // no Cloudflare check to offer - whether it downloads audio (SoundCloud, the YouTube
+            // Music provider) or only resolves and enriches metadata (Spotify Web, Apple Music).
+            //
+            // One sentence for all of them, and it is the short one. This line used to spell the
+            // source's role out again - `Metadata only — no session needed`,
+            // `Metadata & lyrics only — no session needed` - because saying one thing for both a
+            // downloader and a metadata provider made the two look like they were missing from the
+            // list. The row has a role line of its own now, directly above this one, so the prefix
+            // was the same word twice and, on a 360dp row, the ellipsis landed before the half that
+            // mattered (`Metadata only — no session ne…`). "No session" is the whole answer, and it
+            // is the same answer for a source that downloads and one that does not.
+            authState == SpotiFLACSourceAuthState.NOT_REQUIRED -> "No session"
             // Not read yet is not the same answer as "needs a check".
             authState == null || authState == SpotiFLACSourceAuthState.UNKNOWN -> "Checking session…"
             refused?.outcome == SpotiFLACSessionVerdict.Outcome.NEEDS_VERIFICATION ->
@@ -187,11 +202,38 @@ object SpotiFLACSessionVerdictReport {
             !verified -> "Verification needed"
             expired -> "Session expired — verify again"
             remainingSeconds == null -> "Verified"
-            else -> "Verified — renews automatically (${formatRemaining(remainingSeconds)} left)"
+            else -> {
+                remaining = "${formatRemaining(remainingSeconds)} left"
+                "Verified — renews automatically"
+            }
+        }
+        // A source that is switched off has no session fact to report that is about *now*: nothing
+        // asked, nothing renewed, nothing refused - renewals skip it, so "renews automatically"
+        // would be a promise nothing keeps. What it can still report is where its session stands,
+        // and the switch leads the line rather than following it: the row draws one ellipsized line,
+        // so a fact appended to a long sentence is the part that gets cut - measured on the device,
+        // `Verified - renews…` with the "· source is off" clipped away entirely. A source with no
+        // session contract keeps the plain line, because "No session" is already the whole answer.
+        // "Off" rather than "Source is off" because the sentence shares one narrow line with the
+        // session's countdown on a 360dp screen, and the switch the word refers to is on the same
+        // row: the full phrase pushed the verdict itself into the ellipsis.
+        val text = when {
+            !enabled ->
+                when {
+                    authState == null || authState == SpotiFLACSourceAuthState.UNKNOWN ->
+                        "Off · not read yet"
+                    authState == SpotiFLACSourceAuthState.NOT_REQUIRED -> verdictText
+                    !verified || expired -> "Off · verification needed"
+                    else -> "Off · verified"
+                }
+            else -> verdictText
         }
         // What the manifest declares beats everything, and what the gateway answered beats the
         // record; only then does the record itself get to decide.
         val needsCheck = when {
+            // Nothing is blocked by a source that is not used, and "Verify all" must not open a
+            // challenge - and spend a request - for one the user switched off.
+            !enabled -> false
             authState == null || authState == SpotiFLACSourceAuthState.UNKNOWN -> false
             authState == SpotiFLACSourceAuthState.NOT_REQUIRED -> false
             refused != null -> true
@@ -199,9 +241,14 @@ object SpotiFLACSessionVerdictReport {
         }
         return Row(
             text = text,
-            healthy = verified && !expired && refused == null,
+            // Healthy is a statement about a session in use. A switched-off source counts towards
+            // neither total, so the line above the list cannot say "all sessions are healthy" about
+            // sources nothing is checking.
+            healthy = enabled && verified && !expired && refused == null,
             needsCheck = needsCheck,
-            checkable = authState != null &&
+            remaining = remaining,
+            checkable = enabled &&
+                authState != null &&
                 authState != SpotiFLACSourceAuthState.UNKNOWN &&
                 authState != SpotiFLACSourceAuthState.NOT_REQUIRED,
         )

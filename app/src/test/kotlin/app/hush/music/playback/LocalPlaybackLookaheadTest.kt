@@ -93,6 +93,15 @@ class LocalPlaybackLookaheadTest {
     private fun providerRequests(queue: List<LocalEvidence>): Int =
         queue.count { LocalPlaybackLookahead.needsFetch(it) }
 
+    /**
+     * The lookahead's own verdict for one item, read through the production entry point so the
+     * engine gate is exercised rather than restated here.
+     */
+    private fun needsLookaheadFetch(
+        evidence: LocalEvidence,
+        youtubeEnabled: Boolean,
+    ): Boolean = LocalPlaybackLookahead.needsFetchForLookahead(evidence, youtubeEnabled)
+
     // ------------------------------------------------------------------
     // The two cases measured on device, plus the third store
     // ------------------------------------------------------------------
@@ -142,6 +151,45 @@ class LocalPlaybackLookaheadTest {
         assertFalse(LocalPlaybackLookahead.needsFetch(LocalEvidence(ownedFile = true)))
         assertFalse(LocalPlaybackLookahead.needsFetch(LocalEvidence(downloadCacheComplete = true)))
         assertFalse(LocalPlaybackLookahead.needsFetch(LocalEvidence(streamingCacheComplete = true)))
+    }
+
+    // ------------------------------------------------------------------
+    // The one store whose vote depends on a switch
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `a track the streaming cache holds costs no request while YouTube can serve it`() {
+        // The lookaheads' own entry point, and the case measured on device: the song plays off the
+        // bytes Media3 already cached, while a stream-URL warm-up for it ran a whole provider sweep,
+        // downloaded a second copy of the track, and put "Fetching from <source>…" on the player.
+        val queue = List(60) { streamedCache(storedWholeTrack()) }
+        assertEquals(0, queue.count { needsLookaheadFetch(it, youtubeEnabled = true) })
+    }
+
+    @Test
+    fun `a track only the streaming cache holds still costs a request once YouTube is off`() {
+        // With YouTube switched off the play path refuses those bytes (`includePlayerCache` is that
+        // switch), so a lookahead that skipped this track would only move the sweep it skipped to the
+        // moment of play - which is the stall it exists to remove. The rule has to be the play path's
+        // rule, not a broader one.
+        val streamedOnly = streamedCache(storedWholeTrack())
+        assertFalse(needsLookaheadFetch(streamedOnly, youtubeEnabled = true))
+        assertTrue(needsLookaheadFetch(streamedOnly, youtubeEnabled = false))
+    }
+
+    @Test
+    fun `a file the app owns needs no request whichever engine is switched on`() {
+        // Unconditional, unlike the streaming cache: a complete file plays with or without YouTube,
+        // which is what downloading it was for.
+        assertFalse(needsLookaheadFetch(spotiflacFile, youtubeEnabled = true))
+        assertFalse(needsLookaheadFetch(spotiflacFile, youtubeEnabled = false))
+        assertFalse(needsLookaheadFetch(downloadCache(storedWholeTrack()), youtubeEnabled = false))
+    }
+
+    @Test
+    fun `the switch cannot make an untouched track local`() {
+        assertTrue(needsLookaheadFetch(LocalEvidence(), youtubeEnabled = true))
+        assertTrue(needsLookaheadFetch(LocalEvidence(), youtubeEnabled = false))
     }
 
     // ------------------------------------------------------------------

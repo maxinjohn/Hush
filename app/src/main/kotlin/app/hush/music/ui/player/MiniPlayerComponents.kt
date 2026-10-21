@@ -100,7 +100,9 @@ import app.hush.music.ui.utils.resolvePlaybackArtworkUrl
 import app.hush.music.constants.EnableHapticFeedbackKey
 import app.hush.music.constants.MiniPlayerArtworkInnerSize
 import app.hush.music.constants.MiniPlayerArtworkOuterSize
-import app.hush.music.constants.MiniPlayerHeight
+import app.hush.music.ui.theme.LocalMiniPlayerAnatomy
+import app.hush.music.constants.MiniPlayerContentVerticalPadding
+import app.hush.music.LocalMiniPlayerHeight
 import app.hush.music.constants.PulseMatrixEnabledDefault
 import app.hush.music.constants.PulseMatrixEnabledKey
 import app.hush.music.constants.PulseMatrixThemeKey
@@ -189,11 +191,14 @@ fun SwipeableMiniPlayerBox(
         (600 / (1f + kotlin.math.exp(-(-11.44748 * swipeSensitivity + 9.04945)))).roundToInt()
     val autoSwipeThreshold = calculateAutoSwipeThreshold(swipeSensitivity)
 
+    // The height the app published for this font scale, so the pill and the sheet's collapsed bound
+    // are the same number - see [app.hush.music.constants.rememberMiniPlayerHeight].
+    val pillHeight = LocalMiniPlayerHeight.current
     Box(
         modifier =
             modifier
                 .fillMaxWidth()
-                .height(MiniPlayerHeight)
+                .height(pillHeight)
                 .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
                 .let { baseModifier ->
                     if (useLegacyBackground) {
@@ -395,32 +400,42 @@ private fun MiniPlayerArtwork(
     modifier: Modifier = Modifier,
     downloadProgress: Float? = null,
 ) {
+    // The cover's geometry, from the skin in force. Hush's own numbers are the ones this file was
+    // written against - a 38dp cover in a 48dp slot - so the shipped look is unchanged, and a parent
+    // that draws a 40dp cover in a rounded square gets exactly that.
+    val anatomy = LocalMiniPlayerAnatomy.current
+    val artworkShape = anatomy.artworkCorner?.let { RoundedCornerShape(it) } ?: CircleShape
     Box(
         contentAlignment = Alignment.Center,
         modifier =
             modifier
-                .size(MiniPlayerArtworkOuterSize)
+                .size(anatomy.artworkOuter)
                 .aspectRatio(1f),
     ) {
-        if (isLoading) {
-            // The ring around the artwork turns on its own rather than relying on the platform to
-            // animate it, which a device with animations off does not do.
-            HushProgressSpinner(
-                modifier = Modifier.fillMaxSize(),
-                color = colors.progress,
-            )
-        } else {
-            // While a SpotiFLAC track is still being fetched the ring shows that
-            // download's progress instead of a playback position stuck at zero.
-            CircularWavyProgressIndicator(
-                progress = {
-                    downloadProgress
-                        ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
-                },
-                modifier = Modifier.fillMaxSize(),
-                color = colors.progress,
-                trackColor = colors.progressTrack,
-            )
+        when {
+            isLoading -> {
+                // The ring around the artwork turns on its own rather than relying on the platform to
+                // animate it, which a device with animations off does not do. Drawn whatever the skin
+                // says about the progress ring: this one is a state, not a decoration.
+                HushProgressSpinner(
+                    modifier = Modifier.fillMaxSize(),
+                    color = colors.progress,
+                )
+            }
+
+            anatomy.showsProgressRing -> {
+                // While a SpotiFLAC track is still being fetched the ring shows that
+                // download's progress instead of a playback position stuck at zero.
+                CircularWavyProgressIndicator(
+                    progress = {
+                        downloadProgress
+                            ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    color = colors.progress,
+                    trackColor = colors.progressTrack,
+                )
+            }
         }
 
         // Aura's orbiting comet: it circles the cover only while the music plays, so "playing"
@@ -434,13 +449,13 @@ private fun MiniPlayerArtwork(
             contentAlignment = Alignment.Center,
             modifier =
                 Modifier
-                    .size(MiniPlayerArtworkInnerSize)
-                    .clip(CircleShape)
+                    .size(anatomy.artworkInner)
+                    .clip(artworkShape)
                     .background(colors.artworkContainer)
                     .border(
                         width = 1.dp,
                         color = colors.artworkBorder,
-                        shape = CircleShape,
+                        shape = artworkShape,
                     ),
         ) {
             val (pulseMatrixEnabled) = rememberPreference(PulseMatrixEnabledKey, PulseMatrixEnabledDefault)
@@ -464,7 +479,7 @@ private fun MiniPlayerArtwork(
                         modifier =
                             Modifier
                                 .fillMaxSize()
-                                .clip(CircleShape),
+                                .clip(artworkShape),
                     )
                 } else {
                     Image(
@@ -786,13 +801,15 @@ fun NewMiniPlayerContent(
     val downloadProgress by playerConnection.activeDownloadProgress.collectAsStateWithLifecycle()
     // The full player's rule, "not while it is playing" included: a fetch signal that outlives the
     // audio would leave the bar drawing a download ring over a song that is already playing.
-    val activeDownloadFraction = downloadProgress.fetchFraction(mediaMetadata?.id, isPlaying)
+    // Audible, not `isPlaying` - see [PlayerConnection.isAudiblyPlaying].
+    val isAudiblyPlaying by playerConnection.isAudiblyPlaying.collectAsStateWithLifecycle()
+    val activeDownloadFraction = downloadProgress.fetchFraction(mediaMetadata?.id, isAudiblyPlaying)
 
     // The same rule the full player uses: a SpotiFLAC track is fetched before media3 has
     // anything to buffer, so buffering alone leaves the transport looking idle during a fetch.
     val rawLoading =
         playbackState == Player.STATE_BUFFERING ||
-            (!isPlaying && downloadProgress.isFetchingTrack(mediaMetadata?.id))
+            (!isAudiblyPlaying && downloadProgress.isFetchingTrack(mediaMetadata?.id))
     var isLoading by remember(mediaMetadata?.id) { mutableStateOf(rawLoading) }
     LaunchedEffect(rawLoading) {
         if (rawLoading) {
@@ -808,7 +825,10 @@ fun NewMiniPlayerContent(
         modifier =
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                // The same padding `rememberMiniPlayerHeight` reserves when it sizes the pill to the
+                // two lines below: one number, because a pill sized to the text with a row padded
+                // differently would clip by exactly the difference.
+                .padding(horizontal = 10.dp, vertical = MiniPlayerContentVerticalPadding),
     ) {
         MiniPlayerArtwork(
             isPlaying = isPlaying,

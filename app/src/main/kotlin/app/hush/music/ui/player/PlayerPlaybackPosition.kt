@@ -26,6 +26,19 @@ import kotlin.math.abs
 
 private const val SeekbarSettleToleranceMs = 1_500L
 
+/**
+ * How long a released seek bar may keep showing the position it asked for.
+ *
+ * The bar shows the dragged value until the player gets there, which is what keeps it from
+ * snapping back to the old position while a seek is in flight. That rule had no ceiling, and a
+ * player that cannot honour a seek - a payload with no index to seek in, so the request is
+ * adjusted back to the first sample - never arrives: the bar stayed on the asked-for position
+ * and the transport kept the fetching ring, which was reported as "the play button is spinning"
+ * and "seeking does not work". The player's own position is the truth after this long, whether
+ * the seek was honoured or not, so the bar goes back to it and the ring goes back to play/pause.
+ */
+private const val SeekbarSettleCeilingMs = 1_500L
+
 @Stable
 class PlayerPlaybackPositionState(
     initialPositionMs: Long,
@@ -61,6 +74,15 @@ fun rememberPlayerPlaybackPositionState(
                 initialDurationMs = player.duration,
             )
         }
+
+    // The ceiling for a seek that is never going to land. Restarted by every drag (each move
+    // sets a new value), and it only starts counting once the gesture has ended, so a held
+    // thumb is never taken out from under the finger.
+    androidx.compose.runtime.LaunchedEffect(sliderPosition, isUserSeeking) {
+        if (sliderPosition == null || isUserSeeking) return@LaunchedEffect
+        delay(SeekbarSettleCeilingMs)
+        onSliderSettled()
+    }
 
     androidx.compose.runtime.LaunchedEffect(mediaMetadata?.id, playbackState, aodModeEnabled) {
         val startTime = SystemClock.elapsedRealtime()
