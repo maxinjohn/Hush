@@ -1746,6 +1746,82 @@ val verifyRowControls =
     }
 
 /**
+ * Rejects an `overlays/core` file that has drifted from the `core` file it stands in for.
+ *
+ * CI copies `overlays/core` over `core` before it builds, so whatever is in the overlay is what the
+ * release compiles - while a local build compiles `core`, which is the copy every edit is made in.
+ * Nothing about editing `core` reminds anyone that its overlay twin exists, so the two drift and the
+ * failure lands on CI instead: 13.14.8 shipped `YouTube.homeJson` and `homePageFromJson` into
+ * `core`, the overlay's `YouTube.kt` kept its old `home()`, and `compileGmsMobileUniversalRelease`
+ * died on references the app already used. 13.11.4 hit the same shape from the other side.
+ *
+ * So the two trees are compared on every assemble. Equal files are the only state that can build
+ * the same code locally and on the runner; a file that differs is either a change that never
+ * reached the overlay (copy `core`'s file over it) or one that will only ever run on CI.
+ */
+fun overlayParityVerifier(
+    overlayRoot: File,
+    coreRoot: File,
+): Action<Task> = object : Action<Task> {
+
+    override fun execute(task: Task) {
+        if (!overlayRoot.isDirectory) return
+        val overlayFiles =
+            overlayRoot
+                .walkTopDown()
+                .filter { it.isFile }
+                .sortedBy { it.relativeTo(overlayRoot).invariantSeparatorsPath }
+                .toList()
+        val drifted =
+            overlayFiles.filter { overlayFile ->
+                val coreFile = File(coreRoot, overlayFile.relativeTo(overlayRoot).invariantSeparatorsPath)
+                !coreFile.isFile || !coreFile.readBytes().contentEquals(overlayFile.readBytes())
+            }
+        if (drifted.isEmpty()) {
+            task.logger.lifecycle("Core overlays match core: ${overlayFiles.size} file(s).")
+            return
+        }
+        throw GradleException(
+            buildString {
+                appendLine(
+                    "overlays/core has drifted from core in ${drifted.size} file(s), and CI builds the overlay copy:",
+                )
+                drifted.forEach { overlayFile ->
+                    val relative = overlayFile.relativeTo(overlayRoot).invariantSeparatorsPath
+                    val note = if (File(coreRoot, relative).isFile) "" else " (no such file in core/)"
+                    appendLine("  - $relative$note")
+                }
+                appendLine("core/ is the copy every edit is made in, so bring its twin up to date and build again:")
+                drifted.forEach { overlayFile ->
+                    val relative = overlayFile.relativeTo(overlayRoot).invariantSeparatorsPath
+                    val command =
+                        if (File(coreRoot, relative).isFile) {
+                            "cp core/$relative overlays/core/$relative"
+                        } else {
+                            "rm overlays/core/$relative  # or add core/$relative"
+                        }
+                    appendLine("  $command")
+                }
+            },
+        )
+    }
+}
+
+val verifyOverlayParity by tasks.registering {
+    description = "Fails when overlays/core no longer matches the core file it replaces"
+    group = "verification"
+
+    val overlayRoot = rootProject.file("overlays/core")
+    val coreRoot = rootProject.file("core")
+    inputs
+        .files(fileTree(overlayRoot), fileTree(coreRoot).matching { include("src/main/kotlin/**/*.kt") })
+        .withPropertyName("coreOverlays")
+        .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+
+    doLast(overlayParityVerifier(overlayRoot, coreRoot))
+}
+
+/**
  * Rejects a staged Rust backend that does not match the revision the pins file names, as a task
  * action that carries only its own inputs.
  *
@@ -1919,4 +1995,5 @@ tasks.matching { it.name.startsWith("assemble") }.configureEach {
     dependsOn(verifyMarqueeRouting)
     dependsOn(verifyRowControls)
     dependsOn(verifySpotiFLACRustStage)
+    dependsOn(verifyOverlayParity)
 }

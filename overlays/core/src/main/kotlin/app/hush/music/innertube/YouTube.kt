@@ -11,6 +11,8 @@ import io.ktor.client.call.body
 import io.ktor.client.plugins.ClientRequestException
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -1293,41 +1295,72 @@ object YouTube {
             if (continuation != null) {
                 return@runCatching homeContinuation(continuation).getOrThrow()
             }
-
-            val resolvedBrowseId = browseId?.takeIf { it.isNotBlank() } ?: "FEmusic_home"
-            val response = innerTube.browse(WEB_REMIX, browseId = resolvedBrowseId, params = params, setLogin = true).body<BrowseResponse>()
-            val continuation =
-                response.contents
-                    ?.singleColumnBrowseResultsRenderer
-                    ?.tabs
-                    ?.firstOrNull()
-                    ?.tabRenderer
-                    ?.content
-                    ?.sectionListRenderer
-                    ?.continuations
-                    ?.getContinuation()
-            val sectionListRender =
-                response.contents
-                    ?.singleColumnBrowseResultsRenderer
-                    ?.tabs
-                    ?.firstOrNull()
-                    ?.tabRenderer
-                    ?.content
-                    ?.sectionListRenderer
-            val sections =
-                sectionListRender
-                    ?.contents!!
-                    .mapNotNull { it.musicCarouselShelfRenderer }
-                    .mapNotNull {
-                        HomePage.Section.fromMusicCarouselShelfRenderer(it)
-                    }.toMutableList()
-            val chips =
-                sectionListRender.header
-                    ?.chipCloudRenderer
-                    ?.chips
-                    ?.mapNotNull { HomePage.Chip.fromChipCloudChipRenderer(it) }
-            HomePage(chips, sections, continuation)
+            homePageFromJson(homeJson(browseId = browseId, params = params).getOrThrow()).getOrThrow()
         }
+
+    /**
+     * The home feed's answer, as the server sent it.
+     *
+     * Split out of [home] so the feed can be kept and painted again before the network answers. The
+     * app used to hold no copy of the feed at all: every launch was a cold browse, and the shelves
+     * appeared only when that request returned - measured on the reporting device, ~2.6 s after the
+     * request went out, on a launch that had already taken a second to start. Keeping the answer
+     * itself (rather than a re-modelled copy of it) means restoring it runs the same parser as the
+     * live request, so endpoints, thumbnails and continuation tokens are exactly what the server
+     * sent and cannot drift from what a fresh fetch produces. See [homePageFromJson].
+     */
+    suspend fun homeJson(
+        browseId: String? = null,
+        params: String? = null,
+    ): Result<String> =
+        runCatching {
+            val resolvedBrowseId = browseId?.takeIf { it.isNotBlank() } ?: "FEmusic_home"
+            innerTube
+                .browse(WEB_REMIX, browseId = resolvedBrowseId, params = params, setLogin = true)
+                .bodyAsText()
+        }
+
+    /** Parses an answer [homeJson] produced. */
+    fun homePageFromJson(json: String): Result<HomePage> =
+        runCatching {
+            homePageFrom(HOME_FEED_JSON.decodeFromString<BrowseResponse>(json))
+        }
+
+    /** The shared mapping from a browse answer to the feed, used by both paths above. */
+    private fun homePageFrom(response: BrowseResponse): HomePage {
+        val continuation =
+            response.contents
+                ?.singleColumnBrowseResultsRenderer
+                ?.tabs
+                ?.firstOrNull()
+                ?.tabRenderer
+                ?.content
+                ?.sectionListRenderer
+                ?.continuations
+                ?.getContinuation()
+        val sectionListRender =
+            response.contents
+                ?.singleColumnBrowseResultsRenderer
+                ?.tabs
+                ?.firstOrNull()
+                ?.tabRenderer
+                ?.content
+                ?.sectionListRenderer
+        val sections =
+            sectionListRender
+                ?.contents!!
+                .mapNotNull { it.musicCarouselShelfRenderer }
+                .mapNotNull {
+                    HomePage.Section.fromMusicCarouselShelfRenderer(it)
+                }.toMutableList()
+        val chips =
+            sectionListRender
+                ?.header
+                ?.chipCloudRenderer
+                ?.chips
+                ?.mapNotNull { HomePage.Chip.fromChipCloudChipRenderer(it) }
+        return HomePage(chips, sections, continuation)
+    }
 
     private suspend fun homeContinuation(continuation: String): Result<HomePage> =
         runCatching {
@@ -3522,3 +3555,20 @@ private data class PlaylistContinuationCandidate(
     val continuation: String?,
     val songs: List<SongItem> = emptyList(),
 )
+
+/**
+ * The JSON configuration a *kept* home feed is read back with.
+ *
+ * Deliberately the same three settings the client's content negotiation uses for every other
+ * answer, because the feed being parsed here was produced by a server that is free to add fields
+ * between one release and the next: a strict reader would turn "the response grew a key" into "the
+ * cached feed is corrupt" and the screen would fall back to nothing on exactly the launch the cache
+ * exists to make instant.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+private val HOME_FEED_JSON =
+    Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+        encodeDefaults = true
+    }
