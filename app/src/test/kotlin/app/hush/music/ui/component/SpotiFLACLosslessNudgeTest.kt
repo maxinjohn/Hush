@@ -6,6 +6,7 @@
 
 package app.hush.music.ui.component
 
+import app.hush.music.constants.SpotiFLACEnabledDefault
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -46,6 +47,23 @@ class SpotiFLACLosslessNudgeTest {
     @Test
     fun `not offered to someone who is already using it`() {
         assertFalse(losslessOfferDue(enabled = true, handled = false, asksMade = 0, runtimeAvailable = true))
+    }
+
+    @Test
+    fun `a fresh install is not offered the engine it is already running`() {
+        // The offer is decided from the stored preference, which a fresh install does not have - and
+        // that absence reads as on, so the install the offer used to chase is the one that never
+        // sees it. Reading the absence as off in this one place would put the banner back on the
+        // launch where lossless is already playing.
+        assertTrue(SpotiFLACEnabledDefault)
+        assertFalse(
+            losslessOfferDue(
+                enabled = SpotiFLACEnabledDefault,
+                handled = false,
+                asksMade = 0,
+                runtimeAvailable = true,
+            ),
+        )
     }
 
     @Test

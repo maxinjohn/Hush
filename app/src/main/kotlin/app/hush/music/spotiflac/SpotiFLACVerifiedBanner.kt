@@ -69,9 +69,34 @@ object SpotiFLACVerifiedBanner {
     ) {
         val id = sourceId.trim()
         if (id.isEmpty()) return
-        val text = verifiedText(id, displayName ?: knownDisplayName(id))
+        show(id, verifiedText(id, displayName ?: knownDisplayName(id)))
+    }
+
+    /**
+     * Raises the banner for a source that had refused and now answers.
+     *
+     * The same slot and the same shape as a verification landing, because it is the same kind of
+     * news - a source going from unusable to usable without the user doing anything - and because
+     * the two can land within seconds of each other on a run that verifies a source the walk had
+     * left out.
+     */
+    fun showAnswering(
+        sourceId: String,
+        displayName: String? = null,
+    ) {
+        val id = sourceId.trim()
+        if (id.isEmpty()) return
+        val name = displayName?.trim()?.takeIf { it.isNotEmpty() } ?: knownDisplayName(id) ?: id
+        show(id, SpotiFLACAddonRecoveryNotifier.text(name))
+    }
+
+    /** Shows one message and lets it expire on its own; see [showVerified] for the token rule. */
+    private fun show(
+        sourceId: String,
+        text: String,
+    ) {
         val token = nextToken()
-        _message.value = Message(id, text)
+        _message.value = Message(sourceId, text)
         scope.launch {
             delay(DURATION_MS)
             if (token == nowToken()) _message.value = null

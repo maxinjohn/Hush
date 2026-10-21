@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -48,6 +49,10 @@ import app.hush.music.spotiflac.SpotiFLACVerifiedBanner
  *
  * The animation belongs to the host, not here: what slides is the banner's appearance, and a pill
  * that always drew itself would leave nothing to animate.
+ *
+ * [onClick] is off by default because these are meant to be read at a glance. It exists for the one
+ * banner that has somewhere to send the user - the storage warning, which leads to the screen where
+ * the folder is chosen - and a pill that led nowhere would only teach people not to tap them.
  */
 @Composable
 fun HushStatusBanner(
@@ -56,9 +61,10 @@ fun HushStatusBanner(
     containerColor: Color,
     contentColor: Color,
     modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
     Surface(
-        modifier = modifier,
+        modifier = if (onClick != null) modifier.clickable(onClick = onClick) else modifier,
         shape = RoundedCornerShape(14.dp),
         color = containerColor,
         contentColor = contentColor,

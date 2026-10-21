@@ -70,12 +70,47 @@ object SpotiFLACSweepVerdict {
             "network",
             "unable to resolve host",
             "download failed",
+            // An addon that refused service answered `403 (Unavailable)` before it named any track:
+            // that says nothing about a catalogue, and reading it as one would hide a track the
+            // addon might have had for hours. Kept beside 429 because they are the same statement.
+            "401",
+            "403",
             "429",
             "500",
             "502",
             "503",
             "504",
         )
+
+    /**
+     * Answers that mean the source refused to serve at all, rather than answering about a track.
+     *
+     * The words are the ones Hush itself writes, and each is a statement about the *service*: an
+     * addon's own refusal travels in the walk's aggregate (`Tido answered HTTP 403 (Unavailable)`),
+     * and a sweep emptied before it asked anything carries the bridge's sentence. Reporting one of
+     * these as the catalogue's answer is how the player came to say "No source has this track ·
+     * Tido" for a service that had refused every request it was given.
+     */
+    private val refusalMarkers =
+        listOf(
+            "refused service",
+            "answered http 401",
+            "answered http 403",
+            "answered http 429",
+        )
+
+    /**
+     * True when [message] says a source refused service instead of answering about a track.
+     *
+     * Read by the player's own line, so a refusal is stated as one: the difference between "this
+     * source does not have the song" and "this source is not serving anyone" is the whole of what a
+     * listener can act on.
+     */
+    fun isRefusal(message: String?): Boolean {
+        val text = message?.lowercase(Locale.US)?.trim().orEmpty()
+        if (text.isEmpty()) return false
+        return refusalMarkers.any { text.contains(it) }
+    }
 
     /**
      * True only when every failure reads as a catalogue answer rather than a blocked

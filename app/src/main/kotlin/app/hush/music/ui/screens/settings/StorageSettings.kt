@@ -9,6 +9,11 @@
 
 package app.hush.music.ui.screens.settings
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
@@ -31,6 +36,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -47,10 +53,12 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,7 +72,13 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.annotation.ExperimentalCoilApi
@@ -83,9 +97,12 @@ import app.hush.music.constants.SmartTrimmerKey
 import app.hush.music.constants.UrlCacheRefreshIntervalKey
 import app.hush.music.extensions.directorySizeBytes
 import app.hush.music.extensions.tryOrNull
+import app.hush.music.storage.StorageFolderHealth
 import app.hush.music.storage.StorageFolderKind
 import app.hush.music.storage.StorageLocationKind
 import app.hush.music.storage.StorageLocationRepository
+import app.hush.music.storage.StorageRestartScheduler
+import app.hush.music.storage.treeUriToDirectory
 import app.hush.music.ui.component.ActionPromptDialog
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.ListPreference
@@ -98,7 +115,9 @@ import app.hush.music.ui.utils.formatFileSize
 import app.hush.music.utils.rememberPreference
 import app.hush.music.viewmodels.StorageCacheClearUiKind
 import app.hush.music.viewmodels.StorageCacheClearUiModel
+import app.hush.music.viewmodels.StorageFolderMoveUiModel
 import app.hush.music.viewmodels.StorageFolderUiModel
+import app.hush.music.viewmodels.StorageHealthViewModel
 import app.hush.music.viewmodels.StorageLocationUiModel
 import app.hush.music.viewmodels.StorageLocationUiOptions
 import app.hush.music.viewmodels.StorageMigrationUiModel
@@ -116,21 +135,25 @@ fun StorageSettings(
     val context = LocalContext.current
     val imageDiskCache = context.imageLoader.diskCache ?: return
     val playerCache = LocalPlayerConnection.current?.service?.playerCache ?: return
-    val downloadCache = LocalPlayerConnection.current?.service?.downloadCache ?: return
+    val downloadedFileStore = LocalPlayerConnection.current?.service?.downloadedFileStore ?: return
     val screenState by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val storagePickerSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(viewModel, context) {
         viewModel.effects.collect { effect ->
+            // A null message is the screen answering in place, with the folder-access dialog:
+            // there is nothing to add above it.
+            val messageResId = effect.messageResId ?: return@collect
             snackbarHostState.currentSnackbarData?.dismiss()
+            val message = context.getString(messageResId, *effect.formatArgs.toTypedArray())
             if (effect.restartApp) {
                 snackbarHostState.showSnackbar(
-                    message = context.getString(effect.messageResId),
+                    message = message,
                     duration = SnackbarDuration.Indefinite,
                 )
             } else {
-                snackbarHostState.showSnackbar(context.getString(effect.messageResId))
+                snackbarHostState.showSnackbar(message)
             }
         }
     }
@@ -177,7 +200,7 @@ fun StorageSettings(
     var clearImageCacheDialog by remember { mutableStateOf(false) }
     var imageCacheSize by remember { mutableStateOf(0L) }
     var playerCacheSize by remember { mutableStateOf(0L) }
-    var downloadCacheSize by remember { mutableStateOf(0L) }
+    var downloadedSongsBytes by remember { mutableStateOf(0L) }
     // SpotiFLAC playback files are cached songs and share this cap, so they are
     // counted alongside the player cache rather than reported separately.
     var spotiflacCacheBytes by remember { mutableStateOf(0L) }
@@ -268,14 +291,21 @@ fun StorageSettings(
             delay(StorageRefreshIntervalMillis)
         }
     }
-    LaunchedEffect(downloadCache, downloadCacheDir) {
+    LaunchedEffect(downloadedFileStore, downloadCacheDir) {
         while (isActive) {
-            delay(StorageRefreshIntervalMillis)
-            downloadCacheSize =
+            // Read before the first delay, so the size is already correct when the screen opens
+            // instead of reading as zero for one refresh interval.
+            downloadedSongsBytes =
                 withContext(Dispatchers.IO) {
-                    val cacheSpace = tryOrNull { downloadCache.cacheSpace } ?: 0L
-                    if (cacheSpace == 0L) downloadCacheDir.directorySizeBytes() else cacheSpace
+                    // The index is what "downloaded songs" means to the app and what "clear all
+                    // downloads" acts on, and it is re-established from the folder at startup,
+                    // so it is the size that answers the question. The folder itself is only
+                    // measured when the index knows of nothing there - a library whose songs the
+                    // app has no records for - so a folder that does hold files never reads 0 B.
+                    val indexed = tryOrNull { downloadedFileStore.totalBytes() } ?: 0L
+                    if (indexed > 0L) indexed else downloadCacheDir.directorySizeBytes()
                 }
+            delay(StorageRefreshIntervalMillis)
         }
     }
 
@@ -306,6 +336,11 @@ fun StorageSettings(
                 onSelectFolder = viewModel::openStorageLocationPicker,
             )
 
+            StorageMoveCard(
+                move = (screenState as? StorageSettingsScreenState.Success)?.model?.move,
+                onCancel = viewModel::cancelStorageMove,
+            )
+
             CustomStorageFoldersSection(
                 viewModel = viewModel,
             )
@@ -314,7 +349,7 @@ fun StorageSettings(
                 item {
                     PreferenceEntry(
                         title = { Text(stringResource(R.string.clear_all_downloads)) },
-                        description = stringResource(R.string.size_used, formatFileSize(downloadCacheSize)),
+                        description = stringResource(R.string.size_used, formatFileSize(downloadedSongsBytes)),
                         icon = {
                             Icon(
                                 painter = painterResource(R.drawable.ic_download),
@@ -631,6 +666,76 @@ private fun StorageFolderSection(
     }
 }
 
+/**
+ * The background move of files out of a folder the user has just left, while it runs.
+ *
+ * WorkManager carries the files over one at a time after the setting has been saved, so the move
+ * outlives the screen and the restart that follows the pick. A notification is the only sign of it
+ * on a phone, and a notification cannot say how much is left or offer to stop; this is the same
+ * move, on the screen that changed the folder, with the count of files still to carry over and the
+ * button that ends it.
+ */
+@Composable
+private fun StorageMoveCard(
+    move: StorageFolderMoveUiModel?,
+    onCancel: () -> Unit,
+) {
+    val active = move
+    PreferenceGroup(title = stringResource(R.string.storage_move_group_title)) {
+        item(visible = active != null) {
+            val current = active ?: return@item
+            val remainingText =
+                if (current.knowsFilesRemaining) {
+                    stringResource(
+                        R.string.storage_move_progress_files,
+                        current.percent,
+                        current.filesRemaining,
+                        current.filesTotal,
+                    )
+                } else {
+                    stringResource(R.string.storage_move_starting)
+                }
+            PreferenceEntry(
+                title = { Text(stringResource(storageMoveTitleResId(current.kind))) },
+                description = remainingText,
+                icon = {
+                    Icon(
+                        painter = painterResource(storageMoveIconResId(current.kind)),
+                        contentDescription = null,
+                    )
+                },
+                content = {
+                    Spacer(Modifier.height(10.dp))
+                    LinearWavyProgressIndicator(
+                        progress = { current.progress },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    )
+                },
+                trailingContent = {
+                    TextButton(onClick = onCancel) {
+                        Text(stringResource(R.string.storage_move_cancel))
+                    }
+                },
+            )
+        }
+    }
+}
+
+/** The two folders a move can be about; nothing else is ever scheduled as a move. */
+private fun storageMoveTitleResId(kind: StorageFolderKind): Int =
+    when (kind) {
+        StorageFolderKind.DOWNLOADS -> R.string.storage_move_downloads_title
+        else -> R.string.storage_move_cache_title
+    }
+
+private fun storageMoveIconResId(kind: StorageFolderKind): Int =
+    when (kind) {
+        StorageFolderKind.DOWNLOADS -> R.drawable.ic_download
+        else -> R.drawable.ic_music
+    }
+
 @Composable
 private fun StorageFolderPreference(
     folder: StorageFolderUiModel,
@@ -925,6 +1030,12 @@ private fun CustomStorageFoldersSection(
     var downloadPath by remember { mutableStateOf("") }
     var cachePath by remember { mutableStateOf("") }
     var pendingFolderKind by remember { mutableStateOf<StorageFolderKind?>(null) }
+    // The folder just picked, kept until it has been used: when Android is holding shared storage
+    // back, the pick is answered with a trip to the All files access switch and has to be finished
+    // on the way back. A pick that closes without a folder (the chooser shut, or the confirmation
+    // inside it refused) sets none of this and changes nothing.
+    var pendingPick by remember { mutableStateOf<FolderPick?>(null) }
+    var accessPrompt by remember { mutableStateOf<FolderAccessPrompt?>(null) }
     var showDownloadActions by remember { mutableStateOf(false) }
     var showCacheActions by remember { mutableStateOf(false) }
 
@@ -946,12 +1057,58 @@ private fun CustomStorageFoldersSection(
             withContext(Dispatchers.IO) {
                 StorageLocationRepository.cacheDirectory(context, StorageFolderKind.SONG_CACHE).absolutePath
             }
+        // A folder saved by an earlier version can be one Android will not let this app into, and
+        // the row above would show the folder the app fell back to - which is not the folder the
+        // user chose. It is offered the same answer a fresh pick gets, so access can be granted
+        // later rather than only at the moment of choosing.
+        if (accessPrompt == null) {
+            accessPrompt =
+                withContext(Dispatchers.IO) {
+                    savedFolderNeedingAccess(context)
+                }
+        }
     }
 
-    LaunchedEffect(viewModel) {
-        viewModel.effects.collect {
+    LaunchedEffect(viewModel, context) {
+        viewModel.effects.collect { effect ->
             storagePathsRefreshKey++
+            if (effect.needsAllFilesAccess) {
+                val pick = pendingPick
+                val directory = pick?.treeUri?.let { treeUri -> context.treeUriToDirectory(treeUri) }
+                accessPrompt =
+                    FolderAccessPrompt(
+                        kind = pick?.kind ?: StorageFolderKind.DOWNLOADS,
+                        path = directory?.absolutePath.orEmpty(),
+                        forSavedFolder = false,
+                    )
+            }
         }
+    }
+
+    // Coming back from the All files access screen. The pick that needed it is finished here, so
+    // the user does not have to choose the same folder twice; if the switch was left off, the
+    // dialog is shown again rather than dropped - asking again is the whole point of it.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, accessPrompt) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event != Lifecycle.Event.ON_RESUME) return@LifecycleEventObserver
+                val prompt = accessPrompt ?: return@LifecycleEventObserver
+                if (!StorageLocationRepository.hasAllFilesAccess(context)) return@LifecycleEventObserver
+                storagePathsRefreshKey++
+                accessPrompt = null
+                val pick = pendingPick
+                if (prompt.forSavedFolder || pick == null) {
+                    // The folder is already the saved one: nothing is left to save, only to
+                    // re-open the caches that were opened against the fallback directory.
+                    StorageRestartScheduler.schedule(context)
+                } else {
+                    pendingPick = null
+                    viewModel.usePickedFolder(kind = pick.kind, treeUri = pick.treeUri)
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val customFolderPickerLauncher =
@@ -960,19 +1117,46 @@ private fun CustomStorageFoldersSection(
         ) { uri ->
             val kind = pendingFolderKind ?: return@rememberLauncherForActivityResult
             pendingFolderKind = null
+            // No folder means the chooser was closed, or the confirmation inside it refused. The
+            // location is left exactly as it was: nothing is saved, nothing is moved, and the row
+            // can be tapped again for another go.
             val treeUri = uri ?: return@rememberLauncherForActivityResult
             context.contentResolver.takePersistableUriPermission(
                 treeUri,
-                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
+            pendingPick = FolderPick(kind = kind, treeUri = treeUri)
             viewModel.usePickedFolder(kind = kind, treeUri = treeUri)
         }
 
+    // Checked here as well as in the app-wide banner, because this is where the answer is: the
+    // row leads to the same sheet the folder was chosen from, and it keeps saying what is wrong
+    // after the access dialog has been dismissed. Re-checked on its own timer, so a card put back
+    // in - or pulled out - updates without leaving the screen.
+    val storageHealthViewModel: StorageHealthViewModel = hiltViewModel()
+    val downloadsFolderHealth by storageHealthViewModel.downloadsFolderHealth.collectAsStateWithLifecycle()
+    val downloadsFolderProblem = downloadsFolderWarning(context, downloadsFolderHealth)
+
     PreferenceGroup(title = stringResource(R.string.custom_storage_folders)) {
+        if (downloadsFolderProblem != null) {
+            item {
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.downloads_folder_unusable_title)) },
+                    description = downloadsFolderProblem,
+                    icon = {
+                        Icon(
+                            painter = painterResource(R.drawable.error),
+                            contentDescription = null,
+                        )
+                    },
+                    onClick = { showDownloadActions = true },
+                )
+            }
+        }
         item {
             PreferenceEntry(
-                title = { Text(stringResource(R.string.download_location)) },
+                title = { Text(stringResource(R.string.downloads_folder)) },
                 description = downloadPath.ifBlank { stringResource(R.string.please_wait) },
                 icon = {
                     Icon(
@@ -1012,6 +1196,8 @@ private fun CustomStorageFoldersSection(
             },
             onReset = {
                 showDownloadActions = false
+                accessPrompt = null
+                pendingPick = null
                 viewModel.setCustomFolderPath(
                     kind = StorageFolderKind.DOWNLOADS,
                     path = null,
@@ -1035,6 +1221,8 @@ private fun CustomStorageFoldersSection(
             },
             onReset = {
                 showCacheActions = false
+                accessPrompt = null
+                pendingPick = null
                 viewModel.setCustomFolderPath(
                     kind = StorageFolderKind.SONG_CACHE,
                     path = null,
@@ -1042,6 +1230,159 @@ private fun CustomStorageFoldersSection(
                 )
             },
         )
+    }
+
+    accessPrompt?.let { prompt ->
+        FolderAccessDialog(
+            prompt = prompt,
+            onAllow = { openAllFilesAccessSettings(context) },
+            onChooseAnother = {
+                accessPrompt = null
+                pendingPick = null
+                pendingFolderKind = prompt.kind
+                customFolderPickerLauncher.launch(null)
+            },
+            onDismiss = { accessPrompt = null },
+        )
+    }
+}
+
+/** The folder the user picked, held while Android's shared-storage switch is answered. */
+private data class FolderPick(
+    val kind: StorageFolderKind,
+    val treeUri: Uri,
+)
+
+/**
+ * A folder that could not be used only because Android is holding shared storage back from this
+ * app, together with the one thing that answers it.
+ */
+private data class FolderAccessPrompt(
+    val kind: StorageFolderKind,
+    val path: String,
+    /** True when this is the folder already saved, rather than one picked a moment ago. */
+    val forSavedFolder: Boolean,
+)
+
+/**
+ * What to say about a downloads folder that cannot be used, or null when there is nothing to say.
+ *
+ * The path is part of every message because the row above already names it: a warning that says the
+ * folder is gone without saying which folder leaves the user to work out which of the two folders on
+ * this screen is being talked about.
+ */
+private fun downloadsFolderWarning(
+    context: Context,
+    health: StorageFolderHealth,
+): String? =
+    when (health) {
+        StorageFolderHealth.Healthy -> null
+        is StorageFolderHealth.Missing -> context.getString(R.string.downloads_folder_missing_detail, health.path)
+        is StorageFolderHealth.NotWritable -> context.getString(R.string.downloads_folder_not_writable_detail, health.path)
+        is StorageFolderHealth.NeedsAllFilesAccess -> context.getString(R.string.downloads_folder_needs_access_detail, health.path)
+    }
+
+/**
+ * The saved folder of either kind that needs All files access, if any.
+ *
+ * Checked for both kinds at once because either row can be the one the user pointed somewhere the
+ * app cannot enter, and the prompt says which folder it is about.
+ */
+private fun savedFolderNeedingAccess(context: Context): FolderAccessPrompt? {
+    if (StorageLocationRepository.hasAllFilesAccess(context)) return null
+    val kinds = listOf(StorageFolderKind.DOWNLOADS, StorageFolderKind.SONG_CACHE)
+    for (kind in kinds) {
+        val directory = StorageLocationRepository.configuredFolderNeedingAllFilesAccess(context, kind)
+        if (directory != null) {
+            return FolderAccessPrompt(kind = kind, path = directory.absolutePath, forSavedFolder = true)
+        }
+    }
+    return null
+}
+
+/** Takes the user to the system's All files access switch for this app, where the versions have it. */
+private fun openAllFilesAccessSettings(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+    val appScreen =
+        Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+            .setData("package:${context.packageName}".toUri())
+    runCatching { context.startActivity(appScreen) }.onFailure {
+        // Some ROMs answer only the general screen. Both are the same switch, so the user still
+        // lands somewhere they can grant it.
+        runCatching {
+            context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+        }
+    }
+}
+
+/**
+ * Asks for the one access that answers "Hush could not write a file in that folder" when the
+ * folder is in shared storage.
+ *
+ * A dialog rather than a message because the answer is a switch the user has to flip somewhere
+ * else, and the pick it interrupted is finished on the way back. Dismissing it refuses nothing: the
+ * row it was raised from can be tapped again, and the same dialog comes back.
+ */
+@Composable
+private fun FolderAccessDialog(
+    prompt: FolderAccessPrompt,
+    onAllow: () -> Unit,
+    onChooseAnother: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val bodyResId =
+        if (prompt.forSavedFolder) {
+            R.string.storage_folder_needs_access_saved_body
+        } else {
+            R.string.storage_folder_needs_access_body
+        }
+    val folder = prompt.path.ifBlank { prompt.kind.defaultDirectoryName }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+            shape = AlertDialogDefaults.shape,
+            color = AlertDialogDefaults.containerColor,
+            tonalElevation = AlertDialogDefaults.TonalElevation,
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.storage_folder_needs_access_title),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = stringResource(bodyResId, folder),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = onAllow,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.storage_folder_allow_access))
+                }
+                TextButton(
+                    onClick = onChooseAnother,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.storage_folder_choose_another))
+                }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.storage_folder_not_now))
+                }
+            }
+        }
     }
 }
 
@@ -1079,12 +1420,26 @@ private fun StorageLocationActionSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            // Said before the picker opens, because the refusal it explains happens inside
+            // Android's own screen: choosing Download itself, or the top of storage, is
+            // something the platform never grants this or any other app, and a user who meets
+            // that dialog with no warning reads it as Hush being denied permission.
+            Text(
+                text = stringResource(R.string.storage_folder_picker_limits),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Button(
                 onClick = onChooseFolder,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(stringResource(R.string.import_from_folder))
             }
+            Text(
+                text = stringResource(R.string.storage_folder_move_background),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             if (showReset) {
                 Button(
                     onClick = onReset,

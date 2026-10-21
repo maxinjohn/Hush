@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.hush.music.R
+import app.hush.music.constants.SpotiFLACEnabledDefault
 import app.hush.music.constants.SpotiFLACEnabledKey
 import app.hush.music.constants.SpotiFLACLosslessNudgeAskCountKey
 import app.hush.music.constants.SpotiFLACLosslessNudgeHandledKey
@@ -56,12 +57,11 @@ import kotlinx.coroutines.flow.first
  * The launch-time offer to turn on lossless playback.
  *
  * SpotiFLAC is the one thing in the app that changes what a track *is* - a FLAC from Qobuz, Tidal,
- * Deezer or Amazon instead of YouTube's audio - and it is off until someone finds "Audio Sources" in
- * settings and flips a switch they had no reason to look for. Nothing in the app ever said it
- * existed. This is the one place that says so, at the moment the app is opened rather than buried in
- * a screen, and it is an offer rather than a notice: it names the feature, it says who it needs (this
- * device can only offer it in a build that carries the runtime) and it takes the user straight to the
- * switch.
+ * Deezer or Amazon instead of YouTube's audio - and it is on by default ([SpotiFLACEnabledDefault]),
+ * so this offer now speaks to the one user who can still need it: someone who switched the engine off
+ * and may not remember which screen that was. It stays an offer rather than a notice: it names the
+ * feature, it says who it needs (this device can only offer it in a build that carries the runtime) and
+ * it takes the user straight to the switch.
  *
  * ## When it is allowed to speak
  *
@@ -115,7 +115,7 @@ fun SpotiFLACLosslessNudgeHost(
         val asksMade = stored[SpotiFLACLosslessNudgeAskCountKey] ?: 0
         val due =
             losslessOfferDue(
-                enabled = stored[SpotiFLACEnabledKey] == true,
+                enabled = stored[SpotiFLACEnabledKey] ?: SpotiFLACEnabledDefault,
                 handled = stored[SpotiFLACLosslessNudgeHandledKey] == true,
                 asksMade = asksMade,
                 runtimeAvailable = runtimeAvailable,

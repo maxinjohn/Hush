@@ -21,13 +21,15 @@
 # row: brighter than the pixels a dp to its left and to its right, whichever way the wash slopes.
 # So every rule below is per-pixel and relative; none of them is a global brightness level.
 #
-#   1. **Find the pill by its fill.** A row of the pill is a row where a long run of columns is
+#   1. **Find the pill by its fill.** A row of the pill is a row where a long span of columns is
 #      markedly darker than those same columns one *preset-height* above it. Above the pill is the
 #      action row - bright discs on a bright wash - and inside it is the 0.55-black scrim, so the
-#      ratio is ~0.45 there and ~1.0 across the rest of the column. The run also has to be
-#      *interior*: it must not touch the scan window's edges. That rule is what keeps the equally
+#      ratio is ~0.45 there and ~1.0 across the rest of the column. The span is read across the
+#      line's own text: the text is bright, so the row is dark, stroke, dark, and the stretches are
+#      joined across anything no wider than a glyph stroke (see [strip_band]). The span also has to
+#      be *interior*: it must not touch the scan window's edges. That rule is what keeps the equally
 #      dark sheet *below* the pill out of the answer - the sheet is dark from edge to edge, so its
-#      run has no end inside the window and is thrown away.
+#      span has no end inside the window and is thrown away.
 #   2. **Read the pill's span off its rim.** The band step 1 found is the pill's *fill*. The rim
 #      sits up to a dp outside that, and the rounded corners pull the rim inward on the band's
 #      first and last rows, so the span is the union over the pill's own rows of each row's
@@ -60,19 +62,23 @@
 #                   fill; default 0.62
 #   --margin        how much brighter than its neighbours a pixel has to be to count as a rim, out
 #                   of 255; default 12
-#   --x0 / --x1     the scan window in px, defaulting to 56%..99% of the width - right of the
-#                   artwork column, where the controls column's own content lives. The pill is a
-#                   fixed 250-340dp centred in that column, so the narrower the window the further
-#                   left it starts, and a window under ~700dp puts its left end *left* of the 56%
-#                   default - where the run touches the window edge and is thrown away as "dark all
-#                   the way across". Those sizes are measured with --x0 at about 0.35x the width:
-#                   at a 450dp window --x0 640 reads a pill of 718-1714px against an action row
-#                   of 716-1715px, ALIGNED to 0.50dp
+#   --x0 / --x1     the scan window in px. --x1 defaults to 99% of the width, and --x0 to 56% of
+#                   it - right of the artwork column, where the controls column's content lives.
+#                   That 56% is a *guess*, and when --strip-y has pinned the pill's rows the tool
+#                   searches instead of guessing: a run found hard against the window's left edge is
+#                   re-read in a wider window (44%, then 34% of the width), because a run cut by the
+#                   window is thrown away as "dark all the way across" and a pill that is thrown
+#                   away is a pill this tool has no number for. Which window did the work is printed
+#                   with the verdict. Passing --x0 explicitly turns the search off: a caller who
+#                   says where to look has said it. Measured at an 804x360dp window in the
+#                   full-width layout (no rail), the pill ran 1625-2857px (50.5%..89%) against a
+#                   default window starting at 1801px, and at 450dp: --x0 640 reads a pill of
+#                   718-1714px against an action row of 716-1715px, ALIGNED to 0.50dp
 #   --strip-y       y1,y2px of the pill's rows, when they are already known (the player's
 #                   accessibility tree names the row's text). Pins the search off the artwork, and
-#                   is the only way to measure a full-width player, whose pill starts left of the
-#                   default window (see --x0 too: the same pinning is what makes a wider --x0 than
-#                   the artwork column safe, because the searched rows are the pill's own)
+#                   is what lets --x0 be widened when the guess was too narrow (see --x0: the same
+#                   pinning is what makes a wider window than the artwork column safe, because the
+#                   searched rows are the pill's own)
 #   --label         name used in the output; default "provenance strip"
 #
 # Exit code: 0 when the two spans agree within --tolerance-dp, 1 when they do not - including when
@@ -88,6 +94,20 @@ try:
     from PIL import Image
 except ImportError:  # pragma: no cover - environment, not logic
     sys.exit("aura-strip-align: Pillow is required (pip3 install pillow)")
+
+# The most a corner can pull a fill run in from the pill's own end, in dp: the pill's corner radius.
+# The app draws it as RoundedCornerShape(12.dp), and the rim search below widens from 3dp up to this
+# before it accepts that a rim pinned to the window's edge is the row running past the fill rather
+# than the window being too narrow. It is also why the action row's window (15dp) is safe: the corner
+# is the only thing that can hide a rim, and it cannot hide more than this.
+CORNER_DP = 12.0
+
+# How much of a row's span has to be darker than the backdrop for it to be the pill's fill rather
+# than a bright row with a few stray dark pixels in it. The pill's scrim reads at ~0.2 of its
+# backdrop and its own text is what makes up the rest of the span, so the floor is well clear of
+# both: at 0.7 a row of text over the wash cannot qualify, and a row through the pill's glyphs does
+# with room to spare.
+DARK_SHARE = 0.7
 
 
 def load(path, size=None):
@@ -119,12 +139,30 @@ def load(path, size=None):
     return image.convert("L").tobytes(), image.size
 
 
-def strip_band(buf, width, height, x0, x1, offset, ratio, min_run, strip_y=None):
+def strip_band(buf, width, height, x0, x1, offset, ratio, min_run, gap=0, strip_y=None):
     """The rows of the pill's fill, plus where that fill starts and ends.
 
     A row belongs to the pill when a long, *interior* run of its columns is darker than the same
-    columns `offset` px higher up. `strip_y` narrows the rows searched to the pill's own, which is
-    how a caller who already knows where the row is keeps the search off the artwork.
+    columns `offset` px higher up - interior meaning air at both ends, so a run that reaches the
+    window's edge is not the pill but whatever is dark all the way across it (see the rule in the
+    per-row loop). `strip_y` narrows the rows searched to the pill's own, which is how a caller who
+    already knows where the row is keeps the search off the artwork.
+
+    `gap` is the length of bright interruption the run may be read *across*, and it exists because
+    the pill is not blank: the text it exists to show sits inside it, so a row through the text is
+    dark, bright stroke, dark, ... and the longest unbroken stretch measures the space between two
+    words rather than the pill. Measured at a 560x300dp window, default font scale: the pill's own
+    220dp of scrim came back as a 104dp stretch at its longest - the glyphs of `96 kbps • 3 MB •
+    SpotiFLAC` interrupt it - and the window was reported as having no pill at all while the pill was
+    drawn and readable in the capture. So a second pass joins the stretches across a bright
+    interruption no wider than `gap` - the widest a glyph stroke can be at this density, far
+    narrower than the wash the pill ends in - and the joined span has to be long, interior, and dark
+    for most of its length. Joining cannot let the sheet below the pill in: that is dark to the
+    window's edge, so it still has no air at one end, which is what the rule always said.
+
+    The default is 0, which is the strict rule: a span must be dark without a break. The caller
+    asks for the joining pass only when the strict one has nothing usable to offer, so every window
+    that already measured keeps the number it had.
     Returns (top, bottom, run_start, run_end) or None.
     """
     hits = []
@@ -132,26 +170,47 @@ def strip_band(buf, width, height, x0, x1, offset, ratio, min_run, strip_y=None)
     for y in range(y_from, min(y_to, height - offset)):
         base = (y - offset) * width
         row = y * width
-        run = 0
+        dark = 0
         start = best_start = None
         best = 0
-        for x in range(x0, x1):
-            above = buf[base + x]
-            if above > 10 and buf[row + x] < ratio * above:
-                if run == 0:
+        last_dark = None
+        # The longest span with air at *both* ends, joined across a bright interruption of at most
+        # [gap] px (none at all, on the strict pass). A span that reaches a window edge is not the
+        # pill: it belongs to something dark all the way across, which is the sheet under the pill
+        # when the window is a narrow one and the *artwork* - or the wash left of the controls
+        # column - when the window was widened past it. Either way the pill can be the next span
+        # along in the same row, so the row is not given up over one bad span: measured at a 600x360dp
+        # window, where the widened window started left of the controls column and the longest span in
+        # every row was the artwork's, this reported the whole size as unmeasurable with the pill
+        # drawn and readable in the capture. Only spans with air at both ends are considered at all,
+        # so the rule that keeps the sheet out of the measurement is unchanged.
+        for x in range(x0, x1 + 1):
+            is_dark = x < x1 and buf[base + x] > 10 and buf[row + x] < ratio * buf[base + x]
+            if is_dark:
+                if start is not None and x - last_dark - 1 > gap:
+                    # The dark stopped for longer than a stroke: the span is over, so it is judged
+                    # before this pixel opens a new one.
+                    span = last_dark - start + 1
+                    if span > best and start > x0 and last_dark < x1 and dark >= DARK_SHARE * span:
+                        best, best_start = span, start
+                    start = None
+                if start is None:
                     start = x
-                run += 1
-            else:
-                if run > best:
-                    best, best_start = run, start
-                run = 0
-        if run > best:
-            best, best_start = run, start
-        # No run at all, too short to be the row, or a run that reaches a window edge and so belongs
-        # to something that is dark all the way across - the sheet under the pill, say.
+                dark += 1
+                last_dark = x
+                continue
+            if start is not None and x - last_dark - 1 > gap:
+                # The span is judged the moment the brightness lasts longer than [gap] - at the very
+                # first bright pixel on the strict pass, which is where the unbroken rule ended it.
+                span = last_dark - start + 1
+                if span > best and start > x0 and last_dark < x1 and dark >= DARK_SHARE * span:
+                    best, best_start = span, start
+                start = None
+        if start is not None:
+            span = last_dark - start + 1
+            if span > best and start > x0 and last_dark < x1 and dark >= DARK_SHARE * span:
+                best, best_start = span, start
         if best_start is None or best < min_run:
-            continue
-        if best_start <= x0 or best_start + best >= x1:
             continue
         hits.append((y, best_start, best_start + best, best))
     if not hits:
@@ -202,43 +261,110 @@ def measure(buf, width, height, args):
     x1 = args.x1 if args.x1 is not None else round(width * 0.99)
     density = args.density
     reach = max(3, round(1.5 * density))
-    x0 = args.x0 if args.x0 is not None else round(width * 0.56)
-    # Where the controls column starts depends on whether the player is drawn beside a navigation
-    # rail or across the whole window, and in the full-width layout the pill begins at ~51% - left
-    # of the default window, so the run is cut in half and thrown away as "dark all the way
-    # across". `--strip-y` is the answer to that: a caller who knows which rows the pill is on (the
-    # player's own accessibility tree names its text) does not need the tool to guess, and pinning
-    # the rows is also what keeps a dark *artwork* region from being mistaken for the pill, whose
-    # fill is only ~0.45 of its backdrop - the same contrast a dark album cover can show against
-    # itself. Guessing is for the common case; --strip-y is for the rest.
-    band = strip_band(
-        buf,
-        width,
-        height,
-        x0,
-        x1,
-        round(18 * density),
-        args.scrim_ratio,
-        round(100 * density),
-        args.strip_y,
-    )
+    # The guess, and the search that replaces it when the caller pinned the rows with --strip-y and
+    # left --x0 alone. Whichever window finds the pill first wins, so the tightest one that works is
+    # the one that is reported and nothing that already measured moves by a pixel. See --x0 in the
+    # usage note: 56% of the width is right of the pill's left end only while the player is drawn
+    # *beside* a navigation rail. Full-width - a window on a screen whose route has no rail, a
+    # folded or desktop window - the controls column centres in the whole width and the pill begins
+    # at ~51%, so the 56% window cuts its left end off and the run, reaching the window's edge, is
+    # discarded as "dark all the way across". Measured at an 804x360dp window in that layout: the
+    # pill ran 1625-2857px (50.5%..89%) against a window starting at 1801px, and the size came back
+    # unmeasurable. Widening is safe precisely because the rows are pinned: the artwork is searched
+    # only where the pill's own text is, and the pill is the only glass in those rows.
+    default_x0 = round(width * 0.56)
+    x0 = args.x0 if args.x0 is not None else default_x0
+    windows = [x0]
+    if args.x0 is None and args.strip_y is not None:
+        windows += [w for w in (round(width * 0.44), round(width * 0.34)) if w < x0]
+    # The windows are tried in order, and the first band the pill could actually *be* wins, so the
+    # shape floors are asked here rather than after the search: a fragment - a band one row tall, or
+    # one no wider than a word, or one cut by the window's own edge - is not an answer, and it sends
+    # the search to the wider window instead of ending it. Measured at a 560x300dp window, default
+    # font scale: at 56% of the width the pill's left end sits 13dp to the left of the window, so
+    # every row through the pill was read as cut and the band came back a single row - and a rule
+    # that took the first band whose fill began more than 15dp right of the window stopped there and
+    # reported a pill that was drawn and aligned in the capture as unmeasurable.
+    min_band_px = round(2 * density)
+    min_fill_dp = 150
+    def usable(candidate, found):
+        """Whether a band is the pill's fill rather than a fragment of it.
+
+        Three ways of not being it: too thin to be a band (a scrim that sank into the wash leaves
+        stray rows), too narrow to be this pill (a word rather than the glass around it), or starting
+        hard against the window's left edge - which means the window cut the fill, and a wider one
+        may hold the whole pill.
+        """
+        top, bottom, run_start, run_end = found
+        return (
+            bottom - top >= min_band_px
+            and (run_end - run_start) / density >= min_fill_dp
+            and run_start - candidate > round(15 * density)
+        )
+
+    def find(gap):
+        """The first window whose band the pill could be, or (None, None)."""
+        for candidate in windows:
+            found = strip_band(
+                buf,
+                width,
+                height,
+                candidate,
+                x1,
+                round(18 * density),
+                args.scrim_ratio,
+                round(100 * density),
+                gap,
+                args.strip_y,
+            )
+            if found is not None and usable(candidate, found):
+                return candidate, found
+        return None, None
+
+    # The strict fill rule, over every window, before the pass that reads across the pill's own
+    # text - and that order is the whole reason the joining cannot move a pill that was already
+    # measured. A window whose *fragment* the joining pass can dress up as a band (measured at a
+    # 450x360dp window: the strict pass had only a cut stub at 44% of the width, while joining read
+    # a confident-looking 974-1710px band out of the pill's right two thirds and the rim search then
+    # began 15dp inside the pill's own left end) must not be reached before the wider window the
+    # strict rule would have gone to. So the joining pass is a fallback for a window the strict rule
+    # cannot read at all, which is what it was written for, and nothing else. See [strip_band].
+    x0, band = find(0)
+    if band is None:
+        found_x0, found = find(round(2 * density))
+        if found is not None:
+            x0, band = found_x0, found
     if band is None:
         return None
     top, bottom, run_start, run_end = band
 
-    # A pill's fill is a band, not a line: a scrim that has sunk into the wash leaves only stray
-    # single rows behind, and reading a span off one of those is how a tool reports a confident
-    # number for a strip it never found. Both floors below are shape checks on the pill itself, not
-    # alignment claims, so they say "not measurable" rather than "misaligned".
-    if bottom - top < round(2 * density) or (run_end - run_start) / density < 150:
-        return None
-
-    # The rim lies at most a dp outside the fill, so scanning starts there and stops there: far
-    # enough to catch the rim at the pill's widest row, not so far that the artwork's bright edge
-    # joins in on the left.
-    pad = round(3 * density)
-    strip_rows = range(max(0, top - round(2 * density)), min(height, top + round(20 * density)))
-    strip = union_span(buf, width, strip_rows, max(x0, run_start - pad), min(x1, run_end + pad), reach, args.margin)
+    # The rim lies at most a dp outside the fill *on the row it is found on* - but the fill is read
+    # at one row (the band's deepest, which is where the longest run is) and the rim is taken over
+    # many. Rows nearer the pill's cap are pulled in by its rounded corner, by up to the corner
+    # radius, so a window of 3dp around the fill is not wide enough there: it clamps the rim at the
+    # window's edge instead of reading it, and reports the clamp as misalignment. Measured on device
+    # at a 1.5x font scale: a 23dp-tall pill measured 1206px against its own 1215px row - 1.25dp of
+    # disagreement, symmetric, that was the window and not the app, and that vanished (1864..3079px
+    # against a 1864..3079px row) as soon as the window was allowed to reach the rim.
+    #
+    # So the window starts at 3dp and widens only when the rim it found is pinned to the window's
+    # edge, and never past the corner radius - which is the most a rounded corner can pull a fill
+    # in, and stays far short of the artwork column's bright edge (25dp left of the pill at the
+    # narrowest window measured). A caller that pinned `--strip-y` also gets its rows scanned in
+    # full, because the pill's own fill band is only as tall as the text inside it: 20dp below that
+    # band is partway up the cap of a tall pill, which is the same narrowing by another route.
+    if args.strip_y is not None:
+        strip_rows = range(max(0, args.strip_y[0]), min(height, args.strip_y[1]))
+    else:
+        strip_rows = range(max(0, top - round(2 * density)), min(height, top + round(20 * density)))
+    strip = None
+    for corner_dp in (3, 5, 8, CORNER_DP):
+        pad = round(corner_dp * density)
+        xa = max(x0, run_start - pad)
+        xb = min(x1, run_end + pad)
+        strip = union_span(buf, width, strip_rows, xa, xb, reach, args.margin)
+        if strip[0] is None or (strip[0] > xa and strip[1] < xb):
+            break
     if strip[0] is None or (strip[1] - strip[0]) / density < 150:
         return None
 

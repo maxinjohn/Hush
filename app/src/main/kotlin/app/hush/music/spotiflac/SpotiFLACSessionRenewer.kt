@@ -1,8 +1,11 @@
 package app.hush.music.spotiflac
 
 import android.content.Context
+import app.hush.music.utils.dataStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -800,18 +803,86 @@ object SpotiFLACSessionRenewer {
     }
 
     /**
+     * What one renewal run may ask about, and what it deliberately leaves alone.
+     *
+     * A session belongs to a source, and a source the user has switched off is not going to be
+     * asked to play - so renewing it is a request nobody wants, against a gateway that counts
+     * refusals, for a row the screen draws as off. Kept as a value rather than two filters inline so
+     * the rule is a thing a unit test can read; see [SwitchedOffSourcesAreNotRenewedTest].
+     */
+    internal data class RenewalSelection(
+        val candidates: List<ExtensionSession>,
+        val skipped: List<ExtensionSession>,
+    )
+
+    /**
+     * Splits [sessions] into the ones a run may renew and the ones whose source is switched off.
+     *
+     * [switchedOn] is null when this install has never recorded a choice, and then every session is
+     * kept: "nothing is known" must not be read as "everything is off", or a fresh install would
+     * never renew the sessions its defaults switch on.
+     */
+    internal fun renewalsFor(
+        sessions: List<ExtensionSession>,
+        switchedOn: Set<String>?,
+    ): RenewalSelection {
+        if (switchedOn == null) return RenewalSelection(sessions, emptyList())
+        val candidates = sessions.filter { it.extensionId.lowercase() in switchedOn }
+        return RenewalSelection(candidates, sessions - candidates.toSet())
+    }
+
+    /**
      * Renews every session that is inside [RENEW_WINDOW_SECONDS] of expiry.
      *
      * @param force renew regardless of remaining validity (manual "refresh now").
      */
-    fun renewAll(
+    suspend fun renewAll(
         context: Context,
         force: Boolean = false,
         reason: String = "scheduled",
+        /**
+         * The extension ids the user has switched on, when the caller already knows them.
+         *
+         * Null asks this class to read them itself, which is what every automatic caller does. A
+         * switched-off source is never asked about: its session is not needed for playback, so
+         * renewing it is a network call, a gateway refusal and a "Checking session..." row for a
+         * source the user turned off. Measured on the reporting device: thirteen sessions renewed
+         * at every launch and every hour for a user with one source switched on.
+         */
+        enabledIds: Set<String>? = null,
     ): List<RenewResult> {
-        val candidates = sessions(context)
-        if (candidates.isEmpty()) {
+        val all = sessions(context)
+        if (all.isEmpty()) {
             SpotiFLACDiag.log("session renew ($reason): no extension sessions found")
+            return emptyList()
+        }
+        val switchedOn =
+            enabledIds
+                ?: runCatching {
+                    // Awaiting rather than snapshot: at process start every cached answer is still
+                    // empty, null means "nobody has chosen", and an app-start run renewed every
+                    // session on the device - including the sources the user had switched off.
+                    // The store is read here, which is the one answer that exists that early.
+                    val stored = withTimeoutOrNull(1_500L) { context.dataStore.data.first() }
+                    // Static, not the singleton: app start runs before the playback service has
+                    // built the registry, and asking it there threw "not initialized" - which was
+                    // caught and read as "nobody has chosen".
+                    ExtensionRepositoryManager.switchedOnExtensionIds(stored)
+                }
+                    .onFailure {
+                        SpotiFLACDiag.log("session renew ($reason): switches unreadable: ${it.message}")
+                    }
+                    .getOrNull()
+        val selection = renewalsFor(all, switchedOn)
+        val candidates = selection.candidates
+        if (selection.skipped.isNotEmpty()) {
+            SpotiFLACDiag.log(
+                "session renew ($reason): left alone ${selection.skipped.size} session(s) whose " +
+                    "source is switched off [${selection.skipped.joinToString(",") { it.extensionId }}]",
+            )
+        }
+        if (candidates.isEmpty()) {
+            SpotiFLACDiag.log("session renew ($reason): no source that holds a session is switched on")
             return emptyList()
         }
         // First make sure every record that the app has ever earned is present and

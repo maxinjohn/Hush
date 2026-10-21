@@ -20,6 +20,7 @@ import androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM
 import androidx.media3.common.Player.REPEAT_MODE_ALL
 import androidx.media3.common.Player.REPEAT_MODE_OFF
 import androidx.media3.common.Player.STATE_ENDED
+import androidx.media3.common.Player.STATE_READY
 import androidx.media3.common.Timeline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -62,9 +63,43 @@ class PlayerConnection(
             SharingStarted.Lazily,
             player.playWhenReady && player.playbackState != STATE_ENDED,
         )
+
+    /**
+     * Whether audio is actually coming out of the device, as opposed to [isPlaying].
+     *
+     * [isPlaying] is "the player intends to play": it is true for the entire time a SpotiFLAC track
+     * is being resolved and downloaded, because Media3 already has the item and `playWhenReady` is
+     * already set while it has no audio to play at all. Every progress surface read that flag as
+     * "the listener can hear this", so a live transfer was hidden exactly when it was happening:
+     * measured on the device, `progress routed player=true ... pct=99` was drawn as
+     * `state=STORED playing=true`, and the codec line never left the previous copy's facts.
+     *
+     * [STATE_READY] with `playWhenReady` is the narrow statement those surfaces need - Media3 has
+     * an output for this item and is feeding it - so a fetch for the track on screen is no longer
+     * mistaken for a fetch that has finished.
+     */
+    val isAudiblyPlaying =
+        combine(playbackState, playWhenReady) { playbackState, playWhenReady ->
+            playWhenReady && playbackState == STATE_READY
+        }.stateIn(
+            scope,
+            SharingStarted.Lazily,
+            player.playWhenReady && player.playbackState == STATE_READY,
+        )
     val mediaMetadata = service.currentMediaMetadata
     val activePlaybackClientLabel = service.activePlaybackClientLabel
     val activeDownloadProgress = service.activeDownloadProgress
+
+    /** The last sweep that ended with nothing, for the codec row rather than the artwork. */
+    val activeFetchFailure = service.activeFetchFailure
+
+    /**
+     * What the lookahead is fetching ahead of the current track, for the queue's own rows.
+     *
+     * Shared from the service rather than derived here: the queue must agree with the player about
+     * which track a fetch belongs to, and the service is where that is decided.
+     */
+    val lookaheadPrefetch = service.lookaheadPrefetch
     val currentSong =
         mediaMetadata.flatMapLatest {
             database.song(it?.id)

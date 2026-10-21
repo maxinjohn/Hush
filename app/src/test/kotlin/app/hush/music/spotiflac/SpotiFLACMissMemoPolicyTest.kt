@@ -101,6 +101,49 @@ class SpotiFLACMissMemoPolicyTest {
         )
     }
 
+    /**
+     * A sweep that came up empty and a track that then *played* are two different records.
+     *
+     * The unfinished window is minutes because a sweep cut off once proves nothing - but leaving it
+     * there is what made every replay of a track served by YouTube walk all of its sources again,
+     * while the same track served by the third-party engine started instantly from its cached file.
+     * The fallback record is long enough to cover a listening session and still short enough that a
+     * provider outage is re-tested within one.
+     */
+    @Test
+    fun `a track that played from YouTube is remembered longer than an unfinished sweep`() {
+        val unfinished = SpotiFLACMissPolicy.retentionFor(SpotiFLACMissPolicy.REASON_SWEEP_UNFINISHED)
+        val fallback = SpotiFLACMissPolicy.retentionFor(SpotiFLACMissPolicy.REASON_YOUTUBE_FALLBACK)
+        val noMatch = SpotiFLACMissPolicy.retentionFor(SpotiFLACMissPolicy.REASON_NO_MATCH)
+
+        assertEquals(SpotiFLACMissPolicy.FALLBACK_RETENTION_MS, fallback)
+        assertTrue(unfinished < fallback)
+        assertTrue(fallback < noMatch)
+        // A replay ten minutes later is answered from the record instead of by a fresh walk.
+        assertFalse(validAt(NOW + 10L * 60L * 1000L, unfinished))
+        assertTrue(validAt(NOW + 10L * 60L * 1000L, fallback))
+        // And it does lapse: half an hour in, the walk is asked again.
+        assertFalse(validAt(NOW + fallback + 1L, fallback))
+    }
+
+    /**
+     * A fallback record only ever upgrades what the sweep left behind.
+     *
+     * Shortening a definite catalogue verdict to half an hour would throw the better answer away, and
+     * the two records answer the same question - "do not walk every source again for this track".
+     */
+    @Test
+    fun `a fallback replaces an unfinished sweep but never a catalogue verdict`() {
+        assertTrue(SpotiFLACMissPolicy.shouldRecordFallback(null))
+        assertTrue(
+            SpotiFLACMissPolicy.shouldRecordFallback(SpotiFLACMissPolicy.UNFINISHED_SWEEP_RETENTION_MS),
+        )
+        assertFalse(
+            SpotiFLACMissPolicy.shouldRecordFallback(SpotiFLACMissPolicy.FALLBACK_RETENTION_MS),
+        )
+        assertFalse(SpotiFLACMissPolicy.shouldRecordFallback(SpotiFLACMissPolicy.NO_MATCH_RETENTION_MS))
+    }
+
     @Test
     fun `a miss recorded by a clock that went backwards is not trusted`() {
         assertFalse(

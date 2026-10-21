@@ -3,7 +3,8 @@
 # shipped Android ABIs and stage the results where Gradle can pick them up.
 #
 # Replaces the one-off worktree the 2026-10-07 feasibility spike used: this script
-# materializes its own pinned checkout (a git worktree of the SpotiFLAC-Mobile
+# materializes its own pinned checkout (a git worktree of the upstream clone - named
+# SpotiFLAC-Mobile on disk, Mornye upstream since v5.2.1
 # clone), so the build is reproducible from the repo instead of from a directory
 # someone happened to create by hand.
 #
@@ -120,6 +121,19 @@ fi
 RUST_BACKEND_DIR="$SRC/rust_backend"
 [[ -f "$RUST_BACKEND_DIR/Cargo.toml" ]] \
   || die "no rust_backend/Cargo.toml under $SRC (is this the Go-era pin? it needs $SPOTIFLAC_RUST_TAG)"
+
+# The crate this stage is built from, and why a pin bumped past 5.0.7 cannot be: upstream renamed
+# every crate in 5.1 (`spotiflac_*` -> `mornye_*`) when the app shipped as **Mornye**, so on a
+# current tag the `-p spotiflac-mobile` calls below fail with "package ID specification did not
+# match" - an error about a name that never mentions the rename. Say the real reason here, before
+# any build starts.
+MOBILE_CRATE="$(sed -n 's/^name = "\(.*\)"/\1/p' "$RUST_BACKEND_DIR/crates/mobile/Cargo.toml" 2>/dev/null | head -1)"
+[[ "$MOBILE_CRATE" == "spotiflac-mobile" ]] || die \
+  "crates/mobile is '${MOBILE_CRATE:-unreadable}', not 'spotiflac-mobile': this stage is written \
+against the $SPOTIFLAC_RUST_TAG tree, and upstream renamed its crates (spotiflac_* -> mornye_*) \
+and its artifacts (libspotiflac_mobile.so -> libmornye_mobile.so) in 5.1, when the app shipped as \
+Mornye. Port the crate and library names in this script and in SpotiFLACNativeRuntimeBridge's \
+imports before moving the pin; docs/spotiflac-rust-migration-plan.md section 7 lists what else moved."
 
 CARGO_TARGET_DIR="${SPOTIFLAC_RUST_TARGET_DIR:-$RUST_BACKEND_DIR/target}"
 export CARGO_TARGET_DIR

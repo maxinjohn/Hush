@@ -109,8 +109,9 @@ object SpotiFLACPackageUpdateLog {
     /**
      * Records a check.
      *
-     * [userInitiated] is a check the user asked for, which always answers - "up to date" is the
-     * answer they pressed the button for. An incidental sweep (a service re-warm, a screen opening)
+     * [userInitiated] is a check that was asked for explicitly, which always answers - "up to
+     * date" is the answer to the question that was asked. A per-source update from the Audio
+     * Sources row does not come through here at all: it reports on the row that asked. An incidental sweep (a service re-warm, a screen opening)
      * only publishes when it found something, or when nothing has been published yet: measured on
      * device, a startup check that updated amazon was followed two seconds later by two repeat
      * sweeps that found nothing, and the update was erased from the only place it was reported just

@@ -613,6 +613,34 @@ class SpotiFLACPlaybackCache @Inject constructor(
     }
 
     /**
+     * Points an entry at a rewritten copy of its own audio.
+     *
+     * Used when the bytes are re-containerised rather than downloaded again - a FLAC wrapped in
+     * a fragmented MP4 becomes a native `.flac` so the player can seek in it. The track, its
+     * source and its codec do not change; only the file that holds those same frames does, and
+     * the entry has to name it or the next lookup judges a shorter file against the old length
+     * and calls it truncated.
+     */
+    fun replaceFile(
+        trackKey: String,
+        file: File,
+    ) {
+        ensureLoaded()
+        val entry = synchronized(this) { entries[trackKey] } ?: return
+        synchronized(this) {
+            entries[trackKey] =
+                entry.copy(
+                    filePath = file.absolutePath,
+                    extension = file.extension.takeIf { it.isNotBlank() },
+                    sizeBytes = file.length(),
+                    lastUsedAtMs = System.currentTimeMillis(),
+                )
+        }
+        pruneLeftovers(trackKey = trackKey, keep = file)
+        persist()
+    }
+
+    /**
      * Deletes every file of [trackKey] except [keep], returning how many went.
      *
      * Called where a track's finished file is known, which is the only moment at which "this

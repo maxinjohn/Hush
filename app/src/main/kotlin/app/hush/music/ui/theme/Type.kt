@@ -9,9 +9,12 @@ package app.hush.music.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import app.hush.music.R
 
 
 fun getTypography(
@@ -141,9 +144,42 @@ fun getTypography(
             ),
     )
 
+/**
+ * The bundled families.
+ *
+ * Each of these was a `FontFamily.Default` until now, which is why the font setting offered Outfit
+ * and Plus Jakarta and rendered the system font for both: the files have been in the APK the whole
+ * time (`res/font/outfit.ttf`, `plus_jakarta_sans.ttf`, `poppins.ttf`, `sfprodisplaybold.ttf`) and
+ * nothing pointed at them, so the choice was a label with no effect. They are one file per family
+ * here for the same reason the files are: Outfit and Plus Jakarta are variable fonts and Compose
+ * synthesises the weights from one file, which is what the parents these skins copy do too.
+ */
 val AppFontFamily: FontFamily = FontFamily.Default
-val OutfitFontFamily: FontFamily = FontFamily.Default
-val PlusJakartaSansFontFamily: FontFamily = FontFamily.Default
+
+/** A bundled family, one file and the weights Compose synthesises from it. */
+private fun bundledFontFamily(resId: Int): FontFamily =
+    FontFamily(
+        Font(resId = resId, weight = FontWeight.Normal, style = FontStyle.Normal),
+        Font(resId = resId, weight = FontWeight.Medium, style = FontStyle.Normal),
+        Font(resId = resId, weight = FontWeight.SemiBold, style = FontStyle.Normal),
+        Font(resId = resId, weight = FontWeight.Bold, style = FontStyle.Normal),
+    )
+
+val OutfitFontFamily: FontFamily by lazy { bundledFontFamily(R.font.outfit) }
+val PlusJakartaSansFontFamily: FontFamily by lazy { bundledFontFamily(R.font.plus_jakarta_sans) }
+val PoppinsFontFamily: FontFamily by lazy { bundledFontFamily(R.font.poppins) }
+val GoogleSansFlexFontFamily: FontFamily by lazy { bundledFontFamily(R.font.google_sans_flex) }
+
+/**
+ * SF Pro Display, which BitChord ships five weights of and Hush can ship one of.
+ *
+ * The bundled file is the bold cut, so the lighter styles in BitChord's scale render with a
+ * synthesised weight rather than a real one - the sizes and the tracking are exact, the stroke is
+ * the closest a redistributable file can be. Shipping the four other cuts is a licensing question,
+ * not a technical one, and it is the reason this family is one file.
+ */
+val SfProDisplayFontFamily: FontFamily by lazy { bundledFontFamily(R.font.sfprodisplaybold) }
+
 val LyricsFontFamily: FontFamily = FontFamily.Default
 val AppTypography = getTypography(brandFont = AppFontFamily, plainFont = FontFamily.Default)
 val SystemTypography = getTypography(brandFont = FontFamily.Default, plainFont = FontFamily.Default)

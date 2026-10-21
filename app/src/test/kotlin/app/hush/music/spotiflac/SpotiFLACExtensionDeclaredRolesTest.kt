@@ -7,6 +7,8 @@
 package app.hush.music.spotiflac
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -77,6 +79,93 @@ class SpotiFLACExtensionDeclaredRolesTest {
         assertEquals(
             listOf("download_provider", "lyrics_provider"),
             source("weird", category = "download", tags = listOf("lyrics")).declaredRoles,
+        )
+    }
+
+    // --- what the same declaration says about audio, before any package has been read -----------
+
+    /**
+     * The registry is the only place this can be answered before the package exists - which is the
+     * window a resolve starts in on a fresh install. `spotify-web`, `apple-music`, `bugs-music`,
+     * `melon-music`, `genie-music` and `spoiti-lists` all publish `category: "integration"`, and
+     * none of them can hand over a file.
+     */
+    @Test
+    fun `a metadata provider declares that it cannot serve audio`() {
+        assertTrue(
+            source("spotify-web", category = "integration", tags = listOf("spotify", "web", "streaming", "homefeed"))
+                .declaresMetadataOnly,
+        )
+        assertTrue(
+            source("apple-music", category = "integration", tags = listOf("apple", "metadata", "lyrics", "search"))
+                .declaresMetadataOnly,
+        )
+        assertTrue(source("spoiti-lists", category = "integration", tags = listOf("spotify", "playlist", "oauth"))
+            .declaresMetadataOnly)
+    }
+
+    @Test
+    fun `a downloader does not declare itself metadata only`() {
+        listOf("soundcloud", "ytmusic-spotiflac", "amazon", "deezer", "qobuz-web", "tidal-web", "jiosaavn")
+            .forEach { id -> assertFalse(id, source(id, category = "download").declaresMetadataOnly) }
+    }
+
+    /**
+     * The sources that do both must keep being swept. Every provider that enriches metadata *and*
+     * serves audio publishes both roles, and reading "metadata_provider" alone as "no audio" would
+     * switch off most of the catalogue.
+     */
+    @Test
+    fun `a source that serves audio and metadata is not metadata only`() {
+        assertFalse(
+            source("amazon", category = "download", types = listOf("metadata_provider", "download_provider"))
+                .declaresMetadataOnly,
+        )
+        assertFalse(
+            source("deezer", types = listOf("metadata_provider", "download_provider", "lyrics_provider"))
+                .declaresMetadataOnly,
+        )
+    }
+
+    /**
+     * `category: "download"` is the older way of saying the same thing and outranks a `types` list
+     * that only mentions metadata - the same precedence the installed-package rule already gives it,
+     * so a registry entry and its package cannot be read two different ways.
+     */
+    @Test
+    fun `a download category keeps a source in the sweep despite a metadata types list`() {
+        assertFalse(
+            source("odd-one", category = "download", types = listOf("metadata_provider"))
+                .declaresMetadataOnly,
+        )
+    }
+
+    /**
+     * An entry nobody can classify says nothing, in either direction - so it is not taken out of the
+     * audio sweep. Dropping an id here is the one mistake that is certain to lose a source.
+     */
+    @Test
+    fun `an unknown entry is not declared metadata only`() {
+        assertFalse(source("mystery").declaresMetadataOnly)
+        assertFalse(source("mystery", category = "").declaresMetadataOnly)
+    }
+
+    /** A module's own `resources` is its complete declaration, so search-only cannot serve audio. */
+    @Test
+    fun `a module that only searches cannot serve audio`() {
+        assertTrue(
+            source("bitchord:search-only", types = emptyList()).copy(
+                runtime = ModuleRuntime,
+                downloadUrl = "https://example.test/module.js",
+                requiredRuntimeFeatures = listOf("search"),
+            ).declaresMetadataOnly,
+        )
+        assertFalse(
+            source("bitchord:tidal", types = emptyList()).copy(
+                runtime = ModuleRuntime,
+                downloadUrl = "https://example.test/module.js",
+                requiredRuntimeFeatures = listOf("search", "stream"),
+            ).declaresMetadataOnly,
         )
     }
 }

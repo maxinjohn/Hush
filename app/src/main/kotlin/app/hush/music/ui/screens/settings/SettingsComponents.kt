@@ -78,6 +78,9 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import app.hush.music.R
 import app.hush.music.ui.theme.HushDesign
+import app.hush.music.ui.theme.LocalAppSkin
+import app.hush.music.ui.theme.skinRadius
+import app.hush.music.ui.theme.SkinRow
 import app.hush.music.ui.component.hushTappable
 import app.hush.music.ui.theme.rememberHushAccentGradient
 
@@ -556,7 +559,47 @@ fun SettingsSegmentedItem(
         } else {
             MaterialTheme.colorScheme.surface
         }
-    val shape = remember(index, count) { segmentedSettingsItemShape(index, count) }
+    // The first component a skin visibly reaches, and the one a user is looking at when they choose
+    // it: this screen *is* the settings look. Four anatomies come out of one row rather than four
+    // row composables, because a row that gains a badge or a progress line must gain it everywhere.
+    val rowStyle = LocalAppSkin.current.spec.row
+    // What the four anatomies actually disagree about, named once each rather than asked of the
+    // style at every use: whether the row has a container of its own, whether its icon sits on a
+    // filled plate, and how wide the row's own padding is. Reading the style at twenty call sites is
+    // how a fifth anatomy ends up half-applied.
+    val containerless = rowStyle == SkinRow.PLAIN
+    val tileRow = rowStyle == SkinRow.M3_CARD_TILE
+    val plateSize =
+        when {
+            containerless -> 28.dp
+            tileRow -> 40.dp
+            else -> 52.dp
+        }
+    val plateIconSize =
+        when {
+            containerless -> 24.dp
+            tileRow -> 22.dp
+            else -> 26.dp
+        }
+    val rowHorizontalPadding =
+        when {
+            containerless -> 4.dp
+            tileRow -> 20.dp
+            else -> 22.dp
+        }
+    val shape =
+        remember(index, count, rowStyle) {
+            when (rowStyle) {
+                // No card at all: rows run edge to edge and are told apart by a divider, which is
+                // what a plain list looks like next to a stack of segments.
+                SkinRow.PLAIN -> RoundedCornerShape(0.dp)
+                // Every row is its own card, so the segment shape - which rounds the ends of a group
+                // and squares the joins between them - is exactly wrong here. Metrolist's card is
+                // the same card at its own corner: 32dp scaled to 0.75 is the 24dp it draws.
+                SkinRow.CARD, SkinRow.M3_CARD_TILE -> RoundedCornerShape(HushDesign.CardCornerRadius)
+                SkinRow.ICON_CIRCLE -> segmentedSettingsItemShape(index, count)
+            }
+        }
 
     Card(
         modifier =
@@ -569,7 +612,14 @@ fun SettingsSegmentedItem(
         shape = shape,
         colors =
             CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                containerColor =
+                    when (rowStyle) {
+                        SkinRow.PLAIN -> Color.Transparent
+                        // One step higher than the shipped container, because a card that shares its
+                        // colour with the background behind it is not a card.
+                        SkinRow.CARD, SkinRow.M3_CARD_TILE -> MaterialTheme.colorScheme.surfaceContainer
+                        SkinRow.ICON_CIRCLE -> MaterialTheme.colorScheme.surfaceContainerLow
+                    },
             ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -577,16 +627,28 @@ fun SettingsSegmentedItem(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 88.dp)
-                    .padding(horizontal = 22.dp, vertical = 14.dp),
+                    .heightIn(min = if (containerless) 64.dp else 88.dp)
+                    .padding(
+                        horizontal = rowHorizontalPadding,
+                        vertical = if (containerless) 12.dp else 14.dp,
+                    ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier =
                     Modifier
-                        .size(52.dp)
-                        .clip(CircleShape)
-                        .background(effectiveAccent),
+                        .size(plateSize)
+                        .clip(if (tileRow) RoundedCornerShape(skinRadius(12.dp, LocalAppSkin.current.spec)) else CircleShape)
+                        .background(
+                            when {
+                                containerless -> Color.Transparent
+                                // Metrolist's own tile: the accent at a tenth, not a filled disc -
+                                // the setting is named by the row's text, and a solid plate competes
+                                // with the title instead of sitting beside it.
+                                tileRow -> effectiveAccent.copy(alpha = 0.10f)
+                                else -> effectiveAccent
+                            },
+                        ),
                 contentAlignment = Alignment.Center,
             ) {
                 if (item.showUpdateIndicator) {
@@ -601,21 +663,21 @@ fun SettingsSegmentedItem(
                         Icon(
                             painter = item.icon,
                             contentDescription = null,
-                            tint = iconContentColor,
-                            modifier = Modifier.size(26.dp),
+                            tint = if (containerless || tileRow) effectiveAccent else iconContentColor,
+                            modifier = Modifier.size(plateIconSize),
                         )
                     }
                 } else {
                     Icon(
                         painter = item.icon,
                         contentDescription = null,
-                        tint = iconContentColor,
-                        modifier = Modifier.size(26.dp),
+                        tint = if (containerless || tileRow) effectiveAccent else iconContentColor,
+                        modifier = Modifier.size(plateIconSize),
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(18.dp))
+            Spacer(modifier = Modifier.width(if (containerless) 16.dp else 18.dp))
 
             Column(
                 modifier = Modifier.weight(1f),
@@ -623,8 +685,21 @@ fun SettingsSegmentedItem(
             ) {
                 Text(
                     text = item.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
+                    // A bare icon beside a bold title would read as a squeezed card; the plain row
+                    // drops the weight with the container.
+                    style =
+                        if (containerless) {
+                            MaterialTheme.typography.bodyLarge
+                        } else {
+                            MaterialTheme.typography.titleMedium
+                        },
+                    // A tile row is Material's row, and Material's own settings text is Medium: Bold
+                    // next to a tenth-alpha plate was what made Metrolist's rows read as Hush's.
+                    fontWeight =
+                        when {
+                            containerless || tileRow -> FontWeight.Medium
+                            else -> FontWeight.Bold
+                        },
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -655,6 +730,16 @@ fun SettingsSegmentedItem(
                     )
                 }
             }
+        }
+
+        // The card carries the separation the segments used to; without one, a plain list would be
+        // one undivided block and two adjacent rows would read as one.
+        if (containerless) {
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 48.dp),
+                thickness = SettingsDimensions.DividerThickness,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+            )
         }
     }
 }

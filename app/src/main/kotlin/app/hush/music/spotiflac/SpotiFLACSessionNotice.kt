@@ -7,6 +7,7 @@
 package app.hush.music.spotiflac
 
 import android.content.Context
+import app.hush.music.constants.SpotiFLACEnabledDefault
 import app.hush.music.constants.SpotiFLACEnabledKey
 import app.hush.music.utils.dataStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,17 +43,32 @@ object SpotiFLACSessionNotice {
      *
      * @param sourceIds the sources that need the user - the units a verification works in, so the
      *   action can name exactly them rather than running a full sweep the user did not ask for.
+     * @param sourceNames what those sources are called, with the repository each came from, in the
+     *   order of [sourceIds]. Carried rather than derived where the card is drawn, because the card
+     *   is a composable and the names are a fact about the list.
      */
     data class Notice(
         val sourceIds: List<String>,
         val headline: String,
         val detail: String,
+        val sourceNames: List<String> = emptyList(),
     ) {
-        /** The one-line body, with the source list spelled out when it is short enough to be useful. */
+        /**
+         * The one-line body, naming the sources rather than their ids.
+         *
+         * A registry id is not something a user can look up, and this sentence is the one place the
+         * app asks them to act on a specific source - "Needs a check: qobuz-web" is an instruction
+         * written in the registries' vocabulary. The names are the same words the Audio Sources list
+         * uses, so the card and the switch it points at agree about which source is meant.
+         */
         val body: String
             get() =
-                if (sourceIds.isEmpty()) detail
-                else "$detail Needs a check: ${sourceIds.joinToString(", ")}."
+                if (sourceIds.isEmpty()) {
+                    detail
+                } else {
+                    val named = sourceNames.filter { it.isNotBlank() }.ifEmpty { sourceIds }
+                    "$detail Needs a check: ${named.joinToString(", ")}."
+                }
     }
 
     /**
@@ -188,9 +204,20 @@ object SpotiFLACSessionNotice {
      * at least one source can serve (the engine works). They are reported separately rather than
      * collapsed because only the last of them is a fact about the engine - the rest are facts about
      * *when* this ran, and a launch that says nothing at all has to say which it was.
+     *
+     * The switch is read the same way the route watch reads it, and for the same reason: an absent
+     * key is a fresh install and reads as on ([SpotiFLACEnabledDefault]), while a store that threw is
+     * a read that failed and stays silent. The card asks the user to go and check a source - raising
+     * it off a preference nobody could read would be asking on a fact the app does not have, which is
+     * the mistake the guarded read above exists to avoid. A failed read gets its own [Evaluation.reason]
+     * too: reported as "SpotiFLAC is off" it would send whoever reads the log to a switch that was
+     * never thrown.
      */
     private suspend fun evaluate(context: Context): Evaluation {
-        val enabled = runCatching { context.dataStore.data.first()[SpotiFLACEnabledKey] }.getOrNull() == true
+        val stored =
+            runCatching { context.dataStore.data.first() }
+                .getOrElse { return Evaluation(null, "the preferences could not be read") }
+        val enabled = stored[SpotiFLACEnabledKey] ?: SpotiFLACEnabledDefault
         if (!enabled) return Evaluation(null, "SpotiFLAC is off")
         val bridge =
             SpotiFLACNativeRuntimeBridgeHolder.instance
@@ -207,14 +234,23 @@ object SpotiFLACSessionNotice {
         // evidence of a missing session, and pausing (or nagging) over a slow first read would turn
         // a momentary gap into a prompt about a source that is fine. This is the same rule the
         // engine's own state follows, so the two cannot disagree.
+        // Only the sources that are switched on take part - on both halves of the question. The
+        // lapsed records used to be read from every extracted extension, which is a fact about the
+        // *disk* and not about what the user is using: on the reporting device every download source
+        // was switched off, three metadata providers were on, and the card still said "Needs a check:
+        // qobuz-web" about a source the user had deliberately turned off. A source that cannot be
+        // swept cannot be parked by a session, so raising a card over one asks for a check that
+        // changes nothing audible.
+        val switchedOn = sourceIds.toSet()
         val states = sourceIds.mapNotNull { id -> runCatching { bridge.sourceAuthState(id) }.getOrNull()?.let { id to it } }
         if (states.isEmpty()) return Evaluation(null, "no source state could be read")
         val expired =
             runCatching { SpotiFLACSessionRenewer.expired(context).map { it.extensionId } }
                 .getOrDefault(emptyList())
+                .filter { it in switchedOn }
         val targets =
             targetsNeedingNotice(states, expired)
-                ?: return Evaluation(null, "every readable source is healthy or needs no session")
+                ?: return Evaluation(null, "every source that is switched on is healthy or needs no session")
 
         val status =
             SpotiFLACAvailability.current(
@@ -228,6 +264,13 @@ object SpotiFLACSessionNotice {
                     sourceIds = targets,
                     headline = status.headline,
                     detail = status.detail,
+                    sourceNames =
+                        targets.map { id ->
+                            runCatching { ExtensionRepositoryManager.getInstance().sourceLabel(id) }
+                                .getOrNull()
+                                ?.takeIf { it.isNotBlank() }
+                                ?: id
+                        },
                 ),
             reason = "",
         )

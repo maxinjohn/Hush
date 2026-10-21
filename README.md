@@ -4,7 +4,7 @@
 
 YT Music client for my phone and car — that can also pull lossless from the services that aren't YouTube and read your Spotify library — with Waze bridge and Android Auto support so both screens in the car can drive it. Unofficial. Sideloaded. Built for my daily drive. APKs are up. Issues are open. Use it or don't — I'm good either way, not for a crowd.
 
-Instead of hopping between a pile of forks, I combined the best from the whole open-source stack: **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** as the base, then pulled in the good stuff from **[Metrolist](https://github.com/metrolistgroup/metrolist)**, **[Vivi Music](https://github.com/vivizzz007/vivi-music)**, **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)**, and the shared libs behind **[ViMusic](https://github.com/vfsfitvnm/ViMusic)**, **[OuterTune](https://github.com/OuterTune/OuterTune)**, and **[BetterLyrics](https://docs.betterlyrics.org)** — plus the **[SpotiFLAC](https://github.com/spotiflacapp/SpotiFLAC-Mobile)** engine behind the lossless sources. One app. Most of the features. No fork roulette.
+Instead of hopping between a pile of forks, I combined the best from the whole open-source stack: **[ArchiveTune](https://github.com/ArchiveTuneApp/ArchiveTune)** as the base, then pulled in the good stuff from **[Metrolist](https://github.com/metrolistgroup/metrolist)**, **[Vivi Music](https://github.com/vivizzz007/vivi-music)**, **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)**, and the shared libs behind **[ViMusic](https://github.com/vfsfitvnm/ViMusic)**, **[OuterTune](https://github.com/OuterTune/OuterTune)**, and **[BetterLyrics](https://docs.betterlyrics.org)** — plus the **[Mornye](https://github.com/mornyeapp/Mornye)** engine behind the lossless sources (called SpotiFLAC Mobile until its v5.2.1 release). One app. Most of the features. No fork roulette.
 
 **Package:** `app.hush.music` · debug: `app.hush.music.debug`
 
@@ -60,7 +60,7 @@ One thing worth knowing: the match is a search, so an obscure or region-locked t
 
 ## SpotiFLAC sources (lossless)
 
-Hush can play from **Tidal, Qobuz, Amazon Music, Deezer, SoundCloud, Apple Music, Spotify Web and Pandora** — losslessly where the source has it — instead of only YouTube. The engine is SpotiFLAC's Go runtime (built from upstream's `go_backend` with gomobile) with its download extensions, and the source list comes from the two upstream registries, so a source Hush has never heard of still shows up when they add one:
+Hush can play from **Tidal, Qobuz, Amazon Music, Deezer, SoundCloud, Apple Music, Spotify Web and Pandora** — losslessly where the source has it — instead of only YouTube. The engine is the Go runtime behind [Mornye](https://github.com/mornyeapp/Mornye) (the project was called SpotiFLAC Mobile until v5.2.1 on 2026-10-20; Hush still names the feature *SpotiFLAC*, and it ships the pre-rewrite Go backend that upstream deleted in 5.0), built from that runtime's `go_backend` with gomobile, with its download extensions. The source list comes from the two upstream registries, so a source Hush has never heard of still shows up when they add one:
 
 - [spotiflacapp/spotiflac-extension](https://github.com/spotiflacapp/spotiflac-extension) registry
 - [zarzet/spotiflac-extension](https://github.com/zarzet/spotiflac-extension) registry
@@ -101,11 +101,12 @@ Who wrote it: the italic tag at the end of a patch-note entry names where that e
 | **[Metrolist](https://github.com/metrolistgroup/metrolist)** | Wake-up **music alarms**, **loudness** presets, **playlist export** (CSV / M3U), **sync dedup**, **Android Auto** settings |
 | **[Vivi Music](https://github.com/vivizzz007/vivi-music)** | Playlist **view-count prefetch**, **auto-backup before update**, **backup retention** |
 | **[Echo Music](https://github.com/EchoMusicApp/Echo-Music)** | **5MB chunked downloads**, **isOfflinePlayback flag**, **Data Saver key**, **DoH diagnostics**, **Settings search**, **IPv4 / IPv6 / Auto** network mode |
-| **[SpotiFLAC](https://github.com/spotiflacapp/SpotiFLAC-Mobile)** | **Lossless source engine** — upstream's Go runtime (gomobile `go_backend`), per-source signed sessions, source registry + extension packages, quality cascade, host-side decryption for the providers that hand back keys instead of audio, and the playback cache/download pipeline behind it. Source extensions come from [spotiflacapp](https://github.com/spotiflacapp/spotiflac-extension) and [zarzet](https://github.com/zarzet/spotiflac-extension)'s registries. |
+| **[Mornye](https://github.com/mornyeapp/Mornye)** (SpotiFLAC Mobile until v5.2.1) | **Lossless source engine** — upstream's Go runtime (gomobile `go_backend`), per-source signed sessions, source registry + extension packages, quality cascade, host-side decryption for the providers that hand back keys instead of audio, and the playback cache/download pipeline behind it. Source extensions come from [spotiflacapp](https://github.com/spotiflacapp/spotiflac-extension) and [zarzet](https://github.com/zarzet/spotiflac-extension)'s registries. |
 | **Hush** | **Waze Bridge** (Spotify + YT Music + Deezer) with bundled install/repair, **Spotify library** (playlists, Liked Songs, playlist download) on the phone and in the car, **Android Auto** section switches + quick-add destination, **Gen‑Z explore theme**, **mood chip fix** (logged‑in fallback), **source priority + fallback to YouTube**, **one-time verification with background session renewal**, **browser verification for car head units**, **Parametric EQ + per‑output profiles**, audio visualizer, parallel source fetch, app language selector, DOH/proxy, IP rotation UI, lyrics racing, library rewrite, auto-pause debounce, sleep timer pause fix |
 | **[ViMusic](https://github.com/vfsfitvnm/ViMusic)** | InnerTube foundations, bottom-sheet UI patterns, KuGou lyrics client |
 | **[OuterTune](https://github.com/OuterTune/OuterTune)** | Player carousel snap / parallax, network connectivity observer |
 | **[BetterLyrics](https://docs.betterlyrics.org)** | Word-synced TTML lyrics module, QRC parser |
+| **[BitChord](https://github.com/kushagrasinghx/BitChord)** | Feature audit only — another GPL-3.0 YT Music client, read against Hush's own feature set before anything is ported. Nothing from it is in this release; the candidates are its per-item "not interested" hiding in Home, its Wi-Fi vs mobile quality ceilings, and its Automix beat-matched transitions. |
 
 Tiny fixes and UI polish are mixed in from everywhere. Full license wall → **About → Licenses** in the app.
 
@@ -122,8 +123,9 @@ Tiny fixes and UI polish are mixed in from everywhere. Full license wall → **A
 | [ViMusic](https://github.com/vfsfitvnm/ViMusic) | [Issues](https://github.com/vfsfitvnm/ViMusic/issues) |
 | [OuterTune](https://github.com/OuterTune/OuterTune) | [Issues](https://github.com/OuterTune/OuterTune/issues) |
 | [BetterLyrics](https://docs.betterlyrics.org) | [Docs](https://docs.betterlyrics.org) — the GitHub repo it came from is gone |
-| [SpotiFLAC](https://github.com/spotiflacapp/SpotiFLAC-Mobile) | [Issues](https://github.com/spotiflacapp/SpotiFLAC-Mobile/issues) |
-| [SpotiFLAC extensions](https://github.com/spotiflacapp/spotiflac-extension) | [Issues](https://github.com/spotiflacapp/spotiflac-extension/issues) |
+| [BitChord](https://github.com/kushagrasinghx/BitChord) | [Issues](https://github.com/kushagrasinghx/BitChord/issues) |
+| [Mornye](https://github.com/mornyeapp/Mornye) (SpotiFLAC Mobile until v5.2.1) | [Issues](https://github.com/mornyeapp/Mornye/issues) |
+| [Mornye extensions](https://github.com/spotiflacapp/spotiflac-extension) — the registry kept its name | [Issues](https://github.com/spotiflacapp/spotiflac-extension/issues) |
 | [zarzet's extensions](https://github.com/zarzet/spotiflac-extension) | [Issues](https://github.com/zarzet/spotiflac-extension/issues) |
 
 Worth saying plainly: the lossless side of Hush is other people's work wrapped in mine — the Go runtime, the source extensions and the gateway are not mine, and bugs in a source belong upstream. Hush's own layer is the app around it: verification and session handling, source ordering and fallback, the download and cache paths, and the car side.

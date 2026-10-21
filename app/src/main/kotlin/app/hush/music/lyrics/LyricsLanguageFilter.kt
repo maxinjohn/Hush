@@ -238,16 +238,32 @@ object LyricsLanguageFilter {
         return expected
     }
 
+    /**
+     * The country a lyric is expected to be in, or null when the user has not chosen one.
+     *
+     * A device locale is not a statement about which language its listener wants lyrics in.
+     * An English-language device in India ("en-IN") used to make the local country code "IN",
+     * which put every Indian script on the expected list and let a Malayalam or Hindi version
+     * outrank the English one for a Latin-titled track. Unset now means "no country bias"; the
+     * metadata's own script and the chosen language still decide.
+     */
     private fun resolveContentCountryCode(raw: String?): String? {
         if (raw.isNullOrBlank() || raw.equals("system", ignoreCase = true) || raw == SYSTEM_DEFAULT) {
-            return Locale.getDefault().country.uppercase(Locale.ROOT).takeIf { it.isNotBlank() }
+            return null
         }
         return raw.uppercase(Locale.ROOT)
     }
 
+    /**
+     * The language a lyric is expected to be in. Unset means English rather than the device
+     * locale, so a phone set to Malayalam or Hindi still prefers the English lyrics of an
+     * English song. Regional-language lyrics remain acceptable: a track whose own title or
+     * artist is in an Indian script still expects that script, and any Indian-script lyric
+     * still scores above nothing when there is no better match.
+     */
     private fun resolveContentLanguageCode(raw: String?): String? {
         if (raw.isNullOrBlank() || raw.equals("system", ignoreCase = true) || raw == SYSTEM_DEFAULT) {
-            return Locale.getDefault().language.lowercase(Locale.ROOT).takeIf { it.isNotBlank() }
+            return "en"
         }
         return raw.substringBefore('-').lowercase(Locale.ROOT)
     }

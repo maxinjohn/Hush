@@ -112,6 +112,9 @@ class App :
 
     @Inject
     lateinit var playlistCoverInterceptor: PlaylistCoverInterceptor
+
+    @Inject
+    lateinit var homeFeedCache: app.hush.music.home.HomeFeedCache
     private val imageNetworkClientHolder =
         VersionedOkHttpClient(
             versionProvider = YouTube::okHttpNetworkVersion,
@@ -167,8 +170,13 @@ class App :
         // opener thread begins with logging already configured.
         runCatching { app.hush.music.db.DatabaseOpener.start(this) }
 
+        app.hush.music.utils.MainThreadWatch.start()
+        app.hush.music.utils.StartupMark.mark("app onCreate reached")
+
         initializeCriticalSync()
+        app.hush.music.utils.StartupMark.mark("critical sync done")
         initializeDeferredAsync()
+        app.hush.music.utils.StartupMark.mark("app onCreate done")
     }
 
     override fun onTrimMemory(level: Int) {
@@ -270,6 +278,12 @@ class App :
 
     private fun initializeDeferredAsync() {
         applicationScope.launch(Dispatchers.IO) {
+            // Before anything else here: the kept home feed is ~400 KB of JSON whose parse is the
+            // only thing between a cold launch and a populated screen, and the home view model is
+            // created a second later. Doing it now means it is a field read by then; see
+            // [app.hush.music.home.HomeFeedCache].
+            runCatching { homeFeedCache.warm() }
+                .onFailure { Timber.w(it, "Unable to warm the kept home feed") }
             // Keep SpotiFLAC's per-source gateway sessions alive. Each download
             // extension holds its own signed session and the runtime only renews one
             // while it is still valid, so a lapsed session always costs the user a
@@ -417,6 +431,21 @@ class App :
                     minute = backupMinute,
                     dayOfWeek = backupDayOfWeek,
                 )
+                // WorkManager only runs a periodic worker when the OS allows it, so a device
+                // that was off, dozing or low on battery at the scheduled minute skipped its
+                // backup entirely. Opening the app is the moment to settle that missed slot.
+                runCatching {
+                    AutoBackupHelper.runMissedScheduledBackupIfDue(
+                        this@App,
+                        enabled = autoBackupEnabled,
+                        frequency = backupFrequency,
+                        hour = backupHour,
+                        minute = backupMinute,
+                        dayOfWeek = backupDayOfWeek,
+                    )
+                }.onFailure { throwable ->
+                    Timber.w(throwable, "Unable to run the missed scheduled backup")
+                }
                 // Prune backups on startup
                 applicationScope.launch(Dispatchers.IO) {
                     val ds = this@App.dataStore

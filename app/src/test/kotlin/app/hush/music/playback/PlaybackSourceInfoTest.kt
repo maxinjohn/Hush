@@ -130,4 +130,86 @@ class PlaybackSourceInfoTest {
         assertEquals("deezer", info.provider)
         assertEquals(PlaybackDelivery.DEVICE_CACHE, info.delivery)
     }
+
+    @Test
+    fun `a download replaces the cache attribute instead of adding to it`() {
+        // The exact bug: fetching a track for playback writes the cache file, pressing Download
+        // keeps the same bytes, and the cache's own label used to win - so a downloaded song read
+        // "(device cache)" while it played.
+        val label = PlaybackSourceLabels.withDownloadAttribute("3rd-party • deezer • cached")
+        assertEquals("3rd-party • deezer • downloaded", label)
+        val info = PlaybackSourceLabels.parse(label)
+        assertEquals(PlaybackEngine.SPOTIFLAC, info.engine)
+        assertEquals("deezer", info.provider)
+        assertEquals(PlaybackDelivery.DEVICE_DOWNLOAD, info.delivery)
+    }
+
+    @Test
+    fun `a label that already says downloaded is not given a second attribute`() {
+        assertEquals(
+            "YouTube • Web • downloaded",
+            PlaybackSourceLabels.withDownloadAttribute("YouTube • Web • downloaded"),
+        )
+    }
+
+    @Test
+    fun `a stale cache-only label becomes a download on its own`() {
+        assertEquals(PlaybackSourceLabels.DOWNLOADED, PlaybackSourceLabels.withDownloadAttribute("cached"))
+        assertEquals(PlaybackSourceLabels.DOWNLOADED, PlaybackSourceLabels.withDownloadAttribute(""))
+        assertEquals(
+            PlaybackDelivery.DEVICE_DOWNLOAD,
+            PlaybackSourceLabels.parse(PlaybackSourceLabels.withDownloadAttribute("SpotiFLAC - Deezer"))
+                .delivery,
+        )
+    }
+
+    /**
+     * A source named for the service it streams *and* the addon that serves it, which is what the
+     * player publishes for a server addon that named itself after its host (`Tidal · gglos`). The
+     * row prints the provider as it is, so `3rd-party · Tidal · gglos (fetched)` is what the codec
+     * bar reads for a track the addon fetched.
+     */
+    @Test
+    fun `a provider that names its service and its addon parses whole`() {
+        val info = PlaybackSourceLabels.parse("3rd-party • Tidal · gglos • cached")
+        assertEquals(PlaybackEngine.SPOTIFLAC, info.engine)
+        assertEquals("Tidal · gglos", info.provider)
+        assertEquals(PlaybackDelivery.DEVICE_CACHE, info.delivery)
+    }
+
+    /**
+     * Two sources of one service, told apart on the bar by the kind and not by dropping the provider:
+     * the Qobuz addon publishes `Qobuz`, the name the bundled Qobuz extension already reads, so its
+     * label carries `· addon`. A track either source fetched still says `Qobuz` where a listener looks
+     * for it, and `3rd-party · Qobuz · addon (fetched)` says which of the two it came through.
+     */
+    @Test
+    fun `two sources of one service read apart on the codec bar`() {
+        val addon = PlaybackSourceLabels.parse("3rd-party • Qobuz · addon • cached")
+        assertEquals(PlaybackEngine.SPOTIFLAC, addon.engine)
+        assertEquals("Qobuz · addon", addon.provider)
+        assertEquals(PlaybackDelivery.DEVICE_CACHE, addon.delivery)
+
+        val extension = PlaybackSourceLabels.parse("3rd-party • Qobuz • cached")
+        assertEquals("Qobuz", extension.provider)
+    }
+
+    /**
+     * The old hyphenated separator must not eat a hyphen that is part of the provider: a bulleted
+     * label splits on bullets only, so an addon whose own name carries a hyphen is still named
+     * whole rather than truncated at the hyphen.
+     */
+    @Test
+    fun `a hyphen inside a bulleted provider is not a separator`() {
+        val info = PlaybackSourceLabels.parse("3rd-party • Tidal · gglos-vr • cached")
+        assertEquals("Tidal · gglos-vr", info.provider)
+        assertEquals(PlaybackDelivery.DEVICE_CACHE, info.delivery)
+    }
+
+    @Test
+    fun `a hyphenated label keeps its provider when the download attribute is added`() {
+        val info = PlaybackSourceLabels.parse(PlaybackSourceLabels.withDownloadAttribute("SpotiFLAC - Deezer"))
+        assertEquals("Deezer", info.provider)
+        assertEquals(PlaybackDelivery.DEVICE_DOWNLOAD, info.delivery)
+    }
 }

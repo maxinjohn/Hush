@@ -10,6 +10,7 @@ package app.hush.music.storage
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
 import androidx.compose.runtime.Immutable
@@ -30,7 +31,10 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -55,6 +59,7 @@ import app.hush.music.ui.player.CanvasArtworkPlaybackCache
 import app.hush.music.utils.ArtworkStorage
 import app.hush.music.utils.PreferenceStore
 import app.hush.music.utils.dataStore
+import app.hush.music.utils.get
 import java.io.File
 import javax.inject.Inject
 
@@ -124,11 +129,33 @@ enum class StorageMigrationPhase {
 sealed interface StorageFolderUpdateResult {
     data object Success : StorageFolderUpdateResult
 
+    /**
+     * Saved, and already in effect: the resolved folder is the one the app was already using,
+     * so there is nothing to move and nothing to restart for.
+     */
+    data object SuccessWithoutRestart : StorageFolderUpdateResult
+
     data object InvalidTree : StorageFolderUpdateResult
 
     data object UnsupportedProvider : StorageFolderUpdateResult
 
     data object NotWritable : StorageFolderUpdateResult
+
+    /**
+     * The folder is real, and this app is not allowed into it yet.
+     *
+     * Said apart from [NotWritable] because it has an answer the user can give: Android's All
+     * files access, which the app asks for on demand. Distinguishing it is what turns "Hush
+     * could not write a file in that folder" into a screen the user can act on - and it is why a
+     * folder picked in Download no longer has to fail: since Android 11 an app may create files
+     * in shared storage but may not write into a folder another app created, and the folder
+     * chooser is another app.
+     *
+     * Nothing is saved when this is returned: a location that cannot be used is not a location,
+     * and saving it anyway is what made a pick look successful while every download went to the
+     * folder the app fell back to.
+     */
+    data object NeedsAllFilesAccess : StorageFolderUpdateResult
 }
 
 enum class StorageCacheKind {
@@ -142,6 +169,36 @@ sealed interface StorageCacheClearResult {
     data object Success : StorageCacheClearResult
 
     data object Failed : StorageCacheClearResult
+}
+
+/**
+ * How usable the folder a storage kind is pointed at is, right now.
+ *
+ * Downloads are ordinary files in a folder the user chose, and nothing else holds them: when that
+ * folder disappears - the card was pulled, the grant was revoked, the folder was deleted - every
+ * download becomes unreachable and new ones cannot be written, while the rest of the app carries on
+ * looking normal. This is the answer to "is the folder I was told to keep downloads in still
+ * there, and can I still write in it?", so the screens can say so before the user finds out by
+ * losing a download.
+ */
+sealed interface StorageFolderHealth {
+    /** The app's own directory, or the chosen folder, and it can be written in. */
+    data object Healthy : StorageFolderHealth
+
+    /** The chosen folder is not there: the card was removed, or the folder was deleted. */
+    data class Missing(
+        val path: String,
+    ) : StorageFolderHealth
+
+    /** The folder is there and this app cannot write in it, for a reason no access switch fixes. */
+    data class NotWritable(
+        val path: String,
+    ) : StorageFolderHealth
+
+    /** The folder is there, and only Android's All files access is standing in the way. */
+    data class NeedsAllFilesAccess(
+        val path: String,
+    ) : StorageFolderHealth
 }
 
 object StorageRestartScheduler {
@@ -167,6 +224,30 @@ class ObserveStorageFoldersUseCase
         operator fun invoke(): Flow<StorageFolderSelection> = repository.selection
     }
 
+/**
+ * Watches a folder kind for becoming unusable, or usable again.
+ *
+ * Re-checked on a slow timer rather than only when asked, because a folder can stop being usable
+ * while the app is running and nothing in the app is told: the card is pulled, the system access
+ * is revoked in Settings, the folder is deleted from a file manager. The check is a real write
+ * probe, which is the only reliable answer on Android 11+; it is skipped entirely while the app's
+ * own directory is in use, so the common case costs nothing.
+ */
+class ObserveStorageFolderHealthUseCase
+    @Inject
+    constructor(
+        private val repository: StorageLocationRepository,
+    ) {
+        operator fun invoke(kind: StorageFolderKind): Flow<StorageFolderHealth> =
+            flow {
+                while (true) {
+                    emit(repository.folderHealth(kind))
+                    delay(StorageFolderHealthCheckIntervalMillis)
+                }
+            }.flowOn(Dispatchers.IO)
+                .distinctUntilChanged()
+    }
+
 class SetStorageFolderUseCase
     @Inject
     constructor(
@@ -187,8 +268,7 @@ class SetCustomStorageFolderUseCase
             kind: StorageFolderKind,
             path: String?,
             displayName: String?,
-            onProgress: suspend (StorageMigrationProgress) -> Unit,
-        ): StorageFolderUpdateResult = repository.setCustomFolderPath(kind, path, displayName, onProgress)
+        ): StorageFolderUpdateResult = repository.setCustomFolderPath(kind, path, displayName)
     }
 
 class UsePickedFolderUseCase
@@ -199,8 +279,7 @@ class UsePickedFolderUseCase
         suspend operator fun invoke(
             treeUri: Uri,
             targetKind: StorageFolderKind,
-            onProgress: suspend (StorageMigrationProgress) -> Unit,
-        ): StorageFolderUpdateResult = repository.usePickedFolderAsLocation(treeUri, targetKind, onProgress)
+        ): StorageFolderUpdateResult = repository.usePickedFolderAsLocation(treeUri, targetKind)
     }
 
 class ClearStorageCacheUseCase
@@ -226,6 +305,16 @@ class StorageLocationRepository
             context.dataStore.data.map { preferences ->
                 preferences.selectionFor(context.storageLocationOptions(preferences))
             }
+
+        /**
+         * How usable the folder [kind] is pointed at is, right now.
+         *
+         * [cacheDirectory] answers where files go *now*, silently falling back to the app's own
+         * directory when the chosen one cannot be entered - the right answer for opening a cache
+         * and the wrong one for telling the user their folder is gone. This answers that question
+         * instead, and is what the storage screen and the warning banner read.
+         */
+        fun folderHealth(kind: StorageFolderKind): StorageFolderHealth = folderHealth(context, kind)
 
         suspend fun clearCache(
             kind: StorageCacheKind,
@@ -265,18 +354,24 @@ class StorageLocationRepository
         /**
          * Points a folder kind at a user-picked folder.
          *
-         * The three failure answers are deliberately distinct, because they need different
-         * responses from the user: [StorageFolderUpdateResult.InvalidTree] if the selection
-         * cannot be turned into a directory at all, [StorageFolderUpdateResult.NotWritable]
-         * if this app is not allowed to keep files there, and
-         * [StorageFolderUpdateResult.UnsupportedProvider] if the selection is not on the
-         * filesystem (a cloud or media provider), which the file-backed cache cannot use.
+         * The failure answers are deliberately distinct, because they need different responses
+         * from the user: [StorageFolderUpdateResult.InvalidTree] if the selection cannot be
+         * turned into a directory at all, [StorageFolderUpdateResult.NotWritable] if this app is
+         * not allowed to keep files there, [StorageFolderUpdateResult.NeedsAllFilesAccess] if the
+         * platform is refusing shared storage until the user grants All files access (an answer
+         * the settings screen can ask for), and [StorageFolderUpdateResult.UnsupportedProvider]
+         * if the selection is not on the filesystem (a cloud or media provider), which the
+         * file-backed cache cannot use.
+         *
+         * A folder that is not usable is never saved. The old code saved first and reported
+         * success, then resolved the saved path at every later use and quietly fell back to the
+         * app's own directory when it could not write there - so the setting screen showed the
+         * picked folder, the app stored elsewhere, and the only trace was a log line.
          */
         suspend fun setCustomFolderPath(
             kind: StorageFolderKind,
             path: String?,
             displayName: String?,
-            onProgress: suspend (StorageMigrationProgress) -> Unit,
         ): StorageFolderUpdateResult =
             withContext(Dispatchers.IO) {
                 if (kind != StorageFolderKind.DOWNLOADS && kind != StorageFolderKind.SONG_CACHE) {
@@ -290,53 +385,19 @@ class StorageLocationRepository
                     if (normalizedPath == null) {
                         defaultDirectoryForKind(preferencesSnapshot, kind)
                     } else {
-                        val resolved =
-                            runCatching { File(normalizedPath).canonicalFile }.getOrNull()
-                                ?: return@withContext StorageFolderUpdateResult.InvalidTree
-                        // Creating it is the first proof it is a folder we can use; a path
-                        // that exists but cannot be written is a permissions answer, not a
-                        // "bad selection" one, so it gets its own result below.
-                        if (!resolved.ensureWritableDirectory()) {
-                            return@withContext StorageFolderUpdateResult.NotWritable
-                        }
-                        context.allowedCustomStorageDirectory(resolved.path)
-                            ?: return@withContext StorageFolderUpdateResult.NotWritable
+                        runCatching { File(normalizedPath).canonicalFile }.getOrNull()
+                            ?: return@withContext StorageFolderUpdateResult.InvalidTree
                     }
 
                 if (!destination.ensureWritableDirectory()) {
-                    return@withContext StorageFolderUpdateResult.NotWritable
+                    return@withContext if (destination.requiresAllFilesAccess(context)) {
+                        StorageFolderUpdateResult.NeedsAllFilesAccess
+                    } else {
+                        StorageFolderUpdateResult.NotWritable
+                    }
                 }
 
-                if (currentDirectory.canonicalPath != destination.canonicalPath) {
-                    releaseCachesForMigration()
-                    // `replaceTarget = false`: this destination is a folder the user picked, so
-                    // it may hold files that have nothing to do with Hush. Merging into it and
-                    // overwriting only same-named files is the safe move; the volume-switch
-                    // flow keeps the wiping default because those targets are app-owned.
-                    val move =
-                        StorageDirectoryMove(
-                            source = currentDirectory,
-                            target = destination,
-                            replaceTarget = false,
-                        )
-                    val moved =
-                        (
-                            if (kind == StorageFolderKind.DOWNLOADS) {
-                                StorageMigrationPlan(
-                                    cacheDirectories = emptyList(),
-                                    downloadDirectories = listOf(move),
-                                    cacheFiles = emptyList(),
-                                )
-                            } else {
-                                StorageMigrationPlan(
-                                    cacheDirectories = listOf(move),
-                                    downloadDirectories = emptyList(),
-                                    cacheFiles = emptyList(),
-                                )
-                            }
-                        ).withProgress(onProgress)
-                    if (!moved) return@withContext StorageFolderUpdateResult.NotWritable
-                }
+                val locationChanged = currentDirectory.canonicalPath != destination.canonicalPath
 
                 context.dataStore.edit { preferences ->
                     when (kind) {
@@ -396,8 +457,23 @@ class StorageLocationRepository
                     // An asynchronous write could lose the setting to the process kill, which
                     // is exactly how a chosen folder used to come back as the default.
                 }.commit()
-                StorageRestartScheduler.schedule(context)
-                StorageFolderUpdateResult.Success
+                if (locationChanged) {
+                    // The contents of the folder being left behind are carried over as work,
+                    // not as part of saving the setting: a library is tens of gigabytes, and
+                    // a pick that only takes effect once every byte has been copied is a pick
+                    // that looks like nothing happened - and is undone by the app being
+                    // closed, which is exactly what a user does when no progress appears.
+                    // Until each file lands, it still plays from the old folder.
+                    StorageFolderMoveScheduler.enqueue(context, kind, currentDirectory)
+                    // The restart re-points the caches that were opened against the old
+                    // directory. Re-picking the folder already in use changes no directory, so
+                    // it must not kill the app: that is the "restart needed after choosing the
+                    // location" the settings screen used to demand for a no-op.
+                    StorageRestartScheduler.schedule(context)
+                    StorageFolderUpdateResult.Success
+                } else {
+                    StorageFolderUpdateResult.SuccessWithoutRestart
+                }
             }
 
         /**
@@ -413,7 +489,6 @@ class StorageLocationRepository
         suspend fun usePickedFolderAsLocation(
             treeUri: Uri,
             targetKind: StorageFolderKind,
-            onProgress: suspend (StorageMigrationProgress) -> Unit,
         ): StorageFolderUpdateResult {
             if (targetKind != StorageFolderKind.DOWNLOADS && targetKind != StorageFolderKind.SONG_CACHE) {
                 return StorageFolderUpdateResult.UnsupportedProvider
@@ -429,12 +504,19 @@ class StorageLocationRepository
                 runCatching { DocumentFile.fromTreeUri(context, treeUri)?.name }.getOrNull()
                     ?.takeIf(String::isNotBlank)
                     ?: directory.name
-            return setCustomFolderPath(
-                kind = targetKind,
-                path = directory.absolutePath,
-                displayName = displayName,
-                onProgress = onProgress,
-            )
+            val result =
+                setCustomFolderPath(
+                    kind = targetKind,
+                    path = directory.absolutePath,
+                    displayName = displayName,
+                )
+            if (result != StorageFolderUpdateResult.Success && result != StorageFolderUpdateResult.SuccessWithoutRestart) {
+                // The grant the chooser handed back is for a folder the app is not keeping, so
+                // it is handed back rather than held: a grant nobody uses is a folder this app
+                // can still read on every later launch, which is not what the user agreed to.
+                releasePersistedPermission(treeUri.toString(), replacementUri = null)
+            }
+            return result
         }
 
         suspend fun setStorageLocationAndMoveCache(
@@ -760,6 +842,11 @@ class StorageLocationRepository
             files: List<StorageFileMove>,
             onProgress: suspend (StorageMigrationProgress) -> Unit,
         ) {
+            // A plan carries both phases and usually has work in only one of them. Reporting
+            // the empty one reported 0 of 0 bytes as "100%" under its own label, so changing
+            // the downloads folder announced "Moving Cache...100%" and left it on screen for
+            // as long as the downloads themselves took.
+            if (directories.isEmpty() && files.isEmpty()) return
             val totalBytes =
                 directories.sumOf { move -> move.source.migrationByteCount(move.target) } +
                     files.sumOf { move -> move.source.migrationByteCount(move.target) }
@@ -976,6 +1063,105 @@ class StorageLocationRepository
                 fileName: String,
             ): File = cacheDirectory(context, kind).resolve(fileName)
 
+            /**
+             * The folder a kind is pointed at for a move, even when this app cannot enter it yet.
+             *
+             * [cacheDirectory] answers where files go *now* and quietly falls back to the app's
+             * own directory when the configured one cannot be written. That is the right answer
+             * for opening a cache and the wrong one for a move: a move has to stay pointed at the
+             * folder the user chose, so it lands there the moment the access that was missing is
+             * granted - rather than being carried into the fallback and reported as finished.
+             */
+            fun moveTargetDirectory(
+                context: Context,
+                kind: StorageFolderKind,
+            ): File =
+                currentCustomFolderPath(context, kind)
+                    ?.let { path -> runCatching { File(path).canonicalFile }.getOrNull() }
+                    ?: cacheDirectory(context, kind)
+
+            /**
+             * Whether this app holds Android's All files access.
+             *
+             * Below Android 11 raw file access to shared storage needs no special access, so the
+             * answer is yes there - the switch the user is sent to does not exist before it.
+             */
+            fun hasAllFilesAccess(context: Context): Boolean = context.hasAllFilesAccess()
+
+            /**
+             * The folder a kind is pointed at, when it exists and is unusable only because the
+             * platform is refusing shared storage to this app. Null in every other case.
+             *
+             * This is what lets the storage screen say "that folder needs All files access"
+             * about a location saved before this existed, rather than showing a folder that
+             * silently is not the one being used.
+             */
+            fun configuredFolderNeedingAllFilesAccess(
+                context: Context,
+                kind: StorageFolderKind,
+            ): File? =
+                (folderHealth(context, kind) as? StorageFolderHealth.NeedsAllFilesAccess)
+                    ?.let { health -> File(health.path) }
+
+            /**
+             * How usable the folder [kind] is pointed at is, right now.
+             *
+             * The folder that counts is the one the user *chose*, which is not always the one
+             * being written to: [resolveCacheDirectory] falls back to the app's own directory when
+             * the chosen folder cannot be entered, so a missing or unwritable folder is otherwise
+             * invisible - files simply start landing somewhere else. Reading the choice directly is
+             * what lets this notice that. Nothing is created here: a chosen folder that is not
+             * there is reported as gone rather than quietly made again, because the downloads it
+             * held are gone with it and recreating an empty folder would hide that.
+             */
+            fun folderHealth(
+                context: Context,
+                kind: StorageFolderKind,
+            ): StorageFolderHealth {
+                val configuredPath = configuredFolderPath(context, kind)
+                val directory =
+                    configuredPath?.let { path -> runCatching { File(path).canonicalFile }.getOrNull() }
+                val exists = directory?.exists() == true
+                val isDirectory = exists && directory?.isDirectory == true
+                val writable = isDirectory && directory?.ensureWritableDirectory() == true
+                return classifyStorageFolderHealth(
+                    configuredPath = directory?.path ?: configuredPath,
+                    exists = exists,
+                    isDirectory = isDirectory,
+                    writable = writable,
+                    // Only asked when the probe failed: it is the question that turns "cannot
+                    // write" into "and here is the one thing that fixes it" versus "and no access
+                    // switch can".
+                    needsAllFilesAccess =
+                        isDirectory && !writable && directory?.requiresAllFilesAccess(context) == true,
+                )
+            }
+
+            /**
+             * The folder the user chose for [kind], or null when the app's own directory is in use.
+             *
+             * Two settings can point a kind somewhere - a folder picked for that kind alone, and a
+             * whole storage volume under which every kind keeps its own subfolder - and the per-kind
+             * choice wins. This reads them in the same order [resolveCacheDirectory] does, from the
+             * same places (the synchronous mirror first, then the DataStore cache), so health and
+             * the place files actually go can never disagree about which folder was chosen.
+             */
+            internal fun configuredFolderPath(
+                context: Context,
+                kind: StorageFolderKind,
+            ): String? {
+                currentCustomFolderPath(context, kind)
+                    ?.takeIf(String::isNotBlank)
+                    ?.let { path -> return path }
+                val configuredRoot =
+                    context
+                        .storageLocationPreferences()
+                        .getString(StorageRootPathMirrorKey, null)
+                        ?.takeIf(String::isNotBlank)
+                        ?: PreferenceStore.get(StorageFolderPathKey)?.takeIf(String::isNotBlank)
+                return configuredRoot?.let { root -> File(root).resolve(kind.defaultDirectoryName).absolutePath }
+            }
+
             fun currentCustomFolderPath(
                 context: Context,
                 kind: StorageFolderKind,
@@ -1010,7 +1196,7 @@ class StorageLocationRepository
  * volume id is a mount name under `/storage`. A tree on anything else has no directory to
  * return, and the caller reports that rather than pretending to have changed location.
  */
-private fun Context.treeUriToDirectory(treeUri: Uri): File? {
+internal fun Context.treeUriToDirectory(treeUri: Uri): File? {
     val isExternalStorageProvider =
         treeUri.authority == ExternalStorageDocumentsAuthority
     if (!isExternalStorageProvider) return null
@@ -1036,7 +1222,11 @@ private fun Context.treeUriToDirectory(treeUri: Uri): File? {
 private fun Context.allowedCustomStorageDirectory(path: String): File? {
     val configured = runCatching { File(path).canonicalFile }.getOrNull() ?: return null
     if (!configured.exists() && !configured.mkdirs()) return null
-    if (!configured.isDirectory || !configured.canRead()) return null
+    // Deliberately not gated on canRead() either. On a folder in shared storage the scoped view
+    // answers that question wrongly in both directions - a persisted SAF grant makes a folder
+    // readable while access() says no, and a folder this app may not enter can still say yes -
+    // so the write probe every caller runs (ensureWritableDirectory) is the only answer trusted.
+    if (!configured.isDirectory) return null
 
     val appInternalRoot = defaultStorageRootDirectory().canonicalFile
     if (configured.path.startsWith(appInternalRoot.path)) return configured
@@ -1055,8 +1245,14 @@ private fun Context.allowedCustomStorageDirectory(path: String): File? {
         return configured
     }
 
-    if (configured.canWrite()) return configured
-    return null
+    // Deliberately not gated on File.canWrite(). That check is why a folder chosen with the
+    // system picker could be selected and then refused at save time with "Hush cannot write
+    // cache files to this folder": on Android 11+ access() is answered from the app's
+    // scoped-storage view, which does not know about the persisted SAF grant the picker handed
+    // back, while the open() this app actually performs is allowed. Every caller gates the
+    // result with ensureWritableDirectory(), which writes a probe file and is therefore the
+    // authoritative answer - a canWrite() that disagrees with a successful probe is wrong.
+    return configured
 }
 
 private fun Context.defaultCacheDirectory(kind: StorageFolderKind): File =
@@ -1119,7 +1315,76 @@ private fun Context.storageLocationOptions(preferences: Preferences): StorageLoc
     return StorageLocationOptions(listOf(internalOption) + externalOptions)
 }
 
-private fun File.ensureWritableDirectory(): Boolean =
+/**
+ * Whether this app holds All files access, the special access Android 11 introduced in place of
+ * raw access to shared storage.
+ */
+internal fun Context.hasAllFilesAccess(): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
+
+/**
+ * Whether [this] is a folder the platform is refusing only until All files access is granted.
+ *
+ * True for a directory in shared storage (Download, Music, the top of the card) while the access
+ * is missing, and false for the app's own directories - which never need it - so a failure that
+ * no access switch can fix is never answered with a switch that cannot help.
+ */
+/**
+ * The rule that turns what was found about a chosen folder into what the user is told.
+ *
+ * Split out from the checking so it can be tested directly - the subtle part is which answer wins
+ * when several are true at once (a folder that is gone cannot also be unwritable, and a folder this
+ * app cannot write in is only "needs access" when a grant would actually change that).
+ *
+ * A null or blank path means no folder was chosen and the app's own directory is in use, which
+ * nothing can go wrong with and which is reported as healthy without touching the disk at all.
+ */
+internal fun classifyStorageFolderHealth(
+    configuredPath: String?,
+    exists: Boolean,
+    isDirectory: Boolean,
+    writable: Boolean,
+    needsAllFilesAccess: Boolean,
+): StorageFolderHealth {
+    if (configuredPath.isNullOrBlank()) return StorageFolderHealth.Healthy
+    if (!exists) return StorageFolderHealth.Missing(configuredPath)
+    if (!isDirectory) return StorageFolderHealth.NotWritable(configuredPath)
+    if (writable) return StorageFolderHealth.Healthy
+    return if (needsAllFilesAccess) {
+        StorageFolderHealth.NeedsAllFilesAccess(configuredPath)
+    } else {
+        StorageFolderHealth.NotWritable(configuredPath)
+    }
+}
+
+internal fun File.requiresAllFilesAccess(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+    if (context.hasAllFilesAccess()) return false
+    val directory = runCatching { canonicalFile }.getOrNull() ?: return false
+    return !context.ownsStorageDirectory(directory)
+}
+
+/** Whether [directory] is inside a tree this app owns, where File access never needs a grant. */
+private fun Context.ownsStorageDirectory(directory: File): Boolean =
+    buildList {
+        add(filesDir)
+        add(cacheDir)
+        add(noBackupFilesDir)
+        getExternalFilesDirs(null).filterNotNull().forEach { root -> add(root) }
+    }.mapNotNull { root -> runCatching { root.canonicalFile }.getOrNull() }
+        .any { root -> directory.isWithin(root) }
+
+/**
+ * Whether [this] is [root] itself, or below it.
+ *
+ * The separator is part of the test because a bare prefix match is wrong in the one place it
+ * matters: "/data/files2" starts with "/data/files", and reading that as the app's own tree
+ * would silently skip the access a shared folder needs.
+ */
+internal fun File.isWithin(root: File): Boolean =
+    path == root.path || path.startsWith(root.path.trimEnd(File.separatorChar) + File.separatorChar)
+
+internal fun File.ensureWritableDirectory(): Boolean =
     runCatching {
         if (exists() && !isDirectory) return@runCatching false
         if (!exists() && !mkdirs()) return@runCatching false
@@ -1362,6 +1627,15 @@ private fun File.storageVolumeRootPath(): String? {
 
 private const val StorageLocationPreferencesName = "storage_locations"
 private const val StorageRootPathMirrorKey = "storage_root_path"
+
+/**
+ * How often a folder kind is re-checked while something is watching it.
+ *
+ * Slow on purpose: the check writes a probe file, and a folder does not stop being usable often.
+ * Long enough not to matter for the battery, short enough that a card pulled while the app is open
+ * is noticed while the user is still looking at it.
+ */
+private const val StorageFolderHealthCheckIntervalMillis = 15_000L
 private const val DownloadsStoragePathMirrorKey = "downloads_storage_path"
 private const val SongCacheStoragePathMirrorKey = "song_cache_storage_path"
 private const val InternalStorageOptionId = "internal"

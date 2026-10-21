@@ -40,14 +40,14 @@ class SpotiFLACSessionVerdictTest {
         remainingSeconds: Long? = 5 * 3600L,
         verdict: SpotiFLACSessionVerdict? = null,
         currentSessionId: String? = "sess_live",
-        declaredTypes: List<String> = emptyList(),
+        enabled: Boolean = true,
     ) = SpotiFLACSessionVerdictReport.row(
         authState = authState,
         remainingSeconds = remainingSeconds,
         verdict = verdict,
         currentSessionId = currentSessionId,
         formatRemaining = { seconds -> "${seconds / 3600L}h ${(seconds % 3600L) / 60L}m" },
-        declaredTypes = declaredTypes,
+        enabled = enabled,
     )
 
     @Test
@@ -79,7 +79,10 @@ class SpotiFLACSessionVerdictTest {
         assertEquals(old, SpotiFLACSessionVerdictReport.applies(old, "sess_old"))
 
         val renewed = row(verdict = old, currentSessionId = "sess_new")
-        assertEquals("Verified — renews automatically (5h 0m left)", renewed.text)
+        assertEquals("Verified — renews automatically", renewed.text)
+        // The countdown is carried beside the sentence rather than inside it, so the row can clip the
+        // sentence without losing the time - see `SpotiFLACSessionVerdictReport.Row.remaining`.
+        assertEquals("5h 0m left", renewed.remaining)
         assertTrue(renewed.healthy)
     }
 
@@ -110,6 +113,17 @@ class SpotiFLACSessionVerdictTest {
         assertNull(SpotiFLACSessionVerdictReport.applies(null, "sess_live"))
     }
 
+    /** A source with nothing to keep says nothing about a countdown. */
+    @Test
+    fun `only a live session carries a countdown`() {
+        assertNull(row(authState = SpotiFLACSourceAuthState.NEEDS_VERIFICATION, remainingSeconds = null).remaining)
+        assertNull(row(remainingSeconds = -60L).remaining)
+        assertNull(row(remainingSeconds = null).remaining)
+        // The wording is the caller's own formatter, so the row only has to carry it through and
+        // add the unit.
+        assertEquals("0h 12m left", row(remainingSeconds = 12 * 60L).remaining)
+    }
+
     /**
      * Every state the row could be in, unchanged where it was already right.
      *
@@ -120,7 +134,7 @@ class SpotiFLACSessionVerdictTest {
     @Test
     fun `the rows that were already correct are untouched`() {
         assertEquals(
-            SpotiFLACSessionVerdictReport.Row("No verification needed", healthy = false, needsCheck = false, checkable = false),
+            SpotiFLACSessionVerdictReport.Row("No session", healthy = false, needsCheck = false, checkable = false),
             row(authState = SpotiFLACSourceAuthState.NOT_REQUIRED, remainingSeconds = null),
         )
         assertEquals(
@@ -153,35 +167,22 @@ class SpotiFLACSessionVerdictTest {
             remainingSeconds = null,
             verdict = verdict(SpotiFLACSessionVerdict.Outcome.NEEDS_VERIFICATION),
         )
-        assertEquals("No verification needed", metadataOnly.text)
+        assertEquals("No session", metadataOnly.text)
         assertFalse(metadataOnly.needsCheck)
     }
 
     /**
-     * The two sources that were reported as missing from this list, read from their own manifests.
+     * A source with no session says the one thing the row needs from it: that it has none.
      *
-     * They were absent because the list filtered on `download_provider`, which is decided by the
-     * registry rather than by the row - and the wording that made their absence confusing said the
-     * same sentence for a download provider with nothing to authorise and for an extension that has
-     * no download at all.
+     * The line used to repeat the source's role (`Metadata only — no session needed`), which the
+     * role line directly above it now states in one word - and on a 360dp row the repetition pushed
+     * the answer itself into the ellipsis.
      */
     @Test
-    fun `a source that only resolves metadata says so instead of looking unverified`() {
-        val spotifyWeb = row(
-            authState = SpotiFLACSourceAuthState.NOT_REQUIRED,
-            remainingSeconds = null,
-            declaredTypes = listOf("metadata_provider"),
-        )
-        assertEquals("Metadata only — no session needed", spotifyWeb.text)
-        assertFalse(spotifyWeb.needsCheck)
-
-        val appleMusic = row(
-            authState = SpotiFLACSourceAuthState.NOT_REQUIRED,
-            remainingSeconds = null,
-            declaredTypes = listOf("metadata_provider", "lyrics_provider"),
-        )
-        assertEquals("Metadata & lyrics only — no session needed", appleMusic.text)
-        assertFalse(appleMusic.needsCheck)
+    fun `a source with no session says so without repeating its role`() {
+        val metadata = row(authState = SpotiFLACSourceAuthState.NOT_REQUIRED, remainingSeconds = null)
+        assertEquals("No session", metadata.text)
+        assertFalse(metadata.needsCheck)
     }
 
     /** A download provider that needs no session keeps the plain sentence, case notwithstanding. */
@@ -190,9 +191,8 @@ class SpotiFLACSessionVerdictTest {
         val soundCloud = row(
             authState = SpotiFLACSourceAuthState.NOT_REQUIRED,
             remainingSeconds = null,
-            declaredTypes = listOf("metadata_provider", "Download_Provider"),
         )
-        assertEquals("No verification needed", soundCloud.text)
+        assertEquals("No session", soundCloud.text)
         assertFalse(soundCloud.needsCheck)
     }
 
@@ -200,7 +200,7 @@ class SpotiFLACSessionVerdictTest {
     @Test
     fun `an unread source is not described by its role`() {
         val unread = row(authState = SpotiFLACSourceAuthState.NOT_REQUIRED, remainingSeconds = null)
-        assertEquals("No verification needed", unread.text)
+        assertEquals("No session", unread.text)
     }
 
     /**
@@ -261,5 +261,68 @@ class SpotiFLACSessionVerdictTest {
     fun `an unread or unknown source is not offered a check`() {
         assertFalse(row(authState = SpotiFLACSourceAuthState.UNKNOWN, remainingSeconds = null).checkable)
         assertFalse(row(authState = null, remainingSeconds = null).checkable)
+    }
+
+    /**
+     * A source that is switched off is not checked, so its row must not say it is being checked.
+     *
+     * Measured on the reporting device: thirteen switched-off sources each read "Checking session…"
+     * for as long as the screen stayed open. The state map held only the enabled sources' ids, and a
+     * miss was drawn as "not read yet" - a check that was never going to happen, on a row whose own
+     * switch said the source was off.
+     */
+    @Test
+    fun `a switched-off source is never described as being checked`() {
+        val unread = row(authState = null, remainingSeconds = null, enabled = false)
+        assertEquals("Off · not read yet", unread.text)
+        assertFalse(unread.healthy)
+        assertFalse(unread.needsCheck)
+        assertFalse(unread.checkable)
+
+        val unknown = row(authState = SpotiFLACSourceAuthState.UNKNOWN, enabled = false)
+        assertEquals("Off · not read yet", unknown.text)
+    }
+
+    /**
+     * The verdict still stands while a source is off - it is what the user has to do once it is
+     * switched back on - but it is not counted as something the app can act on now.
+     */
+    @Test
+    fun `a switched-off source that needs a check says so without asking for one now`() {
+        val needsCheck = row(
+            authState = SpotiFLACSourceAuthState.NEEDS_VERIFICATION,
+            remainingSeconds = null,
+            enabled = false,
+        )
+        // The switch leads the line: the row draws one ellipsized line, and a fact appended to a
+        // long sentence is the part that gets cut.
+        assertEquals("Off · verification needed", needsCheck.text)
+        assertFalse(needsCheck.needsCheck)
+        assertFalse(needsCheck.healthy)
+        // Deliberately not offered: verifying a source nothing plays through is a challenge and a
+        // request spent on a source the user turned off.
+        assertFalse(needsCheck.checkable)
+
+        // Never "renews automatically" while it is off - renewals skip a switched-off source, so
+        // the countdown is the honest half of that sentence and it is still carried.
+        val verified = row(enabled = false)
+        assertEquals("Off · verified", verified.text)
+        assertEquals("5h 0m left", verified.remaining)
+        assertFalse(verified.healthy)
+        assertFalse(verified.needsCheck)
+        assertFalse(verified.checkable)
+    }
+
+    /** A source with no session contract has nothing to add about being off. */
+    @Test
+    fun `a switched-off source with nothing to verify keeps the plain line`() {
+        val noSession = row(
+            authState = SpotiFLACSourceAuthState.NOT_REQUIRED,
+            remainingSeconds = null,
+            enabled = false,
+        )
+        assertEquals("No session", noSession.text)
+        assertFalse(noSession.needsCheck)
+        assertFalse(noSession.healthy)
     }
 }

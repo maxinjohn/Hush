@@ -110,6 +110,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -184,6 +185,7 @@ import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.aod.ACTION_AOD_MODE
 import app.hush.music.constants.AppBarHeight
 import app.hush.music.constants.AppFontPreference
+import app.hush.music.constants.AppSkinKey
 import app.hush.music.constants.AppLanguageKey
 import app.hush.music.constants.CustomFontUriKey
 import app.hush.music.constants.CustomThemeColorKey
@@ -193,15 +195,12 @@ import app.hush.music.constants.DisableAnimationsKey
 import app.hush.music.constants.DisableScreenshotKey
 import app.hush.music.constants.DynamicThemeKey
 import app.hush.music.constants.EnableHapticFeedbackKey
-import app.hush.music.constants.CompactFloatingToolbarBottomPadding
-import app.hush.music.constants.CompactFloatingToolbarHeight
 import app.hush.music.constants.CompactMiniPlayerBottomSpacing
-import app.hush.music.constants.FloatingToolbarBottomPadding
-import app.hush.music.constants.FloatingToolbarHeight
 import app.hush.music.constants.FloatingToolbarHorizontalPadding
 import app.hush.music.constants.FontPreferenceKey
 import app.hush.music.constants.MiniPlayerBottomSpacing
 import app.hush.music.constants.MiniPlayerHeight
+import app.hush.music.constants.rememberMiniPlayerHeight
 import app.hush.music.constants.MiniPlayerLastAnchorKey
 import app.hush.music.constants.NavigationBarAnimationSpec
 import app.hush.music.constants.PauseSearchHistoryKey
@@ -252,11 +251,13 @@ import app.hush.music.ui.component.COLLAPSED_ANCHOR
 import app.hush.music.ui.component.DISMISSED_ANCHOR
 import app.hush.music.ui.component.EXPANDED_ANCHOR
 import app.hush.music.ui.component.FloatingNavigationToolbar
+import app.hush.music.ui.component.SkinActionsMenu
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.LocalBottomSheetPageState
 import app.hush.music.ui.component.LocalMenuState
 import app.hush.music.ui.component.MarkdownText
 import app.hush.music.ui.component.NetworkStatusBanner
+import app.hush.music.ui.component.StorageHealthBanner
 import app.hush.music.ui.component.SpotiFLACLosslessNudgeHost
 import app.hush.music.ui.component.SpotiFLACVerifiedBannerHost
 import app.hush.music.ui.component.TopSearch
@@ -281,10 +282,14 @@ import app.hush.music.onboarding.OnboardingViewModel
 import app.hush.music.ui.screens.onboarding.OnboardingRoute
 import app.hush.music.ui.screens.settings.DarkMode
 import app.hush.music.ui.screens.settings.NavigationTab
+import app.hush.music.ui.theme.AppSkin
+import app.hush.music.ui.theme.LocalNavigationAnatomy
 import app.hush.music.ui.theme.HushTheme
 import app.hush.music.ui.theme.ColorSaver
 import app.hush.music.ui.theme.DefaultThemeColor
+import app.hush.music.ui.theme.SkinHeader
 import app.hush.music.ui.theme.extractThemeColor
+import app.hush.music.ui.theme.skinHeaderHostsActions
 import app.hush.music.ui.utils.appBarScrollBehavior
 import app.hush.music.ui.utils.backToMain
 import app.hush.music.ui.utils.resetContentOffset
@@ -305,8 +310,10 @@ import app.hush.music.viewmodels.BackupCategory
 import app.hush.music.viewmodels.BackupRestoreViewModel
 import app.hush.music.viewmodels.HomeViewModel
 import app.hush.music.viewmodels.NetworkBannerViewModel
+import app.hush.music.viewmodels.StorageHealthViewModel
 import app.hush.music.viewmodels.OnlineSearchSort
 import app.hush.music.viewmodels.OnlineSearchViewModel
+import java.util.Calendar
 import java.util.Locale
 import javax.inject.Inject
 import kotlin.random.Random
@@ -775,6 +782,11 @@ class MainActivity : ComponentActivity() {
             val fontPreference by rememberEnumPreference(FontPreferenceKey, defaultValue = AppFontPreference.DEFAULT)
             val customFontUri by rememberPreference(CustomFontUriKey, defaultValue = "")
             val legacyUseSystemFont by rememberPreference(UseSystemFontKey, defaultValue = false)
+            // Stored as the enum's name by the Appearance picker, so the id is normalized rather
+            // than matched: an install that ran a build with a skin this one no longer has must
+            // start on the shipped look instead of failing to find it.
+            val appSkinId by rememberPreference(AppSkinKey, defaultValue = AppSkin.DEFAULT.id)
+            val appSkin = AppSkin.fromId(appSkinId)
             val isSystemInDarkTheme = isSystemInDarkTheme()
             val useDarkTheme =
                 remember(darkTheme, isSystemInDarkTheme) {
@@ -876,34 +888,60 @@ class MainActivity : ComponentActivity() {
                 disableAnimations = disableAnimations,
                 fontPreference = fontPreference,
                 customFontUri = customFontUri,
+                // Read here, at the root, because a skin is a decision about the app rather than
+                // about a screen: the palette, the type scale, the radii and the surfaces all take
+                // it, so a screen that opted in individually would be a screen that disagreed.
+                skin = appSkin,
             ) {
                 val onboardingViewModel: OnboardingViewModel = hiltViewModel()
                 val onboardingState by onboardingViewModel.screenState.collectAsStateWithLifecycle()
-                val shouldShowOnboarding =
+
+                /**
+                 * Whether this install still has onboarding to show: null while that is still being
+                 * read, which is not the same answer as "yes".
+                 *
+                 * It used to be read as yes, so an install that had finished onboarding long ago was
+                 * drawn the onboarding screen - a full-screen gradient, a pager and a page of
+                 * permission rows - for as long as the read took, and only then replaced by the
+                 * shell. Measured on the test device: 580 ms of the launch, spent composing a screen
+                 * the user was never meant to see, in front of the feed they were waiting for.
+                 */
+                val onboardingDecision: Boolean? =
                     when (val state = onboardingState) {
-                        OnboardingScreenState.Loading -> true
+                        OnboardingScreenState.Loading -> null
                         OnboardingScreenState.Empty -> true
                         is OnboardingScreenState.Error -> false
                         is OnboardingScreenState.Success -> state.uiState.shouldShowOnboarding
                     }
 
-                if (shouldShowOnboarding) {
+                if (onboardingDecision != null) {
+                    app.hush.music.utils.StartupMark.mark("onboarding decided")
+                }
+
+                if (onboardingDecision == true) {
                     OnboardingRoute(viewModel = onboardingViewModel)
                     return@HushTheme
                 }
 
+                // The shell waits for the music service to be connected, and for nothing else. It used
+                // to also wait for the player's queue to finish restoring, which is launch time spent on
+                // a screen that is a spinner: the feed does not read the queue, and the one surface that
+                // does - the mini player - is free to appear once its own state lands, exactly as it does
+                // when the queue changes later in a session. Measured on the test device: 280-360 ms,
+                // sitting in front of the feed rather than beside it.
                 var mainShellReady by remember { mutableStateOf(false) }
                 LaunchedEffect(Unit) {
                     withTimeoutOrNull(5_000) {
                         while (playerConnection == null) {
                             delay(50)
                         }
-                        playerConnection?.queueRestoreCompleted?.first { it }
+                        app.hush.music.utils.StartupMark.mark("player connection ready")
                     }
                     mainShellReady = true
+                    app.hush.music.utils.StartupMark.mark("main shell ready")
                 }
 
-                if (!mainShellReady) {
+                if (onboardingDecision == null || !mainShellReady) {
                     Box(
                         modifier =
                             Modifier
@@ -948,9 +986,11 @@ class MainActivity : ComponentActivity() {
                     val coroutineScope = rememberCoroutineScope()
                     val homeViewModel: HomeViewModel = hiltViewModel()
                     val networkBannerViewModel: NetworkBannerViewModel = hiltViewModel()
+                    val storageHealthViewModel: StorageHealthViewModel = hiltViewModel()
                     val allLocalItems by homeViewModel.allLocalItems.collectAsState()
                     val allYtItems by homeViewModel.allYtItems.collectAsState()
                     val networkBannerState by networkBannerViewModel.bannerState.collectAsStateWithLifecycle()
+                    val downloadsFolderHealth by storageHealthViewModel.downloadsFolderHealth.collectAsStateWithLifecycle()
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
                     var previousTab by rememberSaveable { mutableStateOf(Screens.ROUTE_HOME) }
                     var currentTab by rememberSaveable { mutableStateOf(Screens.ROUTE_HOME) }
@@ -1076,35 +1116,212 @@ class MainActivity : ComponentActivity() {
                         currentRoute == Screens.ROUTE_HOME &&
                             (allLocalItems.isNotEmpty() || allYtItems.isNotEmpty())
 
-                    fun bottomNavHeight(compact: Boolean): Dp =
+                    // The app's loose actions, hoisted above the Scaffold because where they are drawn
+                    // is the skin's decision and both bars read the same three lambdas: Hush's pill
+                    // carries them inline beside its destinations, and a skin on a parent's bar draws
+                    // them in the header, because that is where every one of those parents keeps them.
+                    // Declaring them at the bar they used to live in would have made the header's
+                    // copy a second implementation of shuffle, and the two would drift.
+                    val onShuffleAll: (() -> Unit)? =
+                        if (shouldShowHomeShuffleButton) {
+                            {
+                                val useLocalSource =
+                                    when {
+                                        allLocalItems.isNotEmpty() && allYtItems.isNotEmpty() -> {
+                                            Random.nextFloat() < 0.5f
+                                        }
+
+                                        allLocalItems.isNotEmpty() -> {
+                                            true
+                                        }
+
+                                        else -> {
+                                            false
+                                        }
+                                    }
+
+                                coroutineScope.launch(Dispatchers.Main) {
+                                    if (useLocalSource) {
+                                        when (val luckyItem = allLocalItems.random()) {
+                                            is Song -> {
+                                                playerConnection?.playQueue(
+                                                    if (luckyItem.song.isLocal) {
+                                                        ListQueue(items = listOf(luckyItem.toMediaItem()))
+                                                    } else {
+                                                        YouTubeQueue.radio(luckyItem.toMediaMetadata())
+                                                    },
+                                                )
+                                            }
+
+                                            is Album -> {
+                                                val albumWithSongs =
+                                                    withContext(Dispatchers.IO) {
+                                                        database.albumWithSongs(luckyItem.id).first()
+                                                    }
+
+                                                albumWithSongs?.let {
+                                                    playerConnection?.playQueue(LocalAlbumRadio(it))
+                                                }
+                                            }
+
+                                            is Artist -> {
+                                                Unit
+                                            }
+
+                                            is Playlist -> {
+                                                Unit
+                                            }
+                                        }
+                                    } else {
+                                        when (val luckyItem = allYtItems.random()) {
+                                            is SongItem -> {
+                                                playerConnection?.playQueue(
+                                                    YouTubeQueue.radio(luckyItem.toMediaMetadata()),
+                                                )
+                                            }
+
+                                            is AlbumItem -> {
+                                                playerConnection?.playQueue(YouTubeAlbumRadio(luckyItem.playlistId))
+                                            }
+
+                                            is ArtistItem -> {
+                                                luckyItem.radioEndpoint?.let {
+                                                    playerConnection?.playQueue(YouTubeQueue(it))
+                                                }
+                                            }
+
+                                            is PlaylistItem -> {
+                                                luckyItem.playEndpoint?.let {
+                                                    playerConnection?.playQueue(YouTubeQueue.playlist(it))
+                                                }
+                                            }
+
+                                            is PodcastItem -> {
+                                                luckyItem.playEndpoint?.let {
+                                                    playerConnection?.playQueue(YouTubeQueue.playlist(it))
+                                                }
+                                            }
+
+                                            is EpisodeItem -> {
+                                                playerConnection?.playQueue(
+                                                    ListQueue(
+                                                        title = luckyItem.title,
+                                                        items =
+                                                            listOf(
+                                                                luckyItem.asSongItem().toMediaMetadata().toMediaItem(),
+                                                            ),
+                                                    ),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            null
+                        }
+
+                    val onMusicRecognition: (() -> Unit)? =
                         if (shouldShowNavigationBar && !useRail) {
-                            if (compact) CompactFloatingToolbarHeight else FloatingToolbarHeight
+                            { navController.navigate(MusicRecognitionRoute) }
+                        } else {
+                            null
+                        }
+
+                    val onMusicTogether: (() -> Unit)? =
+                        if (shouldShowNavigationBar && !useRail) {
+                            { navController.navigate("settings/music_together") }
+                        } else {
+                            null
+                        }
+
+                    // What the header is, from the skin in force - see [SkinHeader]. Read here, above
+                    // the Scaffold, so the title and the actions cannot disagree about which header
+                    // they are drawing.
+                    val headerHostsActions = skinHeaderHostsActions(appSkin)
+                    // The screen's own name for a header that names the screen. A route that is not one
+                    // of the destinations - settings, an album, the player's own screens - keeps the
+                    // app's name, because "Home" over a settings screen would be a header naming a
+                    // place the user is not.
+                    val headerTitleRes =
+                        when (currentRoute) {
+                            Screens.ROUTE_HOME -> R.string.home
+                            Screens.ROUTE_SEARCH -> R.string.search
+                            Screens.ROUTE_LIBRARY -> R.string.filter_library
+                            else -> R.string.app_name
+                        }
+
+                    // The bar's measurements are the skin's, not this file's: a Material skin draws
+                    // Material's 80dp `NavigationBar` where Hush floats a 64dp pill, and every number
+                    // below reserves room for whichever one is on screen. Read from the composition
+                    // local so the bar, the padding behind it and the player sheet's bound cannot
+                    // disagree about how tall it is - which they did, at 64dp against 80dp, and the
+                    // last line of a screen's content came out cut in half by the bar (measured on
+                    // the reporting device under Metrolist).
+                    val navAnatomy = LocalNavigationAnatomy.current
+                    val barsVisible = shouldShowNavigationBar && !useRail
+                    // The window's bottom inset, from the bar's point of view. Material's bar is
+                    // flush with the bottom of the window and applies that inset itself, so
+                    // reserving it here as well would lift every screen's content above the bar by
+                    // the height of the navigation area a second time; the floating pill is not, and
+                    // the screens behind it reserve the inset themselves.
+                    val barSystemInset =
+                        if (barsVisible && navAnatomy.consumesSystemInset) 0.dp else bottomInset
+
+                    fun bottomNavHeight(compact: Boolean): Dp =
+                        if (barsVisible) {
+                            if (compact) navAnatomy.compactHeight else navAnatomy.height
                         } else {
                             0.dp
                         }
+
+                    // The pill's own height at this font scale, shared by everything that has to leave
+                    // room for it - see [rememberMiniPlayerHeight]. One number, computed before the
+                    // sheet that reserves it: a bound that disagreed with the pill by a few dp would
+                    // clip it or leave a gap, and both have shown up as "the mini player is cut off".
+                    val miniPlayerHeight = rememberMiniPlayerHeight()
 
                     val playerBottomSheetState =
                         rememberBottomSheetState(
                             dismissedBound = 0.dp,
                             collapsedBound =
-                                bottomInset +
-                                    (if (shouldShowNavigationBar && !useRail) {
-                                        CompactFloatingToolbarBottomPadding + CompactFloatingToolbarHeight
+                                barSystemInset +
+                                    (if (barsVisible) {
+                                        navAnatomy.compactBottomPadding + navAnatomy.compactHeight
                                     } else {
                                         0.dp
                                     }) +
                                     CompactMiniPlayerBottomSpacing +
-                                    MiniPlayerHeight,
+                                    miniPlayerHeight,
                             expandedBound = maxHeight,
                         )
 
+                    // The launch frame belongs to the screen, not to the chrome. The player chrome and
+                    // the navigation bar were composed *ahead* of the NavHost - their composition
+                    // start at ~2.05 s after process start, the nav graph's own build at ~2.4 s, the
+                    // feed's composition after that - and a frame is drawn once, so the home feed's
+                    // first shelf waited for the whole of the chrome's work. They join on the next
+                    // frame instead (16 ms later on a release build), so the frame that carries the
+                    // feed to the screen carries nothing else.
+                    //
+                    // Nothing is laid out differently while it waits: no screen reads the Scaffold's
+                    // inner padding - they take their insets from [LocalPlayerAwareWindowInsets] - so
+                    // this hides the chrome for one frame, it does not move the feed.
+                    var shellChromeComposed by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        // Resumes in the next frame's callback: the pass being composed now is the one
+                        // that builds the feed, and it contains none of the chrome.
+                        withFrameNanos { }
+                        shellChromeComposed = true
+                    }
+
                     val isMiniPlayerVisible = !playerBottomSheetState.isDismissed
                     val navVisibleHeight = bottomNavHeight(compact = isMiniPlayerVisible)
-                    val floatingBarsBottomPadding =
+                    val navBottomPadding =
                         if (isMiniPlayerVisible) {
-                            CompactFloatingToolbarBottomPadding
+                            navAnatomy.compactBottomPadding
                         } else {
-                            FloatingToolbarBottomPadding
+                            navAnatomy.bottomPadding
                         }
                     val miniPlayerNavSpacing =
                         if (isMiniPlayerVisible) {
@@ -1113,15 +1330,15 @@ class MainActivity : ComponentActivity() {
                             MiniPlayerBottomSpacing
                         }
                     val bottomNavigationBarHeight by animateDpAsState(
-                        targetValue = if (shouldShowNavigationBar && !useRail) navVisibleHeight else 0.dp,
+                        targetValue = if (barsVisible) navVisibleHeight else 0.dp,
                         animationSpec = if (disableAnimations) snap() else NavigationBarAnimationSpec,
                         label = "bottomNavigationBarHeight",
                     )
                     val miniPlayerBottomPadding =
                         if (isMiniPlayerVisible) {
-                            if (shouldShowNavigationBar && !useRail) {
-                                bottomInset +
-                                    floatingBarsBottomPadding +
+                            if (barsVisible) {
+                                barSystemInset +
+                                    navBottomPadding +
                                     navVisibleHeight +
                                     miniPlayerNavSpacing
                             } else {
@@ -1260,18 +1477,18 @@ class MainActivity : ComponentActivity() {
                         remember(
                             useRail,
                             bottomInset,
-                            shouldShowNavigationBar,
+                            barsVisible,
                             playerBottomSheetState.isDismissed,
                             bottomNavigationBarHeight,
                             miniPlayerNavSpacing,
-                            floatingBarsBottomPadding,
+                            navBottomPadding,
                         ) {
-                            var bottom = bottomInset
-                            if (shouldShowNavigationBar && !useRail) {
-                                bottom += bottomNavigationBarHeight + floatingBarsBottomPadding
+                            var bottom = barSystemInset
+                            if (barsVisible) {
+                                bottom += bottomNavigationBarHeight + navBottomPadding
                             }
                             if (!playerBottomSheetState.isDismissed) {
-                                bottom += MiniPlayerHeight + miniPlayerNavSpacing
+                                bottom += miniPlayerHeight + miniPlayerNavSpacing
                             }
                             windowsInsets
                                 .only(
@@ -1534,6 +1751,7 @@ class MainActivity : ComponentActivity() {
                         LocalPlayerConnection provides playerConnection,
                         LocalPlayerAwareWindowInsets provides playerAwareWindowInsets,
                         LocalMiniPlayerBottomPadding provides miniPlayerBottomPadding,
+                        LocalMiniPlayerHeight provides miniPlayerHeight,
                         LocalDownloadUtil provides downloadUtil,
                         LocalShimmerTheme provides ShimmerTheme,
                         LocalSyncUtils provides syncUtils,
@@ -1700,26 +1918,69 @@ class MainActivity : ComponentActivity() {
                                                         ) + WindowInsetsSides.Top,
                                                     ),
                                                 title = {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Image(
-                                                            painter = painterResource(R.drawable.hush_logo_mark),
-                                                            contentDescription = null,
-                                                            contentScale = ContentScale.Fit,
-                                                            modifier =
-                                                                Modifier
-                                                                    .size(36.dp)
-                                                                    .padding(end = 4.dp),
-                                                        )
-                                                        Text(
-                                                            text = stringResource(R.string.app_name),
-                                                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis,
-                                                        )
+                                                    when (appSkin.spec.header) {
+                                                        // The shipped bar: the mark and the app's
+                                                        // own name, whatever screen is behind it.
+                                                        SkinHeader.BRAND ->
+                                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                BrandHeaderMark(size = 36.dp)
+                                                                Text(
+                                                                    text = stringResource(R.string.app_name),
+                                                                    style =
+                                                                        MaterialTheme.typography.titleLarge.copy(
+                                                                            fontWeight = FontWeight.Bold,
+                                                                        ),
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis,
+                                                                )
+                                                            }
+
+                                                        // Metrolist's and Vivi's bar: the screen's own
+                                                        // name - BitChord's bar fades exactly this in
+                                                        // once its feed has scrolled past the large
+                                                        // heading - and Vivi's app mark ahead of it.
+                                                        SkinHeader.SCREEN_TITLE ->
+                                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                if (appSkin.spec.headerMark) {
+                                                                    BrandHeaderMark(size = 32.dp)
+                                                                }
+                                                                Text(
+                                                                    text = stringResource(headerTitleRes),
+                                                                    style =
+                                                                        MaterialTheme.typography.titleLarge.copy(
+                                                                            fontWeight = FontWeight.Bold,
+                                                                        ),
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis,
+                                                                )
+                                                            }
+
+                                                        // SimpMusic's: the app's name over a
+                                                        // greeting, the same words on every screen.
+                                                        SkinHeader.APP_NAME ->
+                                                            Column {
+                                                                Text(
+                                                                    text = stringResource(R.string.app_name),
+                                                                    style =
+                                                                        MaterialTheme.typography.titleLarge.copy(
+                                                                            fontWeight = FontWeight.Bold,
+                                                                        ),
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis,
+                                                                )
+                                                                Text(
+                                                                    text = stringResource(skinGreetingRes()),
+                                                                    style = MaterialTheme.typography.bodySmall,
+                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis,
+                                                                )
+                                                            }
                                                     }
                                                 },
                                                 actions = {
-                                                    TranslucentTopAppBarIconButton(
+                                                    HeaderActionButton(
+                                                        branded = !headerHostsActions,
                                                         onClick = { navController.navigate("history") },
                                                     ) {
                                                         Icon(
@@ -1727,15 +1988,97 @@ class MainActivity : ComponentActivity() {
                                                             contentDescription = stringResource(R.string.history),
                                                         )
                                                     }
-                                                    TranslucentTopAppBarIconButton(
-                                                        onClick = { navController.navigate("new_release") },
-                                                    ) {
-                                                        Icon(
-                                                            painter = painterResource(R.drawable.new_release),
-                                                            contentDescription = stringResource(R.string.new_release_albums),
-                                                        )
+                                                    // SimpMusic's own header carries three actions and
+                                                    // its title takes the rest of the row, so the one
+                                                    // skin that shows two lines of title shows one
+                                                    // button fewer here and keeps its name whole.
+                                                    val appNamedHeader =
+                                                        appSkin.spec.header == SkinHeader.APP_NAME
+                                                    if (!appNamedHeader) {
+                                                        HeaderActionButton(
+                                                            branded = !headerHostsActions,
+                                                            onClick = { navController.navigate("new_release") },
+                                                        ) {
+                                                            Icon(
+                                                                painter = painterResource(R.drawable.new_release),
+                                                                contentDescription = stringResource(R.string.new_release_albums),
+                                                            )
+                                                        }
                                                     }
-                                                    TranslucentTopAppBarIconButton(
+                                                    // The actions the shipped app keeps in its pill.
+                                                    // A skin on a parent's bar draws them here,
+                                                    // because that is where every one of those
+                                                    // parents keeps its own: a bar with six items
+                                                    // on it was neither app's bottom bar.
+                                                    if (headerHostsActions) {
+                                                        // A header that names the app carries two lines
+                                                        // of title where one that names the screen
+                                                        // carries one, so listening together moves
+                                                        // into the menu and the name keeps its room.
+                                                        // Measured on the test device: with five
+                                                        // buttons the SimpMusic header ellipsized the
+                                                        // name it exists to show.
+                                                        val togetherInMenu = appNamedHeader
+                                                        // Drawn only where the action exists: the bars are
+                                                        // hidden on a rail layout, and those lambdas are
+                                                        // null there, so a button drawn from a null action
+                                                        // would be one that opens into nothing.
+                                                        if (!togetherInMenu && onMusicTogether != null) {
+                                                            HeaderActionButton(
+                                                                branded = false,
+                                                                onClick = onMusicTogether,
+                                                            ) {
+                                                                Icon(
+                                                                    painter = painterResource(R.drawable.multi_user),
+                                                                    contentDescription = stringResource(R.string.music_together),
+                                                                )
+                                                            }
+                                                        }
+                                                        val headerMenuItems =
+                                                            onMusicRecognition != null ||
+                                                                onShuffleAll != null ||
+                                                                (togetherInMenu && onMusicTogether != null) ||
+                                                                appNamedHeader
+                                                        var headerMenuExpanded by remember { mutableStateOf(false) }
+                                                        if (headerMenuItems) {
+                                                            Box {
+                                                                HeaderActionButton(
+                                                                    branded = false,
+                                                                    onClick = { headerMenuExpanded = true },
+                                                                ) {
+                                                                    Icon(
+                                                                        painter = painterResource(R.drawable.more_vert),
+                                                                        contentDescription = stringResource(R.string.more),
+                                                                    )
+                                                                }
+                                                            SkinActionsMenu(
+                                                                expanded = headerMenuExpanded,
+                                                                pureBlack = pureBlack,
+                                                                onDismissRequest = { headerMenuExpanded = false },
+                                                                // Listening together has its own button
+                                                                // in the headers that have room for it,
+                                                                // so the menu carries it only where the
+                                                                // row is shorter.
+                                                                onMusicTogetherClick =
+                                                                    if (togetherInMenu) onMusicTogether else null,
+                                                                onMusicRecognitionClick = onMusicRecognition,
+                                                                musicRecognitionContentDescription =
+                                                                    stringResource(R.string.music_recognition),
+                                                                onShuffleClick = onShuffleAll,
+                                                                shuffleIconRes = if (shouldShowHomeShuffleButton) R.drawable.shuffle else null,
+                                                                shuffleContentDescription = stringResource(R.string.shuffle),
+                                                                onNewReleaseClick =
+                                                                    if (appNamedHeader) {
+                                                                        { navController.navigate("new_release") }
+                                                                    } else {
+                                                                        null
+                                                                    },
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                    HeaderActionButton(
+                                                        branded = !headerHostsActions,
                                                         onClick = { navController.navigate(Screens.ROUTE_SETTINGS) },
                                                     ) {
                                                         BadgedBox(badge = {
@@ -1945,7 +2288,7 @@ class MainActivity : ComponentActivity() {
                                                         .padding(
                                                             bottom =
                                                                 if (!playerBottomSheetState.isDismissed) {
-                                                                    MiniPlayerHeight + miniPlayerNavSpacing
+                                                                    miniPlayerHeight + miniPlayerNavSpacing
                                                                 } else {
                                                                     0.dp
                                                                 },
@@ -2007,6 +2350,9 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 bottomBar = {
+                                    // Held back for the frame that composes the feed; see
+                                    // [shellChromeComposed].
+                                    if (!shellChromeComposed) return@Scaffold
                                     Box {
                                         BottomSheetPlayer(
                                             state = playerBottomSheetState,
@@ -2016,8 +2362,12 @@ class MainActivity : ComponentActivity() {
 
                                         if (useRail) return@Box
 
+                                        // The bar's own space, screen-side rather than skin-side: the
+                                        // floating pill floats above the window's inset with 8dp of
+                                        // air, Material's bar is flush with it, and both are the
+                                        // skin's answer ([barSystemInset], [navBottomPadding]).
                                         val navSlideDistance =
-                                            bottomInset + floatingBarsBottomPadding + navVisibleHeight
+                                            barSystemInset + navBottomPadding + navVisibleHeight
 
                                         Box(
                                             modifier =
@@ -2060,109 +2410,9 @@ class MainActivity : ComponentActivity() {
                                                         .padding(
                                                             start = 0.dp,
                                                             end = 0.dp,
-                                                            bottom = bottomInset + floatingBarsBottomPadding,
+                                                            bottom = barSystemInset + navBottomPadding,
                                                         ).height(navVisibleHeight),
-                                                onShuffleClick =
-                                                    if (shouldShowHomeShuffleButton) {
-                                                        {
-                                                            val useLocalSource =
-                                                                when {
-                                                                    allLocalItems.isNotEmpty() && allYtItems.isNotEmpty() -> {
-                                                                        Random.nextFloat() <
-                                                                            0.5f
-                                                                    }
-
-                                                                    allLocalItems.isNotEmpty() -> {
-                                                                        true
-                                                                    }
-
-                                                                    else -> {
-                                                                        false
-                                                                    }
-                                                                }
-
-                                                            coroutineScope.launch(Dispatchers.Main) {
-                                                                if (useLocalSource) {
-                                                                    when (val luckyItem = allLocalItems.random()) {
-                                                                        is Song -> {
-                                                                            playerConnection?.playQueue(
-                                                                                if (luckyItem.song.isLocal) {
-                                                                                    ListQueue(items = listOf(luckyItem.toMediaItem()))
-                                                                                } else {
-                                                                                    YouTubeQueue.radio(luckyItem.toMediaMetadata())
-                                                                                },
-                                                                            )
-                                                                        }
-
-                                                                        is Album -> {
-                                                                            val albumWithSongs =
-                                                                                withContext(Dispatchers.IO) {
-                                                                                    database.albumWithSongs(luckyItem.id).first()
-                                                                                }
-
-                                                                            albumWithSongs?.let {
-                                                                                playerConnection?.playQueue(LocalAlbumRadio(it))
-                                                                            }
-                                                                        }
-
-                                                                        is Artist -> {
-                                                                            Unit
-                                                                        }
-
-                                                                        is Playlist -> {
-                                                                            Unit
-                                                                        }
-                                                                    }
-                                                                } else {
-                                                                    when (val luckyItem = allYtItems.random()) {
-                                                                        is SongItem -> {
-                                                                            playerConnection?.playQueue(
-                                                                                YouTubeQueue.radio(luckyItem.toMediaMetadata()),
-                                                                            )
-                                                                        }
-
-                                                                        is AlbumItem -> {
-                                                                            playerConnection?.playQueue(
-                                                                                YouTubeAlbumRadio(luckyItem.playlistId),
-                                                                            )
-                                                                        }
-
-                                                                        is ArtistItem -> {
-                                                                            luckyItem.radioEndpoint?.let {
-                                                                                playerConnection?.playQueue(YouTubeQueue(it))
-                                                                            }
-                                                                        }
-
-                                                                        is PlaylistItem -> {
-                                                                            luckyItem.playEndpoint?.let {
-                                                                                playerConnection?.playQueue(YouTubeQueue.playlist(it))
-                                                                            }
-                                                                        }
-
-                                                                        is PodcastItem -> {
-                                                                            luckyItem.playEndpoint?.let {
-                                                                                playerConnection?.playQueue(YouTubeQueue.playlist(it))
-                                                                            }
-                                                                        }
-
-                                                                        is EpisodeItem -> {
-                                                                            playerConnection?.playQueue(
-                                                                                ListQueue(
-                                                                                    title = luckyItem.title,
-                                                                                    items =
-                                                                                        listOf(
-                                                                                            luckyItem.asSongItem().toMediaMetadata().toMediaItem(),
-                                                                                        ),
-                                                                                ),
-                                                                            )
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    } else {
-                                                        null
-                                                    },
+                                                onShuffleClick = onShuffleAll,
                                                 shuffleIconRes = if (shouldShowHomeShuffleButton) R.drawable.shuffle else null,
                                                 shuffleContentDescription =
                                                     if (shouldShowHomeShuffleButton) {
@@ -2172,26 +2422,16 @@ class MainActivity : ComponentActivity() {
                                                     } else {
                                                         ""
                                                     },
-                                                onMusicRecognitionClick =
-                                                    if (shouldShowNavigationBar && !useRail) {
-                                                        { navController.navigate(MusicRecognitionRoute) }
-                                                    } else {
-                                                        null
-                                                    },
+                                                onMusicRecognitionClick = onMusicRecognition,
                                                 musicRecognitionContentDescription =
-                                                    if (shouldShowNavigationBar && !useRail) {
+                                                    if (onMusicRecognition != null) {
                                                         stringResource(
                                                             R.string.music_recognition,
                                                         )
                                                     } else {
                                                         ""
                                                     },
-                                                onMusicTogetherClick =
-                                                    if (shouldShowNavigationBar && !useRail) {
-                                                        { navController.navigate("settings/music_together") }
-                                                    } else {
-                                                        null
-                                                    },
+                                                onMusicTogetherClick = onMusicTogether,
                                                 isSelected = { screen ->
                                                     navBackStackEntry?.destination?.hierarchy?.any { it.route == screen.route } ==
                                                         true
@@ -2344,7 +2584,8 @@ class MainActivity : ComponentActivity() {
                                         navController,
                                         topAppBarScrollBehavior,
                                         { latestVersionName },
-                                        disableAnimations,
+                                        homeViewModel = homeViewModel,
+                                        disableAnimations = disableAnimations,
                                         onClearUpdateBadge = { latestVersionName = BuildConfig.VERSION_NAME },
                                     )
                                 }
@@ -2413,6 +2654,15 @@ class MainActivity : ComponentActivity() {
                                         ).zIndex(10f),
                             ) {
                                 NetworkStatusBanner(state = networkBannerState)
+                                // The one banner here that is a standing problem rather than news,
+                                // and the only tappable one: the downloads live solely in the folder
+                                // it is about, so it stays until the folder works again and leads to
+                                // the screen where the folder is chosen.
+                                StorageHealthBanner(
+                                    health = downloadsFolderHealth,
+                                    onOpenStorageSettings = { navController.navigate("settings/storage") },
+                                    modifier = Modifier.padding(top = 8.dp),
+                                )
                                 SpotiFLACVerifiedBannerHost(modifier = Modifier.padding(top = 8.dp))
                                 // The one banner here that is *not* news: an offer to turn on
                                 // lossless playback, made at most twice per install and answerable
@@ -2473,11 +2723,18 @@ class MainActivity : ComponentActivity() {
     ) {
         if (intent == null) return
         intent.getStringExtra("navigate_to")?.takeIf { it.isNotBlank() }?.let { route ->
-            navController.navigate(route) {
-                launchSingleTop = true
-            }
+            // A route that is not in this build's graph is a stale link, not a reason to crash:
+            // `navigate` throws IllegalArgumentException for an unknown destination, and this route
+            // arrives from outside the app (an update notification written by an older version, a
+            // debug probe). Falling through to the home screen is what a link to nowhere should do.
+            val navigated =
+                runCatching {
+                    navController.navigate(route) {
+                        launchSingleTop = true
+                    }
+                }.isSuccess
             intent.removeExtra("navigate_to")
-            return
+            if (navigated) return
         }
         val dataUri = intent.data
         if (isBackupUri(dataUri)) {
@@ -2997,10 +3254,72 @@ val LocalPlayerConnection =
 val LocalPlayerAwareWindowInsets =
     compositionLocalOf<WindowInsets> { error("No WindowInsets provided") }
 val LocalMiniPlayerBottomPadding = compositionLocalOf { 0.dp }
+
+/**
+ * How tall the mini player is drawn, so a screen that leaves room for it and the thing itself can
+ * never disagree. Provided by `MainActivity`; [MiniPlayerHeight] is the floor when nothing provides
+ * it (a preview, or a screen composed on its own).
+ */
+val LocalMiniPlayerHeight = compositionLocalOf { MiniPlayerHeight }
 val LocalDownloadUtil = staticCompositionLocalOf<DownloadUtil> { error("No DownloadUtil provided") }
 val LocalSyncUtils = staticCompositionLocalOf<SyncUtils> { error("No SyncUtils provided") }
 
 private const val TopAppBarIconButtonContainerAlpha = 0.48f
+
+/**
+ * One action in the top bar, in whichever of the two shapes the skin asks for.
+ *
+ * The difference is the whole of what a header adapts to: Hush's buttons are rounded squares of
+ * translucent surface, and every parent's are plain Material `IconButton`s - a container behind an
+ * icon that already has a 48dp touch target reads as a chip, which is not what any of those apps
+ * draws in its app bar. One call site each, rather than a branch per button, so a header cannot end
+ * up half converted.
+ */
+@Composable
+private fun HeaderActionButton(
+    branded: Boolean,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    if (branded) {
+        TranslucentTopAppBarIconButton(onClick = onClick, content = content)
+    } else {
+        IconButton(onClick = onClick, content = content)
+    }
+}
+
+/** The app's own mark, wherever a header leads with it. Size is the caller's: 36dp in the brand bar, 32dp when it leads a titled one. */
+@Composable
+private fun BrandHeaderMark(size: Dp) {
+    Image(
+        painter = painterResource(R.drawable.hush_logo_mark),
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        modifier =
+            Modifier
+                .size(size)
+                .padding(end = 4.dp),
+    )
+}
+
+/**
+ * The greeting line of the SimpMusic app theme's header, read off the clock.
+ *
+ * Four bands rather than one greeting, because that is what the app whose header this is does: its
+ * bar says Good morning, Good afternoon, Good evening or Good night depending on the hour. The hour
+ * comes from the device's own clock and not from a captured value, so the line is right when a
+ * session is resumed in the morning from one started at night.
+ */
+@Composable
+private fun skinGreetingRes(): Int {
+    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    return when (hour) {
+        in 5..11 -> R.string.app_skin_greeting_morning
+        in 12..16 -> R.string.app_skin_greeting_afternoon
+        in 17..21 -> R.string.app_skin_greeting_evening
+        else -> R.string.app_skin_greeting_night
+    }
+}
 
 @Composable
 private fun TranslucentTopAppBarIconButton(

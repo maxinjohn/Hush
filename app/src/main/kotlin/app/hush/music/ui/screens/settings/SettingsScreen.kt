@@ -66,6 +66,8 @@ import app.hush.music.LocalPlayerAwareWindowInsets
 import app.hush.music.R
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.theme.HushAmbientBackground
+import app.hush.music.ui.theme.LocalAppSkin
+import app.hush.music.ui.theme.SkinRow
 import app.hush.music.ui.utils.backToMain
 import app.hush.music.utils.Updater
 
@@ -223,9 +225,27 @@ fun SettingsScreen(
             )
         },
     ) { innerPadding ->
+        val rowStyle = LocalAppSkin.current.spec.row
         LazyColumn(
             state = listState,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            // How far apart rows sit is part of the skin, not a constant: the segments were drawn
+            // 2dp apart because they are one group, and a skin that makes each row a card of its own
+            // has to say so here or the cards fuse into a slab.
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    when (rowStyle) {
+                        // Rows told apart by a divider are one list and sit flush.
+                        SkinRow.PLAIN -> 0.dp
+                        // SimpMusic draws one card per group; Hush's list has no groups, so the card
+                        // is per row and this is the gap that keeps two of them from fusing - at its
+                        // own 20dp corner a wider gap than one group's internal hairline.
+                        SkinRow.CARD -> 10.dp
+                        // Metrolist's own 4dp between its cards: the parent's list is a stack of
+                        // cards that nearly touch, and the corners are what separate them.
+                        SkinRow.M3_CARD_TILE -> 4.dp
+                        SkinRow.ICON_CIRCLE -> 2.dp
+                    },
+                ),
             modifier =
                 Modifier
                     .fillMaxSize()
@@ -314,7 +334,17 @@ fun SettingsScreen(
                     index = index,
                     count = settingsItems.size,
                     modifier = Modifier
-                        .padding(horizontal = 26.dp)
+                        .padding(
+                            horizontal =
+                                when (rowStyle) {
+                                    SkinRow.PLAIN -> 20.dp
+                                    // A card is inset from the window's edge by the gap between two
+                                    // cards rather than by a list margin: at 26dp Metrolist's cards
+                                    // were one screen's width narrower than Metrolist's.
+                                    SkinRow.M3_CARD_TILE -> 16.dp
+                                    else -> 26.dp
+                                },
+                        )
                         .then(if (index == 0) Modifier.focusRequester(tvFirstItemFocusRequester) else Modifier),
                 )
             }

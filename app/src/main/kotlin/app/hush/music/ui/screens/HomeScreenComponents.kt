@@ -184,16 +184,32 @@ fun HomeCategoryChips(
     onChipSelected: (HomePage.Chip) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    // The chip's colours and shapes do not depend on which chip is drawn, so they are resolved once
+    // for the row instead of once per chip per composition. `FilterChipDefaults.filterChipColors`
+    // builds a ~20-field colours object out of `MaterialTheme` reads, and a home feed draws a dozen
+    // chips - the row is composed on every feed arrival, which is the frame the launch waits for.
+    val chipColors =
+        FilterChipDefaults.filterChipColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.78f),
+            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.94f),
+            selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+    val chipShapes = FilterChipDefaults.shapes()
+    // A lazy row, not a `Row` with `horizontalScroll`: the row composes every chip the page
+    // returned - a dozen of them - in the same frame as the rest of the feed's first screenful,
+    // and half of them are off the edge of the screen. Only the chips on it are built now, and a
+    // chip carries a Material chip's whole node tree, so the saving is per chip, not per pixel.
+    LazyRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
         modifier =
             modifier
                 .fillMaxWidth()
-                .heightIn(min = 68.dp)
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .heightIn(min = 68.dp),
     ) {
-        chips.forEach { chip ->
+        items(items = chips, key = { it.title }) { chip ->
             val selected = chip == selectedChip
             FilterChip(
                 selected = selected,
@@ -217,16 +233,9 @@ fun HomeCategoryChips(
                     } else {
                         null
                     },
-                shapes = FilterChipDefaults.shapes(),
+                shapes = chipShapes,
                 modifier = Modifier.height(35.dp),
-                colors =
-                    FilterChipDefaults.filterChipColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.78f),
-                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.94f),
-                        selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ),
+                colors = chipColors,
                 border = null,
             )
         }

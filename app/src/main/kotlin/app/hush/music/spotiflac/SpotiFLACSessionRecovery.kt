@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 /**
  * The one "try again" action behind every Renew in the app.
@@ -119,7 +120,7 @@ object SpotiFLACSessionRecovery {
                     }
                         .onFailure { SpotiFLACDiag.log("session recovery ($reason) failed: ${it.message}") }
                         .getOrDefault(emptyList())
-                val checked = sourcesNeedingCheck(results, enabledSourceIds())
+                val checked = sourcesNeedingCheck(results, switchedOnSourceIds())
                 if (checked.isNotEmpty()) {
                     SpotiFLAutoVerifier.enqueue(
                         sourceIds = checked,
@@ -157,32 +158,36 @@ object SpotiFLACSessionRecovery {
      * gateway's answer distinguishes "this session is gone" from "this session is fine", and
      * [SpotiFLACSessionRenewer.RenewResult.needsVerification] is where it lands.
      *
-     * [enabledSourceIds] bounds the run to sources that are switched on: a check raises a browser
-     * trip and a gateway round trip, and spending one on a source the user has turned off is work
-     * nobody asked for. An empty list means the caller has no opinion (the repository has not been
-     * read yet), which must not silently drop every check - so it filters nothing.
+     * [switchedOn] bounds the run to sources that are switched on: a check raises a browser trip and
+     * a gateway round trip, and spending one on a source the user has turned off is work nobody
+     * asked for. `null` means the caller has no opinion (the repository has not been read yet),
+     * which must not silently drop every check - so it filters nothing. A non-null set is a choice,
+     * and an empty one is a choice too: nothing is switched on, so nothing is raised. The two used to
+     * be the same empty list, and the reported install - two Tido addons on, every native source off
+     * - produced checks for `amazon` and `tidal-web` because the *native* enabled list it was given
+     * was empty and read as "unknown".
      */
     internal fun sourcesNeedingCheck(
         results: List<SpotiFLACSessionRenewer.RenewResult>,
-        enabledSourceIds: List<String>,
+        switchedOn: Set<String>?,
     ): List<String> =
         results
             .filter { !it.renewed && it.needsVerification }
             .map { it.extensionId }
-            .filter { id -> enabledSourceIds.isEmpty() || id in enabledSourceIds }
+            .filter { id -> switchedOn == null || id.trim().lowercase(Locale.US) in switchedOn }
             .distinct()
 
     /**
-     * The sources this install has switched on.
+     * The sources this install has switched on, as the whole list rather than the native candidates.
      *
      * Best-effort on purpose: the repository is built at app start, and a run that reaches here
-     * before it exists must still renew. An empty answer therefore means "no opinion" rather than
-     * "nothing is on" - see [sourcesNeedingCheck].
+     * before it exists must still renew. A null answer therefore means "no opinion" rather than
+     * "nothing is on" - see [sourcesNeedingCheck]. Read from [enabledExtensionIdsSnapshot] rather
+     * than [ExtensionRepositoryManager.getEnabledSourceIds] because the latter is the *native* walk:
+     * it is empty for an install whose Audio Sources list holds only a module or a server addon, and
+     * an empty answer here filters nothing.
      */
-    private fun enabledSourceIds(): List<String> =
-        runCatching { ExtensionRepositoryManager.getInstance().getEnabledSourceIds() }
-            .getOrDefault(emptyList())
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
+    private fun switchedOnSourceIds(): Set<String>? =
+        runCatching { ExtensionRepositoryManager.getInstance().enabledExtensionIdsSnapshot() }
+            .getOrNull()
 }

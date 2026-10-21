@@ -45,6 +45,55 @@ class SpotiFLACSweepVerdictTest {
         assertFalse(SpotiFLACSweepVerdict.isCatalogueVerdict(aggregate))
     }
 
+    /**
+     * A source that refused service had no chance to answer about the track, so it is not a verdict.
+     *
+     * `Tido · Lossless answered HTTP 403 (Unavailable)` is the measured refusal; the addon never
+     * named a track, so recording it as a catalogue miss would hide the song for hours.
+     */
+    @Test
+    fun `an addon's refusal is not a catalogue verdict`() {
+        assertFalse(
+            SpotiFLACSweepVerdict.isCatalogueVerdict(
+                "tido-tido-tido-dpdns-org-a48bf403dcfc40ae94f668c562d08201:com.yourname.tidal.hifi" +
+                    "=left out (Tido · Lossless answered HTTP 403 (Unavailable))",
+            ),
+        )
+        assertFalse(SpotiFLACSweepVerdict.isCatalogueVerdict("answered HTTP 403"))
+        assertFalse(SpotiFLACSweepVerdict.isCatalogueVerdict("answered HTTP 401"))
+    }
+
+    /**
+     * A refusal is read as one, because the player's line depends on the difference.
+     *
+     * `no audio` was what the walk used to record for an addon that answered `403 (Unavailable)`, and
+     * the line built from it - "No source has this track · Tido" - is a claim about Tidal's catalogue
+     * that the addon never made. Both shapes the bridge writes are pinned here: the aggregate of a
+     * walk that asked, and the sentence thrown when the walk had nothing to ask.
+     */
+    @Test
+    fun `a source's refusal reads as a refusal and a catalogue answer does not`() {
+        assertTrue(
+            SpotiFLACSweepVerdict.isRefusal(
+                "All SpotiFLAC sources failed (tido-tido-tido-dpdns-org-a48bf403dcfc40ae94f668c562d08201" +
+                    ":com.yourname.tidal.hifi=Tido · Lossless answered HTTP 403 (Unavailable))",
+            ),
+        )
+        assertTrue(
+            SpotiFLACSweepVerdict.isRefusal(
+                "Every enabled SpotiFLAC source has refused service: tido..." +
+                    "(Tido answered HTTP 403 (Unavailable))",
+            ),
+        )
+        assertFalse(
+            SpotiFLACSweepVerdict.isRefusal(
+                "All SpotiFLAC sources failed (deezer=no results returned; qobuz-web=no audio)",
+            ),
+        )
+        assertFalse(SpotiFLACSweepVerdict.isRefusal("sweep did not finish"))
+        assertFalse(SpotiFLACSweepVerdict.isRefusal(null))
+    }
+
     @Test
     fun `an unrecognised failure is not a verdict`() {
         // Fails toward re-sweeping: one extra sweep is much cheaper than hiding a track

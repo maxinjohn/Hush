@@ -64,8 +64,8 @@ fun Song.toMediaItem() =
             androidx.media3.common.MediaMetadata
                 .Builder()
                 .setTitle(song.title)
-                .setSubtitle(artists.joinToString { it.name })
-                .setArtist(artists.joinToString { it.name })
+                .setSubtitle(artists.filter { it.name.isNotBlank() }.joinToString { it.name })
+                .setArtist(artists.filter { it.name.isNotBlank() }.joinToString { it.name })
                 .setArtworkUri(song.thumbnailUrl.toNotificationArtworkUri(song.id))
                 .setAlbumTitle(song.albumName)
                 .setIsPlayable(true)
@@ -85,8 +85,8 @@ fun SongItem.toMediaItem() =
             androidx.media3.common.MediaMetadata
                 .Builder()
                 .setTitle(title)
-                .setSubtitle(artists.joinToString { it.name })
-                .setArtist(artists.joinToString { it.name })
+                .setSubtitle(artists.filter { it.name.isNotBlank() }.joinToString { it.name })
+                .setArtist(artists.filter { it.name.isNotBlank() }.joinToString { it.name })
                 .setArtworkUri(thumbnail.toNotificationArtworkUri(id))
                 .setAlbumTitle(album?.name)
                 .setIsPlayable(true)
@@ -106,8 +106,8 @@ fun MediaMetadata.toMediaItem() =
             androidx.media3.common.MediaMetadata
                 .Builder()
                 .setTitle(title)
-                .setSubtitle(artists.joinToString { it.name })
-                .setArtist(artists.joinToString { it.name })
+                .setSubtitle(artists.filter { it.name.isNotBlank() }.joinToString { it.name })
+                .setArtist(artists.filter { it.name.isNotBlank() }.joinToString { it.name })
                 .setArtworkUri(thumbnailUrl.toNotificationArtworkUri(id))
                 .setAlbumTitle(album?.title)
                 .setIsPlayable(true)

@@ -20,7 +20,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.plus
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withTimeoutOrNull
 import app.hush.music.R
 import app.hush.music.auth.SwitchSavedYouTubeAccountUseCase
 import app.hush.music.constants.AccountChannelHandleKey
@@ -57,6 +59,7 @@ import app.hush.music.innertube.utils.completed
 import app.hush.music.innertube.utils.hasYouTubeLoginCookie
 import app.hush.music.models.SimilarRecommendation
 import app.hush.music.utils.SavedAccount
+import app.hush.music.utils.StartupMark
 import app.hush.music.utils.SpeedDialPinType
 import app.hush.music.utils.SyncUtils
 import app.hush.music.utils.dataStore
@@ -178,10 +181,22 @@ class HomeViewModel
     constructor(
         @ApplicationContext private val context: Context,
         private val database: MusicDatabase,
+        private val homeFeedCache: app.hush.music.home.HomeFeedCache,
         private val syncUtils: SyncUtils,
         private val switchSavedYouTubeAccount: SwitchSavedYouTubeAccountUseCase,
         observeHomePresentationPreferences: ObserveHomePresentationPreferencesUseCase,
     ) : ViewModel() {
+        /**
+         * How long the work behind the feed waits for the feed itself before giving up on the wait.
+         *
+         * The wait is the point - these are the requests that have nothing to do with the first
+         * paint and were previously issued *during* it - but a wait with no ceiling is a request that
+         * never happens on a launch whose feed comes up Empty, so it is bounded instead.
+         */
+        private companion object {
+            const val SECONDARY_WORK_DELAY_MS = 6_000L
+        }
+
         private val isRefreshing = MutableStateFlow(false)
         private val isLoading = MutableStateFlow(false)
         private val isInitialLoadComplete = MutableStateFlow(false)
@@ -293,10 +308,35 @@ class HomeViewModel
                     isChipLoading = loadingState.third,
                 )
             }.stateIn(
-                scope = viewModelScope,
+                // The pipeline runs off the main thread on purpose. Everything it does - five flows
+                // combined, the item lists copied into `ImmutableList`s, the screen state built -
+                // was running on the UI thread at exactly the moment the UI thread was composing
+                // the launch, and the state therefore landed wherever the composition left a gap:
+                // measured on the reporting device the feed's own rows were ready at 2.4s and the
+                // screen did not hear about it until 4.7s, with the frames in between all spent
+                // inside composition. Collecting here costs nothing - a `StateFlow` hands its value
+                // to the screen whenever the screen next looks - and gives the UI thread back the
+                // time this was taking from it.
+                scope = viewModelScope + Dispatchers.Default,
                 started = SharingStarted.WhileSubscribed(5_000),
                 initialValue = HomeScreenState.Loading,
             )
+
+        /**
+         * Waits until the feed has stopped being its loading state, or until the ceiling passes.
+         *
+         * Used to hold back the work that is *about* the feed - recommendations, the account's
+         * identity and playlists - until the feed is on the screen. All of it used to be issued in the
+         * first seconds of a launch, in parallel with the screens being composed, and every one of
+         * those requests ends in a state change that recomposes a shelf: the device's own log shows
+         * the frames lost in that window. Nothing here is needed to paint the first screen, so it
+         * waits for it.
+         */
+        private suspend fun awaitFirstFeed() {
+            withTimeoutOrNull(SECONDARY_WORK_DELAY_MS) {
+                screenState.first { it !is HomeScreenState.Loading }
+            }
+        }
 
         private var wasLoggedIn = false
         @Suppress("UNCHECKED_CAST")
@@ -309,6 +349,35 @@ class HomeViewModel
             chips?.filterNot {
                 it.title.contains("podcasts", ignoreCase = true)
             }
+
+        /**
+         * The feed as this screen may draw it.
+         *
+         * One function for the kept feed and the live one, because they are now two paths to the same
+         * screen: a cached feed that skipped the blocked-artist and hidden-video rules would put a
+         * row back on screen that the user had asked not to see, for however long the refresh takes.
+         */
+        private fun presentableHomePage(
+            page: HomePage,
+            hideExplicit: Boolean,
+            hideVideo: Boolean,
+            hideShorts: Boolean,
+            blockedArtistIds: Set<String>,
+        ): HomePage =
+            page.copy(
+                chips = filterHomeChips(page.chips),
+                sections =
+                    page.sections.map { section ->
+                        section.copy(
+                            items =
+                                section.items
+                                    .filterExplicit(hideExplicit)
+                                    .filterVideo(hideVideo)
+                                    .filterYoutubeShorts(hideShorts)
+                                    .filterBlockedArtists(blockedArtistIds),
+                        )
+                    },
+            )
 
         private fun List<Song>.toQuickPickSample(): List<Song> =
             filter { song -> song.artists.none { it.blockedAt != null } }
@@ -395,6 +464,7 @@ class HomeViewModel
                         reportException(throwable)
                         emit(quickPicksWithFallback(emptyList()))
                     }.collect { picks ->
+                        StartupMark.mark("home quick picks")
                         quickPicks.value = picks
                         updateAllLocalItems()
                     }
@@ -456,7 +526,15 @@ class HomeViewModel
                     }
         }
 
-        private suspend fun load() {
+        /**
+         * Loads the feed, from the kept copy when it is recent enough.
+         *
+         * @param forceRemote ask the server even though the kept feed is fresh. True for the two
+         *   things that are the user *asking* for a refresh - the home refresh action and the
+         *   pull-to-refresh gesture - and false for a launch, where re-fetching a twenty-minute-old
+         *   feed spends a round trip on the same shelves and competes with the first paint.
+         */
+        private suspend fun load(forceRemote: Boolean = false) {
             if (isLoading.value) return
             isLoading.value = true
             loadError.value = null
@@ -469,8 +547,12 @@ class HomeViewModel
                     val blockedArtistIds = database.getBlockedArtistIds().toSet()
                     val fromTimeStamp = System.currentTimeMillis() - 86400000 * 7 * 2
 
-                    launch { loadSpeedDialItems() }
                     launch {
+                        loadSpeedDialItems()
+                        StartupMark.mark("home speed dial")
+                    }
+                    launch {
+                        StartupMark.mark("home forgotten favorites")
                         forgottenFavorites.value =
                             database
                                 .forgottenFavorites()
@@ -506,36 +588,71 @@ class HomeViewModel
                                 }.shuffled()
                                 .take(5)
                         keepListening.value = (keepListeningSongs + keepListeningAlbums + keepListeningArtists).shuffled()
+                        StartupMark.mark("home keep listening")
                     }
 
                     launch {
-                        YouTube
-                            .home()
-                            .onSuccess { page ->
+                        // The kept feed is recent enough to be the answer, so the round trip is
+                        // skipped rather than paid for and thrown away.
+                        //
+                        // Asked of the *cache*, not of `homePage.value`: the paint and this load
+                        // start together, and the first version of this check ran before the paint
+                        // had landed - so it answered "nothing on screen yet", fetched anyway, and
+                        // measured `home page loaded at 5179ms` on a launch whose kept feed was
+                        // seconds old. [HomeFeedCache.warm] shares the parse with the paint (one
+                        // lock, one parse), so waiting for it here costs nothing extra, and a feed
+                        // that cannot be parsed is a reason to ask rather than to stay silent.
+                        val kept =
+                            if (forceRemote) {
+                                null
+                            } else {
+                                homeFeedCache.warm()
+                                homeFeedCache.readyPage()
+                            }
+                        if (kept != null && homeFeedCache.isFresh()) {
+                            StartupMark.mark("home page kept (fresh cache)")
+                            Timber.tag("HomeViewModel").i("home feed served from cache; no request made")
+                            // Painted here as well, in case this coroutine won the race with the
+                            // one in init: the two write the same value from the same source.
+                            if (homePage.value == null) {
                                 homePage.value =
-                                    page.copy(
-                                        chips = filterHomeChips(page.chips),
-                                        sections =
-                                            page.sections.map { section ->
-                                                section.copy(
-                                                    items =
-                                                        section.items
-                                                            .filterExplicit(hideExplicit)
-                                                            .filterVideo(hideVideo).filterYoutubeShorts(hideShorts)
-                                                            .filterBlockedArtists(blockedArtistIds),
-                                                )
-                                            },
+                                    presentableHomePage(
+                                        kept,
+                                        hideExplicit,
+                                        hideVideo,
+                                        hideShorts,
+                                        blockedArtistIds,
                                     )
+                            }
+                            return@launch
+                        }
+                        StartupMark.mark("home page requested")
+                        YouTube
+                            .homeJson()
+                            .mapCatching { json ->
+                                val page = YouTube.homePageFromJson(json).getOrThrow()
+                                homeFeedCache.store(json, page)
+                                page
+                            }.onSuccess { page ->
+                                StartupMark.mark("home page loaded")
+                                homePage.value = presentableHomePage(page, hideExplicit, hideVideo, hideShorts, blockedArtistIds)
                             }.onFailure {
                                 reportException(it)
-                                loadError.value = R.string.error_unknown
+                                // With a kept feed already on screen, a failed refresh is not the
+                                // user's problem: the shelves they are looking at are real, and
+                                // saying "unknown error" over them would be worse than silence.
+                                if (homePage.value == null) loadError.value = R.string.error_unknown
                             }
                     }
                 }
 
                 updateAllLocalItems()
 
+                // Held until the feed is up. Five requests, each one triggering a shelf that has to be
+                // composed - run during the first paint they were competing with it for the one thread
+                // that matters, which is the window the device's own log reports as lost frames.
                 viewModelScope.launch(Dispatchers.IO) {
+                    awaitFirstFeed()
                     loadSimilarRecommendations()
                 }
 
@@ -626,6 +743,7 @@ class HomeViewModel
                     }
 
             similarRecommendations.value = (artistRecommendations + songRecommendations).shuffled()
+            StartupMark.mark("home similar loaded")
 
             _allYtItems.value = similarRecommendations.value?.flatMap { it.items }.orEmpty() +
                 homePage.value
@@ -871,7 +989,8 @@ class HomeViewModel
                 isRefreshing.value = true
                 try {
                     supervisorScope {
-                        launch { load() }
+                        // A refresh is the user asking, so the kept feed is not consulted.
+                        launch { load(forceRemote = true) }
                         launch { refreshQuickPicks() }
                     }
                 } catch (e: CancellationException) {
@@ -946,6 +1065,33 @@ class HomeViewModel
         }
 
         init {
+            StartupMark.mark("home view model created")
+            // The kept feed is read before anything else this view model does, and on its own
+            // coroutine: it is the only work here whose result can put shelves on screen without
+            // waiting for a network round trip, so it must not queue behind the database queries
+            // `load()` starts. It parses on IO - the answer is a few hundred kilobytes of JSON - and
+            // it only writes the value if the live request has not already filled it in.
+            viewModelScope.launch(Dispatchers.IO) {
+                // Warmed by the application's own background work, so this is usually a field read.
+                homeFeedCache.warm()
+                val cached = homeFeedCache.readyPage() ?: return@launch
+                if (homePage.value != null) return@launch
+                // The same presentation rules the live feed gets: a kept feed is not a licence to
+                // show an explicit row or a hidden video for the seconds before the refresh lands.
+                val hideExplicit = context.dataStore.get(HideExplicitKey, false)
+                val hideVideo = context.dataStore.get(HideVideoKey, false)
+                val hideShorts = context.dataStore.get(HideYoutubeShortsKey, false)
+                val blockedArtistIds = database.getBlockedArtistIds().toSet()
+                StartupMark.mark("home page from cache")
+                if (homePage.value != null) return@launch
+                homePage.value = presentableHomePage(cached, hideExplicit, hideVideo, hideShorts, blockedArtistIds)
+            }
+            viewModelScope.launch {
+                screenState
+                    .filterIsInstance<HomeScreenState.Success>()
+                    .first()
+                StartupMark.mark("home state success")
+            }
             observeQuickPicks()
 
             viewModelScope.launch(Dispatchers.IO) {
@@ -985,6 +1131,11 @@ class HomeViewModel
 
                                 supervisorScope {
                                     kotlinx.coroutines.delay(100)
+                                    // The account's own two requests wait for the feed as well: the
+                                    // name and the playlist shelf are not on the first screen, and
+                                    // their answers land as two more state changes while it is being
+                                    // drawn.
+                                    awaitFirstFeed()
                                     launch { refreshAccountIdentity() }
                                     launch { refreshAccountPlaylistsInternal() }
                                 }

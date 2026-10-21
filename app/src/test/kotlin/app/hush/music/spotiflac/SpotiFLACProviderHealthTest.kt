@@ -92,17 +92,31 @@ class SpotiFLACProviderHealthTest {
         assertEquals(SpotiFLACProviderHealth.Verdict.Unavailable("degraded"), verdict)
     }
 
+    /**
+     * A provider that says it is down is left out; one that merely stalled keeps its place.
+     *
+     * The order is the user's, so a health report may exclude - it cannot reorder. Measured on the
+     * reporting device, a reported outage moved a first-choice source behind every other one for ten
+     * minutes, which is the same complaint as a stall demotion: the list stopped deciding.
+     */
     @Test
-    fun `an offline provider moves last, behind one that only stalled`() {
+    fun `an offline provider is left out while a stalled one keeps its place`() {
         val now = 10_000_000L
         val ordered = SpotiFLACProviderStallPolicy.orderAvailable(
             candidates = listOf("deezer", "tidal-web", "qobuz-web"),
-            stalledAtMs = mapOf("tidal-web" to now - 1_000L),
             rateLimitedAtMs = emptyMap(),
             nowMs = now,
             unavailableAtMs = mapOf("deezer" to now - 1_000L),
         )
-        assertEquals(listOf("qobuz-web", "tidal-web", "deezer"), ordered)
+        assertEquals(listOf("tidal-web", "qobuz-web"), ordered)
+        assertEquals(
+            listOf("tidal-web"),
+            SpotiFLACProviderStallPolicy.recentlyStalled(
+                listOf("deezer", "tidal-web", "qobuz-web"),
+                mapOf("tidal-web" to now - 1_000L),
+                now,
+            ),
+        )
     }
 
     @Test
@@ -111,7 +125,6 @@ class SpotiFLACProviderHealthTest {
         val expired = now - SpotiFLACProviderStallPolicy.UNAVAILABLE_COOLDOWN_MS - 1
         val ordered = SpotiFLACProviderStallPolicy.orderAvailable(
             candidates = listOf("deezer", "tidal-web"),
-            stalledAtMs = emptyMap(),
             rateLimitedAtMs = emptyMap(),
             nowMs = now,
             unavailableAtMs = mapOf("deezer" to expired),
@@ -125,26 +138,11 @@ class SpotiFLACProviderHealthTest {
         val down = listOf("deezer", "pandora").associateWith { now }
         val ordered = SpotiFLACProviderStallPolicy.orderAvailable(
             candidates = listOf("deezer", "pandora"),
-            stalledAtMs = emptyMap(),
             rateLimitedAtMs = emptyMap(),
             nowMs = now,
             unavailableAtMs = down,
         )
         assertEquals(listOf("deezer", "pandora"), ordered)
-    }
-
-    @Test
-    fun `the tail of a sweep keeps the answered prefix and demotes the down provider`() {
-        val now = 10_000_000L
-        val reordered = SpotiFLACProviderStallPolicy.orderRemainingAvailable(
-            candidates = listOf("amazon", "deezer", "tidal-web"),
-            attemptedCount = 1,
-            stalledAtMs = emptyMap(),
-            rateLimitedAtMs = emptyMap(),
-            nowMs = now,
-            unavailableAtMs = mapOf("deezer" to now),
-        )
-        assertEquals(listOf("amazon", "tidal-web", "deezer"), reordered)
     }
 
     @Test

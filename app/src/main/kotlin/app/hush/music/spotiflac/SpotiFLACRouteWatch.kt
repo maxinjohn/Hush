@@ -7,6 +7,7 @@
 package app.hush.music.spotiflac
 
 import android.content.Context
+import app.hush.music.constants.SpotiFLACEnabledDefault
 import app.hush.music.constants.SpotiFLACEnabledKey
 import app.hush.music.utils.NetworkConnectivityObserver
 import app.hush.music.utils.dataStore
@@ -347,9 +348,19 @@ internal object SpotiFLACRouteWatch {
      * null is why the check at start - the one that exists for a block earned while the app was closed
      * - silently never ran, and the app sat on a wait the route had already left. This is a suspend
      * function on a background dispatcher, so waiting for the value costs the caller nothing.
+     *
+     * The two ways this can come back empty are answered differently, and collapsing them is the
+     * mistake to avoid: an *absent key* is a fresh install, which reads as on
+     * ([SpotiFLACEnabledDefault]) and is the whole point of reading the store here, while a *store
+     * that threw* is a read that failed - not a user who switched the engine on. Answering that
+     * second case with the default would send a gateway request from every route change on an
+     * install whose preferences cannot be read, which is a cost the branch this feeds exists to
+     * avoid ("nothing to ask while the engine is switched off ... a request is a cost").
      */
     private suspend fun spotiFLACEnabled(context: Context): Boolean =
-        runCatching { context.dataStore.data.first()[SpotiFLACEnabledKey] }.getOrNull() == true
+        runCatching { context.dataStore.data.first() }
+            .map { stored -> stored[SpotiFLACEnabledKey] ?: SpotiFLACEnabledDefault }
+            .getOrElse { false }
 
     /** Never throws: a fingerprint that cannot be read must not take the process down with it. */
     private fun currentRoute(context: Context): String =

@@ -1,6 +1,8 @@
 package app.hush.music.spotiflac
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.ByteArrayInputStream
@@ -27,18 +29,40 @@ object SpotiFLACExtensionPackageVerifier {
         val version: String,
         val sha256: String,
         val manifestJson: String,
+        /**
+         * Whether the registry pinned this package by digest.
+         *
+         * False means the archive was checked for its *shape* - a manifest, an entry point, safe
+         * paths, sane sizes - and hashed, but nothing published that hash, so nothing can confirm
+         * the bytes are the ones its author meant to publish. Carried out of here so the surfaces
+         * that describe an install can say it rather than imply a verification that did not happen.
+         */
+        val pinned: Boolean = true,
     )
 
+    /**
+     * Validates a package, against the registry's digest when it published one.
+     *
+     * The digest used to be required, and that made every registry which omits `sha256` unusable in
+     * a way nothing said out loud: the source arrived, was listed, its switch turned on, and every
+     * attempt failed with `SpotiFLAC extension package is unavailable`. Measured on the reporting
+     * device with `AlexRabbit/SpoitiLists`, whose entry publishes a `download_url` and no checksum -
+     * upstream SpotiFLAC installs it, so refusing it was Hush's rule and not the format's. What is
+     * still refused is a digest that is present and malformed: a registry that meant to pin the
+     * package and got it wrong is not the same thing as one that did not pin it at all.
+     */
     fun verify(source: ExtensionSource, packageBytes: ByteArray): Result<VerifiedPackage> = runCatching {
         require(packageBytes.isNotEmpty()) { "Extension package is empty" }
-        val expectedHash = source.sha256?.trim()?.lowercase(Locale.US)
-        require(expectedHash?.matches(Regex("[0-9a-f]{64}")) == true) {
-            "Extension ${source.id} has no valid SHA-256 digest"
+        val declaredHash = source.sha256?.trim()?.lowercase(Locale.US)?.takeIf { it.isNotEmpty() }
+        require(declaredHash == null || declaredHash.matches(Regex("[0-9a-f]{64}"))) {
+            "Extension ${source.id} has an invalid SHA-256 digest"
         }
 
         val actualHash = sha256(packageBytes)
-        require(actualHash == expectedHash) {
-            "SHA-256 mismatch for ${source.id}: expected $expectedHash, got $actualHash"
+        if (declaredHash != null) {
+            require(actualHash == declaredHash) {
+                "SHA-256 mismatch for ${source.id}: expected $declaredHash, got $actualHash"
+            }
         }
 
         var manifest: String? = null
@@ -84,12 +108,20 @@ object SpotiFLACExtensionPackageVerifier {
         require(manifestId == source.id) {
             "Package manifest ID $manifestId does not match registry ID ${source.id}"
         }
+        val requiredFeatures =
+            runCatching {
+                manifestObject["requiredRuntimeFeatures"]?.jsonArray
+                    ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+            }.getOrNull().orEmpty()
+        val refusal = SpotiFLACRuntimeFeatures.missing(requiredFeatures)
+        require(refusal == null) { "Extension $manifestId@$version $refusal" }
 
         VerifiedPackage(
             extensionId = manifestId,
             version = version,
             sha256 = actualHash,
             manifestJson = manifestText,
+            pinned = declaredHash != null,
         )
     }
 

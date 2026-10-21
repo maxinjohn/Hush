@@ -19,12 +19,16 @@ import org.junit.Test
  */
 class SpotiFLACAvailabilityTest {
 
+    /** A switch list with one source that can actually fetch a file. */
+    private val oneAudioSource = 1
+
     @Test
     fun `a source with a valid session keeps the engine ready`() {
         val status = SpotiFLACAvailability.of(
             enabled = true,
             verifiedSources = 1,
             sourcesNeedingCheck = 3,
+            audioSources = oneAudioSource,
         )
         assertEquals(SpotiFLACEngineState.READY, status.state)
         assertTrue(status.usable)
@@ -39,9 +43,62 @@ class SpotiFLACAvailabilityTest {
             enabled = true,
             verifiedSources = 0,
             sourcesNeedingCheck = 0,
+            audioSources = oneAudioSource,
         )
         assertEquals(SpotiFLACEngineState.READY, status.state)
         assertTrue(status.usable)
+    }
+
+    /**
+     * The report this state exists for: everything switched on is a metadata provider.
+     *
+     * A metadata source signs in with its own service, so it passes the "nothing to verify" rule -
+     * which is how the engine read `Active` and routed a track into a sweep whose every candidate
+     * was dropped as unable to download. Its detail must say what would fix it, because verifying a
+     * source cannot.
+     */
+    @Test
+    fun `an engine with only metadata providers switched on is paused`() {
+        val status = SpotiFLACAvailability.of(
+            enabled = true,
+            verifiedSources = 0,
+            sourcesNeedingCheck = 0,
+            audioSources = 0,
+        )
+        assertEquals(SpotiFLACEngineState.NO_AUDIO_SOURCE, status.state)
+        assertFalse(status.usable)
+        assertEquals("Paused — no audio source", status.headline)
+        assertTrue(status.detail.contains("Switch on a source that serves audio"))
+    }
+
+    /**
+     * A switch list read before the registry has landed is not evidence of anything, so it must not
+     * pause the engine: the sweep can still fall back to the installed packages, and dropping
+     * lossless playback on every cold start is the more expensive mistake.
+     */
+    @Test
+    fun `an unread source list leaves the engine ready rather than pausing it`() {
+        val status = SpotiFLACAvailability.of(
+            enabled = true,
+            verifiedSources = 0,
+            sourcesNeedingCheck = 0,
+            audioSources = null,
+        )
+        assertEquals(SpotiFLACEngineState.READY, status.state)
+        assertTrue(status.usable)
+    }
+
+    /** Nothing switched on at all reads the same way, and says what to do about it. */
+    @Test
+    fun `an install with no source switched on is paused`() {
+        val status = SpotiFLACAvailability.of(
+            enabled = true,
+            verifiedSources = 0,
+            sourcesNeedingCheck = 0,
+            audioSources = 0,
+        )
+        assertEquals(SpotiFLACEngineState.NO_AUDIO_SOURCE, status.state)
+        assertFalse(status.usable)
     }
 
     @Test
@@ -50,11 +107,66 @@ class SpotiFLACAvailabilityTest {
             enabled = true,
             verifiedSources = 0,
             sourcesNeedingCheck = 4,
+            audioSources = oneAudioSource,
         )
         assertEquals(SpotiFLACEngineState.NEEDS_VERIFICATION, status.state)
         assertFalse(status.usable)
         assertEquals("Paused — no source has a valid session", status.headline)
         assertTrue(status.detail.contains("4 sources need a check"))
+    }
+
+    /**
+     * The regression: one lapsed session used to pause the whole engine, taking every source that
+     * needs no check out of the walk with it. Measured on the reporting device with eight sources
+     * switched on - `tidal-web` unverified, the credential-less modules and SoundCloud enabled and
+     * working - every track resolved through YouTube while the sources that could serve it were
+     * switched on and never asked.
+     */
+    @Test
+    fun `a source that needs no check keeps the engine in play beside unverified ones`() {
+        val status = SpotiFLACAvailability.of(
+            enabled = true,
+            verifiedSources = 0,
+            sourcesNeedingCheck = 3,
+            audioSources = oneAudioSource + 2,
+            sourcesWithoutSession = 2,
+        )
+        assertEquals(SpotiFLACEngineState.READY, status.state)
+        assertTrue(status.usable)
+        assertEquals("Active", status.headline)
+        // The line must not claim there is nothing outstanding: these are sources the user can still
+        // act on, and the ones beside them are why the track plays in the meantime.
+        assertEquals("3 sources need a check; the rest need none and still play.", status.detail)
+    }
+
+    /** Singular, because one row reading "1 sources need a check" is how this stayed unnoticed. */
+    @Test
+    fun `one session-free source and one needing a check reads in the singular`() {
+        val status = SpotiFLACAvailability.of(
+            enabled = true,
+            verifiedSources = 0,
+            sourcesNeedingCheck = 1,
+            audioSources = 2,
+            sourcesWithoutSession = 1,
+        )
+        assertEquals("1 source needs a check; the rest need none and still play.", status.detail)
+    }
+
+    /**
+     * And the state still pauses when the session-free sources are not there to be asked: the rule is
+     * about what is left to try, not about the count of unverified sources on its own.
+     */
+    @Test
+    fun `unverified sources with nothing session-free left still pause the engine`() {
+        val status = SpotiFLACAvailability.of(
+            enabled = true,
+            verifiedSources = 0,
+            sourcesNeedingCheck = 4,
+            audioSources = 4,
+            sourcesWithoutSession = 0,
+        )
+        assertEquals(SpotiFLACEngineState.NEEDS_VERIFICATION, status.state)
+        assertFalse(status.usable)
     }
 
     @Test
@@ -63,8 +175,25 @@ class SpotiFLACAvailabilityTest {
             enabled = true,
             verifiedSources = 0,
             sourcesNeedingCheck = 1,
+            audioSources = oneAudioSource,
         )
         assertTrue(status.detail.startsWith("1 source needs a check"))
+    }
+
+    /**
+     * A verified source beside unverified ones says both, whatever the session-free count is: the
+     * counts are independent facts and the line already had a shape for that.
+     */
+    @Test
+    fun `a verified source beside needing ones keeps the existing wording`() {
+        val status = SpotiFLACAvailability.of(
+            enabled = true,
+            verifiedSources = 2,
+            sourcesNeedingCheck = 1,
+            audioSources = 4,
+            sourcesWithoutSession = 1,
+        )
+        assertEquals("2 verified · 1 still need a check", status.detail)
     }
 
     @Test
@@ -73,6 +202,7 @@ class SpotiFLACAvailabilityTest {
             enabled = false,
             verifiedSources = 4,
             sourcesNeedingCheck = 0,
+            audioSources = oneAudioSource,
             blockedRemainingMs = 60_000,
         )
         assertEquals(SpotiFLACEngineState.DISABLED, status.state)
@@ -87,6 +217,7 @@ class SpotiFLACAvailabilityTest {
             enabled = true,
             verifiedSources = 4,
             sourcesNeedingCheck = 0,
+            audioSources = oneAudioSource,
             lowDataActive = true,
         )
         assertEquals(SpotiFLACEngineState.LOW_DATA, status.state)
@@ -103,6 +234,7 @@ class SpotiFLACAvailabilityTest {
             enabled = true,
             verifiedSources = 0,
             sourcesNeedingCheck = 4,
+            audioSources = oneAudioSource,
             blockedRemainingMs = 60_000,
             blockedReason = "gateway is refusing this connection (HTTP 429)",
             lowDataActive = true,
@@ -117,6 +249,7 @@ class SpotiFLACAvailabilityTest {
             enabled = false,
             verifiedSources = 2,
             sourcesNeedingCheck = 0,
+            audioSources = oneAudioSource,
             lowDataActive = true,
         )
         assertEquals(SpotiFLACEngineState.DISABLED, status.state)
@@ -129,6 +262,7 @@ class SpotiFLACAvailabilityTest {
             enabled = true,
             verifiedSources = 2,
             sourcesNeedingCheck = 0,
+            audioSources = oneAudioSource,
             lowDataActive = false,
         )
         assertEquals(SpotiFLACEngineState.READY, status.state)
@@ -143,6 +277,7 @@ class SpotiFLACAvailabilityTest {
             enabled = true,
             verifiedSources = 2,
             sourcesNeedingCheck = 0,
+            audioSources = oneAudioSource,
             blockedRemainingMs = 20_700_000L,
             blockedReason = "gateway is refusing this connection (HTTP 429)",
         )
@@ -162,6 +297,7 @@ class SpotiFLACAvailabilityTest {
             enabled = true,
             verifiedSources = 1,
             sourcesNeedingCheck = 0,
+            audioSources = oneAudioSource,
             blockedRemainingMs = 0L,
         )
         assertEquals(SpotiFLACEngineState.READY, status.state)
@@ -174,6 +310,7 @@ class SpotiFLACAvailabilityTest {
             enabled = true,
             verifiedSources = 1,
             sourcesNeedingCheck = 0,
+            audioSources = oneAudioSource,
             blockedRemainingMs = 90_000L,
         )
         assertEquals(

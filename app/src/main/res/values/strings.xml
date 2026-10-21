@@ -349,11 +349,13 @@
     <string name="queue_all_songs">All songs</string>
     <string name="queue_searched_songs">Searched songs</string>
     <string name="queue_continue_playing">Continue Playing</string>
+    <string name="queue_prefetch_queued">Queued to be prefetched</string>
     <string name="queue_autoplaying_similar">Autoplaying similar music</string>
     <string name="music_player">Music Player</string>
     <string name="settings">Settings</string>
     <string name="appearance">Appearance</string>
     <string name="theme">Theme</string>
+    <string name="app_theme">App theme</string>
     <string name="enable_dynamic_theme">Enable dynamic theme</string>
     <string name="enable_dynamic_icon">Dynamic app icon</string>
     <string name="enable_dynamic_icon_desc">On: Hush icon follows your launcher theme (Material You on Android 12+). Off: full-color Hush logo on the dark background.</string>

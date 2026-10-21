@@ -29,7 +29,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import app.hush.music.R
+import app.hush.music.storage.CancelStorageFolderMoveUseCase
 import app.hush.music.storage.ClearStorageCacheUseCase
+import app.hush.music.storage.ObserveStorageFolderMoveUseCase
 import app.hush.music.storage.ObserveStorageFoldersUseCase
 import app.hush.music.storage.UsePickedFolderUseCase
 import app.hush.music.storage.SetCustomStorageFolderUseCase
@@ -38,6 +40,7 @@ import app.hush.music.storage.StorageFolderKind
 import app.hush.music.storage.StorageCacheClearResult
 import app.hush.music.storage.StorageCacheClearProgress
 import app.hush.music.storage.StorageCacheKind
+import app.hush.music.storage.StorageFolderMoveProgress
 import app.hush.music.storage.StorageFolderSelection
 import app.hush.music.storage.StorageFolderUpdateResult
 import app.hush.music.storage.StorageLocationKind
@@ -68,7 +71,33 @@ data class StorageSettingsUiModel(
     val picker: StorageLocationPickerUiModel,
     val migration: StorageMigrationUiModel?,
     val cacheClear: StorageCacheClearUiModel?,
+    /** The background move of files out of a folder the user has just left, while it runs. */
+    val move: StorageFolderMoveUiModel?,
 )
+
+/**
+ * The move WorkManager is carrying out, as the storage screen reports it.
+ *
+ * It is the same move the notification is about; what this adds is where the user is already
+ * looking, plus the one thing a notification cannot offer - a way to stop it.
+ */
+@Immutable
+data class StorageFolderMoveUiModel(
+    val kind: StorageFolderKind,
+    val percent: Int,
+    val filesRemaining: Int,
+    val filesTotal: Int,
+) {
+    /**
+     * Whether the job has counted the folder yet.
+     *
+     * False for the moment between being queued and starting, when "0 of 0 files left" would be a
+     * number invented by the screen rather than reported by the move.
+     */
+    val knowsFilesRemaining: Boolean get() = filesTotal > 0
+
+    val progress: Float get() = percent.coerceIn(0, 100) / 100f
+}
 
 @Immutable
 data class StorageFolderUiModel(
@@ -134,8 +163,17 @@ enum class StorageCacheClearUiKind {
 
 @Immutable
 data class StorageSettingsEffect(
-    val messageResId: Int,
+    /** Null when the screen says it in place, as the folder-access dialog does. */
+    val messageResId: Int?,
     val restartApp: Boolean,
+    /** Values for the message's placeholders, empty for the messages that have none. */
+    val formatArgs: List<Any> = emptyList(),
+    /**
+     * The folder was refused only because Android is holding shared storage back from this app,
+     * which the user can lift. The screen answers it with the All files access dialog rather than
+     * with a message, so the failure is actionable instead of just reported.
+     */
+    val needsAllFilesAccess: Boolean = false,
 )
 
 @HiltViewModel
@@ -143,10 +181,12 @@ class StorageSettingsViewModel
     @Inject
     constructor(
         observeStorageFolders: ObserveStorageFoldersUseCase,
+        observeStorageFolderMove: ObserveStorageFolderMoveUseCase,
         private val setStorageFolder: SetStorageFolderUseCase,
         private val setCustomStorageFolder: SetCustomStorageFolderUseCase,
         private val usePickedFolder: UsePickedFolderUseCase,
         private val clearStorageCache: ClearStorageCacheUseCase,
+        private val cancelStorageFolderMove: CancelStorageFolderMoveUseCase,
     ) : ViewModel() {
         private val _effects = MutableSharedFlow<StorageSettingsEffect>(extraBufferCapacity = 1)
         val effects = _effects.asSharedFlow()
@@ -155,13 +195,24 @@ class StorageSettingsViewModel
         private val cacheClearState = MutableStateFlow<StorageCacheClearUiModel?>(null)
         private val activeCacheClearKinds = mutableSetOf<StorageCacheKind>()
 
+        // Held as the move itself rather than as the screen's version of it, because cancelling
+        // needs the job's id, which is not something the screen has any business knowing.
+        private val moveProgress = MutableStateFlow<StorageFolderMoveProgress?>(null)
+
+        init {
+            viewModelScope.launch {
+                observeStorageFolderMove().collect { progress -> moveProgress.value = progress }
+            }
+        }
+
         val state: StateFlow<StorageSettingsScreenState> =
             combine(
                 observeStorageFolders(),
                 pickerState,
                 migrationState,
                 cacheClearState,
-            ) { selection, picker, migration, cacheClear ->
+                moveProgress.map { progress -> progress?.toUiModel() },
+            ) { selection, picker, migration, cacheClear, move ->
                 val selectedOptionId =
                     picker.selectedOptionId
                         ?.takeIf { optionId ->
@@ -174,6 +225,7 @@ class StorageSettingsViewModel
                     picker = normalizedPicker,
                     migration = migration,
                     cacheClear = cacheClear,
+                    move = move,
                 )
             }.map<StorageSettingsStatePayload, StorageSettingsScreenState> { payload ->
                 StorageSettingsScreenState.Success(
@@ -183,6 +235,7 @@ class StorageSettingsViewModel
                         picker = payload.picker,
                         migration = payload.migration,
                         cacheClear = payload.cacheClear,
+                        move = payload.move,
                     ),
                 )
             }.catch { throwable ->
@@ -235,23 +288,10 @@ class StorageSettingsViewModel
             displayName: String?,
         ) {
             viewModelScope.launch(Dispatchers.IO) {
-                migrationState.value =
-                    StorageMigrationUiModel(
-                        phase =
-                            if (kind == StorageFolderKind.DOWNLOADS) {
-                                StorageMigrationUiPhase.DOWNLOADS
-                            } else {
-                                StorageMigrationUiPhase.CACHE
-                            },
-                        percent = 0,
-                    )
                 val result =
                     withContext(NonCancellable + Dispatchers.IO) {
-                        setCustomStorageFolder(kind, path, displayName) { progress ->
-                            migrationState.value = progress.toUiModel()
-                        }
+                        setCustomStorageFolder(kind, path, displayName)
                     }
-                migrationState.value = null
                 emitFolderUpdateResult(result)
             }
         }
@@ -266,23 +306,10 @@ class StorageSettingsViewModel
             treeUri: Uri,
         ) {
             viewModelScope.launch(Dispatchers.IO) {
-                migrationState.value =
-                    StorageMigrationUiModel(
-                        phase =
-                            if (kind == StorageFolderKind.DOWNLOADS) {
-                                StorageMigrationUiPhase.DOWNLOADS
-                            } else {
-                                StorageMigrationUiPhase.CACHE
-                            },
-                        percent = 0,
-                    )
                 val result =
                     withContext(NonCancellable + Dispatchers.IO) {
-                        usePickedFolder(treeUri, kind) { progress ->
-                            migrationState.value = progress.toUiModel()
-                        }
+                        usePickedFolder(treeUri, kind)
                     }
-                migrationState.value = null
                 emitFolderUpdateResult(
                     result,
                     successMessageResId = R.string.storage_folder_selected_restart,
@@ -297,16 +324,44 @@ class StorageSettingsViewModel
             val messageResId =
                 when (result) {
                     StorageFolderUpdateResult.Success -> successMessageResId
+                    StorageFolderUpdateResult.SuccessWithoutRestart -> R.string.storage_folder_saved
                     StorageFolderUpdateResult.InvalidTree -> R.string.storage_folder_invalid
                     StorageFolderUpdateResult.UnsupportedProvider -> R.string.storage_folder_unsupported
                     StorageFolderUpdateResult.NotWritable -> R.string.storage_folder_not_writable
+                    // Nothing to add above the dialog: it names the folder, says what Android is
+                    // doing and offers the one thing that answers it. A snackbar beside it would
+                    // only be a second voice saying the same thing, and a shorter one.
+                    is StorageFolderUpdateResult.NeedsAllFilesAccess -> null
                 }
             _effects.emit(
                 StorageSettingsEffect(
                     messageResId = messageResId,
                     restartApp = result == StorageFolderUpdateResult.Success,
+                    needsAllFilesAccess = result is StorageFolderUpdateResult.NeedsAllFilesAccess,
                 ),
             )
+        }
+
+        /**
+         * Stops the background move the screen is showing.
+         *
+         * Nothing is lost by stopping: a file is deleted from the old folder only once its copy is
+         * whole, so whatever has not been carried over stays where it is - and still plays from
+         * there, which is the same rule the move itself relies on when it is interrupted. That is
+         * worth saying out loud, because "cancel" on a move that has already carried half a
+         * library over needs an answer about the half it has not.
+         */
+        fun cancelStorageMove() {
+            val workId = moveProgress.value?.workId ?: return
+            viewModelScope.launch {
+                cancelStorageFolderMove(workId)
+                _effects.emit(
+                    StorageSettingsEffect(
+                        messageResId = R.string.storage_move_cancelled,
+                        restartApp = false,
+                    ),
+                )
+            }
         }
 
         fun clearSongCache(showFeedback: Boolean = true) {
@@ -430,6 +485,14 @@ class StorageSettingsViewModel
                 percent = percent.coerceIn(0, 100),
             )
 
+        private fun StorageFolderMoveProgress.toUiModel(): StorageFolderMoveUiModel =
+            StorageFolderMoveUiModel(
+                kind = kind,
+                percent = percent,
+                filesRemaining = filesRemaining,
+                filesTotal = filesTotal,
+            )
+
         private fun StorageCacheKind.toUiKind(): StorageCacheClearUiKind =
             when (this) {
                 StorageCacheKind.SONGS -> StorageCacheClearUiKind.SONGS
@@ -444,4 +507,5 @@ private data class StorageSettingsStatePayload(
     val picker: StorageLocationPickerUiModel,
     val migration: StorageMigrationUiModel?,
     val cacheClear: StorageCacheClearUiModel?,
+    val move: StorageFolderMoveUiModel?,
 )

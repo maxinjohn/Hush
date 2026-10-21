@@ -21,12 +21,15 @@ enum class PlaybackEngine {
  * situations were all readable as "on the device":
  *
  *  - [DEVICE_CACHE] — bytes already on disk that this play fetched nothing for: a SpotiFLAC
- *    file. It would still play with the network off.
+ *    playback file. It would still play with the network off, but the app fetched it for
+ *    playback rather than the user keeping it, which is what the row says: **(Fetched)**.
  *  - [DEVICE_DOWNLOAD] — the user's own download, which is a file they asked the app to keep.
- *    Kept apart from [DEVICE_CACHE] because "the app cached this" and "you downloaded this" are
+ *    Kept apart from [DEVICE_CACHE] because "the app fetched this" and "you downloaded this" are
  *    different things to be told, and the second is the one a download button promises.
  *  - [FETCHED_FOR_PLAY] — SpotiFLAC just fetched this track's file, so it starts playing
- *    from a downloaded file, but that work happened for *this* play.
+ *    from a downloaded file, but that work happened for *this* play. Named **(Fetched)** too:
+ *    once the file is on disk, "cached earlier" and "fetched now" are the same copy, and the
+ *    distinction a listener acts on is whether they kept it.
  *  - [LIVE_STREAM] — a YouTube URL being streamed over the network; nothing is on disk.
  *
  * Kept separate from the media3 "downloaded" badge on purpose: that badge describes an
@@ -75,6 +78,34 @@ object PlaybackSourceLabels {
      */
     const val DOWNLOADED = "downloaded"
 
+    /**
+     * The same label, saying these bytes are the user's own download.
+     *
+     * A track can be both things at once: fetching it for playback writes a SpotiFLAC playback
+     * file, and pressing Download keeps a copy too - so the cache publishes `3rd-party • deezer •
+     * cached` for the same bytes. Only one of those facts is what the download button promised,
+     * and the other is the wrong one to show over a downloaded song. The cache attribute is
+     * *replaced* rather than added to, so the label never carries two delivery facts that
+     * disagree.
+     */
+    fun withDownloadAttribute(label: String): String {
+        // The older hyphenated separator is normalised to the bullet every surface shows now. It
+        // also has to be normalised *before* the split, or `SpotiFLAC - Deezer` would be carried as
+        // one part and the parser would read the whole thing as the head, losing the provider.
+        val parts =
+            label
+                .replace(" - ", " • ")
+                .split("•")
+                .map { it.trim() }
+                .filter { part ->
+                    part.isNotEmpty() &&
+                        !part.equals(CACHED, ignoreCase = true) &&
+                        !part.equals(DOWNLOADED, ignoreCase = true)
+                }
+        if (parts.isEmpty()) return DOWNLOADED
+        return parts.joinToString(" • ") + " • " + DOWNLOADED
+    }
+
     /** Raw YouTube client names that can reach the label without a friendly prefix. */
     private val YOUTUBE_CLIENTS =
         mapOf(
@@ -98,7 +129,13 @@ object PlaybackSourceLabels {
 
         // The trailing segment can carry several facts ("deezer • cached"), so split it and
         // treat "cached" as an attribute rather than a provider name.
-        val segments = tail.split('•', '-').map { it.trim() }.filter { it.isNotEmpty() }
+        //
+        // `-` is only a separator in a label that has no bullets, which is the old
+        // `SpotiFLAC - Deezer` form: a provider may now be a name with a service and an addon in
+        // it (`Tidal · gglos`), and splitting that on `-` would report `Tidal · gglos-vr` as
+        // `Tidal · gglos` — the wrong source, silently.
+        val separators = if (tail.contains('•')) charArrayOf('•') else charArrayOf('•', '-')
+        val segments = tail.split(*separators).map { it.trim() }.filter { it.isNotEmpty() }
         // The attributes are looked for in the head as well as the tail: when nothing else is known the
         // whole label is the attribute ("downloaded"), and a reader that only scanned the tail would
         // see no attribute at all and fall back to claiming a live stream.
@@ -113,7 +150,14 @@ object PlaybackSourceLabels {
 
         val engine =
             when {
-                head.contains("spotiflac", ignoreCase = true) -> PlaybackEngine.SPOTIFLAC
+                // `3rd-party` is what the app calls this engine now, so that is what it publishes and
+                // what a reader sees. `spotiflac` is still recognised: a label recorded earlier (a
+                // notification, a log line, a player restored across an upgrade) must keep naming the
+                // same engine rather than falling through to UNKNOWN and losing its delivery state.
+                head.contains("spotiflac", ignoreCase = true) ||
+                    head.contains("third-party", ignoreCase = true) ||
+                    head.contains("3rd-party", ignoreCase = true) ||
+                    head.contains("3rdparty", ignoreCase = true) -> PlaybackEngine.SPOTIFLAC
                 head.contains("hi-res", ignoreCase = true) ||
                     head.contains("hires", ignoreCase = true) -> PlaybackEngine.HIRES
                 head.contains("youtube", ignoreCase = true) -> PlaybackEngine.YOUTUBE

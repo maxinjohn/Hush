@@ -98,6 +98,34 @@ object LocalPlaybackLookahead {
     fun needsFetch(evidence: LocalEvidence): Boolean =
         !evidence.ownedFile && !evidence.downloadCacheComplete && !evidence.streamingCacheComplete
 
+    /**
+     * Whether a *lookahead* has to ask a provider for an item, given everything local about it and
+     * whether YouTube can serve bytes this device has cached.
+     *
+     * This is the entry point both lookaheads - the stream-URL one and the SpotiFLAC one - are meant
+     * to go through, because the question they ask is the same one the *play* will answer a moment
+     * later: will these bytes come off the device? [needsFetch] is that question minus one fact, and
+     * the fact is which stores can still be served.
+     *
+     * The streaming cache is the one store whose vote depends on a switch. It is Media3's song cache,
+     * which only ever receives bytes from a *stream*, and this app streams from YouTube alone - so the
+     * play path serves those bytes only while YouTube is an enabled engine. That is not a preference
+     * invented here: `resolveLocalPlaybackDataSpecIfAvailable` computes its `includePlayerCache` from
+     * exactly that switch. A lookahead that counted the cache with YouTube switched off would skip the
+     * one track it can never be served, and the sweep it skipped would then run at the moment of play
+     * instead of ahead of it - the stall the lookahead exists to remove.
+     *
+     * A file the app owns, and the download store's own cache, are unconditional: a complete file on
+     * the device plays with or without YouTube, which is what downloading it was for.
+     */
+    fun needsFetchForLookahead(
+        evidence: LocalEvidence,
+        youtubeEnabled: Boolean,
+    ): Boolean =
+        needsFetch(
+            if (youtubeEnabled) evidence else evidence.copy(streamingCacheComplete = false),
+        )
+
     private fun Long.saturatingAdd(value: Long): Long {
         if (value <= 0L) return this
         val result = this + value

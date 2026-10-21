@@ -8,6 +8,7 @@ package app.hush.music.playback
 
 import app.hush.music.db.entities.FormatEntity
 import app.hush.music.spotiflac.SpotiFLACServedRow
+import java.io.File
 
 /**
  * The format row for a SpotiFLAC playback file this device serves off disk.
@@ -29,6 +30,12 @@ import app.hush.music.spotiflac.SpotiFLACServedRow
  * So the row states the three things the device can prove about the file - the container, the codec,
  * and the size - and leaves the rate to [DecodedAudioRow], the one place that knows what the bytes
  * actually decode to. A row with no rate is honest; a row with an invented one is not.
+ *
+ * A FLAC file is the exception, and it is not an exception to that rule but the same rule applied
+ * more thoroughly: its `STREAMINFO` block states the stream's exact sample count, so the file's own
+ * audio bytes over that duration is a measured average rate rather than a nominal decode one. That
+ * figure is read by [FlacFileRate] when the caller can name the file; when it cannot, the row says
+ * nothing about the rate and the decoder still gets to fill it in.
  */
 object SpotiFLACFileFormat {
     /**
@@ -65,14 +72,17 @@ object SpotiFLACFileFormat {
      * The row for the SpotiFLAC file that owns [mediaId].
      *
      * [codec] is what the engine reported for the file, and [sizeBytes] is the length on disk - a
-     * fact read from the file itself. The rate fields are deliberately empty; see this object's own
-     * notes.
+     * fact read from the file itself. When [file] is given and it is a FLAC file, the rate comes
+     * from the file's own header (see [FlacFileRate]): a lossless file states its sample count, so
+     * its average bitrate is a measurement of these bytes rather than the nominal decode rate that
+     * used to stand in and be wrong. Everything else keeps no rate at all; see this object's notes.
      */
     fun row(
         mediaId: String,
         codec: String?,
         extension: String?,
         sizeBytes: Long,
+        file: File? = null,
     ): FormatEntity {
         val namedCodec = codec?.takeIf { it.isNotBlank() }
         return FormatEntity(
@@ -82,14 +92,32 @@ object SpotiFLACFileFormat {
             codecs = namedCodec.orEmpty(),
             // Zero is "no rate", not "zero kbps": the field is in bps and every reader renders it in
             // kbps, so a figure that is a *type* - the nominal PCM rate of a decode format - cannot
-            // be put here without lying about the file.
-            bitrate = 0,
+            // be put here without lying about the file. A FLAC file is the one case where the bytes
+            // themselves answer, because the header carries the stream's exact sample count.
+            bitrate = fileBitrateBps(file = file, codec = namedCodec, extension = extension) ?: 0,
             sampleRate = null,
             contentLength = sizeBytes.takeIf { it > 0L } ?: 0L,
             loudnessDb = null,
             perceptualLoudnessDb = null,
             playbackUrl = null,
         )
+    }
+
+    /**
+     * The file's own average bitrate, for the one container whose header states it.
+     *
+     * Gated on the container this object would name, not on the file's extension: a file the cache
+     * wrote as `<key>.media` is a FLAC if the engine said so, and its header is then read. Any other
+     * container answers null, so no file is opened to find out that it could not have helped.
+     */
+    fun fileBitrateBps(
+        file: File?,
+        codec: String?,
+        extension: String?,
+    ): Int? {
+        if (file == null) return null
+        if (containerMime(codec, extension) != "audio/flac") return null
+        return FlacFileRate.bitrateBpsOf(file)
     }
 
     private fun names(

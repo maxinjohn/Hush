@@ -71,6 +71,26 @@ fun FormatEntity.formattedSampleRate(): String? =
 
 fun FormatEntity.formattedFileSize(): String = if (contentLength > 0) "${(contentLength / 1024.0 / 1024.0).roundToInt()} MB" else ""
 
+/**
+ * Everything this row can say after its bitrate: the sample rate, then the size.
+ *
+ * Exists because the codec line is assembled from two halves at every call site - a `bitrate`
+ * argument and a second string appended after it - and one of those sites was passing the size
+ * alone. A FLAC file served from this device has no bitrate Media3 can report (the decoder returns
+ * `0`), so on that site the line drew nothing but `24 MB`: the row had the sample rate and never
+ * showed it, while the same row in every other layout printed `44.1 kHz • 24 MB`. One function for
+ * the tail means a layout cannot lose half of the row again, and the order is the order a listener
+ * reads it - and the order every surface already used.
+ *
+ * An absent fact contributes nothing, so a row with neither renders as an empty string rather than
+ * as a dangling separator.
+ */
+fun FormatEntity.codecRowDetail(): String =
+    listOfNotNull(
+        formattedSampleRate(),
+        formattedFileSize().takeIf { it.isNotBlank() },
+    ).joinToString(separator = " • ")
+
 enum class RatePriority {
     BITRATE_FIRST,
     SAMPLE_RATE_FIRST,

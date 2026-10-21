@@ -21,11 +21,31 @@
 # different UniFFI surface. Both are described in docs/spotiflac-rust-migration-plan.md.
 
 # The upstream repository both backends come from.
-SPOTIFLAC_UPSTREAM="https://github.com/spotiflacapp/SpotiFLAC-Mobile.git"
+#
+# It was called SpotiFLAC-Mobile until 2026-10-20, when the app shipped as **Mornye** (v5.2.1:
+# "Rename app and native backend to Mornye") and the repository moved to `mornyeapp/Mornye`. The old
+# address still answers 301 to the new one, so a checkout cloned from either spelling is the same
+# repository; the pinned Go commit below resolves in the renamed repository too (checked through the
+# API on 2026-10-20), which is what lets the pin survive the rename without a rebuild.
+#
+# Neither pin moves because of it. The Go pin is the last commit that has `go_backend/` at all, and
+# that tree predates both the rename and the rewrite; the Rust pin is the migration target the plan
+# measured, and it is a v5.0.7 tree that still calls itself SpotiFLAC. Moving the Rust pin past 5.1
+# is a port, not a bump: the crates were renamed `spotiflac_*` -> `mornye_*` (see
+# docs/spotiflac-rust-migration-plan.md, section 7).
+SPOTIFLAC_UPSTREAM="https://github.com/mornyeapp/Mornye.git"
+
+# What the upstream project is called now, and where a person who follows a link should land. Used
+# in diagnostics only; nothing reads it to make a request.
+SPOTIFLAC_UPSTREAM_NAME="Mornye"
 
 # Directory name of the shared clone under the repo root. Both scripts build inside a worktree of
 # this one clone - the Go tree directly, the Rust tree in a worktree - so the pinned objects are
 # fetched once and there is a single object store to keep.
+#
+# Kept as the old name on purpose: existing checkouts on this machine, the worktree the migration
+# plan names, and the paths in its documents are all spelled `SpotiFLAC-Mobile/`, and a script that
+# looked for a renamed directory would answer "checkout not found" on the one checkout that exists.
 SPOTIFLAC_MOBILE_DIR="SpotiFLAC-Mobile"
 
 # The Go runtime Hush ships today: gomobile-bound into app/libs/gobackend.aar.
@@ -51,7 +71,7 @@ SPOTIFLAC_ANDROID_API=24
 # Executed rather than sourced: report what this checkout builds against.
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   printf '%s\n' \
-    "upstream:     $SPOTIFLAC_UPSTREAM" \
+    "upstream:     $SPOTIFLAC_UPSTREAM ($SPOTIFLAC_UPSTREAM_NAME)" \
     "clone:        $SPOTIFLAC_MOBILE_DIR" \
     "go backend:   $SPOTIFLAC_GO_BACKEND_PIN ($SPOTIFLAC_GO_BACKEND_SHA) -> app/libs/gobackend.aar" \
     "rust backend: $SPOTIFLAC_RUST_TAG ($SPOTIFLAC_RUST_SHA) -> app/libs/spotiflac-rust" \

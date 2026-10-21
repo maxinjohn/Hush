@@ -1,6 +1,15 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
     <string name="feature_beta_badge">Beta</string>
+    <!--
+      The second line of the SimpMusic app theme's header, which reads its app name over the time
+      of day. Four, not one, because the parent's own header greets by the clock and a skin that
+      said "Hello" at midnight would be a skin wearing the shape and not the behaviour.
+    -->
+    <string name="app_skin_greeting_morning">Good morning</string>
+    <string name="app_skin_greeting_afternoon">Good afternoon</string>
+    <string name="app_skin_greeting_evening">Good evening</string>
+    <string name="app_skin_greeting_night">Good night</string>
     <string name="explore">Explore</string>
     <string name="suggestions">Suggestions</string>
     <string name="music_recognition_tap_to_listen">Tap to listen</string>
@@ -327,16 +336,45 @@
     <string name="storage_migration_downloads_progress">Moving Downloads...%1$d%%</string>
     <string name="storage_migration_warning">Warning: Dont close the app or turn off your device during this process. Doing so may cause data loss.</string>
     <string name="storage_folder_selected_restart">Storage folder saved. App will restart in 3 seconds.</string>
+    <string name="storage_folder_saved">Storage folder saved.</string>
     <string name="storage_folder_invalid">Select a valid folder.</string>
     <string name="storage_folder_unsupported">This folder has no filesystem path Hush can write to. Choose a folder on the device or SD card, not a cloud or media app.</string>
-    <string name="storage_folder_not_writable">Android blocks apps from writing directly to shared folders like Download or Documents. Choose a folder on an SD card volume, or pick one of the location options above.</string>
+    <string name="storage_folder_not_writable">Hush could not write a file in that folder. Pick a different one - a folder inside Download, Documents or Music works, and so do the location options above.</string>
+    <string name="storage_folder_picker_limits">Android will not let any app be given the Download folder itself, or the top of storage. Pick or create a folder inside one instead, such as Download/Hush. Creating a new folder is offered in the same screen.</string>
+    <string name="storage_folder_move_background">Files already in the old folder move to the new one in the background - one at a time, and each stays playable from where it is until it arrives.</string>
+    <string name="storage_folder_needs_access_title">Allow access to this folder</string>
+    <string name="storage_folder_needs_access_body">Android keeps apps out of folders they did not create, so Hush cannot keep downloads in %1$s yet. Allow All files access and Hush finishes the change by itself - nothing else is needed, and refusing leaves Hush on its own folder inside Android/data.</string>
+    <string name="storage_folder_needs_access_saved_body">%1$s is where Hush was told to keep files, and Android is not letting it in. Allow All files access to use it again; refusing leaves Hush on its own folder inside Android/data.</string>
+    <string name="storage_folder_allow_access">Allow access</string>
+    <string name="storage_folder_choose_another">Choose another folder</string>
+    <string name="storage_folder_not_now">Not now</string>
+    <string name="storage_folder_access_ready_restart">Access granted. App will restart in 3 seconds.</string>
+    <string name="downloads_folder_unusable_title">Downloads folder is not usable</string>
+    <string name="downloads_folder_missing_banner">Downloads folder is gone</string>
+    <string name="downloads_folder_not_writable_banner">Downloads folder is not writable</string>
+    <string name="downloads_folder_needs_access_banner">Downloads folder needs access</string>
+    <string name="downloads_folder_missing_detail">%1$s is not there any more, so downloads already in it cannot be reached and new ones cannot be saved. The card may have been removed, or the folder deleted. Choose another folder, or put the card back and pick this one again.</string>
+    <string name="downloads_folder_not_writable_detail">Hush cannot write a file in %1$s, so new downloads would fail. Choose another folder - a folder inside Download, Documents or Music works.</string>
+    <string name="downloads_folder_needs_access_detail">Android is not letting Hush into %1$s, so new downloads would fail. Allow access, or choose another folder.</string>
     <string name="custom_storage_folders">Download &amp; cache folders</string>
-    <string name="download_location">Download location</string>
     <string name="download_location_desc">Songs downloaded in Hush are saved here</string>
     <string name="stream_cache_location">Stream cache location</string>
     <string name="stream_cache_location_desc">Temporary streamed audio cache</string>
     <string name="change_download_location">Change download location</string>
     <string name="change_stream_cache_location">Change stream cache location</string>
+    <string name="storage_move_channel_name">Storage folder move</string>
+    <string name="storage_move_channel_desc">Shown while Hush carries existing files into a newly chosen folder</string>
+    <string name="storage_move_notification_title">Moving files to the new folder</string>
+    <string name="storage_move_notification_text">%1$d%%</string>
+    <string name="storage_move_incomplete_title">Some files could not be moved</string>
+    <string name="storage_move_incomplete_text">Whatever was left is still in the old %1$s folder. Opening the storage settings lets Hush finish the move.</string>
+    <string name="storage_move_group_title">Storage move</string>
+    <string name="storage_move_downloads_title">Moving downloaded songs</string>
+    <string name="storage_move_cache_title">Moving the stream cache</string>
+    <string name="storage_move_progress_files">%1$d%% · %2$d of %3$d files left</string>
+    <string name="storage_move_starting">Starting…</string>
+    <string name="storage_move_cancel">Cancel move</string>
+    <string name="storage_move_cancelled">Move cancelled. What was not carried over yet is still in the old folder, and still plays from there.</string>
     <string name="import_from_folder">Choose folder</string>
     <string name="import_from_folder_desc">Select a custom folder for storing downloads and cached songs</string>
     <string name="import_downloads_folder">Import downloads folder</string>
@@ -477,17 +515,20 @@
     <string name="stream_sources">Stream sources</string>
     <string name="stream_sources_desc">Choose which YouTube clients are used when resolving playback streams.</string>
     <string name="audio_sources">Audio Sources</string>
-    <string name="audio_sources_desc">YouTube and SpotiFLAC source priority settings</string>
+    <string name="audio_sources_desc">YouTube and third-party source priority settings</string>
     <!-- The launch-time offer to turn on lossless playback (see SpotiFLACLosslessNudge). -->
     <string name="spotiflac_nudge_title">Lossless audio is available</string>
-    <string name="spotiflac_nudge_body">SpotiFLAC plays true FLAC from Qobuz, Tidal, Deezer and Amazon. It is off by default.</string>
+    <string name="spotiflac_nudge_body">Third-party sources play true FLAC from Qobuz, Tidal, Deezer and Amazon. They are currently switched off.</string>
     <string name="spotiflac_nudge_action">Turn on</string>
     <!-- The same offer, as one line in the Android Auto library (a car has no banner). -->
     <string name="spotiflac_car_offer_subtitle">Tap to turn on and play</string>
     <string name="spotiflac">SpotiFLAC</string>
     <string name="spotiflac_desc">Lossless FLAC from Tidal, Qobuz &amp; Amazon Music via Spotify metadata</string>
     <string name="youtube_enabled">YouTube Enabled</string>
-    <string name="spotiflac_enabled">SpotiFLAC Enabled</string>
+    <!-- The master switch for every third-party source, named for what it turns on rather than for
+         one of the repositories it reads: Hush also ships a module index and accepts any registry the
+         user adds, and all of them are served or not served by this one switch. -->
+    <string name="spotiflac_enabled">Enable third-party sources</string>
     <string name="dev_mode">Developer Mode</string>
     <string name="dev_mode_desc">Unlock experimental audio sources</string>
     <string name="source_priority">Source Priority</string>
@@ -495,7 +536,7 @@
     <string name="audio_source">Audio source</string>
     <string name="playback_settings">Playback</string>
     <string name="audio_sources_title">Audio Sources</string>
-    <string name="audio_sources_subtitle">YouTube &amp; SpotiFLAC source priority</string>
+    <string name="audio_sources_subtitle">YouTube &amp; third-party source priority</string>
     <string name="stream_quality">Stream quality</string>
 <string name="stream_quality_desc">YouTube audio quality settings</string>
     <string name="stream_sources_and_client">Stream sources and client</string>
@@ -507,19 +548,18 @@
     <string name="parallel_source_fetch_desc">Parallel fetch from YouTube sources</string>
     <string name="playback_source_youtube">YouTube</string>
     <string name="playback_source_youtube_client">YouTube · %1$s</string>
-    <string name="playback_source_spotiflac">SpotiFLAC</string>
+    <string name="playback_source_spotiflac">3rd-party</string>
     <string name="playback_source_unknown">Unknown source</string>
-    <string name="spotiflac_no_match_youtube_off">No SpotiFLAC provider matched this track and YouTube is switched off for this app. Play it from YouTube just for this track, or turn YouTube back on in Audio Sources.</string>
-    <string name="spotiflac_no_match_fallback_off">No SpotiFLAC provider matched this track and running it from YouTube is turned off in Audio Sources. Play it from YouTube just for this track, or turn on \"Fall back to YouTube\".</string>
+    <string name="spotiflac_no_match_youtube_off">No source you have switched on could play this track, and YouTube is switched off for this app. Play it from YouTube just for this track, or turn YouTube back on in Audio Sources.</string>
+    <string name="spotiflac_no_match_fallback_off">No source you have switched on could play this track, and running it from YouTube is turned off in Audio Sources. Play it from YouTube just for this track, or turn on \"Fall back to YouTube\".</string>
     <string name="spotiflac_miss_remembered">This was already checked, so it was not looked up again this time.</string>
     <string name="play_this_from_youtube">Play this one from YouTube</string>
     <string name="error_no_source_available">No source can play this track</string>
-    <string name="playback_source_spotiflac_provider">SpotiFLAC · %1$s</string>
+    <string name="playback_source_spotiflac_provider">3rd-party · %1$s</string>
     <string name="playback_source_hires_provider">Hi-Res · %1$s</string>
     <string name="player_info_delivery">Playing from</string>
-    <string name="playback_delivery_device_cache">Device cache</string>
+    <string name="playback_delivery_fetched">Fetched</string>
     <string name="playback_delivery_download">Your download</string>
-    <string name="playback_delivery_fetched_now">Fetched for this play</string>
     <string name="playback_delivery_live_stream">Live stream</string>
     <string name="playback_saved_offline">Saved offline</string>
     <string name="playback_saved_offline_remove">Saved offline — tap to remove</string>
@@ -531,14 +571,24 @@
     <string name="spotiflac_downloading_percent">Downloading %1$d%%</string>
     <string name="spotiflac_fetching_from_source">Fetching from %1$s…</string>
     <string name="spotiflac_fetching_audio">Fetching audio…</string>
+    <string name="spotiflac_fetch_failed">No source has this track</string>
+    <string name="spotiflac_fetch_failed_sources">No source has this track · %1$s</string>
+    <string name="spotiflac_fetch_failed_more">%1$s +%2$d more</string>
+    <!-- A source that refused service never saw the track, so this line states the refusal rather
+         than claiming the catalogue had nothing: "No source has this track" sent a listener looking
+         for a setting in Hush while the addon's own server was answering 403 to every request. -->
+    <string name="spotiflac_fetch_refused_sources">No source was asked · %1$s refused</string>
+    <!-- The same sentence with no source to name: the refusal arrived before the walk held one. -->
+    <string name="spotiflac_fetch_refused">No source was asked · your sources refused</string>
+    <string name="spotiflac_fetch_trying_source">Fetching from %1$s… (%2$d of %3$d)</string>
     <string name="spotiflac_playback_priority">Playback priority</string>
     <string name="spotiflac_playback_priority_desc">Choose which engine is tried first. Hush works down the list when a source cannot play a track.</string>
     <string name="spotiflac_priority_first">1st</string>
     <string name="spotiflac_priority_second">2nd</string>
     <string name="spotiflac_fallback_youtube">Fall back to YouTube</string>
-    <string name="spotiflac_fallback_youtube_desc">When every SpotiFLAC source fails, play the track from YouTube instead of showing an error.</string>
+    <string name="spotiflac_fallback_youtube_desc">When every source you have switched on fails, play the track from YouTube instead of showing an error.</string>
     <string name="spotiflac_try_next_source">Try the next source on failure</string>
-    <string name="spotiflac_try_next_source_desc">Move on to the next enabled SpotiFLAC source when one cannot play a track.</string>
+    <string name="spotiflac_try_next_source_desc">Move on to the next source you have switched on when one cannot play a track.</string>
     <string name="spotiflac_parallel_fetch">Fetch sources in parallel</string>
     <string name="spotiflac_embed_replaygain">Embed ReplayGain tags</string>
     <string name="spotiflac_embed_replaygain_desc">Write loudness metadata into downloaded files so players that honour ReplayGain keep volume steady across tracks</string>
@@ -546,11 +596,11 @@
     <string name="spotiflac_verified_only">Only use verified sources</string>
     <string name="spotiflac_verified_only_desc">Skip sources that still need a Cloudflare check while a verified source is available.</string>
     <string name="spotiflac_cache_title">Playback cache</string>
-    <string name="spotiflac_cache_desc">Tracks fetched through SpotiFLAC stay on device so replays start instantly. Downloaded songs always play from your download first.</string>
+    <string name="spotiflac_cache_desc">Tracks fetched from these sources stay on device, so replays start instantly. Downloaded songs always play from your download first.</string>
     <string name="spotiflac_cache_streams">Cache streamed tracks</string>
     <string name="spotiflac_cache_streams_desc">Keep each streamed track on device so it never has to be fetched twice.</string>
     <string name="spotiflac_prefetch_next">Prefetch upcoming tracks</string>
-    <string name="spotiflac_prefetch_next_desc">Fetch the songs ahead through SpotiFLAC so they start instantly. Uses the same count as Prefetch upcoming songs in Player settings. Skipped in low-data mode.</string>
+    <string name="spotiflac_prefetch_next_desc">Fetch the songs ahead from these sources so they start instantly. Uses the same count as Prefetch upcoming songs in Player settings. Skipped in low-data mode.</string>
     <string name="spotiflac_cache_limit">Cache size limit</string>
     <string name="spotiflac_cache_used_format">%1$s used of %2$s</string>
     <string name="spotiflac_cache_used_unlimited_format">%1$s used (no limit)</string>
@@ -787,7 +837,4 @@
     <string name="import_saving_progress">Saving: %1$d/%2$d</string>
 
     <!-- Where the player's codec row came from, appended after the codec, rate and source. -->
-    <string name="format_row_from_session_resolve">codec from this session\'s resolve</string>
-    <string name="format_row_from_saved_resolve">codec from an earlier resolve</string>
-    <string name="format_row_from_decoder">codec from the decoder</string>
 </resources>

@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -64,6 +63,7 @@ import app.hush.music.constants.HushCanvasKey
 import app.hush.music.constants.LowDataModeKey
 import app.hush.music.constants.MaxCanvasCacheSizeKey
 import app.hush.music.ui.component.ActionPromptDialog
+import app.hush.music.ui.component.HushProgressSpinner
 import app.hush.music.ui.component.IconButton
 import app.hush.music.ui.component.ListPreference
 import app.hush.music.ui.component.PreferenceEntry
@@ -283,7 +283,10 @@ fun CanvasSelection(
                         icon = { Icon(painterResource(R.drawable.sync), null) },
                         trailingContent = {
                             if (healthChecking) {
-                                CircularProgressIndicator(
+                                // Frame-driven: a check in flight has to look in flight on a device
+                                // with its animations switched off, where Material's indicator would
+                                // paint one arc and hold it for the whole request.
+                                HushProgressSpinner(
                                     modifier = Modifier.size(24.dp),
                                     strokeWidth = 2.dp,
                                 )
@@ -466,7 +469,9 @@ private fun canvasHealthPreference(
         icon = { Icon(painterResource(iconRes), null) },
         trailingContent = {
             if (health == CanvasHealth.CHECKING) {
-                CircularProgressIndicator(
+                // Same reason as the refresh row above: the per-provider check must read as running
+                // on every device, not as one held frame.
+                HushProgressSpinner(
                     modifier = Modifier.size(24.dp),
                     strokeWidth = 2.dp,
                 )

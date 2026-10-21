@@ -76,7 +76,7 @@ class SpotiFLACSessionRecoveryTest {
             emptyList<String>(),
             SpotiFLACSessionRecovery.sourcesNeedingCheck(
                 results = listOf(renewed("qobuz-web")),
-                enabledSourceIds = listOf("qobuz-web"),
+                switchedOn = setOf("qobuz-web"),
             ),
         )
     }
@@ -88,7 +88,7 @@ class SpotiFLACSessionRecoveryTest {
             listOf("deezer"),
             SpotiFLACSessionRecovery.sourcesNeedingCheck(
                 results = listOf(needingCheck("deezer")),
-                enabledSourceIds = listOf("deezer"),
+                switchedOn = setOf("deezer"),
             ),
         )
     }
@@ -101,7 +101,7 @@ class SpotiFLACSessionRecoveryTest {
             listOf("amazon"),
             SpotiFLACSessionRecovery.sourcesNeedingCheck(
                 results = listOf(versionBump("amazon")),
-                enabledSourceIds = listOf("amazon"),
+                switchedOn = setOf("amazon"),
             ),
         )
     }
@@ -114,7 +114,7 @@ class SpotiFLACSessionRecoveryTest {
             emptyList<String>(),
             SpotiFLACSessionRecovery.sourcesNeedingCheck(
                 results = listOf(refused("tidal-web")),
-                enabledSourceIds = listOf("tidal-web"),
+                switchedOn = setOf("tidal-web"),
             ),
         )
     }
@@ -125,7 +125,7 @@ class SpotiFLACSessionRecoveryTest {
             emptyList<String>(),
             SpotiFLACSessionRecovery.sourcesNeedingCheck(
                 results = listOf(notDue("deezer")),
-                enabledSourceIds = listOf("deezer"),
+                switchedOn = setOf("deezer"),
             ),
         )
     }
@@ -138,7 +138,7 @@ class SpotiFLACSessionRecoveryTest {
             emptyList<String>(),
             SpotiFLACSessionRecovery.sourcesNeedingCheck(
                 results = listOf(needingCheck("deezer"), needingCheck("amazon")),
-                enabledSourceIds = listOf("qobuz-web"),
+                switchedOn = setOf("qobuz-web"),
             ),
         )
     }
@@ -146,12 +146,42 @@ class SpotiFLACSessionRecoveryTest {
     @Test
     fun `an unknown set of enabled sources filters nothing`() {
         // The repository is built at app start. A run that reaches here before it exists must still
-        // raise the checks, so an empty answer means "no opinion" rather than "nothing is on".
+        // raise the checks, so a null answer means "no opinion" rather than "nothing is on".
         assertEquals(
             listOf("deezer", "amazon"),
             SpotiFLACSessionRecovery.sourcesNeedingCheck(
                 results = listOf(needingCheck("deezer"), needingCheck("amazon")),
-                enabledSourceIds = emptyList(),
+                switchedOn = null,
+            ),
+        )
+    }
+
+    @Test
+    fun `an addon-only selection raises no check for a native source`() {
+        // The reported install: two Tido addons on, every native source off. The *native* enabled
+        // list is empty here, which is the answer that used to mean "nothing is known" - and it let
+        // amazon and tidal-web through, which is why a song that could not be served ended with two
+        // Cloudflare challenges for sources the user had switched off.
+        assertEquals(
+            emptyList<String>(),
+            SpotiFLACSessionRecovery.sourcesNeedingCheck(
+                results = listOf(needingCheck("amazon"), needingCheck("tidal-web")),
+                switchedOn =
+                    setOf(
+                        "tido-tido-tido-dpdns-org-4bd14d1e2fa848febf1e9c03cdc237c0:com.yourname.tidal.hifi",
+                        "tido-tido-tido-dpdns-org-a48bf403dcfc40ae94f668c562d08201:com.yourname.tidal.hifi",
+                    ),
+            ),
+        )
+    }
+
+    @Test
+    fun `nothing switched on raises nothing`() {
+        assertEquals(
+            emptyList<String>(),
+            SpotiFLACSessionRecovery.sourcesNeedingCheck(
+                results = listOf(needingCheck("deezer")),
+                switchedOn = emptySet(),
             ),
         )
     }
@@ -164,7 +194,7 @@ class SpotiFLACSessionRecoveryTest {
             listOf("qobuz-web"),
             SpotiFLACSessionRecovery.sourcesNeedingCheck(
                 results = listOf(needingCheck("qobuz-web"), versionBump("qobuz-web")),
-                enabledSourceIds = listOf("qobuz-web"),
+                switchedOn = setOf("qobuz-web"),
             ),
         )
     }

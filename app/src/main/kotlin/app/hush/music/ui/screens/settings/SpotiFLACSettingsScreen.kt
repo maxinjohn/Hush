@@ -3,23 +3,32 @@ package app.hush.music.ui.screens.settings
 import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -35,15 +44,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.hush.music.ui.component.HushProgressSpinner
+import app.hush.music.ui.component.TextFieldDialog
 import app.hush.music.R
 import app.hush.music.constants.AudioQuality
 import app.hush.music.constants.AudioQualityKey
@@ -51,26 +67,34 @@ import app.hush.music.constants.PrefetchCountKey
 import app.hush.music.constants.SourcePriorityKey
 import app.hush.music.constants.SpotiFLACCacheStreamsKey
 import app.hush.music.constants.SpotiFLACEmbedReplayGainKey
+import app.hush.music.constants.SpotiFLACEnabledDefault
 import app.hush.music.constants.SpotiFLACEnabledKey
 import app.hush.music.constants.SpotiFLACFallbackToYouTubeKey
+import app.hush.music.constants.SpotiFLACFetchPoliciesKey
 import app.hush.music.constants.SpotiFLACPrefetchNextKey
 import app.hush.music.constants.SpotiFLACQualityKey
 import app.hush.music.constants.ParallelSourceFetchKey
 import app.hush.music.constants.SpotiFLACTryNextSourceKey
 import app.hush.music.constants.SpotiFLACVerifiedOnlyKey
 import app.hush.music.constants.YoutubeStreamingEnabledKey
+import app.hush.music.spotiflac.ExtensionRepositories
 import app.hush.music.spotiflac.ExtensionRepositoryManager
+import app.hush.music.spotiflac.RepositoryAddResult
 import app.hush.music.spotiflac.SpotiFLACChallengeEngine
 import app.hush.music.spotiflac.SpotiFLACChallengeRoute
 import app.hush.music.spotiflac.SpotiFLACAvailability
 import app.hush.music.spotiflac.SpotiFLACDiag
 import app.hush.music.spotiflac.SpotiFLACEngineState
 import app.hush.music.spotiflac.SpotiFLACEngineStatus
+import app.hush.music.spotiflac.SpotiFLACFetchPolicies
+import app.hush.music.spotiflac.SpotiFLACFetchPolicy
+import app.hush.music.spotiflac.SpotiFLACExtensionUpgrade
 import app.hush.music.spotiflac.SpotiFLACSessionRecovery
 import app.hush.music.spotiflac.SpotiFLACSessionRenewer
 import app.hush.music.spotiflac.SpotiFLACSessionVerdict
 import app.hush.music.spotiflac.SpotiFLACSessionVerdictReport
 import app.hush.music.spotiflac.SpotiFLACVerificationChecklist
+import app.hush.music.spotiflac.SpotiFLACSourceMark
 import app.hush.music.spotiflac.SpotiFLACSourceAuthState
 import app.hush.music.spotiflac.SourceTestState
 import app.hush.music.spotiflac.SpotiFLACPackageUpdateLog
@@ -85,6 +109,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "SpotiFLACSettings"
+
+/**
+ * How old a passing check may be before the row states it again.
+ *
+ * A check that matched its registry is the state the row's version already proves, so drawing it
+ * under every source is noise - twelve rows saying `Checked 55 min ago`. Half a day is long enough
+ * that the line means "this is getting stale" rather than "this just happened".
+ */
+private const val CHECK_LINE_STALE_MS = 12L * 60L * 60L * 1000L
 
 /**
  * How often the renewal countdown is re-derived from the session read the screen is holding.
@@ -102,7 +135,8 @@ fun SpotiFLACSettingsScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
-    val (spotiflacEnabled, setSpotiflacEnabled) = rememberPreference(SpotiFLACEnabledKey, defaultValue = false)
+    val (spotiflacEnabled, setSpotiflacEnabled) =
+        rememberPreference(SpotiFLACEnabledKey, defaultValue = SpotiFLACEnabledDefault)
     // Low data mode owns this switch: while it is on, SpotiFLAC is off and cannot be turned on,
     // because every SpotiFLAC play is a whole lossless file pulled over a metered link.
     val lowDataActive = rememberLowDataModeActive()
@@ -124,6 +158,11 @@ fun SpotiFLACSettingsScreen(
         rememberPreference(SpotiFLACTryNextSourceKey, defaultValue = true)
     val (parallelFetch, setParallelFetch) =
         rememberPreference(ParallelSourceFetchKey, defaultValue = false)
+    // Per-source fetch windows and retry counts, as the one JSON value they are stored in. The rows
+    // read the policy for their own source out of it, so a source with no entry shows the shipped
+    // defaults and the dialog it opens starts from exactly what the walk will use.
+    val (fetchPoliciesRaw, setFetchPoliciesRaw) =
+        rememberPreference(SpotiFLACFetchPoliciesKey, defaultValue = "")
     val (embedReplayGain, setEmbedReplayGain) =
         rememberPreference(SpotiFLACEmbedReplayGainKey, defaultValue = false)
     val (verifiedOnly, setVerifiedOnly) =
@@ -145,18 +184,45 @@ fun SpotiFLACSettingsScreen(
 
     val repoManager = remember { ExtensionRepositoryManager.getInstance() }
     val sources by repoManager.sources.collectAsState()
-    // 1-based position of each enabled source in the resolve order, so the list
-    // shows which repo is actually tried first.
+    // 1-based position of each source that is actually in the resolve order, so the list shows which
+    // repository is tried first. A source that is switched off, or that needs a runtime this build
+    // does not have, is not in that order and must not be numbered as if it were.
     val sourceChoiceLabels =
         remember(sources) {
             sources
-                .filter { it.enabled }
+                .filter { it.enabled && it.source.isPlayable }
                 .mapIndexed { choiceIndex, state -> state.source.id to (choiceIndex + 1) }
                 .toMap()
         }
     val isSyncing by repoManager.isSyncing.collectAsState()
+    // Every repository Hush reads from - Hush's own two, the shipped module index and whatever the
+    // user added - with what it declares, whether Hush reads it, and what the user calls it. One
+    // list, because a repository that is read but not drawn is a URL nobody can take back out, and
+    // one drawn without its switch is a source list nobody can explain.
+    val repositories by repoManager.repositories.collectAsState()
+    var showRepositoryDialog by remember { mutableStateOf(false) }
+    var repositoryDialogMessage by remember { mutableStateOf<String?>(null) }
+    var isAddingRepository by remember { mutableStateOf(false) }
+    // The repository being renamed, if any. Held as the row rather than as a URL so the dialog can
+    // offer what the row currently shows as its starting point instead of an empty field.
+    var renamingRepository by remember { mutableStateOf<app.hush.music.spotiflac.RepositoryRow?>(null) }
+    // The repository a Remove tap is about, if any. Removing a row is the one control here that
+    // cannot be undone from the phone: the address has to be pasted again, and its sources leave the
+    // list in the meantime. So it asks first.
+    var removingRepository by remember { mutableStateOf<app.hush.music.spotiflac.RepositoryRow?>(null) }
 
     var isExchanging by remember { mutableStateOf(false) }
+
+    /**
+     * The source whose fetch windows are open in the dialog, if any.
+     *
+     * Held as the source rather than as an id so the dialog can name it and start from the policy the
+     * walk will read; the store is keyed by id, and an id kept here would have to be looked up again
+     * to say what it names.
+     */
+    var editingFetchPolicy by remember {
+        mutableStateOf<app.hush.music.spotiflac.ExtensionSource?>(null)
+    }
 
     // Per-extension verification state. Extensions own their own Turnstile flow,
     // so a verification opened here completes only for the extension that asked.
@@ -218,7 +284,6 @@ fun SpotiFLACSettingsScreen(
     var installedVersions by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var updatingSources by remember { mutableStateOf<Set<String>>(emptySet()) }
     var packageMessages by remember { mutableStateOf<Map<String, PackageMessage>>(emptyMap()) }
-    var isCheckingPackages by remember { mutableStateOf(false) }
     // When each package was last looked at, and which registry this install follows for it.
     var extensionChecks by remember {
         mutableStateOf<Map<String, app.hush.music.spotiflac.SpotiFLACExtensionCheck>>(emptyMap())
@@ -302,8 +367,19 @@ fun SpotiFLACSettingsScreen(
      */
     val sourcesNeedingCheck =
         sources
+            // Only a source that is actually in use can be blocked by its own session. A
+            // switched-off source is not swept, renewed or asked anything, so counting it here put
+            // it in front of "Verify all" - a batch whose whole job is the sources the user chose,
+            // and which would then open a challenge and spend a request for a source that is not
+            // being played.
+            .filter { it.enabled }
             .map { it.source }
-            .filter { it.supportsDownload }
+            // A check applies to the sources that go through Hush's signed gateway session, which
+            // is a property of the source: a module index's plugins carry no credentials at all, a
+            // lyrics provider has no session to mint, and a service that signs in with its own
+            // account is verified by that service. Asking whether a source downloads counted the
+            // first and the last of those as needing a check they can never be given.
+            .filter { it.requiresSpotiFLACSession }
             .filter { source ->
                 when (verifyStatus[source.id]) {
                     SpotiFLACSourceAuthState.NEEDS_VERIFICATION -> true
@@ -325,13 +401,49 @@ fun SpotiFLACSettingsScreen(
             }
 
     /**
-     * Re-reads every enabled source's auth state from the runtime.
+     * Where every source's session stands, for the whole screen.
+     *
+     * Computed once here rather than inside the card that used to draw it, because the state belongs
+     * to the *source* and not to the surface that happens to report it: the summary line, the batch
+     * buttons and the line under each source in the list below all read the same rows. Splitting them
+     * is what produced two lists of the same sources - one to verify and one to enable - on a screen
+     * whose whole job is to show one list of sources with everything about them on the row.
+     */
+    val sessionRows =
+        sources.map { state ->
+            val source = state.source
+            source to
+                SpotiFLACSessionVerdictReport.row(
+                    authState = verifyStatus[source.id],
+                    remainingSeconds = sessionValidity[source.id],
+                    verdict = sessionVerdicts[source.id],
+                    currentSessionId = sessionIds[source.id],
+                    formatRemaining = ::formatSessionValidity,
+                    // The switch is part of the verdict: an off source is not checked, and the row
+                    // says so instead of claiming a check that is not running.
+                    enabled = state.enabled,
+                )
+        }
+    val sessionRowsBySource = sessionRows.associate { (source, row) -> source.id to row }
+    val healthySessionCount = sessionRows.count { (_, row) -> row.healthy }
+    val attentionSessionCount = sessionRows.count { (_, row) -> row.needsCheck }
+
+
+    /**
+     * Re-reads every listed source's auth state, switched on or not.
      *
      * The runtime's own signed-session record is the single source of truth, so a verification
      * performed by *any* surface - the automatic run, the player overlay, the notification, the
      * grant deep link, or this screen - shows up here as soon as it lands. Reading it only once,
      * when the screen appeared, is what made a source the app had already verified still read
      * "Verification needed", sending the user back to solve a check whose grant was already spent.
+     *
+     * Deliberately keyed on the whole list rather than on the enabled sources: the read is a manifest
+     * and a session record off disk - no request, no runtime call - so a switched-off source can be
+     * described as accurately as a switched-on one. Reading only the enabled ones is what made every
+     * switched-off row fall through to "Checking session…": the state map had no entry for it and a
+     * miss was drawn as "not read yet", a check that is never going to happen because the source is
+     * off. The rows decide what to do with the answer; this only supplies it.
      */
     suspend fun refreshVerifyStatus() {
         // Before reporting a source as needing a check, make sure the session it already earned is
@@ -349,7 +461,10 @@ fun SpotiFLACSettingsScreen(
         verifyStatus = withContext(Dispatchers.IO) {
             val bridge = app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder.instance
             if (bridge == null || !bridge.isRuntimeAvailable) return@withContext verifyStatus
-            repoManager.getEnabledSourceIds().associateWith { bridge.sourceAuthState(it) }
+            // Read from the manager rather than from the list this composition captured: a refresh
+            // that runs before the first registry sync landed would otherwise describe an empty
+            // list and leave every row on "Checking session…" until something else re-ran it.
+            repoManager.sources.value.map { it.source.id }.associateWith { bridge.sourceAuthState(it) }
         }
         refreshSessionValidity()
     }
@@ -359,7 +474,13 @@ fun SpotiFLACSettingsScreen(
     // writes that state back into this same list - so keying on the rows re-ran this effect, warmed
     // the runtime again, asked the verifier again, and so on for as long as the screen stayed open.
     // Ids compare structurally, so a result landing no longer re-triggers the warm-up.
-    val enabledSourceIds = remember(sources) { sources.filter { it.enabled }.map { it.source.id } }
+    // Playable as well as enabled, the same predicate the runtime is asked with: a module index's
+    // plugin is listed with its switch off and this build cannot play it, so warming the runtime for
+    // it would be a request for a source the runtime has never heard of.
+    val enabledSourceIds =
+        remember(sources) {
+            sources.filter { it.enabled && it.source.isPlayable }.map { it.source.id }
+        }
 
     /**
      * What the SpotiFLAC engine is doing, which is not what its switch says.
@@ -406,6 +527,34 @@ fun SpotiFLACSettingsScreen(
     // take a while over each, so "something is happening" is not an answer a user can act on.
     val verificationSteps by app.hush.music.spotiflac.SpotiFLAutoVerifier.steps.collectAsState()
 
+    /**
+     * The line under each source in the list, including what a run in flight is doing with it.
+     *
+     * A challenge being solved and one not yet started look identical in the session record on disk,
+     * so while a run is in flight the run's own step is what the row says - "solving", "waiting",
+     * "landed" - and the record's sentence takes over again the moment the run is over. Built here
+     * rather than inside the row so the row stays a description of a source and the run stays one
+     * fact about the whole list.
+     */
+    val sessionLines =
+        sessionRowsBySource.mapValues { (sourceId, row) ->
+            val runStep =
+                if (SpotiFLACVerificationChecklist.isRunning(autoVerificationSource)) {
+                    SpotiFLACVerificationChecklist.stepFor(verificationSteps, sourceId)
+                } else {
+                    null
+                }
+            SourceSessionLine(
+                text = runStep?.let { SpotiFLACVerificationChecklist.text(it.state) } ?: row.text,
+                tone = runStep?.let { SpotiFLACVerificationChecklist.tone(it.state) },
+                healthy = row.healthy,
+                checkable = row.checkable && !SpotiFLACVerificationChecklist.isRunning(autoVerificationSource),
+                // A run in flight has its own words and no countdown: the record's remaining time is
+                // about the session the run is replacing.
+                remaining = row.remaining.takeIf { runStep == null },
+            )
+        }
+
     // A verification that completes anywhere else has to reach these rows without the user leaving
     // and returning: otherwise the only button on offer is this screen's own "Verify", and the
     // challenge behind it is the one that was just spent - which reads as "I verified and it still
@@ -414,6 +563,15 @@ fun SpotiFLACSettingsScreen(
     LaunchedEffect(verifiedTicker, autoVerificationSource) {
         if (!spotiflacEnabled) return@LaunchedEffect
         refreshVerifyStatus()
+    }
+
+    // A source that refused and was re-asked in the background has just come back. Its row still
+    // says "Skipped for 8min" until the notes are re-read, which is the one moment that line is
+    // actively wrong - playback is already using the source again.
+    val recoveredTicker by app.hush.music.spotiflac.SpotiFLACAddonRecovery.ticker.collectAsState()
+    LaunchedEffect(recoveredTicker) {
+        if (!spotiflacEnabled || recoveredTicker == 0) return@LaunchedEffect
+        refreshInstalledVersions()
     }
 
     // A source test can have failed while its Cloudflare challenge was outstanding, and that verdict
@@ -443,39 +601,6 @@ fun SpotiFLACSettingsScreen(
     // older than Cloudflare supports - is a resume, and it is exactly when the state has changed.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         if (spotiflacEnabled) scope.launch { refreshVerifyStatus() }
-    }
-
-    /**
-     * A version check the user asked for: re-read the registries, then check every package.
-     *
-     * Both halves matter. The registry list is what carries a published version, so sweeping before
-     * re-reading it would compare packages against a list that may itself be hours old - the one way
-     * a check asked for now could answer "up to date" about a build that has since been published.
-     * The sweep is forced for the same reason: the per-version memo answers "already answered", and
-     * a button that returns a remembered answer instead of looking is a button that lies.
-     */
-    fun checkForUpdates() {
-        scope.launch {
-            isCheckingPackages = true
-            verifyMessage = null
-            val bridge = app.hush.music.spotiflac.SpotiFLACNativeRuntimeBridgeHolder.instance
-            if (bridge == null || !bridge.isRuntimeAvailable) {
-                verifyMessage = "SpotiFLAC runtime is not available in this build"
-                isCheckingPackages = false
-                return@launch
-            }
-            val summary = withContext(Dispatchers.IO) {
-                runCatching {
-                    repoManager.syncRegistries()
-                    bridge.reconcileExtensionPackages(userInitiated = true)
-                }.getOrNull()
-            }
-            if (summary == null) {
-                verifyMessage = "Could not check for updates — try again"
-            }
-            refreshInstalledVersions()
-            isCheckingPackages = false
-        }
     }
 
     /**
@@ -780,9 +905,14 @@ fun SpotiFLACSettingsScreen(
 
             item {
                 Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    // Named for what the section lists, not for one of the repositories in it:
+                    // Hush reads SpotiFLAC's own registries, the BitChord module index and anything
+                    // the user adds, and calling all of that "SpotiFLAC" made a BitChord module look
+                    // like part of a repository it has nothing to do with.
                     EngineSectionTitle(
-                        title = "SpotiFLAC",
-                        subtitle = "Lossless audio from Tidal, Qobuz, Deezer & more via Spotify metadata",
+                        title = "Third-party sources",
+                        subtitle = "Lossless audio from the sources below. Each row names the " +
+                            "repository it came from.",
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     // The enable switch lives here, with the rest of the audio-source
@@ -885,7 +1015,7 @@ fun SpotiFLACSettingsScreen(
                             priorityOrder.forEachIndexed { index, engine ->
                                 PriorityEngineRow(
                                     position = index + 1,
-                                    name = if (engine == "SPOTIFLAC") "SpotiFLAC" else "YouTube",
+                                    name = if (engine == "SPOTIFLAC") "3rd-party" else "YouTube",
                                     canMoveUp = index > 0,
                                     canMoveDown = index < priorityOrder.lastIndex,
                                     onMoveUp = {
@@ -903,7 +1033,8 @@ fun SpotiFLACSettingsScreen(
                                 style = MaterialTheme.typography.titleSmall,
                             )
                             Text(
-                                text = "YouTube is disabled, so every track plays through SpotiFLAC. There is no order to choose.",
+                                text = "YouTube is disabled, so every track plays through the third-party " +
+                                    "sources below. There is no order to choose.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -1053,42 +1184,54 @@ fun SpotiFLACSettingsScreen(
                             }
                         }
                         Text(
-                            text = "Enable, disable & reorder sources. Higher priority sources tried first.",
+                            text = "Enable, disable & reorder sources. Higher priority sources tried first. " +
+                                "Every row names the repository it came from, so the order here is also the " +
+                                "answer to \"which repository is being tried\" - and switching a repository off " +
+                                "takes its sources out of this list rather than leaving them to be tried anyway.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        // The order above only matters at all while SpotiFLAC is an engine the player
+                        // reaches. Said here, next to the list it applies to, because a user who has
+                        // just added a repository and sees nothing change is looking at this list -
+                        // and the reason is one row further down in Playback priority.
+                        if (youtubeEnabled && priorityOrder.firstOrNull() != "SPOTIFLAC") {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "YouTube is tried before SpotiFLAC in Playback priority, so this order " +
+                                    "is only consulted when YouTube cannot answer. Move SpotiFLAC to the top " +
+                                    "there to have these sources decide first.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                         // What the startup check did, next to the list it is about. Packages are
                         // kept current without the user asking, so the only thing left to do here
                         // is say so - a silent update is indistinguishable from a stale build, and
                         // the only place it used to be reported was the diagnostic log.
+                        //
+                        // There is no "Check for updates" button. A source that is behind its
+                        // registry carries its own Update action under its version line, and that
+                        // action is the same forced refresh this button used to run for the whole
+                        // list - so the update is always next to the version it would install, and
+                        // the screen has one answer about packages instead of a sweep's summary
+                        // competing with the rows the sweep produced.
                         val packageSummary by SpotiFLACPackageUpdateLog.summary.collectAsState()
                         val packageUpdateLine =
                             packageSummary?.let { SpotiFLACPackageUpdateReport.summary(it) }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                text = packageUpdateLine
-                                    ?: "Each source's build is checked against its registry at startup.",
-                                style = MaterialTheme.typography.labelMedium,
-                                color =
-                                    if (packageUpdateLine != null) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                maxLines = 2,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            androidx.compose.material3.TextButton(
-                                onClick = { checkForUpdates() },
-                                enabled = !isCheckingPackages,
-                            ) {
-                                Text(if (isCheckingPackages) "Checking…" else "Check for updates")
-                            }
-                        }
+                        Text(
+                            text = packageUpdateLine
+                                ?: "Each source's build is checked against its registry at startup.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color =
+                                if (packageUpdateLine != null) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            maxLines = 2,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
@@ -1169,38 +1312,16 @@ fun SpotiFLACSettingsScreen(
                             style = MaterialTheme.typography.titleSmall,
                         )
                         Text(
-                            text = "Each source keeps its own gateway session, so a check verifies the source that raised it and is kept from then on - it never has to be solved twice. Sources that sign in with their own service are marked as needing no verification.",
+                            text = "Each source keeps its own gateway session, so a check covers that source " +
+                                "from then on. A source that needs no session says so on its own row.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        // Every source the registry offers is listed here, with the ones that need
-                        // attention first. Filtering this list to download providers left Apple Music
-                        // and Spotify Web out of it entirely - so a source the user could see in the
-                        // list above read as *missing* here rather than as having nothing to
-                        // authorise. Their role is what decides the wording, not their presence.
-                        val sessionRows = sources
-                            .map { it.source }
-                            .map { source ->
-                                source to SpotiFLACSessionVerdictReport.row(
-                                    authState = verifyStatus[source.id],
-                                    remainingSeconds = sessionValidity[source.id],
-                                    verdict = sessionVerdicts[source.id],
-                                    currentSessionId = sessionIds[source.id],
-                                    formatRemaining = ::formatSessionValidity,
-                                    declaredTypes = source.declaredRoles,
-                                )
-                            }
-                            .sortedBy { (_, row) ->
-                                when {
-                                    row.needsCheck -> 0
-                                    row.healthy -> 1
-                                    else -> 2
-                                }
-                            }
-
-                        val healthyCount = sessionRows.count { (_, row) -> row.healthy }
-                        val attentionCount = sessionRows.count { (_, row) -> row.needsCheck }
+                        // The counts and the per-source states are read from the one list of sources
+                        // this screen keeps: every source in it is counted here, whether or not it
+                        // has a session to keep, because a source left out of the summary is a source
+                        // a reader has to go and find to work out why the totals do not add up.
                         val runStatus = autoVerificationStatus
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -1214,8 +1335,8 @@ fun SpotiFLACSettingsScreen(
                             // they agree.
                             Text(
                                 text = runStatus ?: SpotiFLACSessionVerdictReport.summary(
-                                    healthy = healthyCount,
-                                    needsCheck = attentionCount,
+                                    healthy = healthySessionCount,
+                                    needsCheck = attentionSessionCount,
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1238,13 +1359,13 @@ fun SpotiFLACSettingsScreen(
                                 androidx.compose.material3.TextButton(
                                     onClick = { renewSessions() },
                                     enabled = !isRenewingSessions && !isExchanging &&
-                                        healthyCount + attentionCount > 0,
+                                        healthySessionCount + attentionSessionCount > 0,
                                 ) {
                                     Text(if (isRenewingSessions) "Working…" else "Renew")
                                 }
                                 androidx.compose.material3.TextButton(
                                     onClick = { verifyAllSources(sourcesNeedingCheck.map { it.id }) },
-                                    enabled = !isRenewingSessions && !isExchanging && attentionCount > 0,
+                                    enabled = !isRenewingSessions && !isExchanging && attentionSessionCount > 0,
                                 ) {
                                     Text("Verify")
                                 }
@@ -1264,101 +1385,19 @@ fun SpotiFLACSettingsScreen(
                             }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
-                        // The gateway's own answer about a session outranks the record: a record
-                        // that is present and unexpired is exactly how a session the gateway has
-                        // already refused used to read "renews automatically". That judgement lives
-                        // in the pure rule above, so this loop cannot contradict the line it shows.
-                        sessionRows.forEach { (source, sessionRow) ->
-                            // While a run is in flight, this row says where *this run* has got to
-                            // with the source: solving, waiting, landed, or given up on. That is
-                            // the news the user is waiting for, and it is the one thing the session
-                            // record cannot express - a challenge being solved and one not yet
-                            // started look identical on disk. The session's own text takes over
-                            // again the moment the run is over, so nothing here can go stale.
-                            val runStep =
-                                if (SpotiFLACVerificationChecklist.isRunning(autoVerificationSource)) {
-                                    SpotiFLACVerificationChecklist.stepFor(verificationSteps, source.id)
-                                } else {
-                                    null
-                                }
-                            Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = source.displayName,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                        )
-                                        Text(
-                                            text = runStep?.let { SpotiFLACVerificationChecklist.text(it.state) }
-                                                ?: sessionRow.text,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = when (runStep?.let { SpotiFLACVerificationChecklist.tone(it.state) }) {
-                                                SpotiFLACVerificationChecklist.Tone.SOLVING,
-                                                SpotiFLACVerificationChecklist.Tone.DONE,
-                                                -> MaterialTheme.colorScheme.primary
-                                                SpotiFLACVerificationChecklist.Tone.ATTENTION ->
-                                                    MaterialTheme.colorScheme.error
-                                                SpotiFLACVerificationChecklist.Tone.WAITING ->
-                                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                                null ->
-                                                    if (sessionRow.healthy) {
-                                                        MaterialTheme.colorScheme.primary
-                                                    } else {
-                                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                                    }
-                                            },
-                                        )
-                                    }
-                                    // Still no Verify button per row: the row's job is to say where
-                                    // its session stands, and the check a row *needs* is one of the
-                                    // ones the batch above raises, from the same state, in the same
-                                    // order - so a button here was a third control for one job, and
-                                    // as a button it read as "verify" even on a row that was already
-                                    // verified. What is here instead is one overflow, which is what
-                                    // makes re-checking a single source possible without promising
-                                    // anything: it is offered only where a check applies at all, and
-                                    // never while a run is in flight, because the run's own Cancel
-                                    // is the control then and two ways to start checks would each
-                                    // look like the current one.
-                                    if (sessionRow.checkable &&
-                                        !SpotiFLACVerificationChecklist.isRunning(autoVerificationSource)
-                                    ) {
-                                        var rowMenuOpen by remember(source.id) { mutableStateOf(false) }
-                                        // The button and its menu share one `Box` because a
-                                        // `DropdownMenu` is anchored to its parent layout node: as
-                                        // siblings of this full-width row the two put the menu against
-                                        // the *left* edge of the screen (x=64..564 of 1440), nowhere
-                                        // near the button that was tapped (x=1200..1360).
-                                        androidx.compose.foundation.layout.Box {
-                                            androidx.compose.material3.IconButton(onClick = { rowMenuOpen = true }) {
-                                                androidx.compose.material3.Icon(
-                                                    imageVector = Icons.Rounded.MoreVert,
-                                                    contentDescription = "More options for ${source.displayName}",
-                                                )
-                                            }
-                                            androidx.compose.material3.DropdownMenu(
-                                                expanded = rowMenuOpen,
-                                                onDismissRequest = { rowMenuOpen = false },
-                                            ) {
-                                                androidx.compose.material3.DropdownMenuItem(
-                                                    text = { Text("Verify this source") },
-                                                    onClick = {
-                                                        rowMenuOpen = false
-                                                        verifySource(source.id)
-                                                    },
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        // The list below *is* this list. Each source's session used to be drawn a
+                        // second time here, under the same mark and the same name, and the two lists
+                        // disagreed the moment one of them was stale - a source could sit at "needs a
+                        // check" here while its own row below said "verified", with no way to tell
+                        // which was current. The state moved to the row (see `SourceRow`'s session
+                        // line): one source, one row, carrying its switch, its role, its repository
+                        // and where its session stands. What stays on this card is what is about the
+                        // *set* - the summary and the two batch actions - which is also the only place
+                        // they can live, since a batch is not a property of any one row.
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Sessions renew in the background, so a check is a one-time step. " +
-                                "Verify turns lossless playback back on; Renew rotates a session that is " +
-                                "still live.",
+                            text = "Sessions renew in the background. Verify fixes a source the gateway " +
+                                "refused; Renew rotates one it still accepts.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1383,7 +1422,13 @@ fun SpotiFLACSettingsScreen(
                     }
                 }
 
-                itemsIndexed(sources) { index, sourceWithState ->
+                // Keyed by source id, not by position. The row's own state (an open overflow, a
+                // marquee position, its animation) lives in the item's composition; with index keys
+                // every row after a moved or newly landed source is a *different* item, so one
+                // reorder rebuilt the whole list's state and a sync that inserted a source
+                // recomposed every row below it. The id is stable across all of that, which is what
+                // keys are for.
+                itemsIndexed(sources, key = { _, sourceWithState -> sourceWithState.source.id }) { index, sourceWithState ->
                     SourceRow(
                         sourceWithState = sourceWithState,
                         installedVersion = installedVersions[sourceWithState.source.id],
@@ -1414,6 +1459,40 @@ fun SpotiFLACSettingsScreen(
                             }
                         },
                         choiceLabel = sourceChoiceLabels[sourceWithState.source.id],
+                        // Which repository this entry came from, in brackets. Answered by one rule
+                        // rather than by a lookup here: a lookup that misses draws no line at all,
+                        // which is how a source Hush ships itself and no registry declares - Pandora
+                        // - became the one row in the list naming no repository.
+                        repositoryLine =
+                            app.hush.music.spotiflac.sourceProvenanceLine(
+                                sourceWithState.source,
+                                repositories,
+                            ),
+                        // A module keeps no session - it is credential-less by construction, which is
+                        // the whole point of one - so a session line here would be a statement about
+                        // a check that can never apply to it. It read "Checking session…" on the
+                        // reporting device, which is exactly the kind of line that makes a source
+                        // look broken while it is working.
+                        // The windows and retry count this source is fetched with, on the row itself:
+                        // one line that answers "why is this source slow" without opening anything, and
+                        // the same numbers the overflow's dialog edits.
+                        fetchPolicy =
+                            SpotiFLACFetchPolicies.policyFor(fetchPoliciesRaw, sourceWithState.source.id),
+                        onEditFetchPolicy = { editingFetchPolicy = sourceWithState.source },
+                        sessionLine =
+                            sessionLines[sourceWithState.source.id]
+                                // Never for a source this build does not run through the runtime, and
+                                // never while the engine itself is switched off: with SpotiFLAC off
+                                // nothing is checked at all, and the line above the list already says
+                                // so - a row claiming otherwise would be inventing a check.
+                                .takeIf { spotiflacEnabled && !sourceWithState.source.isPlayedOutsideRuntime },
+                        onVerify = {
+                            startVerification(sourceWithState.source.id)
+                            // The shared run owns the challenge; this only re-reads where the source
+                            // stands once it has been raised, so the row cannot keep showing a stale
+                            // verdict while the check is solved in the overlay above it.
+                            scope.launch { refreshVerifyStatus() }
+                        },
                         canMoveUp = index > 0,
                         canMoveDown = index < sources.size - 1,
                         onToggleEnabled = { enabled ->
@@ -1471,11 +1550,230 @@ fun SpotiFLACSettingsScreen(
                         )
                     }
                 }
+
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    androidx.compose.material3.HorizontalDivider()
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                item {
+                    // Where the list above comes from, and the switch that takes a repository's
+                    // sources back out of it. Reading the registries was invisible on purpose while
+                    // the two were hardcoded - there was nothing to decide - and the moment one can
+                    // be added and switched off the rows have to name their own provenance: a source
+                    // is only as good as the repository that declared it, and a repository that
+                    // stops answering or is switched off has to be visible where the user can act.
+                    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        Text(
+                            text = "Repositories",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = "Each repository publishes sources. Switching one off stops it being " +
+                                "fetched: its sources leave the list above, the playback order and the checks.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        repositories.forEach { repository ->
+                            RepositoryRowView(
+                                repository = repository,
+                                isBusy = isAddingRepository,
+                                onToggleEnabled = { enabled ->
+                                    scope.launch {
+                                        withContext(Dispatchers.IO) {
+                                            repoManager.setRepositoryEnabled(repository.url, enabled)
+                                        }
+                                    }
+                                },
+                                onRename = { renamingRepository = repository },
+                                onRemove = { removingRepository = repository },
+                            )
+                        }
+
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                repositoryDialogMessage = null
+                                showRepositoryDialog = true
+                            },
+                            enabled = !isAddingRepository,
+                        ) {
+                            Text("Add repository")
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
             }
 
             item {
                 Spacer(modifier = Modifier.height(32.dp))
             }
+        }
+
+        if (showRepositoryDialog) {
+            TextFieldDialog(
+                title = { Text("Add a source repository") },
+                placeholder = { Text("https://example.com/registry.json") },
+                // A URL field is not prose: an IME that capitalises the host or autocorrects the
+                // owner to a word with a space in it produces an address Hush must refuse, and the
+                // refusal looks like the field being wrong rather than the keyboard being clever.
+                keyboardOptions =
+                    KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrectEnabled = false,
+                        imeAction = ImeAction.Done,
+                    ),
+                invalidInputMessage =
+                    "That does not look like a link Hush can fetch yet. It needs https:// and a host, " +
+                        "with no spaces.",
+                // The address has to look like one Hush can turn into a file before the button
+                // lights up, and nothing is stored until that file has answered with a repository
+                // Hush can read - so a typo cannot leave a dead row behind. A GitHub file *page* is
+                // accepted here: the page address is what a browser offers, and the fetch follows
+                // it to the raw file it names.
+                isInputValid = { !isAddingRepository && ExtensionRepositories.addCandidates(it).isNotEmpty() },
+                // The dialog stays while the address is fetched. Closing on Done is what made a
+                // refused link look like a tap that did nothing at all: the reason arrived after
+                // the dialog was gone.
+                dismissOnDone = false,
+                onDone = { rawUrl ->
+                    scope.launch {
+                        isAddingRepository = true
+                        repositoryDialogMessage = null
+                        val result =
+                            withContext(Dispatchers.IO) { repoManager.addRepository(rawUrl) }
+                        isAddingRepository = false
+                        when (result) {
+                            is RepositoryAddResult.Added -> {
+                                repositoryDialogMessage = null
+                                showRepositoryDialog = false
+                            }
+
+                            is RepositoryAddResult.Rejected -> repositoryDialogMessage = result.reason
+                        }
+                    }
+                },
+                onDismiss = {
+                    if (!isAddingRepository) {
+                        showRepositoryDialog = false
+                        repositoryDialogMessage = null
+                    }
+                },
+                extraContent = {
+                    val message = repositoryDialogMessage
+                    Text(
+                        text = when {
+                            message != null -> message
+                            isAddingRepository -> "Reading the repository\u2026"
+                            else ->
+                                "Paste a repository link or its registry.json - a GitHub file page works " +
+                                    "too. Nothing is kept until it answers with sources Hush can read."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color =
+                            if (message != null) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                    )
+                },
+            )
+        }
+
+        // Renaming a repository changes only what it is called. The URL is still what is fetched and
+        // what a source's provenance is matched on, so a name can be changed as often as a user likes
+        // without a single source moving.
+        renamingRepository?.let { repository ->
+            TextFieldDialog(
+                title = { Text("Name this repository") },
+                initialTextFieldValue = androidx.compose.ui.text.input.TextFieldValue(repository.nickname.orEmpty()),
+                placeholder = { Text("e.g. Lossless modules") },
+                isInputValid = { true },
+                onDone = { name ->
+                    scope.launch {
+                        repoManager.setRepositoryNickname(repository.url, name)
+                    }
+                    renamingRepository = null
+                },
+                onDismiss = { renamingRepository = null },
+                extraContent = {
+                    Text(
+                        text = "Leave it empty to go back to " + ExtensionRepositories.label(repository.url) + ".",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+            )
+        }
+
+        // Removing a repository takes its sources out of the list, the playback order and the
+        // checks, and the address has to be pasted again to bring it back. One tap was enough to do
+        // that from a menu, so it asks first - and it says what goes with it.
+        removingRepository?.let { repository ->
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { removingRepository = null },
+                title = { Text("Remove ${repository.label}?") },
+                text = {
+                    Text(
+                        text = "Its sources leave the list and the playback order, and Hush stops " +
+                            "checking them. Packages already installed stay installed, and you can add " +
+                            "the address again at any time.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            removingRepository = null
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    repoManager.removeRepository(repository.url)
+                                }
+                            }
+                        },
+                    ) {
+                        Text("Remove")
+                    }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { removingRepository = null }) {
+                        Text("Keep")
+                    }
+                },
+            )
+        }
+
+        // The per-source fetch windows. One dialog for one source, opened from that source's overflow:
+        // the values are about a single provider's behaviour on this network, so a screen-wide editor
+        // would have to say which source each number belonged to and would let one save change every
+        // source at once.
+        editingFetchPolicy?.let { source ->
+            FetchPolicyDialog(
+                // The same name its row above carries, so the dialog that edits one source's windows
+                // names the source the way the row and the player do.
+                sourceName =
+                    app.hush.music.spotiflac.SpotiFLACSourceName.name(
+                        sourceId = source.id,
+                        name = source.displayName,
+                    ),
+                initial = SpotiFLACFetchPolicies.policyFor(fetchPoliciesRaw, source.id),
+                onSave = { policy ->
+                    setFetchPoliciesRaw(
+                        SpotiFLACFetchPolicies.updated(fetchPoliciesRaw, source.id, policy),
+                    )
+                    editingFetchPolicy = null
+                },
+                onReset = {
+                    setFetchPoliciesRaw(
+                        SpotiFLACFetchPolicies.updated(fetchPoliciesRaw, source.id, null),
+                    )
+                    editingFetchPolicy = null
+                },
+                onDismiss = { editingFetchPolicy = null },
+            )
         }
 
         val activeVerifyUrl = verifyAuthUrl
@@ -1848,8 +2146,184 @@ private fun expectedVerificationState(authUrl: String, depth: Int = 0): String? 
     }.getOrNull()
 }
 
+/**
+ * One repository, with the two things a user can do to it: switch it off, or rename it.
+ *
+ * The switch is in the open because it is the row's state, and it is the same control every source
+ * row below uses for the same question one level down. Renaming is behind the row's overflow, next to
+ * removal, because both are statements about the whole repository rather than about using it.
+ */
+@Composable
+private fun RepositoryRowView(
+    repository: app.hush.music.spotiflac.RepositoryRow,
+    isBusy: Boolean,
+    onToggleEnabled: (Boolean) -> Unit,
+    onRename: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = repository.label,
+                style = MaterialTheme.typography.bodyMedium,
+                color =
+                    if (repository.enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    },
+            )
+            Text(
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                text = buildString {
+                    append(
+                        when {
+                            repository.isBundled -> "Built-in"
+                            // `removable` is true for everything Hush does not own, so it used to
+                            // label a URL the user pasted "Shipped with Hush". The shipped
+                            // defaults are named by the list they come from, not by the fact that
+                            // they can be removed.
+                            repository.isShippedDefault -> "Shipped"
+                            else -> "Added by you"
+                        },
+                    )
+                    // What it answered with, which is the one thing that tells a registry and a
+                    // module index apart on screen - they are both a JSON file at an address - and
+                    // how many entries it publishes.
+                    // Short enough to keep the whole line inside the width a switch and an
+                    // overflow leave: `Built-in \u00b7 registry \u00b7 12 sources` instead of
+                    // `Built-in \u00b7 SpotiFLAC registry \u00b7 12 sources`, whose last word wrapped
+                    // onto a line of its own on every row.
+                    repository.kind?.let { kind ->
+                        append(" \u00b7 ")
+                        append(
+                            when (kind) {
+                                app.hush.music.spotiflac.RepositoryKind.SPOTIFLAC_REGISTRY -> "registry"
+                                app.hush.music.spotiflac.RepositoryKind.MODULE_INDEX -> "module index"
+                                app.hush.music.spotiflac.RepositoryKind.SERVER_ADDON -> "addon"
+                            },
+                        )
+                    }
+                    append(" \u00b7 ")
+                    append(
+                        when (val declared = repository.declaredSources) {
+                            null -> "not read"
+                            0 -> "no sources"
+                            1 -> "1 source"
+                            else -> "$declared sources"
+                        },
+                    )
+                    // What a check means for what this repository publishes used to be a third
+                    // clause here (`sources verify one by one`, `credential-less modules: nothing to
+                    // verify`). It is the source rows' own business - every one of them says where
+                    // its session stands - and repeated on the repository it made two lines of
+                    // explanation out of a switch.
+                    //
+                    // A switched-off repository is not fetched at all, so its sources are not merely
+                    // unchecked - they are absent from the list above, from the resolve order and
+                    // from the checks. Said here so the missing rows are explained where the switch
+                    // that removed them is.
+                    if (!repository.enabled) append(" \u00b7 off")
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            repository.error?.let { error ->
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+            // The whole address, for the rows whose address is not part of the build: a name is
+            // not enough to recognise a repository by once a user has two from the same host, and a
+            // personal URL is the one thing only they can check. A built-in or shipped row is
+            // addressed by the app itself - its label already names it, and five addresses under
+            // five labels was a page of URLs to scroll past - so it draws none unless reading it
+            // failed, which is the case the address explains.
+            if ((!repository.isBundled && !repository.isShippedDefault) || repository.error != null) {
+                Text(
+                    text = repository.url,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        Switch(
+            checked = repository.enabled,
+            onCheckedChange = { if (!isBusy) onToggleEnabled(it) },
+            enabled = !isBusy,
+            colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary),
+        )
+
+        var menuOpen by remember(repository.url) { mutableStateOf(false) }
+        androidx.compose.foundation.layout.Box {
+            androidx.compose.material3.IconButton(onClick = { menuOpen = true }) {
+                androidx.compose.material3.Icon(
+                    imageVector = Icons.Rounded.MoreVert,
+                    contentDescription = "More options for ${repository.label}",
+                )
+            }
+            androidx.compose.material3.DropdownMenu(
+                expanded = menuOpen,
+                onDismissRequest = { menuOpen = false },
+            ) {
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text("Rename this repository") },
+                    onClick = {
+                        menuOpen = false
+                        onRename()
+                    },
+                )
+                // Not offered for Hush's own registries: the sources they address are the ones the
+                // runtime and the signed-session contracts are written against, so a build without
+                // them would list sources it cannot install. Switching them off is the reversible
+                // half, and it is the switch on the row.
+                if (repository.removable) {
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text("Remove this repository") },
+                        onClick = {
+                            menuOpen = false
+                            onRemove()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** The one-line result of an Update tap, shown under the row that asked for it. */
 private data class PackageMessage(val text: String, val isError: Boolean)
+
+/**
+ * Where one source's session stands, and how the row that draws it should say so.
+ *
+ * [tone] is the run's own verdict when a run is in flight and null otherwise - the session record's
+ * sentence does not need one, because [healthy] already decides whether it reads as good news - and
+ * [checkable] is whether a single-source check applies at all, which is the whole condition for
+ * offering the row's overflow action.
+ */
+private data class SourceSessionLine(
+    val text: String,
+    val tone: SpotiFLACVerificationChecklist.Tone?,
+    val healthy: Boolean,
+    val checkable: Boolean,
+    /**
+     * The countdown for a session that is still live, drawn as its own value - see
+     * `SpotiFLACSessionVerdictReport.Row.remaining` for why it is not part of [text].
+     */
+    val remaining: String? = null,
+)
 
 @Composable
 private fun SourceRow(
@@ -1867,35 +2341,154 @@ private fun SourceRow(
     isUpdating: Boolean = false,
     packageMessage: PackageMessage? = null,
     onUpdate: () -> Unit = {},
+    /**
+     * Which repository this source came from, in brackets, or null when the row's own name already
+     * says it. Resolved by `sourceProvenanceLine`, so every row that needs one has one.
+     */
+    repositoryLine: String? = null,
+    /** Where its session stands, or null for a source that has no session to keep. */
+    sessionLine: SourceSessionLine? = null,
+    /** A single-source check, offered only where one applies. */
+    onVerify: () -> Unit = {},
+    /**
+     * How long this source is given and how many times it is asked, drawn on the row and edited from
+     * its overflow. Shown for every source rather than only for the ones that differ: the line is the
+     * only place the walk's windows exist on this screen, and a user who has never opened the dialog
+     * should still be able to read what their player will do.
+     */
+    fetchPolicy: SpotiFLACFetchPolicy = SpotiFLACFetchPolicy.DEFAULT,
+    onEditFetchPolicy: () -> Unit = {},
 ) {
     // Which build is actually running, next to the one the registry publishes. Without this the
     // row can only ever show what the source *is*, so a package left behind by a registry bump is
     // invisible - the state that kept amazon on 2.3.8 for a whole install. Read here rather than
-    // inside the text column because the overflow offers the update, and it names the version it
-    // would install.
+    // inside the text column because the row's own update control sits under it, and it names the
+    // version it would install.
     val registryVersion = sourceWithState.source.version.trim()
+    // What the source is called on this row, from the one function the player's own label is built
+    // from: a server addon that named itself after its host reads `Tidal · gglos` here as it does on
+    // the codec bar, because `gglos` among twelve providers answers nothing about what it serves.
+    // The registry's own wording is kept wherever it wrote one, which is what the name is for.
+    val rowName =
+        app.hush.music.spotiflac.SpotiFLACSourceName.name(
+            sourceId = sourceWithState.source.id,
+            name = sourceWithState.source.displayName,
+        )
     val loadedVersion = installedVersion?.trim()
+    // The version, short enough to share a line with the role: `v1.0.10` rather than
+    // `Version 1.0.10`, and no second copy of a registry version the Update button already names.
+    // What is *installed* is the fact; what the registry publishes only matters when nothing is
+    // installed yet, which is the one case that says so.
     val versionLine = when {
+        // A module is never installed and never will be: its script is fetched and run when the
+        // source is used, so "not installed" describes a state this row is never in and reads as a
+        // fault. What can be said about it is the version its index publishes - which is also the
+        // thing that changes when the module does, since the script's cache key carries it.
+        sourceWithState.source.isHostedModule ->
+            registryVersion.takeIf { it.isNotEmpty() }?.let { "module $it" }
+
+        // A server addon is not installed either: its version is what its manifest says, and a
+        // row claiming "not installed" would describe an install that is never meant to happen.
+        sourceWithState.source.isServerAddon ->
+            registryVersion.takeIf { it.isNotEmpty() }?.let { "addon $it" }
+
         registryVersion.isEmpty() && loadedVersion.isNullOrEmpty() -> null
-        loadedVersion.isNullOrEmpty() -> "Registry $registryVersion · not installed"
-        registryVersion.isEmpty() -> "Version $loadedVersion"
-        loadedVersion.equals(registryVersion, ignoreCase = true) -> "Version $loadedVersion"
-        else -> "Installed $loadedVersion · Registry $registryVersion"
+        loadedVersion.isNullOrEmpty() -> "v$registryVersion (not installed)"
+        else -> "v$loadedVersion"
     }
+    // One line for what the source is: its role and the build it is running. Two lines said the same
+    // thing twice as tall, and on a 360dp screen the pair was the difference between a list a user
+    // can scan and one they have to read.
+    // A source whose manifest states no role at all (the built-in Pandora entry) used to print
+    // `Unknown role` ahead of its version, which is a sentence about the *registry* rather than about
+    // the source: the row said nothing the user could act on, in the line whose job is to say what
+    // the source does. It says nothing there instead.
+    val role =
+        sourceWithState.source.primaryRole
+            .takeIf { it.isNotBlank() && !it.equals("Unknown role", ignoreCase = true) }
+    val roleVersionLine =
+        if (loadedVersion.isNullOrEmpty() && versionLine != null && !sourceWithState.source.isPlayedOutsideRuntime) {
+            versionLine
+        } else {
+            listOfNotNull(role, versionLine).joinToString(" \u00b7 ")
+        }
     // Only for a build that is genuinely behind the registry the user can see: a source with nothing
     // installed has its own first-install path, and an update offered there would be a control that
-    // never does anything.
+    // never does anything. A module has no installed build at all, so there is never one behind.
+    //
+    // "Behind" is the engine's own comparison (`isNewer`), not string inequality. The two disagree
+    // exactly where it matters: a registry that rolls back publishes an *older* version than the one
+    // this install runs, and the string test offered "Update to 2.3.8" over a working 2.3.10 - a
+    // control whose only outcome was a downgrade the runtime would refuse. The same rule refuses to
+    // compare a version it cannot read (`latest`), which is why nothing is offered for those.
     val behindRegistry =
-        !loadedVersion.isNullOrEmpty() &&
-            registryVersion.isNotEmpty() &&
-            !loadedVersion.equals(registryVersion, ignoreCase = true)
+        !sourceWithState.source.isPlayedOutsideRuntime &&
+            SpotiFLACExtensionUpgrade.isNewer(registryVersion, loadedVersion)
 
+    /**
+     * What this source is and where it came from, in one line.
+     *
+     * The repository is named on the source because a source list is a list of *other people's*
+     * entries: a user who added two repositories and finds a source broken needs to know which of
+     * them to switch off, and the source id alone cannot say it - ids are chosen by whoever wrote
+     * the entry. The role follows, because "Amber" and "Qobuz" and "Silence" are not obviously the
+     * same kind of thing, and a list where every row says what it does is a list a user can arrange
+     * without opening anything.
+     *
+     * The repository is written in brackets, on a line of its own, and the role below it - which is
+     * a measurement rather than a preference. One line carrying both does not fit: on this device's
+     * 360dp width the text column is about 210dp, so `[zarzet/spotiflac-extension] · Streams audio`
+     * clipped to `[zarzet/spotiflac-extension] · …` - the role gone - and the same line written the
+     * other way round (`From zarzet/spotiflac-extensio… · Metadata`, which is what shipped first)
+     * lost the repository instead, leaving the row naming a registry it could not finish saying.
+     * The bracket is 28-33 characters on either bundled registry, so it needs its own line to be
+     * read at all; the role is 13-15 and never fights it.
+     *
+     * It arrives already bracketed, and already decided: whether this row has one at all is a
+     * question about the source and the repository list together, and it is answered in one place
+     * (`sourceProvenanceLine`) rather than here - a row that decided for itself would be a second
+     * answer, and the promise is that every row names an origin.
+     */
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // The source's own mark, on the plate every other settings row uses. A list of twelve
+        // near-identical vendor names is read one by one; the mark is what makes the source being
+        // looked for findable without reading. Sized from SettingsDimensions rather than by hand, so
+        // it lines up with the rows above and below it on every density.
+        val markColor =
+            app.hush.music.spotiflac.SpotiFLACSourceMark.brandArgb(sourceWithState.source.id)
+                ?.let { Color(it) }
+                ?: MaterialTheme.colorScheme.onSurfaceVariant
+        Box(
+            modifier =
+                Modifier
+                    // Pinned to the top of the entry rather than centred in it: these rows are as
+                    // tall as their registry description, which runs to seven lines, and a mark
+                    // floating in the middle of that puts it under a sentence instead of beside the
+                    // source's name - the one line it belongs to. The offset is what centres the
+                    // plate on that first line (36dp plate around a 24dp line of text).
+                    .align(Alignment.Top)
+                    .offset(y = 6.dp)
+                    .size(SettingsDimensions.RowIconSize)
+                    .clip(CircleShape)
+                    .background(markColor.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter =
+                    painterResource(
+                        app.hush.music.spotiflac.SpotiFLACSourceMark.iconRes(sourceWithState.source.id),
+                    ),
+                contentDescription = null,
+                tint = markColor,
+                modifier = Modifier.size(SettingsDimensions.RowIconInnerSize),
+            )
+        }
+        Spacer(modifier = Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             if (choiceLabel != null) {
                 Text(
@@ -1904,14 +2497,20 @@ private fun SourceRow(
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
+            // Two lines at most, which is enough for every name a registry publishes today - the
+            // longest is `Tidal FLAC (tracks.monochrome.st)` at two - and the cap is what keeps a
+            // name that grows later from wrapping to three and pushing the row's facts out of sight.
+            //
+            // The registry's own description is not drawn at all. Every provider writes a paragraph
+            // about its own capabilities, and the row already answers the two questions a reader has
+            // - what this is (role and version) and where it came from (repository and check) - in
+            // facts they can act on. A description cut off mid-sentence at two lines adds height and
+            // nothing else.
             Text(
-                text = sourceWithState.source.displayName,
+                text = rowName,
                 style = MaterialTheme.typography.bodyLarge,
-            )
-            Text(
-                text = sourceWithState.source.displayDescription,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
             // The reason a test failed belongs *here*, under the row it is about, not in
             // the narrow trailing slot next to the name. A raw gateway sentence rendered
@@ -1939,24 +2538,216 @@ private fun SourceRow(
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
-            if (versionLine != null) {
+            if (repositoryLine != null) {
                 Text(
-                    text = versionLine,
+                    text = repositoryLine,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
-            // When this build was last looked at, and which registry it came from. A version number
-            // alone cannot tell "checked a minute ago" from "checked before the last three app
-            // starts", and the registry is the part that matters when two publish the same source.
+            if (roleVersionLine.isNotEmpty()) {
+                Text(
+                    text = roleVersionLine,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+            // What the walk gives this source, in the order it uses it: how long it may stay silent
+            // before the first byte (connect), how long a transfer may go without data before it is
+            // abandoned (download), and how many times it is asked before the next source is tried.
+            // The one line a user needs to answer "why was that source slow", which used to require
+            // reading a log. Two lines rather than one: measured on a 360dp screen the single line
+            // ended at "60s download · 3...", which is the retry count cut off - the one number the
+            // line exists to state - and this row already stacks short facts.
+            Text(
+                text = fetchPolicy.summary(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+            // A source Hush cannot play says so on its own row, and says why. It is in the registry,
+            // so hiding it would leave the user hunting for a source they read about somewhere worse;
+            // what it cannot be is counted in the order or switched on as if it worked, which is
+            // what `isPlayable` and the choice label above already refuse to do.
+            if (!sourceWithState.source.isPlayable) {
+                // The whole reason, over two lines and with no ellipsis. This is the row's answer to
+                // the only question a dead switch raises - "why can I not turn this one on?" - and
+                // at one line it was clipped to `JavaScript module - this build …`, which reads as
+                // a control that is broken rather than as a source this build cannot play. The
+                // predicate is the switch's own (`isPlayable`), so the note cannot disagree with
+                // the switch beside it.
+                Text(
+                    text =
+                        if (sourceWithState.source.needsModuleRuntime) {
+                            "No script to run"
+                        } else {
+                            "No package to play"
+                        },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            } else if (sourceWithState.source.isServerAddon) {
+                // A server addon answers with a URL and runs on its own service, so it has the same
+                // two facts a module row states: nothing to verify, and a switch that works.
+                Text(
+                    text = "Server addon \u00b7 no session",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            } else if (sourceWithState.source.isHostedModule) {
+                // A module that *can* run says so, because what it is decides how it behaves: it is
+                // run by Hush in its own sandbox rather than by the SpotiFLAC engine, it needs no
+                // session and can therefore never be verified, and it is asked only after the
+                // engine's own sources have failed. Without this line the row is a source whose
+                // switch works for no stated reason, and its absence from every "N verified" count
+                // reads as a source that is being passed over.
+                Text(
+                    text = "Module \u00b7 no session",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            } else if (
+                sourceWithState.source.isRuntimeCompatible &&
+                !sourceWithState.source.hasVerifiedPackageDigest
+            ) {
+                // A package its registry published without a checksum is installed anyway - refusing
+                // it made the source look like every other one and fail every time (see
+                // `isRuntimeCompatible`) - and the difference is said here, because the install is
+                // the one moment it matters and nothing in the file that lands records it. The
+                // predicate is the verifier's own: the digest this build would enforce.
+                Text(
+                    text = "No checksum published",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            // Where the session stands, on the row it belongs to: this used to be a second list of
+            // the same sources above, and the two could disagree about the same source at the same
+            // moment. A source with no session to keep says nothing here rather than claiming one.
+            sessionLine?.let { line ->
+                val color =
+                    when (line.tone) {
+                        SpotiFLACVerificationChecklist.Tone.SOLVING,
+                        SpotiFLACVerificationChecklist.Tone.DONE,
+                        -> MaterialTheme.colorScheme.primary
+                        SpotiFLACVerificationChecklist.Tone.ATTENTION -> MaterialTheme.colorScheme.error
+                        SpotiFLACVerificationChecklist.Tone.WAITING -> MaterialTheme.colorScheme.onSurfaceVariant
+                        null ->
+                            if (line.healthy) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                    }
+                // The sentence and its countdown are two texts on one line rather than one
+                // sentence with the number inside it. Two things went wrong with the single
+                // string: the row ellipsizes from the right, so the part that got cut was the
+                // countdown the line exists to report (`Verified — renews automatically (2h 1…`),
+                // and the number itself is redrawn every tick, so in a proportional font the whole
+                // label shifted sideways whenever a digit changed width. Drawn separately, the
+                // number survives the clip and its digits keep their places (an equal-width font
+                // and no wrapping), and the sentence next to it stays put.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = line.text,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = color,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    line.remaining?.let { remaining ->
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = remaining,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = color,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
+                }
+            }
+            // The update lives under the version it would install, rather than in a section-wide
+            // "Check for updates" that swept every source at once. Three things follow from that:
+            // the action is where the user is already reading the gap between Installed and
+            // Registry, it names the build it will take, and pressing it cannot act on a source
+            // other than the one it sits under - which is what the row-level wording promised and
+            // what the per-version memo used to make ambiguous for the source that was not tapped.
+            if (behindRegistry) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Surface(
+                    onClick = onUpdate,
+                    enabled = !isUpdating,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                    color =
+                        if (isUpdating) {
+                            MaterialTheme.colorScheme.surfaceContainerHighest
+                        } else {
+                            MaterialTheme.colorScheme.primaryContainer
+                        },
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ) {
+                    Text(
+                        text = if (isUpdating) "Updating…" else "Update to $registryVersion",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+            }
+            // When this build was last looked at. A version number alone cannot tell "checked a
+            // minute ago" from "checked before the last three app starts".
             val checkLine = app.hush.music.spotiflac.SpotiFLACExtensionCheckReport.line(
-                check = check,
+                // A module has no package to check and no check to have been made, so the line would
+                // only ever say "Not checked yet" - a statement about a check that is not part of
+                // how a module is served.
+                check = check.takeIf { !sourceWithState.source.isPlayedOutsideRuntime },
                 registry = app.hush.music.spotiflac.SpotiFLACExtensionCheckReport
                     .registryLabel(sourceWithState.source.repositoryId),
+                // Which repository this source came from is the provenance line's job, three lines up,
+                // and it is the copy that can be acted on: it follows the merge the repository rows
+                // control, where this line's origin is the registry the package was last *checked*
+                // against. Both named it, so one row printed two names - and after a repository was
+                // switched off, two different ones (measured on the device: `From
+                // spotiflacapp/spotiflac-ext…` above `Checked 8 min ago · from zarzet`), which
+                // leaves a user unable to tell which repository the row means, and that is the one
+                // question the name is there to answer.
+                //
+                // Never here, then, and the row above always: the provenance line is drawn for every
+                // source now, and the only rows without one are the modules whose own name already
+                // carries the index it came from.
+                namesRepository = false,
                 nowMs = System.currentTimeMillis(),
-            )
+                // Only when it has something to add. `Checked 55 min ago` under every source said
+                // the same thing twelve times and pushed the facts that differ apart; a check that
+                // failed, that replaced the package, or that is old enough to be worth re-running is
+                // what a reader needs. A current check from the last few hours is implied by the
+                // version line above it - the row would only be repeating itself.
+            )?.takeIf { line ->
+                // A module and an addon are never checked - there is no package to compare with a
+                // registry - so `Not checked yet` under them would describe a step that never
+                // happens. The row says `Module · no session` instead, which is the whole truth.
+                // The same goes for a source with no version on either side (the built-in Pandora
+                // entry): there is no package to compare, so there is no check to have happened.
+                !sourceWithState.source.isPlayedOutsideRuntime &&
+                    (registryVersion.isNotEmpty() || !loadedVersion.isNullOrEmpty()) &&
+                    line.isNotBlank() &&
+                    (
+                        check?.outcome != app.hush.music.spotiflac.SpotiFLACExtensionCheck.Outcome.CURRENT ||
+                            check.checkedAtMs < System.currentTimeMillis() - CHECK_LINE_STALE_MS
+                    )
+            }
             if (checkLine != null) {
                 Text(
                     text = checkLine,
@@ -2014,12 +2805,14 @@ private fun SourceRow(
         // same single gesture the session rows use, because a line of loose text buttons and arrows
         // put five tap targets in one row, and the switch then read as one of them rather than as
         // the one control that is not about doing something.
+        // Off the table for a source this build cannot play: the row is drawn so the user can see
+        // what the repository publishes and switch the repository off if they do not want it, and a
+        // switch that could be turned on for a source that can never resolve is a switch that lies.
         Switch(
-            checked = sourceWithState.enabled,
+            checked = sourceWithState.enabled && sourceWithState.source.isPlayable,
             onCheckedChange = onToggleEnabled,
-            colors = SwitchDefaults.colors(
-                checkedTrackColor = MaterialTheme.colorScheme.primary,
-            ),
+            enabled = sourceWithState.source.isPlayable,
+            colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary),
         )
 
         var rowMenuOpen by remember(sourceWithState.source.id) { mutableStateOf(false) }
@@ -2030,22 +2823,23 @@ private fun SourceRow(
             androidx.compose.material3.IconButton(onClick = { rowMenuOpen = true }) {
                 androidx.compose.material3.Icon(
                     imageVector = Icons.Rounded.MoreVert,
-                    contentDescription = "More options for ${sourceWithState.source.displayName}",
+                    contentDescription = "More options for $rowName",
                 )
             }
             androidx.compose.material3.DropdownMenu(
                 expanded = rowMenuOpen,
                 onDismissRequest = { rowMenuOpen = false },
             ) {
-                // Offered first, and only where there is something to install: it is the one action
-                // that answers the registry line above it, and it names the version it would take.
-                if (behindRegistry) {
+                // The single-source check, offered only where a check applies - a source with no
+                // gateway session has nothing to verify, and a menu item that raised a challenge for
+                // it would be a control that lies about what it does. Never while a run is in flight
+                // either, because the run's own Cancel is the control then (see `SourceSessionLine`).
+                if (sessionLine?.checkable == true) {
                     androidx.compose.material3.DropdownMenuItem(
-                        text = { Text(if (isUpdating) "Updating…" else "Update to $registryVersion") },
-                        enabled = !isUpdating,
+                        text = { Text("Verify this source") },
                         onClick = {
                             rowMenuOpen = false
-                            onUpdate()
+                            onVerify()
                         },
                     )
                 }
@@ -2072,9 +2866,133 @@ private fun SourceRow(
                         onMoveDown()
                     },
                 )
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text("Fetch timeouts & retries") },
+                    onClick = {
+                        rowMenuOpen = false
+                        onEditFetchPolicy()
+                    },
+                )
             }
         }
     }
+}
+
+/**
+ * The two windows and the retry count for one source.
+ *
+ * Deliberately about one source: a slow provider and a fast one are different problems on the same
+ * network - one needs a longer connect window, the other finishes a file in seconds - and a
+ * screen-wide editor would either apply one number to all of them or force the user to pick which
+ * source each field meant. The row that opened it says which source it is, and the walk reads back
+ * exactly what is saved here (see [SpotiFLACFetchPolicies]).
+ *
+ * The fields are raw seconds and a count rather than sliders: a slider for 2..120 and another for
+ * 10..600 gives no way to type a number, and the range is wide enough that the ends are what a user
+ * arrives with ("give it two minutes"). A value outside the range is clamped on save rather than
+ * refused, so a typo cannot leave a source unfetchable; the valid range is stated under each field.
+ */
+@Composable
+private fun FetchPolicyDialog(
+    sourceName: String,
+    initial: SpotiFLACFetchPolicy,
+    onSave: (SpotiFLACFetchPolicy) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val normalized = remember(initial) { initial.normalized() }
+    var connect by remember(normalized) { mutableStateOf(normalized.connectTimeoutSeconds.toString()) }
+    var download by remember(normalized) { mutableStateOf(normalized.downloadTimeoutSeconds.toString()) }
+    var attempts by remember(normalized) { mutableStateOf(normalized.maxAttempts.toString()) }
+
+    fun parsed(value: String, fallback: Int): Int = value.trim().toIntOrNull() ?: fallback
+    val parsedConnect = parsed(connect, normalized.connectTimeoutSeconds)
+    val parsedDownload = parsed(download, normalized.downloadTimeoutSeconds)
+    val parsedAttempts = parsed(attempts, normalized.maxAttempts)
+    val edited =
+        SpotiFLACFetchPolicy(
+            connectTimeoutSeconds = parsedConnect,
+            downloadTimeoutSeconds = parsedDownload,
+            maxAttempts = parsedAttempts,
+        ).normalized()
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Fetch settings for $sourceName") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "How long this source is given, and how many times it is asked, before " +
+                        "the walk moves on. A source that did not answer inside its connect window is " +
+                        "asked again up to the retry count, then the next source in the list is tried.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = connect,
+                    onValueChange = { connect = it.filter(Char::isDigit).take(3) },
+                    label = { Text("Connect timeout (seconds)") },
+                    supportingText = {
+                        Text(
+                            "${SpotiFLACFetchPolicy.MIN_CONNECT_SECONDS} to " +
+                                "${SpotiFLACFetchPolicy.MAX_CONNECT_SECONDS}. Time to the first byte.",
+                        )
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = download,
+                    onValueChange = { download = it.filter(Char::isDigit).take(3) },
+                    label = { Text("Download timeout (seconds)") },
+                    supportingText = {
+                        Text(
+                            "${SpotiFLACFetchPolicy.MIN_DOWNLOAD_SECONDS} to " +
+                                "${SpotiFLACFetchPolicy.MAX_DOWNLOAD_SECONDS}. How long a download may " +
+                                "go without data before it is given up on.",
+                        )
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = attempts,
+                    onValueChange = { attempts = it.filter(Char::isDigit).take(1) },
+                    label = { Text("Attempts per source") },
+                    supportingText = {
+                        Text(
+                            "${SpotiFLACFetchPolicy.MIN_ATTEMPTS} to " +
+                                "${SpotiFLACFetchPolicy.MAX_ATTEMPTS}. Only a failed attempt is " +
+                                "repeated; a source that answered \"not found\" is not asked again.",
+                        )
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { onSave(edited) }) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            Row {
+                androidx.compose.material3.TextButton(onClick = onReset) {
+                    Text("Defaults")
+                }
+                androidx.compose.material3.TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+            }
+        },
+    )
 }
 
 @Composable
@@ -2100,9 +3018,7 @@ private fun SettingsSwitchRow(
             checked = checked,
             onCheckedChange = { if (enabled) onCheckedChange?.invoke(it) },
             enabled = enabled,
-            colors = SwitchDefaults.colors(
-                checkedTrackColor = MaterialTheme.colorScheme.primary,
-            ),
+            colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary),
         )
     }
 }
@@ -2185,12 +3101,24 @@ private fun EngineStatusLine(status: SpotiFLACEngineStatus) {
  * screen - a lazy list of source rows - on every tick; here the same tick invalidates this one line.
  * It is a clock and not a re-read on purpose: the countdown is linear, and re-reading sessions means
  * touching the extensions directory and the gateway's block record for an answer that has not moved.
+ *
+ * Nothing to count down is the common case, and the only one a fresh install has: no session record
+ * has been made yet, the label is null, and the line is not drawn. The ticker used to start anyway,
+ * waking once a second and recomposing this row for a line that was never on screen - an install that
+ * shows this section from its first launch (the third-party sources are on by default) paid it for
+ * nothing. It is now started by the case that draws something: a label that cannot age into one is
+ * not drawn at all, and subtracting the elapsed seconds can only move a due moment closer.
  */
 @Composable
 private fun SessionRenewalLine(
     remainingSeconds: List<Long?>,
     snapshotElapsedMs: Long,
 ) {
+    val anythingToCountDown =
+        remember(remainingSeconds) {
+            SpotiFLACSessionRenewer.nextRenewalLabel(remainingSeconds) != null
+        }
+    if (!anythingToCountDown) return
     var tickElapsedMs by remember { mutableStateOf(0L) }
     LaunchedEffect(Unit) {
         while (true) {

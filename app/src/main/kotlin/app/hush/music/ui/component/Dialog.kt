@@ -372,12 +372,29 @@ fun TextFieldDialog(
     keyboardOptions: KeyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
     isInputValid: (String) -> Boolean = { it.isNotEmpty() },
     onDone: (String) -> Unit = {},
+    /**
+     * Whether Done closes the dialog itself.
+     *
+     * True for the dialogs whose work is finished the moment Done is tapped. False for the ones
+     * whose work continues after it - adding a repository fetches the address first, and a dialog
+     * that closed on Done could only ever report the answer to a screen that is no longer there, so
+     * a rejected address looked like a tap that did nothing.
+     */
+    dismissOnDone: Boolean = true,
     // new multi-field support
     textFields: List<Pair<String, TextFieldValue>>? = null,
     onTextFieldsChange: ((Int, TextFieldValue) -> Unit)? = null,
     onDoneMultiple: ((List<String>) -> Unit)? = null,
     onDismiss: () -> Unit,
     extraContent: (@Composable () -> Unit)? = null,
+    /**
+     * Said under the field while what is typed cannot be submitted.
+     *
+     * A disabled Done with no explanation is indistinguishable from a broken button, which is how
+     * a mistyped address was reported before this existed - the field held an IME-autocorrected
+     * host and nothing on the dialog said why the tap did nothing.
+     */
+    invalidInputMessage: String? = null,
 ) {
     val legacyFieldState = remember { mutableStateOf(initialTextFieldValue) }
 
@@ -413,7 +430,7 @@ fun TextFieldDialog(
                     } else {
                         onDone(legacyFieldState.value.text)
                     }
-                    onDismiss()
+                    if (dismissOnDone) onDismiss()
                 },
                 shapes = ButtonDefaults.shapes(),
             ) {
@@ -437,7 +454,7 @@ fun TextFieldDialog(
                                 onDone = {
                                     if (onDoneMultiple != null) {
                                         onDoneMultiple(textFields.map { it.second.text })
-                                        onDismiss()
+                                        if (dismissOnDone) onDismiss()
                                     }
                                 },
                             ),
@@ -461,13 +478,23 @@ fun TextFieldDialog(
                         KeyboardActions(
                             onDone = {
                                 onDone(legacyFieldState.value.text)
-                                onDismiss()
+                                if (dismissOnDone) onDismiss()
                             },
                         ),
                     modifier =
                         Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester),
+                )
+            }
+
+            val currentText = textFields?.firstOrNull()?.second?.text ?: legacyFieldState.value.text
+            if (invalidInputMessage != null && currentText.isNotBlank() && !isInputValid(currentText)) {
+                Text(
+                    text = invalidInputMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
 

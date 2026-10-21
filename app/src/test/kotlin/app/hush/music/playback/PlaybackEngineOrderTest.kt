@@ -133,6 +133,69 @@ class PlaybackEngineOrderTest {
     }
 
     @Test
+    fun `cached youtube bytes must not answer for the first engine`() {
+        // The regression this rule was extracted for: with the third-party engine moved to the top of
+        // the priority list, a fresh track swept its sources and played lossless while the same track
+        // after one YouTube play kept playing from YouTube, because the bytes were already on the
+        // device and nothing ever asked the sources again. Measured on the device: a complete entry in
+        // Media3's streaming cache is served with no resolver call at all, so the URL-cache rule could
+        // not help - the bytes path never asks for a URL.
+        assertEquals(
+            false,
+            PlaybackEngineOrder.cachedBytesMayShortCircuitResolve(
+                spotiflacFirst = true,
+                bytesAreSpotiFLACs = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `cached bytes answer as before when youtube is first`() {
+        assertEquals(
+            true,
+            PlaybackEngineOrder.cachedBytesMayShortCircuitResolve(
+                spotiflacFirst = false,
+                bytesAreSpotiFLACs = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `bytes the third-party engine produced are always served`() {
+        // A file it fetched is already what the order would return, and it never expires: re-resolving
+        // it would spend a sweep on bytes the device holds.
+        assertEquals(
+            true,
+            PlaybackEngineOrder.cachedBytesMayShortCircuitResolve(
+                spotiflacFirst = true,
+                bytesAreSpotiFLACs = true,
+            ),
+        )
+        assertEquals(
+            true,
+            PlaybackEngineOrder.cachedBytesMayShortCircuitResolve(
+                spotiflacFirst = false,
+                bytesAreSpotiFLACs = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `cached bytes are reused once the first engine is known to have no match`() {
+        // The same escape hatch the URL rule has, and for the same reason: without it a track no source
+        // can match would spend the whole provider budget on every replay to reach the answer the memo
+        // already holds.
+        assertEquals(
+            true,
+            PlaybackEngineOrder.cachedBytesMayShortCircuitResolve(
+                spotiflacFirst = true,
+                bytesAreSpotiFLACs = false,
+                spotiflacRecentlyMissed = true,
+            ),
+        )
+    }
+
+    @Test
     fun `youtube-sourced cached bytes do not play while youtube is disabled`() {
         // The regression: a YouTube stream cached under the track's mediaId kept being
         // served - instantly, with no resolver call - after YouTube was switched off,

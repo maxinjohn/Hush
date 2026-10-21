@@ -489,11 +489,14 @@ fun BottomSheetPlayer(
     val downloadProgress by playerConnection.activeDownloadProgress.collectAsStateWithLifecycle()
     // A fetch that outlives the audio is stale, not live: while this track is audibly playing
     // there is nothing left to wait for, so the transport keeps its play/pause control rather
-    // than a ring that never leaves.
+    // than a ring that never leaves. Read as [PlayerConnection.isAudiblyPlaying] rather than
+    // `isPlaying`, which is already true while the track is still being fetched - that made the
+    // ring's "stale" branch the live one and the progress fraction never drew.
+    val isAudiblyPlaying by playerConnection.isAudiblyPlaying.collectAsStateWithLifecycle()
     val fetchingCurrentTrack =
-        !isPlaying && downloadProgress.isFetchingTrack(mediaMetadata?.id)
+        !isAudiblyPlaying && downloadProgress.isFetchingTrack(mediaMetadata?.id)
     // The ring's fill, so it advances with the download on a device where animations are off.
-    val fetchFraction = downloadProgress.fetchFraction(mediaMetadata?.id, isPlaying)
+    val fetchFraction = downloadProgress.fetchFraction(mediaMetadata?.id, isAudiblyPlaying)
     val rawLoading =
         playbackState == STATE_BUFFERING || sliderPosition != null || fetchingCurrentTrack
     var isLoading by remember(mediaMetadata?.id) { mutableStateOf(rawLoading) }

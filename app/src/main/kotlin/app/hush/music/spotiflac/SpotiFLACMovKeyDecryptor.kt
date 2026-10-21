@@ -255,6 +255,153 @@ object SpotiFLACMovKeyDecryptor {
      */
     fun isUsableKey(keyHex: String?): Boolean = decodeKey(keyHex) != null
 
+    /**
+     * Splices a native `.flac` out of a FLAC-in-MP4 payload that arrived in the clear.
+     *
+     * Same splice as the encrypted FLAC case above - the `fLaC` marker, the metadata blocks
+     * carried in `dfLa`, then the frames in order - for a payload no key was ever needed to
+     * read. It exists because FLAC inside a *fragmented* MP4 cannot be seeked: a DASH audio
+     * stream is a `moov` with an empty sample table followed by a sequence of `moof`/`mdat`
+     * pairs, and Media3 only seeks such a file through an index (`sidx`) or a filled-in sample
+     * table. Neither is present in what the runtime hands over, so every seek was snapped back
+     * to the start of the track while the seek bar showed the position that was asked for.
+     *
+     * A native FLAC stream needs no index to be seekable: its frames are self-describing, so
+     * ExoPlayer binary-searches them against the length `FileDataSource` reports. The audio is
+     * untouched - the frames are the provider's bytes, and the STREAMINFO (with its MD5) is
+     * copied out of `dfLa` verbatim.
+     *
+     * Writes a `.flac` beside [source]; returns null when the payload is not a fragmented-MP4
+     * FLAC one (or does not splice cleanly), in which case the caller keeps what it has.
+     */
+    fun spliceNativeFlac(source: File, log: (String) -> Unit = {}): File? {
+        if (!source.isFile || source.length() < 16L) return null
+        // This is asked on every playback open, a seek re-open included, so the answer has to
+        // cost one small read for the files that are not MP4 at all - which is nearly all of
+        // them, since a payload that arrived as a real `.flac` is already seekable.
+        if (!carriesMp4Brand(source)) return null
+        val target = File(source.parentFile, source.name.substringBeforeLast('.') + ".flac")
+        // Two callers can be looking at one track at once - the playback open and the
+        // lookahead that is warming it - and both would be splicing the same bytes out of the
+        // same container into the same name. The lock makes the second one wait and read the
+        // answer instead of writing a second, interleaved copy of it. The record of what has
+        // already been spliced is keyed by the file's own size and time, so a re-download of
+        // the track is spliced again rather than answered from a stale entry.
+        synchronized(spliceLock) {
+            val signature = "${source.absolutePath}|${source.length()}|${source.lastModified()}"
+            if (signature in splicedSignatures) return target.takeIf { it.isFile }
+            return spliceUnderLock(source, target, log)?.also {
+                if (splicedSignatures.size >= MAX_REMEMBERED_SPLICES) splicedSignatures.clear()
+                splicedSignatures += signature
+            }
+        }
+    }
+
+    /** Serialises the splices, and remembers the ones already done. */
+    private val spliceLock = Any()
+    private val splicedSignatures = mutableSetOf<String>()
+    private const val MAX_REMEMBERED_SPLICES = 256
+
+    private fun spliceUnderLock(
+        source: File,
+        target: File,
+        log: (String) -> Unit,
+    ): File? {
+        val layout = runCatching { scanLayout(source) }.getOrNull() ?: return null
+        if (layout.protected || !layout.fragmented) return null
+        if (!layout.originalFormat.equals(FLAC, ignoreCase = true)) return null
+        val rawMetadata = layout.flacMetadata?.takeIf { it.isNotEmpty() } ?: return null
+        val metadata = runCatching { nativeFlacMetadata(rawMetadata) }.getOrNull() ?: return null
+
+        val spliced = runCatching { fragmentSamples(source, layout) }.getOrNull()
+        if (spliced == null || spliced.samples.isEmpty()) return null
+        val samples = spliced.samples
+
+        target.delete()
+        val written = runCatching {
+            var firstFrameVerified = false
+            BufferedOutputStream(FileOutputStream(target), IO_BUFFER).use { output ->
+                output.write(FLAC_MAGIC)
+                output.write(metadata)
+                RandomAccessFile(source, "r").use { input ->
+                    val buffer = ByteArray(IO_BUFFER)
+                    var bytes = 0L
+                    samples.forEach { sample ->
+                        input.seek(sample.offset)
+                        var remaining = sample.size
+                        while (remaining > 0) {
+                            val read = input.read(buffer, 0, minOf(buffer.size, remaining))
+                            if (read <= 0) throw DecryptionFailedException("payload ended mid-sample")
+                            if (!firstFrameVerified && read >= 2) {
+                                firstFrameVerified = true
+                                val first = buffer[0].toInt() and 0xFF
+                                val second = buffer[1].toInt() and 0xFF
+                                if (!isFlacFrameSync(first, second)) {
+                                    throw DecryptionFailedException("frames are not FLAC frames")
+                                }
+                            }
+                            output.write(buffer, 0, read)
+                            bytes += read
+                            remaining -= read
+                        }
+                    }
+                    if (!firstFrameVerified) throw DecryptionFailedException("no FLAC frames were carried")
+                    bytes
+                }
+            }
+        }.getOrNull()
+
+        if (written == null) {
+            target.delete()
+            log("flac splice: id=${source.name} declined, keeping the container")
+            return null
+        }
+        log(
+            "flac splice: id=${source.name} -> ${target.name} fragments=${spliced.fragments} " +
+                "samples=${samples.size} bytes=$written",
+        )
+        return target
+    }
+
+    /** Whether the file starts with an ISO base-media file-type box (`ftyp`). */
+    private fun carriesMp4Brand(source: File): Boolean =
+        runCatching {
+            RandomAccessFile(source, "r").use { file ->
+                if (file.length() < 12L) return false
+                val head = ByteArray(8)
+                file.readFully(head)
+                fourCc(head, 4) == "ftyp"
+            }
+        }.getOrDefault(false)
+
+    /** The samples a file's fragment headers describe, and how many fragments described them. */
+    private class FragmentedSamples(val samples: List<Sample>, val fragments: Int)
+
+    /** Every sample the fragment headers describe, in file order. */
+    private fun fragmentSamples(source: File, layout: Layout): FragmentedSamples {
+        val samples = mutableListOf<Sample>()
+        var fragments = 0
+        RandomAccessFile(source, "r").use { file ->
+            val total = file.length()
+            var position = 0L
+            while (position + 8L <= total) {
+                val header = readBoxHeader(file, position, total)
+                if (header.type == "moof") {
+                    val bodySize = header.size - header.headerSize
+                    if (bodySize <= 0L || bodySize > MAX_FRAGMENT_ATOM) return FragmentedSamples(emptyList(), fragments)
+                    file.seek(position + header.headerSize)
+                    val body = ByteArray(bodySize.toInt())
+                    file.readFully(body)
+                    val parsed = parseFragment(body, position, layout, requireIv = false)
+                    if (parsed.isNotEmpty()) fragments++
+                    samples += parsed
+                }
+                position += header.size
+            }
+        }
+        return FragmentedSamples(samples, fragments)
+    }
+
     /* --------------------------------------------------------------------------------- *
      * Which counter convention this stream uses.
      * --------------------------------------------------------------------------------- */
@@ -543,6 +690,10 @@ object SpotiFLACMovKeyDecryptor {
                         }
                     } else {
                         originalFormat = entry.type
+                        // A clear `fLaC` entry carries its STREAMINFO exactly as an encrypted one
+                        // does, and the seekable splice needs it: without it a payload that was
+                        // never encrypted had no metadata section to write.
+                        flacMetadata = entry.flacMetadata
                     }
                 }
             }
@@ -870,7 +1021,14 @@ object SpotiFLACMovKeyDecryptor {
      * - a zero IV, a constant one - produces noise that plays, which is the exact failure this
      * path exists to remove.
      */
-    private fun parseFragment(fragment: ByteArray, moofStart: Long, layout: Layout): List<Sample> {
+    private fun parseFragment(
+        fragment: ByteArray,
+        moofStart: Long,
+        layout: Layout,
+        // The clear-FLAC splice reads samples it never has to decrypt, so a fragment with no
+        // IV table - which is every unencrypted one - is a fact about the stream, not a fault.
+        requireIv: Boolean = true,
+    ): List<Sample> {
         val samples = mutableListOf<Sample>()
         // `fragment` is the moof's body, so the walk starts at its first child - while the
         // sample offsets it produces are file coordinates, based at the moof box itself.
@@ -930,7 +1088,7 @@ object SpotiFLACMovKeyDecryptor {
                     val size = declared.takeIf { it > 0 } ?: defaultSampleSize
                     val entry = senc?.entries?.getOrNull(ordinal)
                     val iv = entry?.iv ?: layout.constantIv ?: ByteArray(0)
-                    if (iv.isEmpty()) {
+                    if (iv.isEmpty() && requireIv) {
                         throw DecryptionFailedException(
                             "no initialization vector for sample $ordinal (default-base-is-moof=$defaultBaseIsMoof)",
                         )

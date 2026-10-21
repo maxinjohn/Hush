@@ -10,7 +10,6 @@
 package app.hush.music.ui.player
 
 import app.hush.music.ui.theme.HushDesign
-import app.hush.music.ui.component.HushLinearLoader
 import app.hush.music.ui.component.HushProgressSpinner
 import androidx.compose.animation.AnimatedContent
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -45,7 +44,6 @@ import androidx.compose.material3.Icon
 import app.hush.music.ui.component.HushIconButton
 import app.hush.music.ui.component.hushBouncyClickable
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -70,7 +68,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import android.content.res.Configuration
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import app.hush.music.playback.QueuePrefetchState
+import app.hush.music.playback.queuePrefetchState
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -89,10 +92,9 @@ import app.hush.music.constants.EnableHapticFeedbackKey
 import app.hush.music.constants.PrimaryAudioScraper
 import app.hush.music.constants.PrimaryAudioScraperKey
 import app.hush.music.db.entities.autoRateDisplay
+import app.hush.music.db.entities.codecRowDetail
 import app.hush.music.db.entities.containerLabel
 import app.hush.music.db.entities.formattedBitrate
-import app.hush.music.db.entities.formattedFileSize
-import app.hush.music.db.entities.formattedSampleRate
 import app.hush.music.models.ActiveOutputDevice
 import app.hush.music.models.MediaMetadata
 import app.hush.music.ui.component.ActionPromptDialog
@@ -680,50 +682,84 @@ fun SleepTimerDialog(
 }
 
 /**
- * Names where the codec row's facts came from, for the reader who has to trust them - or null for
- * the source that is named by nothing; see [formatRowSourceLabelRes].
+ * Whether the player draws its provenance line at all.
  *
- * Short and plain on purpose: this line is already the most fact-dense thing on the player, so the
- * source is a phrase rather than a symbol, and it says whether the row came from a resolve, from a
- * saved record, or from the audio being decoded right now.
+ * The row says what the audio is and where it is coming from - and, while a track is being fetched,
+ * that it *is* being fetched, naming the source and the percentage. It used to be drawn only when
+ * Media3 already had a format row for the item, which means only once the audio existed: a track
+ * started by "next" or by a queue tap has no format yet, so the one line that could have named the
+ * source being tried - and the seconds being spent on it - was absent for exactly the window it
+ * exists for. Measured on the device: a track started from the queue sat at 0:00 behind a bare
+ * spinner with no row at all, while the same fetch reached through "Refetch song" printed
+ * "Downloading 25% • gglos" - the refetch differed only in that the track already had a stored
+ * format row from its earlier play.
+ *
+ * Live progress counts on its own. [LocalPlayerConnection.activeDownloadProgress] only ever carries
+ * the item that is playing (a lookahead's transfers go to its own signal), so a non-null value is a
+ * statement about *this* track, and the row's own text already prefers the fetch or download state
+ * over the stored facts while one is in flight.
+ *
+ * A pure function rather than the condition written into the composable, so the rule that a fetch
+ * with no format row is still drawn is something a test can state; see [CodecRowVisibilityTest].
  */
+fun codecRowIsVisible(
+    showCodecOnPlayer: Boolean,
+    hasFormatRow: Boolean,
+    hasProgress: Boolean,
+    /**
+     * A sweep that ended with nothing, whose verdict is now this row's to print.
+     *
+     * Without it the row had nothing to say and was not drawn - which is exactly the state a failed
+     * fetch leaves: no format row (nothing was served) and no progress (the sweep is over), so the
+     * failure had no surface left anywhere once the album-art panel stopped showing it.
+     */
+    hasFailure: Boolean = false,
+): Boolean = showCodecOnPlayer && (hasFormatRow || hasProgress || hasFailure)
+
+/** [codecRowIsVisible] with the progress read from the connection the player is bound to. */
 @Composable
-internal fun FormatRowSource.displayLabel(): String? =
-    formatRowSourceLabelRes(this)?.let { stringResource(it) }
-
-/**
- * The phrase a row's source is named by, or null for a source the row does not name.
- *
- * [FormatRowSource.DEVICE_FILE] is not named, because the row already says it: a row backed by a
- * download or by SpotiFLAC's cached playback file is the row whose delivery reads *(device cache)*
- * beside the codec, and the phrase said the same thing again in the longest wording of the four, on
- * the line on the screen with the least room to spare. The other three each name something the rest
- * of the line cannot - a resolve in this session, an earlier resolve's saved row, and the decoder -
- * so they stay.
- *
- * A resource id rather than the sentence itself, so that which sources are named is a decision a
- * unit test can read rather than one only a phone can show; see [FormatRowSourceLabelTest].
- */
-internal fun formatRowSourceLabelRes(source: FormatRowSource): Int? =
-    when (source) {
-        FormatRowSource.SESSION_RESOLVE -> R.string.format_row_from_session_resolve
-        FormatRowSource.SAVED_RESOLVE -> R.string.format_row_from_saved_resolve
-        // Named by nothing; see above.
-        FormatRowSource.DEVICE_FILE -> null
-        FormatRowSource.DECODED_AUDIO -> R.string.format_row_from_decoder
+fun rememberShowCodecRow(
+    showCodecOnPlayer: Boolean,
+    formatRow: FormatRow?,
+): Boolean {
+    // Remembered unconditionally, like the flows inside CodecInfoRow: LocalPlayerConnection starts
+    // null and becomes bound once the service is up, and a `remember` reached only through `?:` is
+    // not wrapped in a group by the Compose compiler - which is a startup crash on the surface that
+    // can compose before the service binds.
+    val fallbackFlow = remember { kotlinx.coroutines.flow.MutableStateFlow<PlaybackDownloadProgress?>(null) }
+    val connection = LocalPlayerConnection.current
+    val progress by (
+        connection?.activeDownloadProgress ?: fallbackFlow
+    ).collectAsStateWithLifecycle(initialValue = null)
+    val fallbackFailureFlow = remember {
+        kotlinx.coroutines.flow.MutableStateFlow<app.hush.music.playback.FetchFailure?>(null)
     }
+    val failure by (
+        connection?.activeFetchFailure ?: fallbackFailureFlow
+    ).collectAsStateWithLifecycle(initialValue = null)
+    return codecRowIsVisible(
+        showCodecOnPlayer = showCodecOnPlayer,
+        hasFormatRow = formatRow != null,
+        hasProgress = progress != null,
+        hasFailure = failure != null,
+    )
+}
 
 /**
- * Codec information row displayed when showCodecOnPlayer is enabled.
+ * The facts under the playback controls: bitrate, size, and where the audio came from.
  *
- * [evidence] names where the row's facts came from - this session's resolve, an earlier resolve's saved
- * row, or the decoder - and is null for a source that is named by nothing; see [displayLabel]. It is
- * passed in rather than read here because it belongs to the *same* [FormatRow] as the codec and
- * bitrate above it: two flows would eventually disagree and the line would credit the wrong source.
+ * The codec name and its provenance phrase are deliberately absent. Both were on this line for a
+ * long time and both were asked to be removed repeatedly: the line is the densest thing on the
+ * player, the container is already named by the file the app is playing, and "codec from this
+ * session's resolve" was a sentence about the *row* rather than about the track - on the one line a
+ * listener reads to see what is playing. What is left is the part a listener cannot get from
+ * anywhere else on the screen: the bitrate, the size, and the source it is coming from.
+ *
+ * The parameters are facts, not a formatted string, because the separator and the ordering are the
+ * same on every surface that draws this row and two of them assembling their own would drift.
  */
 @Composable
 fun CodecInfoRow(
-    codec: String,
     bitrate: String,
     fileSize: String,
     textColor: Color,
@@ -734,20 +770,11 @@ fun CodecInfoRow(
     horizontalPadding: Dp = 30.dp,
     topPadding: Dp = 6.dp,
     bottomPadding: Dp = 2.dp,
-    // Required, not defaulted: this row draws a codec name and the whole point of [evidence] is that
-    // the name never appears without the origin that makes it trustworthy. A default of null would
-    // let a future caller draw the old provenance-free line by saying nothing - the null this row is
-    // handed has to be the *source's* own answer, from [displayLabel].
-    evidence: String?,
 ) {
     val fallbackFlow = remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }
-    val fallbackPlayingFlow = remember { kotlinx.coroutines.flow.MutableStateFlow(false) }
     val activeClientLabel by (
         LocalPlayerConnection.current?.activePlaybackClientLabel ?: fallbackFlow
     ).collectAsStateWithLifecycle(initialValue = null)
-    val isPlaying by (
-        LocalPlayerConnection.current?.isPlaying ?: fallbackPlayingFlow
-    ).collectAsStateWithLifecycle(initialValue = false)
     // No fallback that names an engine. There used to be a `?: if (isPlaying) "YouTube"` here,
     // which meant that for the whole window while SpotiFLAC resolved a track - a provider
     // sweep can take tens of seconds - the row asserted YouTube even though nothing of the
@@ -760,7 +787,7 @@ fun CodecInfoRow(
     // source, rendered blank for the entire window. Measured on device: an uncached track sat at
     // 0:00 for 18 seconds while `deezer` refused and `qobuz-web` stalled, with this line empty
     // throughout, which is what makes a slow source read as a track that never started.
-    // Remembered unconditionally, like the two flows above: `LocalPlayerConnection` is a
+    // Remembered unconditionally, like the flow above: `LocalPlayerConnection` is a
     // `staticCompositionLocalOf` whose value starts null and becomes the bound connection once
     // the service is up, so this whole subtree recomposes with the other branch taken. A
     // `remember` reached only through `?:` is not wrapped in a group by the Compose compiler, so
@@ -771,7 +798,82 @@ fun CodecInfoRow(
     val downloadProgress by (
         LocalPlayerConnection.current?.activeDownloadProgress ?: fallbackProgressFlow
     ).collectAsStateWithLifecycle(initialValue = null)
-    val fetching = downloadProgress?.fetchingLabel()
+    // (The row is drawn for a failed sweep even with nothing else to say - see
+    // [codecRowIsVisible].)
+    // Whether the track is already being heard. A SpotiFLAC file is complete before Media3 is
+    // handed it, so audio that is playing cannot be audio that is still downloading - which means a
+    // sample left published past the end of its transfer (measured on device: "Downloading 11%" and
+    // "Downloading 14%" over tracks that had finished and started playing) is a sample this row must
+    // not believe. See [codecRowState].
+    //
+    // [PlayerConnection.isAudiblyPlaying], not `isPlaying`: the latter is true while the player is
+    // only *waiting* to play, which is the whole window a SpotiFLAC track is resolving and
+    // downloading - so this guard was hiding every live transfer. The device log that settled it:
+    // `progress routed player=true ... pct=99` beside `row draw state=STORED playing=true`.
+    val fallbackPlayingFlow = remember { kotlinx.coroutines.flow.MutableStateFlow(false) }
+    val isAudiblyPlaying by (
+        LocalPlayerConnection.current?.isAudiblyPlaying ?: fallbackPlayingFlow
+    ).collectAsStateWithLifecycle(initialValue = false)
+    // Which of the three things this row has to say; see [codecRowState] for the precedence.
+    val rowState = downloadProgress.codecRowState(isAudiblyPlaying = isAudiblyPlaying)
+    val fetching = if (rowState == CodecRowState.RESOLVING) downloadProgress?.fetchingLabel() else null
+    // A sweep that ended with nothing: the sentence the player used to draw in a panel over the
+    // artwork. It reads here instead, beside the source names it asked, and only for the track it
+    // is about - a verdict for one song must never be printed under another.
+    val fallbackFailureFlow = remember {
+        kotlinx.coroutines.flow.MutableStateFlow<app.hush.music.playback.FetchFailure?>(null)
+    }
+    val fetchFailure by (
+        LocalPlayerConnection.current?.activeFetchFailure ?: fallbackFailureFlow
+    ).collectAsStateWithLifecycle(initialValue = null)
+    val fallbackMediaFlow = remember {
+        kotlinx.coroutines.flow.MutableStateFlow<app.hush.music.models.MediaMetadata?>(null)
+    }
+    val currentMetadata by (
+        LocalPlayerConnection.current?.mediaMetadata ?: fallbackMediaFlow
+    ).collectAsStateWithLifecycle(initialValue = null)
+    val failureLine =
+        fetchFailure
+            ?.takeIf { it.mediaId == currentMetadata?.id }
+            ?.let { failure ->
+                val names = app.hush.music.playback.FetchFailure.sourceNames(failure.sources)
+                if (names.isEmpty()) {
+                    // No name to put in the sentence is still not a catalogue answer when the
+                    // sources refused - see [app.hush.music.playback.FetchFailure.refused].
+                    if (failure.refused) {
+                        stringResource(R.string.spotiflac_fetch_refused)
+                    } else {
+                        stringResource(R.string.spotiflac_fetch_failed)
+                    }
+                } else {
+                    val rest = app.hush.music.playback.FetchFailure.remainingCount(failure.sources)
+                    val list =
+                        if (rest > 0) {
+                            stringResource(R.string.spotiflac_fetch_failed_more, names.joinToString(", "), rest)
+                        } else {
+                            names.joinToString(", ")
+                        }
+                    // A refusal is not a catalogue answer: the sources in this list never looked at
+                    // the track, so the line says what the service did instead of what it did not
+                    // find. See [app.hush.music.playback.FetchFailure.refused].
+                    if (failure.refused) {
+                        stringResource(R.string.spotiflac_fetch_refused_sources, list)
+                    } else {
+                        stringResource(R.string.spotiflac_fetch_failed_sources, list)
+                    }
+                }
+            }
+    // A fetch that has already started reports bytes, and this row used to fall back to the
+    // track's *stored* format line for that whole window - so a refetch spent its second half
+    // showing a codec name and a size from the copy that was being replaced, while the transfer
+    // that was replacing it named nothing at all. Same sentence as the fetch state, with the
+    // number the download actually has: how far along, and which source is serving it.
+    val downloadingProgress = downloadProgress?.takeIf { rowState == CodecRowState.DOWNLOADING }
+    val downloading = downloadingProgress?.downloadLine()
+    // Live progress wins over a verdict: a sweep that is running again after a failure has something
+    // newer to say than the failure did, and its own line is the honest one.
+    val shownFailure = failureLine?.takeIf { fetching == null && downloading == null }
+    val rowColor = if (shownFailure != null) MaterialTheme.colorScheme.error else textColor
 
     // Resolved before the string is built, because the labelling helpers are composable and
     // cannot be called from inside a buildString lambda. The delivery is appended so this row
@@ -782,6 +884,9 @@ fun CodecInfoRow(
             ?.takeIf { it.isNotBlank() && sourceInfo.engine != PlaybackEngine.UNKNOWN }
             ?.let { sourceInfo.displayName() }
     val deliveryText = sourceInfo.delivery.displayName()
+    // The fallback for a line whose every fact is missing. Resolved here because it is a
+    // composable call and the text below is built in a plain lambda.
+    val emptyAudioFallback = stringResource(R.string.player_audio_stereo)
 
     Row(
         horizontalArrangement = Arrangement.Center,
@@ -800,33 +905,35 @@ fun CodecInfoRow(
             text =
                 // While a source is still being fetched there is no codec/bitrate/size to
                 // report for the new track, so the fetching state replaces the line rather
-                // than leaving it blank.
+                // than leaving it blank - and once bytes are moving, the download's own
+                // progress does the same, because the stored row describes the old copy.
+                // Only the row for a track that is *not* being fetched falls through to the
+                // stored facts, which is the one case where they are still the truth.
                 fetching
+                    ?: downloading
+                    ?: shownFailure
                     ?: buildString {
-                        append(codec)
                         if (bitrate != "Unknown") {
-                            append(" • ")
                             append(bitrate)
                         }
                         if (fileSize.isNotEmpty()) {
-                            append(" • ")
+                            if (isNotEmpty()) append(" • ")
                             append(fileSize)
                         }
                         if (sourceText != null) {
-                            append(" • ")
+                            if (isNotEmpty()) append(" • ")
                             append(sourceText)
                             if (deliveryText != null) {
                                 append(" (").append(deliveryText.lowercase()).append(")")
                             }
                         }
-                        if (evidence != null) {
-                            append(" • ")
-                            append(evidence)
-                        }
+                        // Every part may be absent - a stream with no bitrate and no known
+                        // source has nothing to say - and an empty line is worse than none.
+                        if (isEmpty()) append(emptyAudioFallback)
                     },
             style = MaterialTheme.typography.labelSmall,
             fontFamily = FontFamily.Monospace,
-            color = textColor,
+            color = rowColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             // The row is a single centred line of codec/bitrate/size/source facts that
@@ -870,8 +977,11 @@ fun PlaybackSourceRow(
         downloadProgress
             ?.let { progress ->
                 when {
-                    progress.fromCache -> stringResource(R.string.playback_delivery_device_cache)
-                    progress.percent >= 100 -> stringResource(R.string.playback_delivery_fetched_now)
+                    // One word for both halves of the same copy: a cache replay and a fetch that
+                    // just finished are both "the app fetched this for playback". See
+                    // `PlaybackDelivery.displayName`.
+                    progress.fromCache -> stringResource(R.string.playback_delivery_fetched)
+                    progress.percent >= 100 -> stringResource(R.string.playback_delivery_fetched)
                     else -> null
                 }
             }
@@ -911,9 +1021,10 @@ fun PlaybackSourceRow(
                         .hushMarquee(),
             )
         }
-        downloadProgress?.let { progress ->
-            SpotiFLACDownloadStatus(progress = progress, textColor = textColor)
-        }
+        // No progress line here: this row names *where* the audio came from, and the one line that
+        // reports a transfer in flight is the codec line under the controls ([downloadLine]). Two
+        // surfaces printing the same percentage is how the player ended up saying "Downloading 42%"
+        // twice, in two different wordings, a few dp apart.
     }
 }
 
@@ -933,83 +1044,188 @@ val PlaybackDownloadProgress.isResolvingSource: Boolean
     get() = !fromCache && bytesTotal <= 0L && percent <= 0
 
 /**
- * "Fetching from qobuz-web…" while a source is being tried, or null once real bytes are
+ * What the codec row has to say about the track on screen, if anything.
+ *
+ * The row is built from the track's *stored* format facts (bitrate, size, source, delivery), and
+ * every one of those facts describes the copy the engine currently hands to the player. While a
+ * SpotiFLAC track is being resolved or downloaded there is no such copy for it yet: the stored row
+ * belongs to the previous play of that track, or to another track entirely, so drawing it over a
+ * transfer is how a 33 MB "Deezer (device cache)" line appeared above a track that was audibly still
+ * downloading. The transfer's own state replaces the line instead.
+ *
+ * The precedence is the point, and it is the reason this is a function rather than a chain of
+ * `takeIf`s at the call site:
+ *
+ * * [RESOLVING] first - a sweep publishes no bytes and no fraction, so it is also `percent < 100`,
+ *   and reading it as a download would draw "Downloading 0%" for the tens of seconds a provider
+ *   sweep can take.
+ * * [DOWNLOADING] for anything under 100 that is not a cache hit, *including the very first
+ *   sample*: the total size is published before the first byte is read, and that opening moment is
+ *   precisely when the stored line is still the old copy. A transfer that already reported itself
+ *   complete is not downloading any more - a progress entry can outlive the last byte.
+ * * [STORED] otherwise: nothing in flight, a replay off the device cache, or a finished transfer.
+ */
+internal enum class CodecRowState { RESOLVING, DOWNLOADING, STORED }
+
+internal fun PlaybackDownloadProgress?.codecRowState(isAudiblyPlaying: Boolean = false): CodecRowState =
+    when {
+        this == null -> CodecRowState.STORED
+        // The audio is playing, so the fetch that produced it is over - whatever the last sample
+        // said. A SpotiFLAC file is complete before it is played, so a "Downloading 14%" left
+        // behind by a transfer that finished (or by one whose terminal sample lost a race with the
+        // meter) describes nothing on screen. This is the row's half of the same rule the
+        // transport's ring follows, where a playing track has no fraction at all.
+        //
+        // Audible, not merely `playWhenReady`: that flag is already set while the track is still
+        // being fetched, so reading it here treated every live transfer as a finished one.
+        isAudiblyPlaying -> CodecRowState.STORED
+        fromCache -> CodecRowState.STORED
+        isResolvingSource -> CodecRowState.RESOLVING
+        percent < 100 -> CodecRowState.DOWNLOADING
+        else -> CodecRowState.STORED
+    }
+
+
+/**
+ * "Fetching from Deezer…" while a source is being tried, or null once real bytes are
  * moving - at which point [R.string.spotiflac_downloading_percent] is the true statement.
+ *
+ * The name is the one the publisher resolved ([PlaybackDownloadProgress.sourceDisplayName]): a
+ * listener reading this row is asking which source is serving the track, and the registry id it used
+ * to print (`bitchord-streaming-modules:bitchord-tidal-flac`) answered that question in a vocabulary
+ * nothing else on screen uses.
  */
 @Composable
 fun PlaybackDownloadProgress.fetchingLabel(): String? =
     if (!isResolvingSource) {
         null
     } else {
-        sourceId
+        sourceDisplayName
             ?.takeIf { it.isNotBlank() }
-            ?.let { stringResource(R.string.spotiflac_fetching_from_source, it) }
+            ?.let { name ->
+                // How far into the walk this source is, when the publisher knew: "Fetching from
+                // Tidal FLAC… (2 of 3)" tells a listener the app is working through their list,
+                // where the name alone is the same sentence for a one-source sweep and a
+                // five-source one.
+                if (attemptIndex > 0 && attemptTotal >= attemptIndex) {
+                    stringResource(R.string.spotiflac_fetch_trying_source, name, attemptIndex, attemptTotal)
+                } else {
+                    stringResource(R.string.spotiflac_fetching_from_source, name)
+                }
+            }
             ?: stringResource(R.string.spotiflac_fetching_audio)
     }
 
 /**
- * Shows what a SpotiFLAC track is doing right now: fetching it (with real progress
- * and speed) or replaying it from the on-device cache.
+ * The one line the player says about a transfer in flight: how far along, how fast, how much of
+ * what, and from where.
+ *
+ * The percentage is only half of it. "Downloading 42%" answers neither question a listener waiting
+ * asks - is it moving, and how much is left - so the speed, the bytes received against the total and
+ * the source follow it, composed in one place ([PlaybackDownloadProgress.downloadDetailParts]) so the
+ * codec line, the landscape caption and the refetch path cannot word the same transfer differently.
+ * A source sweep has no numbers yet, so it names the source being tried instead of printing 0%.
  */
 @Composable
-fun SpotiFLACDownloadStatus(
-    progress: PlaybackDownloadProgress,
-    textColor: Color,
+fun PlaybackDownloadProgress.downloadLine(): String {
+    fetchingLabel()?.let { return it }
+    val percent = stringResource(R.string.spotiflac_downloading_percent, percent)
+    return (listOf(percent) + downloadDetailParts()).joinToString(" • ")
+}
+
+/**
+ * What one queue row says about the track the lookahead is warming ahead of the listener.
+ *
+ * The lookahead's traffic had no surface at all before this: the runtime reports one item's progress
+ * at a time, and the player's own signal is claimed by the track that is playing, so a queue being
+ * fetched ahead of the user looked exactly like a queue doing nothing - while the only visible sign
+ * of the work, when it was visible at all, was the fetch label on the song already playing.
+ *
+ * Drawn on the *row* rather than in the player for the same reason: the answer to "what is being
+ * fetched?" is a track in the list, and a status that names one track while the user listens to
+ * another belongs on that track. Rows the lookahead is not touching draw nothing, and the playing
+ * track's row is refused by [queuePrefetchState] whatever the lookahead is doing.
+ *
+ * Every state takes the same footprint, so a row's width does not change as the lookahead advances
+ * from queued to fetching to downloading; the app already avoids that in the settings rows, where a
+ * control that vanished as the list was reordered made the row jump.
+ */
+@Composable
+fun QueuePrefetchBadge(
+    mediaId: String,
     modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
-    // Only an in-flight fetch belongs here. "Playing from cache" and "ready" are now the
-    // delivery line's job; repeating them is what made a cache hit and a download look like
-    // the same thing.
-    if (progress.fromCache || progress.percent >= 100) return
+    val playerConnection = LocalPlayerConnection.current ?: return
+    val prefetch by playerConnection.lookaheadPrefetch.collectAsStateWithLifecycle()
+    val currentMediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
+    val state =
+        queuePrefetchState(
+            mediaId = mediaId,
+            currentMediaId = currentMediaMetadata?.id,
+            prefetch = prefetch,
+        ) ?: return
 
-    // A source sweep has no fraction to show, so it says which source it is trying and moves
-    // an indeterminate bar, rather than sitting on a frozen "Downloading 0%".
-    val fetching = progress.fetchingLabel()
-    val label =
-        fetching
-            ?: buildString {
-                append(stringResource(R.string.spotiflac_downloading_percent, progress.percent))
-                progress.speedLabel?.let { append(" • ").append(it) }
-                progress.sizeLabel?.let { append(" of ").append(it) }
-            }
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+    // Spoken, not drawn: the ring and the spinner carry no words, and a queue that quietly fills
+    // itself ahead of the listener is exactly the state a screen reader has to be able to report.
+    val description =
+        when (state) {
+            QueuePrefetchState.Queued -> stringResource(R.string.queue_prefetch_queued)
+            QueuePrefetchState.Fetching -> stringResource(R.string.spotiflac_fetching_audio)
+            is QueuePrefetchState.Downloading ->
+                stringResource(R.string.spotiflac_downloading_percent, state.percent)
+        }
+
+    Box(
+        modifier =
+            modifier
+                .size(QueuePrefetchBadgeSize)
+                .padding(end = 2.dp)
+                .clearAndSetSemantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = textColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(3.dp))
-        when {
-            fetching != null ->
-                HushLinearLoader(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(2.dp)
-                            .clip(RoundedCornerShape(1.dp)),
-                    color = textColor,
-                    trackColor = textColor.copy(alpha = 0.22f),
+        when (state) {
+            QueuePrefetchState.Queued ->
+                CircularProgressIndicator(
+                    progress = { 0f },
+                    modifier = Modifier.size(QueuePrefetchBadgeSize),
+                    strokeWidth = 2.dp,
+                    color = color.copy(alpha = 0.35f),
+                    trackColor = color.copy(alpha = 0.35f),
                 )
 
-            progress.percent in 1..99 ->
-                LinearProgressIndicator(
-                    progress = { progress.percent / 100f },
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(2.dp)
-                            .clip(RoundedCornerShape(1.dp)),
-                    color = textColor,
-                    trackColor = textColor.copy(alpha = 0.22f),
+            QueuePrefetchState.Fetching ->
+                // Turns whether or not the system's animation scale is on: a provider stage can sit
+                // there for seconds, and an indicator that never moved would read as a stuck row.
+                HushProgressSpinner(
+                    modifier = Modifier.size(QueuePrefetchBadgeSize - 4.dp),
+                    color = color,
+                    strokeWidth = 2.dp,
+                    trackColor = color.copy(alpha = 0.25f),
                 )
+
+            is QueuePrefetchState.Downloading ->
+                Box(contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        progress = { state.percent / 100f },
+                        modifier = Modifier.size(QueuePrefetchBadgeSize),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = color.copy(alpha = 0.25f),
+                    )
+                    Text(
+                        text = "${state.percent}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 8.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
         }
     }
 }
+
+/** The ring the queue's prefetch badge draws, matching the library's own download indicator. */
+private val QueuePrefetchBadgeSize = 20.dp
 
 /**
  * V2 Design Style collapsed queue content.
@@ -1041,36 +1257,19 @@ fun QueueCollapsedContentV2(
 
     Column(modifier = modifier.fillMaxWidth()) {
         PlaybackSourceRow(textColor = textBackgroundColor)
-        if (showCodecOnPlayer && formatRow != null) {
-            val currentFormat = formatRow.format
-            val codec =
-                currentFormat.codecs
-                    .takeIf { it.isNotBlank() }
-                    ?: currentFormat.containerLabel()
-
-            val container = currentFormat.containerLabel()
-
-            val codecLabel =
-                if (container.isNotBlank() && !codec.equals(container, ignoreCase = true)) {
-                    "$codec ($container)"
-                } else {
-                    codec
-                }
-
-            val bitrate = currentFormat.formattedBitrate()
+        if (rememberShowCodecRow(showCodecOnPlayer, formatRow)) {
+            val currentFormat = formatRow?.format
+            val bitrate = currentFormat?.formattedBitrate() ?: ""
 
             val extraText =
                 listOfNotNull(
-                    currentFormat.formattedSampleRate(),
-                    currentFormat.formattedFileSize().takeIf { it.isNotBlank() },
+                    currentFormat?.codecRowDetail()?.takeIf { it.isNotBlank() },
                 ).joinToString(separator = " • ")
 
             CodecInfoRow(
-                codec = codecLabel,
                 bitrate = bitrate,
                 fileSize = extraText,
                 textColor = textBackgroundColor.copy(alpha = 0.7f),
-                evidence = formatRow.source.displayLabel(),
             )
         }
 
@@ -1276,17 +1475,14 @@ fun QueueCollapsedContentV3(
 
     Column(modifier = modifier.fillMaxWidth()) {
         PlaybackSourceRow(textColor = textBackgroundColor)
-        if (showCodecOnPlayer && formatRow != null) {
-            val currentFormat = formatRow.format
-            val container = currentFormat.containerLabel()
-            val bitrate = currentFormat.formattedBitrate()
+        if (rememberShowCodecRow(showCodecOnPlayer, formatRow)) {
+            val currentFormat = formatRow?.format
+            val bitrate = currentFormat?.formattedBitrate() ?: ""
 
             CodecInfoRow(
-                codec = container,
                 bitrate = bitrate,
                 fileSize = "",
                 textColor = textBackgroundColor.copy(alpha = 0.5f),
-                evidence = formatRow.source.displayLabel(),
             )
         }
 
@@ -1327,6 +1523,14 @@ fun QueueCollapsedContentV3(
                         color = textBackgroundColor.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
+                        // One line, and an ellipsis when the chip cannot give it a full one. These
+                        // labels sit in a weighted chip beside an icon, so at a large font scale in
+                        // a narrow window there is less room than the word needs - and a one-line
+                        // label with the default clip loses characters with nothing to show it:
+                        // measured on device, "Lyrics" came out as "Lyri" at a 600x360dp window and
+                        // font scale 1.5, and the sweep's text-fit check is what caught it.
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -1350,6 +1554,13 @@ fun QueueCollapsedContentV3(
                             color = textBackgroundColor.copy(alpha = 0.85f),
                             style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
+                            // The clock in the row beside the two labelled chips, and it starves
+                            // the same way they did: the leftovers this row hands its last child
+                            // are less than the word needs once the font scale is up. A clock that
+                            // loses digits is the failure the text-fit check exists for, so it says
+                            // it was shortened instead.
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     } else {
                         Icon(
@@ -1386,6 +1597,8 @@ fun QueueCollapsedContentV3(
                         color = textBackgroundColor.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -1427,18 +1640,15 @@ fun QueueCollapsedContentV1(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         PlaybackSourceRow(textColor = textBackgroundColor)
-        if (showCodecOnPlayer && formatRow != null) {
-            val currentFormat = formatRow.format
-            val container = currentFormat.containerLabel()
-            val bitrate = currentFormat.formattedBitrate()
-            val fileSize = currentFormat.formattedFileSize()
+        if (rememberShowCodecRow(showCodecOnPlayer, formatRow)) {
+            val currentFormat = formatRow?.format
+            val bitrate = currentFormat?.formattedBitrate() ?: ""
+            val fileSize = currentFormat?.codecRowDetail() ?: ""
 
             CodecInfoRow(
-                codec = container,
                 bitrate = bitrate,
                 fileSize = fileSize,
                 textColor = textBackgroundColor.copy(alpha = 0.7f),
-                evidence = formatRow.source.displayLabel(),
             )
         }
 
@@ -1574,18 +1784,15 @@ fun V6QueueCollapsedContent(
     applyBottomInsets: Boolean = true,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        if (showCodecOnPlayer && formatRow != null) {
-            val currentFormat = formatRow.format
-            val container = currentFormat.containerLabel()
-            val bitrate = currentFormat.formattedBitrate()
-            val fileSize = currentFormat.formattedFileSize()
+        if (rememberShowCodecRow(showCodecOnPlayer, formatRow)) {
+            val currentFormat = formatRow?.format
+            val bitrate = currentFormat?.formattedBitrate() ?: ""
+            val fileSize = currentFormat?.codecRowDetail() ?: ""
 
             CodecInfoRow(
-                codec = container,
                 bitrate = bitrate,
                 fileSize = fileSize,
                 textColor = textBackgroundColor.copy(alpha = 0.6f),
-                evidence = formatRow.source.displayLabel(),
                 modifier =
                     Modifier.padding(
                         start = 20.dp,
@@ -1668,6 +1875,8 @@ fun V6QueueBottomBar(
                     color = textBackgroundColor,
                     style = MaterialTheme.typography.labelLarge,
                     maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -1745,6 +1954,8 @@ fun V6QueueBottomBar(
                     color = textBackgroundColor,
                     style = MaterialTheme.typography.labelLarge,
                     maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -1770,18 +1981,15 @@ fun QueueCollapsedContentV4(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         PlaybackSourceRow(textColor = textBackgroundColor)
-        if (showCodecOnPlayer && formatRow != null) {
-            val currentFormat = formatRow.format
-            val container = currentFormat.containerLabel()
-            val bitrate = currentFormat.formattedBitrate()
-            val fileSize = currentFormat.formattedFileSize()
+        if (rememberShowCodecRow(showCodecOnPlayer, formatRow)) {
+            val currentFormat = formatRow?.format
+            val bitrate = currentFormat?.formattedBitrate() ?: ""
+            val fileSize = currentFormat?.codecRowDetail() ?: ""
 
             CodecInfoRow(
-                codec = container,
                 bitrate = bitrate,
                 fileSize = fileSize,
                 textColor = textBackgroundColor.copy(alpha = 0.6f),
-                evidence = formatRow.source.displayLabel(),
             )
         }
 
@@ -1829,6 +2037,8 @@ fun QueueCollapsedContentV4(
                         color = textBackgroundColor,
                         style = MaterialTheme.typography.labelLarge,
                         maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -1908,6 +2118,8 @@ fun QueueCollapsedContentV4(
                         color = textBackgroundColor,
                         style = MaterialTheme.typography.labelLarge,
                         maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -1931,18 +2143,15 @@ fun QueueCollapsedContentV7(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         PlaybackSourceRow(textColor = textBackgroundColor)
-        if (showCodecOnPlayer && formatRow != null) {
-            val currentFormat = formatRow.format
-            val container = currentFormat.containerLabel()
-            val bitrate = currentFormat.autoRateDisplay()
-            val fileSize = currentFormat.formattedFileSize()
+        if (rememberShowCodecRow(showCodecOnPlayer, formatRow)) {
+            val currentFormat = formatRow?.format
+            val bitrate = currentFormat?.autoRateDisplay() ?: ""
+            val fileSize = currentFormat?.codecRowDetail() ?: ""
 
             CodecInfoRow(
-                codec = container,
                 bitrate = bitrate,
                 fileSize = fileSize,
                 textColor = textBackgroundColor.copy(alpha = 0.6f),
-                evidence = formatRow.source.displayLabel(),
             )
         }
 
@@ -2129,18 +2338,15 @@ fun QueueCollapsedContentV9(
                 ).padding(bottom = bottomPadding),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (showCodecOnPlayer && !compactLandscape && formatRow != null) {
-            val currentFormat = formatRow.format
-            val container = currentFormat.containerLabel()
-            val bitrate = currentFormat.formattedBitrate()
-            val fileSize = currentFormat.formattedFileSize()
+        if (!compactLandscape && rememberShowCodecRow(showCodecOnPlayer, formatRow)) {
+            val currentFormat = formatRow?.format
+            val bitrate = currentFormat?.formattedBitrate() ?: ""
+            val fileSize = currentFormat?.codecRowDetail() ?: ""
 
             CodecInfoRow(
-                codec = container,
                 bitrate = bitrate,
                 fileSize = fileSize,
                 textColor = textBackgroundColor.copy(alpha = 0.6f),
-                evidence = formatRow.source.displayLabel(),
             )
         }
 
@@ -2358,6 +2564,8 @@ fun LandscapeQueueChromeRow(
                     style = MaterialTheme.typography.labelLarge,
                     color = textBackgroundColor,
                     maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -2398,6 +2606,8 @@ fun LandscapeQueueChromeRow(
                             style = MaterialTheme.typography.labelMedium,
                             color = textBackgroundColor,
                             maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -2430,6 +2640,8 @@ fun LandscapeQueueChromeRow(
                     style = MaterialTheme.typography.labelLarge,
                     color = textBackgroundColor,
                     maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -2595,8 +2807,8 @@ fun AuraQueueCollapsedContent(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = if (compact) Alignment.End else Alignment.Start,
     ) {
-        if (!compact && showCodecOnPlayer && formatRow != null) {
-            val currentFormat = formatRow.format
+        if (!compact && rememberShowCodecRow(showCodecOnPlayer, formatRow)) {
+            val currentFormat = formatRow?.format
 
             // The provenance line sits where the bottom glow is brightest, so plain white text
             // sank into the artwork. A slim glass strip keeps it legible in portrait.
@@ -2611,11 +2823,14 @@ fun AuraQueueCollapsedContent(
                 contentAlignment = Alignment.Center,
             ) {
                 CodecInfoRow(
-                    codec = currentFormat.containerLabel(),
-                    bitrate = currentFormat.formattedBitrate(),
-                    fileSize = currentFormat.formattedFileSize(),
+                    bitrate = currentFormat?.formattedBitrate() ?: "",
+                    // The sample rate and the size, not the size alone: a device file's bitrate is
+                    // the one fact Media3 cannot report (`bitrate=0` for every FLAC it decodes), so
+                    // this strip drew `24 MB` and nothing else on the layout Aura actually ships -
+                    // while the row in every other layout printed `44.1 kHz • 24 MB`. See
+                    // [codecRowDetail].
+                    fileSize = currentFormat?.codecRowDetail() ?: "",
                     textColor = Color.White.copy(alpha = 0.88f),
-                    evidence = formatRow.source.displayLabel(),
                     modifier =
                         Modifier.padding(
                             top = 3.dp,
@@ -2731,6 +2946,8 @@ fun AuraQueueBottomBar(
                         color = pillText,
                         style = chipLabelStyle,
                         maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -2810,6 +3027,8 @@ fun AuraQueueBottomBar(
                         color = pillText,
                         style = chipLabelStyle,
                         maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

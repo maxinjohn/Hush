@@ -136,6 +136,8 @@ import app.hush.music.constants.PlayerHorizontalPadding
 import app.hush.music.constants.V6QueueBottomBarHeight
 import app.hush.music.constants.SliderStyle
 import app.hush.music.db.entities.codecLabel
+import app.hush.music.db.entities.formattedBitrate
+import app.hush.music.db.entities.formattedSampleRate
 import app.hush.music.extensions.togglePlayPause
 import app.hush.music.extensions.toggleRepeatMode
 import app.hush.music.models.MediaMetadata
@@ -991,7 +993,6 @@ fun PlayerTimeLabel(
     duration: Long,
     textBackgroundColor: Color,
     showRemainingTime: Boolean = false,
-    centerContent: @Composable (() -> Unit)? = null,
 ) {
     Box(
         modifier =
@@ -1007,15 +1008,6 @@ fun PlayerTimeLabel(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.align(Alignment.CenterStart),
         )
-
-        if (centerContent != null) {
-            Box(
-                modifier = Modifier.align(Alignment.Center),
-                contentAlignment = Alignment.Center,
-            ) {
-                centerContent()
-            }
-        }
 
         Text(
             text =
@@ -1869,63 +1861,6 @@ fun PlayerControlsContent(
             duration = duration,
             textBackgroundColor = textBackgroundColor,
             showRemainingTime = playerDesignStyle == PlayerDesignStyle.V7,
-            centerContent =
-                if (playerDesignStyle == PlayerDesignStyle.V7 && formatRow != null) {
-                    {
-                        val codec = formatRow.format.mimeType.substringAfter("/").uppercase()
-                        val label =
-                            when {
-                                codec.contains("FLAC") || codec.contains("ALAC") -> "Lossless"
-                                codec.contains("OPUS") -> codec
-                                codec.contains("AAC") -> codec
-                                codec.contains("MP4A") -> "AAC"
-                                codec.contains("VORBIS") -> "Vorbis"
-                                else -> codec
-                            }
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = textBackgroundColor.copy(alpha = 0.12f),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.graphic_eq),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp),
-                                    tint = textBackgroundColor.copy(alpha = 0.8f),
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                // The codec name on its own is a claim of unknown origin, and the
-                                // claim that once lied on this very badge - a "Lossless" label over
-                                // a track with no lossless bytes anywhere - is exactly the one the
-                                // provenance line qualifies.
-                                Column {
-                                    Text(
-                                        text = label,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = textBackgroundColor.copy(alpha = 0.8f),
-                                    )
-                                    // The origin line is drawn only for a source that has one: a
-                                    // row served off a file on this device is named by nothing, and
-                                    // an empty second line under the badge would be a gap the eye
-                                    // reads as a missing fact.
-                                    formatRow.source.displayLabel()?.let { evidence ->
-                                        Text(
-                                            text = evidence,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = textBackgroundColor.copy(alpha = 0.5f),
-                                            maxLines = 1,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    null
-                },
         )
     }
 
@@ -4179,14 +4114,6 @@ private fun V8PlaybackProgress(
                 modifier = Modifier.align(Alignment.CenterStart),
             )
 
-            if (formatRow != null) {
-                V8QualityChip(
-                    formatRow = formatRow,
-                    foreground = foreground,
-                    modifier = Modifier.align(Alignment.Center),
-                )
-            }
-
             Text(
                 text = if (duration != C.TIME_UNSET) makeTimeString(duration) else "",
                 style = MaterialTheme.typography.labelMedium,
@@ -4195,64 +4122,6 @@ private fun V8PlaybackProgress(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
-        }
-    }
-}
-
-@Composable
-private fun V8QualityChip(
-    formatRow: FormatRow,
-    foreground: Color,
-    modifier: Modifier = Modifier,
-) {
-    val format = formatRow.format
-    val label =
-        remember(format.mimeType, format.codecs) {
-            format.codecLabel()
-        }
-
-    Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = foreground.copy(alpha = 0.1f),
-        border =
-            androidx.compose.foundation.BorderStroke(
-                width = 1.dp,
-                color = foreground.copy(alpha = 0.13f),
-            ),
-        modifier = modifier,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.graphic_eq),
-                contentDescription = null,
-                tint = foreground.copy(alpha = 0.72f),
-                modifier = Modifier.size(15.dp),
-            )
-            // Two lines rather than a longer one: appending the provenance to a chip that is
-            // centred between two time labels would truncate exactly the part that matters on a
-            // narrow screen, and a chip may wrap but never lie about where its name came from.
-            Column {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = foreground.copy(alpha = 0.72f),
-                    maxLines = 1,
-                )
-                // A source that is named by nothing draws the chip's own line only; see
-                // [formatRowSourceLabelRes].
-                formatRow.source.displayLabel()?.let { evidence ->
-                    Text(
-                        text = evidence,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = foreground.copy(alpha = 0.45f),
-                        maxLines = 1,
-                    )
-                }
-            }
         }
     }
 }
@@ -6067,7 +5936,6 @@ fun WideLandscapePlayerContent(
             }
         }
 
-    val downloadProgress by playerConnection.activeDownloadProgress.collectAsStateWithLifecycle()
     val subtitle = queueTitle ?: mediaMetadata.album?.title.orEmpty()
 
     // "Source" answers which engine produced the audio; the caption underneath answers the
@@ -6076,24 +5944,23 @@ fun WideLandscapePlayerContent(
     // media3 "downloaded" badge even though they are unrelated facts.
     val sourceInfo = remember(playbackSourceLabel) { PlaybackSourceLabels.parse(playbackSourceLabel) }
     val sourceValue = sourceInfo.displayName()
-    // A source sweep has no fraction to report yet, so it names the source being tried; only
-    // once bytes are actually moving does a percentage become the true statement.
-    val deliveryCaption =
-        downloadProgress?.fetchingLabel()
-            ?: downloadProgress
-                ?.takeIf { !it.fromCache && it.percent in 1..99 }
-                ?.let { stringResource(R.string.spotiflac_downloading_percent, it.percent) }
-            ?: sourceInfo.delivery.displayName()
-    // The codec, and the origin phrase as a tail only when the source has one: a row served off a
-    // file on this device is named by nothing, so it reads as the codec alone rather than as a
-    // codec followed by a separator with nothing after it.
-    val formatEvidence = formatRow?.source?.displayLabel()
+    // Delivery only. A percentage belongs on the one progress line under the controls
+    // ([downloadLine]); printing it here as well put the same number on screen twice, so this
+    // caption answers the other question - device or network - and nothing else.
+    val deliveryCaption = sourceInfo.delivery.displayName()
+    // What the next listener-actually-asks question is: how big is this, and how good is it. The
+    // codec name is not repeated here - the row under the controls no longer shows it either, and
+    // a container name on a tile labelled "Audio" said less than the bitrate beside it.
+    //
     val audioValue =
         formatRow
             ?.format
-            ?.codecLabel()
-            ?.takeIf { it.isNotBlank() }
-            ?.let { codec -> listOfNotNull(codec, formatEvidence).joinToString(" · ") }
+            ?.let { format ->
+                listOfNotNull(
+                    format.formattedBitrate().takeIf { it != "Unknown" },
+                    format.formattedSampleRate()?.takeIf { it.isNotBlank() },
+                ).joinToString(" · ").takeIf { it.isNotBlank() }
+            }
             ?: stringResource(R.string.player_audio_stereo)
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -6810,9 +6677,13 @@ internal fun PlaybackSourceInfo.displayName(): String =
 @Composable
 internal fun PlaybackDelivery?.displayName(): String? =
     when (this) {
-        PlaybackDelivery.DEVICE_CACHE -> stringResource(R.string.playback_delivery_device_cache)
+        // A playback file and a fresh fetch are the same copy to a listener: the app fetched it for
+        // playback and nothing kept it. "Device cache" made that sound like a copy the app was
+        // hoarding, and it was also the caption on a song the user *had* downloaded - the label
+        // published for a cache hit outlived the download that made the same bytes their own.
+        PlaybackDelivery.DEVICE_CACHE -> stringResource(R.string.playback_delivery_fetched)
         PlaybackDelivery.DEVICE_DOWNLOAD -> stringResource(R.string.playback_delivery_download)
-        PlaybackDelivery.FETCHED_FOR_PLAY -> stringResource(R.string.playback_delivery_fetched_now)
+        PlaybackDelivery.FETCHED_FOR_PLAY -> stringResource(R.string.playback_delivery_fetched)
         PlaybackDelivery.LIVE_STREAM -> stringResource(R.string.playback_delivery_live_stream)
         null -> null
     }

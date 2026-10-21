@@ -5,7 +5,9 @@
 sessions** — no new Cloudflare verification for the user.
 
 **Authority.** Upstream `spotiflacapp/SpotiFLAC-Mobile` at tag **v5.0.7** (in the gitignored
-`SpotiFLAC-Mobile/` clone; `git fetch --tags` run 2026-10-07).
+`SpotiFLAC-Mobile/` clone; `git fetch --tags` run 2026-10-07). That repository is now
+[`mornyeapp/Mornye`](https://github.com/mornyeapp/Mornye) and the app is Mornye since v5.2.1 — what
+that changes for this plan, and what it does not, is §7 (measured 2026-10-20).
 
 > **Status: Phases 0–2 (feasibility spike) COMPLETE and PASSED, 2026-10-07.**
 > The Rust backend **builds for both Android ABIs on this machine**, the UniFFI Kotlin bindings
@@ -308,3 +310,37 @@ single `-ldflags="-s -w"` on the AAR Hush already ships** (49.15 → 34.50 MB): 
 `gobackend.aar` ships unstripped, with 9.6 MB of DWARF plus symbol tables per `.so`. Strip both sides
 and the residual gap is **4.68 MB**. The maintenance driver is untouched by this and is now the
 stronger of the two; the size argument for Phases 4–6 has to be made at 4.68 MB.
+
+---
+
+## 7. Upstream renamed itself to Mornye (measured 2026-10-20)
+
+**What happened.** The app shipped as **Mornye** in **v5.2.1** on 2026-10-20 (`branding: Rename app and
+native backend to Mornye`, `branding: Drop remaining SpotiFLAC references`) and its repository moved:
+`spotiflacapp/SpotiFLAC-Mobile` now answers **301** to [`mornyeapp/Mornye`](https://github.com/mornyeapp/Mornye).
+The last release under the old name is **v5.2.0**; the four tags after this plan's authority (v5.0.7)
+are **v5.1.0, v5.1.1, v5.2.0, v5.2.1**. Its own gateway says the same thing in a config document
+(`GET https://api.zarz.moe/v1/spotiflac-mobile/config` → `announcement.title: "SpotiFLAC Mobile is
+now Mornye!"`, running 2026-10-20 → 2026-10-28), so the rename is a fact about the service, not only
+about a repository label.
+
+**Neither pin moves, and neither has to.** The Go pin `a34e2935` is a pre-rewrite commit that still
+resolves in the renamed repository (checked through the API: `200`), so a fresh checkout from
+`mornyeapp/Mornye` builds the AAR Hush ships today; and the Rust pin `v5.0.7` is the tree the spike
+measured, which still calls itself SpotiFLAC throughout. `scripts/spotiflac-backend-pins.sh` now names
+the new address and keeps the `SpotiFLAC-Mobile/` clone directory, because every existing checkout,
+worktree and path in these documents is spelled that way.
+
+| Question for the port | Answer, measured on v5.2.1 |
+| --- | --- |
+| Did the crates get renamed? | **Yes.** `spotiflac_core`/`_network`/`_providers`/`_mobile` → `mornye_*`, so `-p spotiflac-mobile` and `libspotiflac_mobile.so` no longer exist and the UniFFI Kotlin package moves with them. `scripts/build-spotiflac-rust.sh` refuses a tree past 5.1 with that sentence instead of letting cargo answer "package ID specification did not match". |
+| Did the extension *package* format change? | **No, but it grew an alias.** `is_package_path` accepts `.mornye-ext` in addition to `.spotiflac-ext` and `.sflx`; all three are the same zip. Hush never gates on the suffix (it downloads and reads the archive), so nothing on this side changes. |
+| Did the manifest grow anything a host must implement? | **One capability, host-optional.** `capabilities.accountDownloadMode` is now shape-checked (`{setting, value}`, ≤64 chars each) and `capabilities.actionTimeoutSeconds` is new (`1..120`, the JS action timeout). Neither is a runtime feature; the three that *are* — `accountForms@1`, `accountDownloadMode@1`, `directMedia@1` — are exactly the ones this plan already records as Rust-only, and `SpotiFLACRuntimeFeatures` already refuses a package that requires them. |
+| Did the signed-session protocol change? | **No.** `scheme_label` is still `SPOTIFLAC-HMAC-V1`, the scope is still `namespace\nbaseUrl\nappVersion\nplatform`, the record filename rule and the `signed_sessions/` store are untouched, and every stored record therefore still addresses the same file. The one default that moved is the *callback* (`spotiflac://session-grant` → `mornye://session-grant`), which the host supplies anyway: Hush passes its own, and the gateway was measured echoing whichever registered scheme it is given (`spotiflac://` and `mornye://` both come back; `hush://` is still dropped), so no session was invalidated by the rename. |
+| Does the live registry still fit this build? | **Yes, all twelve packages.** Downloaded and read rather than trusted to the registry: the newest requirements are `signedSession@3` (tidal-web, qobuz-web), `patternedFileTransform@1` (deezer), `preparedContext@1` (amazon, deezer, qobuz-web, soundcloud, jiosaavn) and `downloadSegments@1` (tidal-web, soundcloud) — every one in the pinned Go runtime's table — and no package uses the three Rust-only features. The registry itself is unchanged: same twelve ids, same `.sflx` downloads, `min_app_version` at most `4.9.5`. |
+
+**Consequence for Hush:** the rename costs no runtime change, no session migration and no package
+reinstall; it costs attribution and the guard above. The shipped feature keeps its own name
+(*SpotiFLAC* in Settings → Audio Sources), because what it describes is the engine Hush wraps, not the
+app upstream now ships — and that engine is the Go tree this build pins, which upstream deleted in
+5.0 for reasons unrelated to the rename.

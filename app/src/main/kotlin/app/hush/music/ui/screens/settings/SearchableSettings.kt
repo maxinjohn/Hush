@@ -22,6 +22,12 @@ fun getAllSearchableSettings(): List<SearchableSettingEntry> =
     listOf(
         SearchableSettingEntry(stringResource(R.string.account), stringResource(R.string.account), "settings/account"),
         SearchableSettingEntry(stringResource(R.string.appearance), stringResource(R.string.appearance), "settings/appearance"),
+        // The app theme changes the palette, the type, the corners and the navigation bar together,
+        // which is the one setting on that screen a user is likely to look for by name.
+        SearchableSettingEntry(stringResource(R.string.app_theme), stringResource(R.string.appearance), "settings/appearance"),
+        SearchableSettingEntry(stringResource(R.string.audio_sources_title), stringResource(R.string.settings), "settings/player/audio_sources"),
+        SearchableSettingEntry("Third-party sources", stringResource(R.string.settings), "settings/player/audio_sources"),
+        SearchableSettingEntry("YouTube", stringResource(R.string.settings), "settings/player/audio_sources"),
         SearchableSettingEntry(stringResource(R.string.settings_playback_title), stringResource(R.string.settings_playback_title), "settings/player"),
         SearchableSettingEntry(stringResource(R.string.stream_sources), stringResource(R.string.settings_playback_title), "settings/player/stream_sources"),
         SearchableSettingEntry(stringResource(R.string.stream_source_android_vr), stringResource(R.string.stream_sources), "settings/player/stream_sources"),
@@ -31,9 +37,6 @@ fun getAllSearchableSettings(): List<SearchableSettingEntry> =
         SearchableSettingEntry(stringResource(R.string.stream_source_ios), stringResource(R.string.stream_sources), "settings/player/stream_sources"),
         SearchableSettingEntry(stringResource(R.string.stream_source_web_creator), stringResource(R.string.stream_sources), "settings/player/stream_sources"),
         SearchableSettingEntry(stringResource(R.string.stream_source_android_creator), stringResource(R.string.stream_sources), "settings/player/stream_sources"),
-        SearchableSettingEntry("Audio Sources", stringResource(R.string.settings_playback_title), "settings/player/audio_sources"),
-        SearchableSettingEntry("SpotiFLAC", stringResource(R.string.settings_playback_title), "settings/player/audio_sources"),
-        SearchableSettingEntry("YouTube", stringResource(R.string.settings_playback_title), "settings/player/audio_sources"),
         SearchableSettingEntry(stringResource(R.string.android_auto), stringResource(R.string.android_auto), "settings/android_auto"),
         SearchableSettingEntry(stringResource(R.string.settings_behavior_title), stringResource(R.string.settings_behavior_title), "settings/privacy"),
         SearchableSettingEntry(stringResource(R.string.lyrics), stringResource(R.string.lyrics), "settings/lyrics"),
@@ -92,7 +95,7 @@ fun getAllSearchableSettings(): List<SearchableSettingEntry> =
         SearchableSettingEntry(stringResource(R.string.about_contributors), stringResource(R.string.about), "settings/about"),
         SearchableSettingEntry(stringResource(R.string.default_links), stringResource(R.string.settings_section_player_content), "settings"),
         // Quality is set under the YouTube switch on this screen now, not on its own page.
-        SearchableSettingEntry(stringResource(R.string.stream_quality), stringResource(R.string.settings_playback_title), "settings/player/audio_sources"),
+        SearchableSettingEntry(stringResource(R.string.stream_quality), stringResource(R.string.settings), "settings/player/audio_sources"),
         SearchableSettingEntry(stringResource(R.string.import_from_folder), stringResource(R.string.storage), "settings/storage"),
         SearchableSettingEntry(stringResource(R.string.import_playlist), stringResource(R.string.storage), "settings/storage"),
     )

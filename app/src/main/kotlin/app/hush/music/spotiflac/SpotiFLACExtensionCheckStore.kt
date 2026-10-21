@@ -89,25 +89,45 @@ object SpotiFLACExtensionCheckReport {
      * [registry] is the label read from the source itself, and is what a row can say before any
      * check has run - the record's own label wins once there is one, because that is the registry
      * the package was actually taken from.
+     *
+     * [namesRepository] is false for a row that already names its repository somewhere else, so the
+     * origin is written exactly once per row instead of twice.
      */
-    fun line(check: SpotiFLACExtensionCheck?, registry: String?, nowMs: Long): String? {
-        val origin = registryPhrase(check?.registry?.takeIf { it.isNotBlank() } ?: registry)
+    fun line(
+        check: SpotiFLACExtensionCheck?,
+        registry: String?,
+        nowMs: Long,
+        namesRepository: Boolean = true,
+    ): String? {
+        // Measured on the device: a source row that named its repository twice - once on the line
+        // above this one and once here - and, one repository switch later, named two *different*
+        // ones. This line reports the registry the package was last checked against, the line above
+        // reports the merge that has just moved, and a reader with two names and no way to tell them
+        // apart cannot answer the only question the name is there for: which repository to switch
+        // off. The row that already names its repository says so by passing false.
+        val origin =
+            if (namesRepository) {
+                registryPhrase(check?.registry?.takeIf { it.isNotBlank() } ?: registry)
+            } else {
+                null
+            }
+        val suffix = if (origin == null) "" else " · $origin"
         if (check == null) {
-            return "Not checked yet · $origin"
+            return "Not checked yet$suffix"
         }
         return when (check.outcome) {
             SpotiFLACExtensionCheck.Outcome.FAILED -> {
                 val reason = check.detail?.trim()?.takeIf { it.isNotEmpty() }
                 if (reason == null) {
-                    "Check failed ${ago(check.checkedAtMs, nowMs)} · $origin"
+                    "Check failed ${ago(check.checkedAtMs, nowMs)}$suffix"
                 } else {
                     "Check failed ${ago(check.checkedAtMs, nowMs)}: $reason"
                 }
             }
             SpotiFLACExtensionCheck.Outcome.UPDATED ->
-                "Updated ${ago(check.checkedAtMs, nowMs)} · $origin"
+                "Updated ${ago(check.checkedAtMs, nowMs)}$suffix"
             SpotiFLACExtensionCheck.Outcome.CURRENT ->
-                "Checked ${ago(check.checkedAtMs, nowMs)} · $origin"
+                "Checked ${ago(check.checkedAtMs, nowMs)}$suffix"
         }
     }
 

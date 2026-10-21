@@ -21,6 +21,7 @@ import app.hush.music.constants.SpotiFLACLosslessNudgeAskCountKey
 import app.hush.music.constants.SpotiFLACLosslessNudgeHandledKey
 import app.hush.music.constants.YoutubeStreamingEnabledKey
 import app.hush.music.playback.ExoDownloadService
+import app.hush.music.utils.PlaybackDownloadProgress
 import app.hush.music.utils.dataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -74,7 +75,29 @@ import kotlinx.serialization.json.jsonPrimitive
  * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op play    --es path /data/.../file.flac
  * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op source-row \
  *     --es source deezer --es state failed --es message "403 on test for deezer"
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op progress \
+ *     --ei percent 42 --es source Deezer                 # a download in flight
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op progress --ei percent 0 --es source Deezer
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op progress --ei percent 100 --ez cached true
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op progress --ei percent -1   # clear
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op repo-list
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op repo-add    --es url https://example.com/registry.json
+ * adb shell am broadcast -n <package>/app.hush.music.spotiflac.SpotiFLACDebugReceiver -a app.hush.music.action.SPOTIFLAC_DEBUG --es op repo-remove --es url https://example.com/registry.json
  * ```
+ *
+ * `repo-list`, `repo-add` and `repo-remove` drive the repository list the Audio Sources screen draws:
+ * every URL Hush reads, whether it is one Hush ships or one the user added, how many sources it
+ * declared, and how many of the merged sources carry its address. The add path is the interesting
+ * one - it fetches before it stores - so a repository that is refused has to be refused from a
+ * shell as well as from the dialog, and the list has to be readable afterwards to prove nothing was
+ * kept.
+ *
+ * `progress` publishes a synthetic transfer sample on the runtime's own progress flow, which is what
+ * every surface that describes a fetch reads. The player's codec row was reported wrong in two
+ * windows that are transient by nature - a provider sweep (`percent 0`, no bytes) and the opening
+ * moment of a download (total size known, nothing read yet) - so this puts the row into each on
+ * demand and prints what it published, letting the line be read off the screen rather than
+ * screenshotted mid-download. `percent -1` clears the sample again.
  *
  * `source-test` runs the Audio Sources Test button's own call and reports its verdict, which is how
  * a failing Test gets attributed to what it actually asked about.
@@ -157,6 +180,30 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
                         message = intent.getStringExtra(EXTRA_MESSAGE).orEmpty(),
                     )
 
+                    OP_PROGRESS -> publishProgress(
+                        percent = intent.getIntExtra(EXTRA_PERCENT, -1),
+                        source = source,
+                        cached = intent.getBooleanExtra(EXTRA_CACHED, false),
+                    )
+
+                    OP_SOURCES -> listSources()
+
+                    OP_SOURCE_SWITCH -> setSourceSwitch(
+                        source = source,
+                        enabled = intent.getBooleanExtra(EXTRA_ENABLED, true),
+                    )
+
+                    OP_SOURCE_MOVE -> moveSource(
+                        source = source,
+                        to = intent.getIntExtra(EXTRA_TO, -1),
+                    )
+
+                    OP_REPO_LIST -> listRepositories()
+
+                    OP_REPO_ADD -> addRepository(intent.getStringExtra(EXTRA_URL).orEmpty())
+
+                    OP_REPO_REMOVE -> removeRepositoryFromList(intent.getStringExtra(EXTRA_URL).orEmpty())
+
                     else -> log("unknown operation=%s", operation)
                 }
             } catch (error: Throwable) {
@@ -229,6 +276,125 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
             )
         }
         log("spotiflac-debug step=state source=- verdict=ok sources=%d", sources.size)
+    }
+
+    /**
+     * The repository list as the Audio Sources screen draws it.
+     *
+     * Both numbers are printed because they can differ and the difference is a finding: a
+     * repository's *declared* count is what it published, while the *merged* count is how many
+     * sources ended up carrying its address. Two registries that declare the same ids leave the
+     * second one on every shared entry, so a repository can legitimately declare twelve and own
+     * none - and a probe that only knew `declared` could not tell that from a merge gone wrong.
+     */
+    private suspend fun listRepositories() {
+        val manager =
+            runCatching { ExtensionRepositoryManager.getInstance() }.getOrNull()
+                ?: return log("spotiflac-debug step=repo url=- verdict=SKIPPED reason=manager-not-initialized")
+        manager.refreshRepositoryPreferences()
+        val rows = manager.repositories.value
+        val sources = manager.sources.value
+        for (row in rows) {
+            // Read from the shipped lists, not from `row.removable`. That field means "the user may
+            // take this row out" and is true for every repository Hush does not own - so the probe
+            // labelled an added address `shipped` and counted it as nothing, which made the one
+            // question it exists to answer (did the address the user pasted land, and is it theirs)
+            // unreadable. Measured on the reporting device: an added third-party registry printed
+            // `origin=shipped` and the summary said `added=0`.
+            val origin =
+                when {
+                    ExtensionRepositories.isBundled(row.url) -> "built-in"
+                    ExtensionRepositories.isDefaultRemovable(row.url) -> "shipped"
+                    else -> "added"
+                }
+            val declared = row.declaredSources?.toString() ?: "unread"
+            val owned = sources.count { it.source.repositoryId == row.url }
+            log(
+                "repo url=%s label=%s origin=%s kind=%s enabled=%s declared=%s sources=%d",
+                row.url,
+                row.label,
+                origin,
+                row.kind?.id ?: "unknown",
+                row.enabled.toString(),
+                declared,
+                owned,
+            )
+            // A row's verdict is what happened to *that* address, not the fact that the probe ran.
+            // It used to be a literal `ok` for every row, which is how two server addons that
+            // answered 402 and 404 were reported as healthy - `kind=unknown declared=unread
+            // verdict=ok`, a line that reads as a working repository nobody has read yet.
+            val verdict =
+                when {
+                    !row.enabled -> "SKIPPED"
+                    row.error != null -> "FAIL"
+                    row.kind == null -> "SKIPPED"
+                    else -> "ok"
+                }
+            val reason =
+                when {
+                    row.error != null ->
+                        row.error.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }
+                    !row.enabled -> "switched off"
+                    row.kind == null -> "not read"
+                    else -> null
+                }
+            log(
+                "spotiflac-debug step=repo url=%s origin=%s kind=%s enabled=%s declared=%s verdict=%s%s",
+                row.url,
+                origin,
+                row.kind?.id ?: "unknown",
+                row.enabled.toString(),
+                declared,
+                verdict,
+                reason?.let { detail -> " reason=${detail.take(140)}" }.orEmpty(),
+            )
+        }
+        val failed = rows.count { row -> row.enabled && row.error != null }
+        log(
+            "spotiflac-debug step=repo url=- verdict=%s repositories=%d added=%d failed=%d",
+            if (failed == 0) "ok" else "FAIL",
+            rows.size,
+            rows.count { row ->
+                !ExtensionRepositories.isBundled(row.url) &&
+                    !ExtensionRepositories.isDefaultRemovable(row.url)
+            },
+            failed,
+        )
+    }
+
+    /** Adds a repository through the same call the dialog's Done runs, and reports its verdict. */
+    private suspend fun addRepository(url: String) {
+        if (url.isBlank()) {
+            return log("spotiflac-debug step=repo-add url=- verdict=SKIPPED reason=no-url")
+        }
+        val manager = ExtensionRepositoryManager.getInstance()
+        when (val result = manager.addRepository(url)) {
+            is RepositoryAddResult.Added ->
+                log(
+                    "spotiflac-debug step=repo-add url=%s verdict=PASS label=%s sources=%d",
+                    result.url,
+                    result.label,
+                    result.sources,
+                )
+
+            is RepositoryAddResult.Rejected ->
+                log("spotiflac-debug step=repo-add url=%s verdict=REJECTED reason=%s", url, result.reason)
+        }
+    }
+
+    /** Removes a repository the user added, then reads the list back to prove it left. */
+    private suspend fun removeRepositoryFromList(url: String) {
+        if (url.isBlank()) {
+            return log("spotiflac-debug step=repo-remove url=- verdict=SKIPPED reason=no-url")
+        }
+        val manager = ExtensionRepositoryManager.getInstance()
+        manager.removeRepository(url)
+        val stillListed = manager.customRepositories.value.any { it.equals(url, ignoreCase = true) }
+        log(
+            "spotiflac-debug step=repo-remove url=%s verdict=%s",
+            url,
+            if (stillListed) "FAIL" else "PASS",
+        )
     }
 
     /** Raises (or reads) the runtime's challenge for a source, naming the extension that owns it. */
@@ -561,6 +727,60 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
     }
 
     /**
+     * Puts a synthetic transfer sample on the runtime's progress flow, or clears it with `percent -1`.
+     *
+     * The two states the player's codec row was reported wrong in are transient by nature: a provider
+     * sweep reports `0%` with no bytes for as long as a source takes to answer, and the first sample of
+     * a download names its total size before it has read a byte. Chasing either by starting an uncached
+     * track means screenshotting a window that may last a second. This writes the sample the row is
+     * meant to describe, so the row can be read off the screen at leisure - and the verdict line says
+     * what was published, so a run that still shows the old line can tell whether the sample arrived.
+     *
+     * `mediaId` is blank on purpose: the service's mirror treats a blank id as the transfer it is
+     * running right now, which is exactly the row being looked at.
+     */
+    private fun publishProgress(
+        percent: Int,
+        source: String,
+        cached: Boolean,
+    ) {
+        val bridge = SpotiFLACNativeRuntimeBridgeHolder.instance
+        if (bridge == null || !bridge.isRuntimeAvailable) {
+            return log("spotiflac-debug step=progress verdict=FAIL reason=runtime-unavailable")
+        }
+        if (percent < 0) {
+            bridge.debugPublishDownloadProgress(null)
+            return log("spotiflac-debug step=progress verdict=ok cleared=true")
+        }
+        val clamped = percent.coerceIn(0, 100)
+        // A sweep has no bytes at all; a download's total arrives with its first sample and only its
+        // received count grows; a finished or cached copy is a full file either way.
+        val total = if (clamped <= 0) 0L else 30_000_000L
+        val received = if (clamped <= 0) 0L else total * clamped / 100L
+        val sample =
+            PlaybackDownloadProgress(
+                mediaId = "",
+                sourceId = source.takeIf { it.isNotBlank() },
+                sourceLabel = source.takeIf { it.isNotBlank() },
+                percent = clamped,
+                bytesReceived = received,
+                bytesTotal = total,
+                stage = if (clamped <= 0) "resolving_stream" else "downloading",
+                status = if (clamped <= 0) "preparing" else "downloading",
+                fromCache = cached,
+            )
+        bridge.debugPublishDownloadProgress(sample)
+        log(
+            "spotiflac-debug step=progress verdict=ok percent=%d source=%s cached=%b total=%d received=%d",
+            clamped,
+            source.ifBlank { "-" },
+            cached,
+            total,
+            received,
+        )
+    }
+
+    /**
      * Delivers the grant an already-solved challenge publishes, to the extension that owns it.
      *
      * This is the whole point of the fix this receiver was written for: the delivery target is the
@@ -683,6 +903,8 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
             return log("spotiflac-debug step=resolve source=%s verdict=FAIL reason=no-title", source)
         }
         val started = System.currentTimeMillis()
+        // A blank source is the whole switch list, which is the question a priority probe asks;
+        // naming one is a deliberate narrowing and stays one.
         val result = bridge.resolve(
             title = title,
             artist = artist,
@@ -691,7 +913,7 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
             isrc = null,
             spotifyTrackId = null,
             quality = quality,
-            sourceIds = listOf(source),
+            sourceIds = if (source.isBlank()) emptyList() else listOf(source),
             coverUrl = null,
             // Null on purpose: a probe must not claim a media id in the cache index, which is what
             // playback uses to find a track's file.
@@ -987,6 +1209,95 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
         if (message.startsWith(VERDICT_PREFIX)) SpotiFLACDiag.log(rendered)
     }
 
+    /**
+     * The Audio Sources order as the resolve path reads it, switched-on ones marked.
+     *
+     * `source-order` exists because the order is the one thing about a resolve that cannot be read
+     * back from the file it produced: a track that came from `ytmusic-spotiflac` looks the same
+     * whether that source was first, fifth or the last one left. This prints the list the walk is
+     * built from, so `resolve`'s own `walk=` line can be compared against it.
+     */
+    private suspend fun listSources() {
+        val repo = ExtensionRepositoryManager.getInstance()
+        val rows = repo.sources.value
+        if (rows.isEmpty()) {
+            return log("spotiflac-debug step=sources verdict=SKIPPED reason=no-registry-yet")
+        }
+        rows.forEachIndexed { index, row ->
+            // `label` as well as the id: the id is what the registry published, and the label is
+            // what the player and every other row call the source - the two are not the same string
+            // any more (see SpotiFLACSourceName), so a probe that reported only the id could not
+            // tell whether the codec bar was going to name the right provider.
+            log(
+                "spotiflac-debug step=sources index=%d id=%s label=%s enabled=%b playable=%b module=%b",
+                index,
+                row.source.id,
+                repo.sourceLabel(row.source.id),
+                row.enabled,
+                row.source.isPlayable,
+                row.source.isHostedModule || row.source.isServerAddon,
+            )
+        }
+        log(
+            "spotiflac-debug step=sources verdict=OK enabled=%s",
+            rows.filter { it.enabled }.joinToString(",") { it.source.id },
+        )
+    }
+
+    /** Switches one Audio Sources row on or off, through the screen's own call. */
+    private suspend fun setSourceSwitch(
+        source: String,
+        enabled: Boolean,
+    ) {
+        if (source.isEmpty()) {
+            return log("spotiflac-debug step=source-switch source=- verdict=FAIL reason=no-source")
+        }
+        val repo = ExtensionRepositoryManager.getInstance()
+        val exists = repo.sources.value.any { it.source.id.equals(source, ignoreCase = true) }
+        if (!exists) {
+            return log("spotiflac-debug step=source-switch source=%s verdict=FAIL reason=unknown-source", source)
+        }
+        repo.setSourceEnabled(source, enabled)
+        log(
+            "spotiflac-debug step=source-switch source=%s enabled=%b verdict=OK order=%s",
+            source,
+            enabled,
+            repo.sources.value.joinToString(",") { it.source.id },
+        )
+    }
+
+    /**
+     * Moves one Audio Sources row to a new position, through [ExtensionRepositoryManager.moveSource].
+     *
+     * This is the reorder the up/down buttons perform, so a shell can change the priority list and
+     * then read what a resolve actually walks - which is the half of "reordering works" that no unit
+     * test can prove on the device.
+     */
+    private suspend fun moveSource(
+        source: String,
+        to: Int,
+    ) {
+        if (source.isEmpty()) {
+            return log("spotiflac-debug step=source-move source=- verdict=FAIL reason=no-source")
+        }
+        val repo = ExtensionRepositoryManager.getInstance()
+        val from = repo.sources.value.indexOfFirst { it.source.id.equals(source, ignoreCase = true) }
+        if (from < 0) {
+            return log("spotiflac-debug step=source-move source=%s verdict=FAIL reason=unknown-source", source)
+        }
+        if (to < 0 || to >= repo.sources.value.size) {
+            return log("spotiflac-debug step=source-move source=%s verdict=FAIL reason=no-target to=%d", source, to)
+        }
+        repo.moveSource(from, to)
+        log(
+            "spotiflac-debug step=source-move source=%s from=%d to=%d verdict=OK order=%s",
+            source,
+            from,
+            to,
+            repo.sources.value.joinToString(",") { it.source.id },
+        )
+    }
+
     companion object {
         private const val TAG = "SpotiFLACDebug"
 
@@ -1015,6 +1326,9 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
         const val OP_REMOVE_DOWNLOAD = "remove-download"
         const val OP_SOURCE_ROW = "source-row"
         const val OP_SOURCE_TEST = "source-test"
+        const val OP_PROGRESS = "progress"
+        const val EXTRA_PERCENT = "percent"
+        const val EXTRA_CACHED = "cached"
         const val OP_RENEW = "renew"
 
         /**
@@ -1024,6 +1338,19 @@ class SpotiFLACDebugReceiver : BroadcastReceiver() {
         const val OP_GATEWAY_RETURNED = "gateway-returned"
         const val EXTRA_STATE = "state"
         const val EXTRA_MESSAGE = "message"
+
+        /** The repository list, and the add/remove paths the Audio Sources rows use. */
+        /** The switch list the resolve walk is built from, and how to change it from a shell. */
+        const val OP_SOURCES = "sources"
+        const val OP_SOURCE_SWITCH = "source-switch"
+        const val OP_SOURCE_MOVE = "source-move"
+        const val EXTRA_ENABLED = "enabled"
+        const val EXTRA_TO = "to"
+
+        const val OP_REPO_LIST = "repo-list"
+        const val OP_REPO_ADD = "repo-add"
+        const val OP_REPO_REMOVE = "repo-remove"
+        const val EXTRA_URL = "url"
 
         /** The downloads index file, read directly to prove a removal reached the disk. */
         private const val DOWNLOADS_INDEX_FILE_NAME = "downloaded_files.json"
